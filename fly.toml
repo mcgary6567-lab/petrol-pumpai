@@ -1,0 +1,43 @@
+# Petrol PumpAI (SaaS) on Fly.io — one always-on machine, many pumps, SQLite on a persistent volume.
+# See FLY.md for the full step-by-step. `fly launch` / the GitHub Action target the app named below (or FLY_APP).
+app = "petrol-pumpai"
+primary_region = "sin"   # Singapore — low latency to Pakistan (bom/Mumbai is deprecated for new volumes)
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  NODE_ENV = "production"
+  PORT = "4000"
+  SAAS_MODE = "1"                    # multi-tenant: public sign-up + trial + activation gate + platform panel
+  TRIAL_DAYS = "7"
+  DB_PATH = "/data/pumpai.db"        # the database lives on the persistent volume
+  BACKUP_DIR = "/data/backups"       # nightly backups on the volume too (survive restarts)
+  WEB_DIST = "/app/web/dist"
+  SUPERVISED = "1"                   # lets "Restart now" work from Settings after a restore
+
+# the SQLite database + backups — a Fly volume keeps them across deploys and restarts.
+# IMPORTANT: create it once with `fly volumes create pumpai_data --size 3 --region sin` (see FLY.md).
+[mounts]
+  source = "pumpai_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 4000
+  force_https = true          # free SSL on *.fly.dev and on your own domain
+  auto_stop_machines = false  # NEVER stop — nightly reminders / backups / automations must keep running
+  auto_start_machines = true
+  min_machines_running = 1    # exactly one always-on machine (single writer for SQLite)
+
+  [[http_service.checks]]
+    method = "get"
+    path = "/api/health"
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "40s"
+
+# 1 GB RAM is comfortable to start; grow with `fly scale memory 2048` as pumps are added.
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "1gb"
+  cpus = 1
