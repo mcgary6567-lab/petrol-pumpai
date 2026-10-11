@@ -1,4 +1,5 @@
 {
+  "id": "/",
   "name": "Petrol PumpAI — Petrol Pump CRM",
   "short_name": "Petrol PumpAI",
   "description": "Petrol pump sales, khata, stock and accounts — works offline.",
@@ -6,11 +7,21 @@
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
+  "lang": "en",
+  "dir": "ltr",
+  "categories": ["business", "finance", "productivity"],
   "background_color": "#f8fafc",
   "theme_color": "#064e3b",
+  "prefer_related_applications": false,
   "icons": [
     { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
     { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
     { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Sale (POS)", "short_name": "Sale", "url": "/pos", "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }] },
+    { "name": "WhatsApp inbox", "short_name": "Inbox", "url": "/inbox", "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Khata", "short_name": "Khata", "url": "/khata", "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Cashier", "short_name": "Cashier", "url": "/cashier", "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }] }
   ]
 }

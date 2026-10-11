@@ -78,6 +78,16 @@ export const config = {
   platformPassword: process.env.PLATFORM_ADMIN_PASSWORD ?? "",
   // shown to pump owners for buying / activating (WhatsApp you for the one-time payment)
   salesPhone: process.env.SALES_PHONE ?? process.env.VENDOR_PHONE ?? "",
+  // ---- Android app (Play Store, Trusted Web Activity) ----
+  // The TWA wrapper is verified by Digital Asset Links: /.well-known/assetlinks.json must list the
+  // app's package name and its signing-key SHA-256 fingerprint(s). Set these after building the app
+  // (Bubblewrap / PWABuilder print the fingerprint). Until set, assetlinks.json is an empty list.
+  android: {
+    package: process.env.ANDROID_PACKAGE ?? "",
+    // one or more SHA-256 cert fingerprints, comma-separated (upload key + Play App Signing key)
+    fingerprints: (process.env.ANDROID_CERT_FINGERPRINTS ?? "")
+      .split(",").map((s) => s.trim().toUpperCase()).filter(Boolean),
+  },
 };
 
 export const APP_VERSION = "1.0.0";

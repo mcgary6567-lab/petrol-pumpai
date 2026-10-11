@@ -160,6 +160,16 @@ app.get("/day/:token", (req, res) => {
 });
 app.get("/privacy", (_req, res) => res.type("html").send(privacyPage()));
 app.get("/terms", (_req, res) => res.type("html").send(termsPage()));
+// Digital Asset Links — proves this website owns the Android app (Play Store TWA). Empty until the
+// app's package + signing fingerprint(s) are set (ANDROID_PACKAGE, ANDROID_CERT_FINGERPRINTS).
+app.get("/.well-known/assetlinks.json", (_req, res) => {
+  const { package: pkg, fingerprints } = config.android;
+  const links = pkg && fingerprints.length
+    ? [{ relation: ["delegate_permission/common.handle_all_urls"],
+         target: { namespace: "android_app", package_name: pkg, sha256_cert_fingerprints: fingerprints } }]
+    : [];
+  res.type("application/json").send(JSON.stringify(links, null, 2));
+});
 // digital receipt for walk-in customers (QR on the POS)
 app.get("/r/:token", (req, res) => {
   // ?print=1 auto-opens the printer; ?w=58 / ?w=80 lays it out for a small thermal roll
