@@ -55,6 +55,16 @@
   .nav .btn{padding:10px 18px}
   .hide-sm{display:none}
   @media(min-width:760px){.hide-sm{display:inline-flex}}
+  /* mobile hamburger menu */
+  .menu-btn{display:inline-flex;align-items:center;justify-content:center;width:42px;height:42px;border-radius:12px;border:1.5px solid var(--line);background:transparent;color:var(--ink);cursor:pointer;flex:none}
+  @media(min-width:760px){.menu-btn{display:none}}
+  .navmenu{display:flex;flex-direction:column;gap:7px;padding:12px 20px calc(14px + env(safe-area-inset-bottom,0px));border-top:1px solid var(--line);background:var(--bg);box-shadow:0 16px 30px rgba(6,78,59,.14)}
+  .navmenu[hidden]{display:none}
+  .navmenu > a{display:flex;align-items:center;gap:11px;font-family:var(--display);font-weight:600;color:var(--ink);text-decoration:none;padding:12px 12px;border-radius:12px;font-size:1rem}
+  .navmenu > a:not(.btn){border:1px solid var(--line)}
+  .navmenu > a:not(.btn) svg{color:var(--brand)}
+  .navmenu > a.btn{justify-content:center;margin-top:3px}
+  .menu-btn[aria-expanded="true"]{background:var(--brand);color:#fff;border-color:transparent}
   svg.ic{width:1.25em;height:1.25em;flex:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;fill:none}
   /* ---------- hero ---------- */
   .hero{background:
@@ -346,11 +356,23 @@
     <span class="spacer"></span>
     <a class="btn btn-ghost hide-sm" href="#features">Features</a>
     <a class="btn btn-ghost hide-sm" href="#interface">System interface</a>
+    <a class="btn btn-ghost hide-sm" href="#pricing">Price</a>
     <button class="theme-toggle" id="themeBtn" aria-label="Theme badlein" title="Theme">
       <svg class="ic" aria-hidden="true"><use href="#i-sun"/></svg>
     </button>
-    <a class="btn btn-primary" href="SIGNUP_URL">Muft Shuru Karein</a>
+    <a class="btn btn-primary hide-sm" href="SIGNUP_URL">Muft Shuru Karein</a>
+    <button class="menu-btn" id="menuBtn" aria-label="Menu kholein" aria-expanded="false" aria-controls="navMenu">
+      <svg id="menuIcon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+    </button>
   </div>
+  <nav class="navmenu" id="navMenu" hidden aria-label="Mobile menu">
+    <a href="#features"><svg class="ic" aria-hidden="true"><use href="#i-pump"/></svg> Features</a>
+    <a href="#interface"><svg class="ic" aria-hidden="true"><use href="#i-chart"/></svg> System interface</a>
+    <a href="#ai"><svg class="ic" aria-hidden="true"><use href="#i-bot"/></svg> AI automation</a>
+    <a href="#pricing"><svg class="ic" aria-hidden="true"><use href="#i-coins"/></svg> Price</a>
+    <a class="btn btn-primary" href="SIGNUP_URL"><svg class="ic" aria-hidden="true"><use href="#i-pump"/></svg> Muft shuru karein</a>
+    <a class="btn btn-wa" href="WHATSAPP_URL"><svg class="ic" aria-hidden="true"><use href="#i-wa"/></svg> WhatsApp par baat karein</a>
+  </nav>
 </header>
 
 <!-- ===== HERO ===== -->
@@ -670,7 +692,7 @@
 </section>
 
 <!-- ===== AI BAND ===== -->
-<section class="ai band">
+<section class="ai band" id="ai">
   <div class="wrap">
     <div>
       <span class="eyebrow"><svg class="ic" aria-hidden="true"><use href="#i-spark"/></svg> Google Gemini AI</span>
@@ -760,7 +782,7 @@
 </section>
 
 <!-- ===== STEPS + PRICE ===== -->
-<section class="band" style="background:color-mix(in srgb,var(--brand) 6%,var(--bg))">
+<section class="band" id="pricing" style="background:color-mix(in srgb,var(--brand) 6%,var(--bg))">
   <div class="wrap">
     <div class="shead">
       <div class="kick">Shuru karna aasan</div>
@@ -817,5 +839,13 @@
     function cur(){var a=document.documentElement.getAttribute('data-theme');if(a)return a;return window.matchMedia&&window.matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light';}
     try{var s=localStorage.getItem('ppai-theme');if(s)document.documentElement.setAttribute('data-theme',s);}catch(e){}
     btn&&btn.addEventListener('click',function(){var n=cur()==='dark'?'light':'dark';document.documentElement.setAttribute('data-theme',n);try{localStorage.setItem('ppai-theme',n);}catch(e){}});
+    // mobile menu
+    var mb=document.getElementById('menuBtn'),menu=document.getElementById('navMenu'),mi=document.getElementById('menuIcon');
+    var HAM='<line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>';
+    var X='<line x1="5" y1="5" x2="19" y2="19"/><line x1="19" y1="5" x2="5" y2="19"/>';
+    function setMenu(open){if(!menu||!mb)return;menu.hidden=!open;mb.setAttribute('aria-expanded',open?'true':'false');if(mi)mi.innerHTML=open?X:HAM;}
+    mb&&mb.addEventListener('click',function(){setMenu(menu.hidden);});
+    menu&&menu.querySelectorAll('a').forEach(function(a){a.addEventListener('click',function(){setMenu(false);});});
+    window.addEventListener('resize',function(){if(window.innerWidth>=760)setMenu(false);});
   })();
 </script>
