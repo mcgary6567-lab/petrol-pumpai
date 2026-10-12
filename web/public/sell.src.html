@@ -131,6 +131,8 @@
   @media(min-width:900px){.ai .wrap{grid-template-columns:1fr 1fr}}
   .ai h2{font-size:clamp(1.8rem,4.5vw,2.6rem);color:#fff}
   .ai .lead{color:#cfeadd;font-size:1.12rem;margin-top:16px}
+  .gembadge{display:inline-flex;align-items:center;gap:8px;margin-top:16px;background:#fff;color:#0a3b2b;font-family:var(--display);font-weight:700;font-size:.85rem;padding:8px 15px;border-radius:999px}
+  .gembadge svg{color:#0b7a4b}
   .ailist{list-style:none;padding:0;margin:22px 0 0;display:flex;flex-direction:column;gap:16px}
   .ailist li{display:flex;gap:14px;align-items:flex-start}
   .ailist .b{width:42px;height:42px;border-radius:12px;background:rgba(240,165,0,.18);color:#ffce5a;display:grid;place-items:center;flex:none;font-size:20px}
@@ -443,13 +445,15 @@
 <section class="ai band">
   <div class="wrap">
     <div>
-      <span class="eyebrow"><svg class="ic" aria-hidden="true"><use href="#i-spark"/></svg> Asli AI</span>
-      <h2>Aap ka poora pump — AI ke dimagh se</h2>
-      <p class="lead">Likhna-parhna kam aata ho to koi baat nahi. App se baat karein — bol ke, photo se ya WhatsApp par — AI baaki sab khud sambhal leta hai.</p>
+      <span class="eyebrow"><svg class="ic" aria-hidden="true"><use href="#i-spark"/></svg> Google Gemini AI</span>
+      <h2>Poora pump khud chalta hai — AI ke dimagh se</h2>
+      <p class="lead">Likhna-parhna kam aata ho to koi baat nahi. App se baat karein — bol ke, photo se ya WhatsApp par — aur <b style="color:#fff">WhatsApp messages, supply, wasooli</b> jaisa bohot sa kaam AI khud-ba-khud karta hai.</p>
+      <span class="gembadge"><svg class="ic" aria-hidden="true"><use href="#i-bot"/></svg> Google Gemini se taqatwar</span>
       <ul class="ailist">
         <li><span class="b"><svg class="ic" aria-hidden="true"><use href="#i-cam"/></svg></span><div><b>AI meter reading</b><p>Meter ki photo kheenchein — AI khud reading padh ke bikri bana deta hai.</p></div></li>
         <li><span class="b"><svg class="ic" aria-hidden="true"><use href="#i-mic"/></svg></span><div><b>Bol ke kaam</b><p>Roman Urdu mein bolein — "40 litre diesel udhaar" — AI entry bana deta hai.</p></div></li>
-        <li><span class="b"><svg class="ic" aria-hidden="true"><use href="#i-wa"/></svg></span><div><b>WhatsApp par jawab</b><p>Customer ke message ka jawab aur yaad-dahani — AI khud.</p></div></li>
+        <li><span class="b"><svg class="ic" aria-hidden="true"><use href="#i-wa"/></svg></span><div><b>WhatsApp khud chale</b><p>Customer ke message ka jawab, bill aur yaad-dahani — AI khud bhejta hai.</p></div></li>
+        <li><span class="b"><svg class="ic" aria-hidden="true"><use href="#i-container"/></svg></span><div><b>Supply &amp; wasooli auto</b><p>Supply order, wholesale yaad-dahani aur wasooli ki call-list — AI khud tayar kare.</p></div></li>
       </ul>
     </div>
     <div class="aichat" aria-label="AI misaal">
