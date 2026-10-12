@@ -157,8 +157,8 @@
   .dev .cap{font-family:var(--display);font-weight:600;color:var(--muted);font-size:.9rem;display:flex;align-items:center;gap:7px}
   .dev .cap svg{color:var(--brand)}
   /* phone */
-  .phone{width:132px;height:270px;border-radius:22px;background:#0d1a15;padding:9px;box-shadow:0 20px 40px rgba(0,0,0,.28);border:1px solid var(--line)}
-  .phone .mini{border-radius:14px}
+  .phone{width:156px;height:310px;border-radius:24px;background:#0d1a15;padding:8px;box-shadow:0 20px 40px rgba(0,0,0,.28);border:1px solid var(--line)}
+  .phone .mini,.phone .scrn{border-radius:16px}
   /* laptop */
   .laptop{display:flex;flex-direction:column;align-items:center}
   .laptop .scr{width:270px;height:170px;background:#0d1a15;border-radius:12px 12px 0 0;padding:9px;border:1px solid var(--line);border-bottom:0}
@@ -205,6 +205,71 @@
   footer a{color:#eafaf2;text-decoration:none}
   footer .links{display:flex;gap:18px;flex-wrap:wrap}
   .theme-toggle{background:transparent;border:1.5px solid var(--line);color:var(--ink);width:40px;height:40px;border-radius:12px;display:grid;place-items:center;cursor:pointer}
+  /* ====== app-screen mockup (looks like the real app) ====== */
+  .scrn{background:var(--bg);color:var(--ink);height:100%;display:flex;flex-direction:column;overflow:hidden;font-family:var(--body);text-align:left}
+  .scrn .top{background:linear-gradient(120deg,var(--brand-deep),#0a3b2b);color:#fff;padding:9px 11px;display:flex;align-items:center;gap:7px;font-family:var(--display);font-weight:700;font-size:.74rem;flex:none}
+  .scrn .top .rt{margin-left:auto;opacity:.82;font-weight:600;font-size:.62rem}
+  .scrn .top svg{width:13px;height:13px}
+  .scrn .body{padding:9px;display:flex;flex-direction:column;gap:7px;flex:1;overflow:hidden}
+  .s-tabs{display:flex;gap:5px;flex-wrap:wrap}
+  .s-tabs span{font-size:.56rem;font-weight:700;padding:4px 8px;border-radius:999px;background:var(--surface);border:1px solid var(--line);color:var(--muted)}
+  .s-tabs span.on{background:var(--brand);color:#fff;border-color:transparent}
+  .s-stats{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+  .s-stat{background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:7px 8px}
+  .s-stat .k{font-size:.52rem;color:var(--muted);font-weight:600}
+  .s-stat .v{font-family:var(--display);font-weight:800;font-size:.82rem;margin-top:1px;font-variant-numeric:tabular-nums}
+  .s-stat .v.g{color:var(--good)} .s-stat .v.r{color:#d14343}
+  .s-list{background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  .s-li{display:flex;align-items:center;gap:7px;padding:7px 9px;border-bottom:1px solid var(--line);font-size:.62rem}
+  .s-li:last-child{border-bottom:0}
+  .s-li .av{width:20px;height:20px;border-radius:6px;background:var(--accent-soft);color:var(--accent);display:grid;place-items:center;flex:none}
+  .s-li .av svg{width:11px;height:11px}
+  .s-li .nm{font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .s-li .sub{color:var(--muted);font-size:.52rem;font-weight:500}
+  .s-li .amt{margin-left:auto;font-family:var(--display);font-weight:700;font-variant-numeric:tabular-nums;flex:none}
+  .s-li .amt.g{color:var(--good)} .s-li .amt.r{color:#d14343}
+  .s-btn{background:var(--brand);color:#fff;text-align:center;font-family:var(--display);font-weight:700;font-size:.66rem;border-radius:9px;padding:8px}
+  .s-btn.wa{background:#25d366;color:#05331b}
+  .s-amt{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:9px;text-align:center}
+  .s-amt .k{font-size:.52rem;color:var(--muted);font-weight:600}
+  .s-amt .big{font-family:var(--display);font-weight:800;font-size:1.25rem;color:var(--brand)}
+  .s-keys{display:grid;grid-template-columns:repeat(3,1fr);gap:5px}
+  .s-keys i{background:var(--surface);border:1px solid var(--line);border-radius:7px;height:20px;display:grid;place-items:center;font-family:var(--display);font-weight:700;font-size:.62rem;font-style:normal;color:var(--ink)}
+  .s-chart{display:flex;align-items:flex-end;gap:4px;height:58px;padding:8px;background:var(--surface);border:1px solid var(--line);border-radius:10px}
+  .s-chart i{flex:1;background:var(--brand);border-radius:3px 3px 0 0;opacity:.9}
+  .s-chart i.a2{background:var(--accent);opacity:.85}
+  .s-ok{display:flex;align-items:center;gap:6px;background:color-mix(in srgb,var(--good) 14%,transparent);color:var(--good);border-radius:8px;padding:7px 9px;font-family:var(--display);font-weight:700;font-size:.62rem}
+  .s-ok svg{width:12px;height:12px}
+  .s-gauge{background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:7px 8px}
+  .s-gauge .lab{display:flex;justify-content:space-between;font-size:.56rem;font-weight:600;margin-bottom:4px}
+  .s-gauge .bar{height:7px;border-radius:5px;background:var(--line);overflow:hidden}
+  .s-gauge .bar i{display:block;height:100%;background:var(--brand);border-radius:5px}
+  .s-gauge .bar i.low{background:#d14343}
+  .s-nav{display:flex;background:var(--surface);border-top:1px solid var(--line);padding:5px 2px;flex:none}
+  .s-nav a{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;font-size:.46rem;color:var(--muted);font-weight:700}
+  .s-nav a.on{color:var(--brand)}
+  .s-nav svg{width:14px;height:14px}
+  /* laptop/desktop wide layout: sidebar + content */
+  .scrn.wide .body{flex-direction:row;padding:0}
+  .scrn.wide .rail{width:34%;max-width:120px;background:var(--surface);border-right:1px solid var(--line);padding:8px 7px;display:flex;flex-direction:column;gap:5px}
+  .scrn.wide .rail a{display:flex;align-items:center;gap:6px;font-size:.56rem;font-weight:600;color:var(--muted);padding:5px 6px;border-radius:7px}
+  .scrn.wide .rail a.on{background:color-mix(in srgb,var(--brand) 14%,transparent);color:var(--brand)}
+  .scrn.wide .rail a svg{width:12px;height:12px}
+  .scrn.wide .main{flex:1;padding:9px;display:flex;flex-direction:column;gap:7px;min-width:0}
+  /* frames */
+  .phone-xl{width:clamp(230px,74vw,270px);aspect-ratio:9/19;background:#0d1a15;border-radius:30px;padding:9px;box-shadow:0 26px 60px rgba(0,0,0,.4);border:1px solid var(--line);position:relative;margin-inline:auto}
+  .phone-xl::before{content:"";position:absolute;top:13px;left:50%;transform:translateX(-50%);width:46px;height:5px;background:rgba(255,255,255,.35);border-radius:3px;z-index:2}
+  .phone-xl .scrn{border-radius:22px}
+  /* ====== system interface gallery ====== */
+  .gallery{display:grid;grid-template-columns:1fr;gap:20px}
+  @media(min-width:560px){.gallery{grid-template-columns:1fr 1fr}}
+  @media(min-width:960px){.gallery{grid-template-columns:repeat(4,1fr)}}
+  .gitem{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:14px;box-shadow:var(--shadow)}
+  .gitem .frame{height:200px;border-radius:12px;overflow:hidden;border:1px solid var(--line);background:#0d1a15}
+  .gitem .frame .scrn{border-radius:0}
+  .gitem h4{font-family:var(--display);font-size:1rem;margin:14px 0 3px;display:flex;align-items:center;gap:7px}
+  .gitem h4 svg{width:17px;height:17px;color:var(--brand)}
+  .gitem p{color:var(--muted);font-size:.86rem}
   @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 
@@ -266,6 +331,7 @@
     </span>
     <span class="spacer"></span>
     <a class="btn btn-ghost hide-sm" href="#features">Features</a>
+    <a class="btn btn-ghost hide-sm" href="#interface">System interface</a>
     <button class="theme-toggle" id="themeBtn" aria-label="Theme badlein" title="Theme">
       <svg class="ic" aria-hidden="true"><use href="#i-sun"/></svg>
     </button>
@@ -292,13 +358,31 @@
       </div>
     </div>
     <div>
-      <div class="device" aria-label="Aaj ka hisaab (misaal)">
-        <div class="dhead"><span class="t">Aaj ka Hisaab</span><span class="date">Aaj · Shaam 8:00</span></div>
-        <div class="row"><span class="l"><span class="chip"><svg class="ic" aria-hidden="true"><use href="#i-pump"/></svg></span> Petrol bika</span><span class="v">1,240 L</span></div>
-        <div class="row"><span class="l"><span class="chip"><svg class="ic" aria-hidden="true"><use href="#i-pump"/></svg></span> Diesel bika</span><span class="v">860 L</span></div>
-        <div class="row"><span class="l"><span class="chip"><svg class="ic" aria-hidden="true"><use href="#i-book"/></svg></span> Udhaar (khata)</span><span class="v">Rs 45,000</span></div>
-        <div class="row"><span class="l"><span class="chip"><svg class="ic" aria-hidden="true"><use href="#i-coins"/></svg></span> Cash jama</span><span class="v">Rs 2,10,000</span></div>
-        <div class="ok"><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg> Sab barabar — koi farq nahi</div>
+      <div class="phone-xl" aria-label="Petrol PumpAI app — dashboard (misaal)">
+        <div class="scrn">
+          <div class="top"><svg aria-hidden="true"><use href="#i-pump"/></svg> Petrol PumpAI <span class="rt">Shaam 8:00</span></div>
+          <div class="body">
+            <div class="s-tabs"><span class="on">Aaj</span><span>Hafta</span><span>Mahina</span></div>
+            <div class="s-stats">
+              <div class="s-stat"><div class="k">Aaj bika</div><div class="v g">Rs 3,38,000</div></div>
+              <div class="s-stat"><div class="k">Aaj ka nafa</div><div class="v g">Rs 48,600</div></div>
+              <div class="s-stat"><div class="k">Cash jama</div><div class="v">Rs 2,10,000</div></div>
+              <div class="s-stat"><div class="k">Udhaar baqi</div><div class="v r">Rs 45,000</div></div>
+            </div>
+            <div class="s-list">
+              <div class="s-li"><span class="av"><svg aria-hidden="true"><use href="#i-pump"/></svg></span><span class="nm">Petrol</span><span class="amt">1,240 L</span></div>
+              <div class="s-li"><span class="av"><svg aria-hidden="true"><use href="#i-pump"/></svg></span><span class="nm">Diesel</span><span class="amt">860 L</span></div>
+            </div>
+            <div class="s-ok"><svg aria-hidden="true"><use href="#i-check"/></svg> Sab barabar — koi farq nahi</div>
+          </div>
+          <div class="s-nav">
+            <a class="on"><svg aria-hidden="true"><use href="#i-chart"/></svg>Home</a>
+            <a><svg aria-hidden="true"><use href="#i-pump"/></svg>Sale</a>
+            <a><svg aria-hidden="true"><use href="#i-book"/></svg>Khata</a>
+            <a><svg aria-hidden="true"><use href="#i-coins"/></svg>Cashier</a>
+            <a><svg aria-hidden="true"><use href="#i-bot"/></svg>AI</a>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -441,6 +525,132 @@
   </div>
 </section>
 
+<!-- ===== SYSTEM INTERFACE GALLERY ===== -->
+<section class="band" id="interface" style="background:color-mix(in srgb,var(--brand) 6%,var(--bg))">
+  <div class="wrap">
+    <div class="shead">
+      <div class="kick">System interface</div>
+      <h2>Har module andar se aisa dikhta hai</h2>
+      <p>Signup se pehle hi dekh lein kis module mein kya hai — bilkul saaf aur aasan.</p>
+    </div>
+    <div class="gallery">
+
+      <div class="gitem">
+        <div class="frame"><div class="scrn">
+          <div class="top"><svg aria-hidden="true"><use href="#i-pump"/></svg> Sale / POS</div>
+          <div class="body">
+            <div class="s-tabs"><span class="on">Petrol</span><span>Diesel</span><span>Hi-Oct</span></div>
+            <div class="s-amt"><div class="k">Rakam</div><div class="big">Rs 2,000</div></div>
+            <div class="s-keys"><i>1</i><i>2</i><i>3</i><i>4</i><i>5</i><i>6</i><i>7</i><i>8</i><i>9</i></div>
+            <div class="s-btn">Bikri karein</div>
+          </div>
+        </div></div>
+        <h4><svg aria-hidden="true"><use href="#i-pump"/></svg> Sale / POS</h4>
+        <p>Ek tap mein bikri — petrol, diesel, hi-octane. Cash, card ya khata.</p>
+      </div>
+
+      <div class="gitem">
+        <div class="frame"><div class="scrn">
+          <div class="top"><svg aria-hidden="true"><use href="#i-book"/></svg> Khata (Udhaar)</div>
+          <div class="body">
+            <div class="s-list">
+              <div class="s-li"><span class="av"><svg aria-hidden="true"><use href="#i-users"/></svg></span><span class="nm">Ali Transport</span><span class="amt r">Rs 23,700</span></div>
+              <div class="s-li"><span class="av"><svg aria-hidden="true"><use href="#i-users"/></svg></span><span class="nm">Khan Traders</span><span class="amt r">Rs 8,400</span></div>
+              <div class="s-li"><span class="av"><svg aria-hidden="true"><use href="#i-users"/></svg></span><span class="nm">Bilal Sb</span><span class="amt g">Rs 0</span></div>
+            </div>
+            <div class="s-btn wa">WhatsApp par yaad dilayein</div>
+          </div>
+        </div></div>
+        <h4><svg aria-hidden="true"><use href="#i-book"/></svg> Khata (Udhaar)</h4>
+        <p>Har customer ka udhaar, limit aur WhatsApp yaad-dahani.</p>
+      </div>
+
+      <div class="gitem">
+        <div class="frame"><div class="scrn">
+          <div class="top"><svg aria-hidden="true"><use href="#i-coins"/></svg> Cashier desk</div>
+          <div class="body">
+            <div class="s-tabs"><span class="on">Wasooli</span><span>Adaigi</span><span>Cheque</span><span>Bank</span></div>
+            <div class="s-stats"><div class="s-stat"><div class="k">Aaj jama</div><div class="v g">Rs 2,10,000</div></div><div class="s-stat"><div class="k">Aaj kharch</div><div class="v r">Rs 36,500</div></div></div>
+            <div class="s-list"><div class="s-li"><span class="nm">Day book</span><span class="sub">roznamcha</span><span class="amt">42 entry</span></div></div>
+          </div>
+        </div></div>
+        <h4><svg aria-hidden="true"><use href="#i-coins"/></svg> Cashier desk</h4>
+        <p>Wasooli, adaigi, cheque, bank aur day book — cashier ke liye.</p>
+      </div>
+
+      <div class="gitem">
+        <div class="frame"><div class="scrn">
+          <div class="top"><svg aria-hidden="true"><use href="#i-container"/></svg> Wholesale Supply</div>
+          <div class="body">
+            <div class="s-tabs"><span class="on">Trips</span><span>Clients</span><span>Wasooli</span></div>
+            <div class="s-list">
+              <div class="s-li"><span class="av"><svg aria-hidden="true"><use href="#i-truck"/></svg></span><span class="nm">Tanker A → Ali</span><span class="amt">20,000 L</span></div>
+              <div class="s-li"><span class="av"><svg aria-hidden="true"><use href="#i-truck"/></svg></span><span class="nm">Tanker B → Khan</span><span class="amt">12,000 L</span></div>
+            </div>
+            <div class="s-btn">Naya trip</div>
+          </div>
+        </div></div>
+        <h4><svg aria-hidden="true"><use href="#i-container"/></svg> Wholesale Supply</h4>
+        <p>Thok supply, tanker trips, alag rate aur wasooli.</p>
+      </div>
+
+      <div class="gitem">
+        <div class="frame"><div class="scrn">
+          <div class="top"><svg aria-hidden="true"><use href="#i-pump"/></svg> Tank &amp; Stock</div>
+          <div class="body">
+            <div class="s-gauge"><div class="lab"><span>Petrol tank</span><span>14,400 / 20,000 L</span></div><div class="bar"><i style="width:72%"></i></div></div>
+            <div class="s-gauge"><div class="lab"><span>Diesel tank</span><span>8,000 / 20,000 L</span></div><div class="bar"><i class="low" style="width:40%"></i></div></div>
+            <div class="s-ok"><svg aria-hidden="true"><use href="#i-bell"/></svg> Diesel kam — order ka waqt</div>
+          </div>
+        </div></div>
+        <h4><svg aria-hidden="true"><use href="#i-pump"/></svg> Tank &amp; Stock</h4>
+        <p>Kitna tel tank mein, kab khatam — live gauge aur alert.</p>
+      </div>
+
+      <div class="gitem">
+        <div class="frame"><div class="scrn">
+          <div class="top"><svg aria-hidden="true"><use href="#i-users"/></svg> Staff</div>
+          <div class="body">
+            <div class="s-list">
+              <div class="s-li"><span class="av"><svg aria-hidden="true"><use href="#i-check"/></svg></span><span class="nm">Asif — Hazir</span><span class="sub">6:02 AM</span><span class="amt g">✓</span></div>
+              <div class="s-li"><span class="av"><svg aria-hidden="true"><use href="#i-check"/></svg></span><span class="nm">Waqar — Hazir</span><span class="sub">6:10 AM</span><span class="amt g">✓</span></div>
+            </div>
+            <div class="s-stats"><div class="s-stat"><div class="k">Tankhwah</div><div class="v">Rs 25,000</div></div><div class="s-stat"><div class="k">Advance</div><div class="v r">Rs 4,000</div></div></div>
+          </div>
+        </div></div>
+        <h4><svg aria-hidden="true"><use href="#i-users"/></svg> Staff</h4>
+        <p>Hazri (selfie + jagah), tankhwah, advance aur loan.</p>
+      </div>
+
+      <div class="gitem">
+        <div class="frame"><div class="scrn">
+          <div class="top"><svg aria-hidden="true"><use href="#i-chart"/></svg> Reports &amp; Insights</div>
+          <div class="body">
+            <div class="s-chart"><i style="height:40%"></i><i style="height:65%"></i><i style="height:52%"></i><i style="height:80%"></i><i class="a2" style="height:95%"></i><i style="height:70%"></i><i style="height:58%"></i></div>
+            <div class="s-stats"><div class="s-stat"><div class="k">Is mahine</div><div class="v g">Rs 14.6 L</div></div><div class="s-stat"><div class="k">Nafa</div><div class="v g">Rs 2.1 L</div></div></div>
+          </div>
+        </div></div>
+        <h4><svg aria-hidden="true"><use href="#i-chart"/></svg> Reports &amp; Insights</h4>
+        <p>Aaj ka nafa, mahana PDF — ghar baithe poora pump dekhein.</p>
+      </div>
+
+      <div class="gitem">
+        <div class="frame"><div class="scrn">
+          <div class="top"><svg aria-hidden="true"><use href="#i-ban"/></svg> Corrections (Void)</div>
+          <div class="body">
+            <div class="s-list"><div class="s-li"><span class="av"><svg aria-hidden="true"><use href="#i-pump"/></svg></span><span class="nm">Ghalat sale — 50 L</span><span class="amt r">Rs 14,000</span></div></div>
+            <div class="s-btn">Theek karein (void)</div>
+            <div class="s-ok"><svg aria-hidden="true"><use href="#i-check"/></svg> Hisaab phir barabar — 0 rupay farq</div>
+          </div>
+        </div></div>
+        <h4><svg aria-hidden="true"><use href="#i-ban"/></svg> Corrections (Void)</h4>
+        <p>Malik koi bhi ghalat entry ek click mein theek kare.</p>
+      </div>
+
+    </div>
+  </div>
+</section>
+
 <!-- ===== AI BAND ===== -->
 <section class="ai band">
   <div class="wrap">
@@ -475,15 +685,39 @@
     </div>
     <div class="stage">
       <div class="dev">
-        <div class="phone"><div class="mini"><div class="mh"><span class="dot"></span>Petrol PumpAI</div><div class="mb"><div class="bar a"></div><div class="bar b"></div><div class="bar c"></div><div class="bar d"></div><div class="bar b"></div><span class="pill">Sale karein</span></div></div></div>
+        <div class="phone"><div class="scrn">
+          <div class="top"><svg aria-hidden="true"><use href="#i-pump"/></svg> Sale / POS</div>
+          <div class="body">
+            <div class="s-tabs"><span class="on">Petrol</span><span>Diesel</span><span>Hi-Oct</span></div>
+            <div class="s-amt"><div class="k">Rakam</div><div class="big">Rs 2,000</div></div>
+            <div class="s-keys"><i>1</i><i>2</i><i>3</i><i>4</i><i>5</i><i>6</i></div>
+            <div class="s-btn">Bikri karein</div>
+          </div>
+          <div class="s-nav"><a class="on"><svg aria-hidden="true"><use href="#i-pump"/></svg>Sale</a><a><svg aria-hidden="true"><use href="#i-book"/></svg>Khata</a><a><svg aria-hidden="true"><use href="#i-chart"/></svg>Home</a></div>
+        </div></div>
         <span class="cap"><svg class="ic" aria-hidden="true"><use href="#i-phone"/></svg> Mobile</span>
       </div>
       <div class="dev">
-        <div class="laptop"><div class="scr"><div class="mini"><div class="mh"><span class="dot"></span>Petrol PumpAI · Dashboard</div><div class="mb"><div class="bar a"></div><div class="bar c"></div><div class="bar b"></div><span class="pill">Aaj ka nafa</span></div></div></div><div class="base"></div></div>
+        <div class="laptop"><div class="scr"><div class="scrn wide">
+          <div class="top"><svg aria-hidden="true"><use href="#i-chart"/></svg> Dashboard <span class="rt">Malik</span></div>
+          <div class="body">
+            <div class="rail"><a class="on"><svg aria-hidden="true"><use href="#i-chart"/></svg>Home</a><a><svg aria-hidden="true"><use href="#i-pump"/></svg>Sale</a><a><svg aria-hidden="true"><use href="#i-book"/></svg>Khata</a><a><svg aria-hidden="true"><use href="#i-container"/></svg>Wholesale</a><a><svg aria-hidden="true"><use href="#i-coins"/></svg>Cashier</a></div>
+            <div class="main">
+              <div class="s-stats"><div class="s-stat"><div class="k">Aaj bika</div><div class="v g">Rs 3,38,000</div></div><div class="s-stat"><div class="k">Nafa</div><div class="v g">Rs 48,600</div></div></div>
+              <div class="s-chart"><i style="height:50%"></i><i style="height:70%"></i><i style="height:45%"></i><i class="a2" style="height:85%"></i><i style="height:60%"></i><i style="height:75%"></i></div>
+            </div>
+          </div>
+        </div></div><div class="base"></div></div>
         <span class="cap"><svg class="ic" aria-hidden="true"><use href="#i-laptop"/></svg> Laptop</span>
       </div>
       <div class="dev">
-        <div class="desktop"><div class="scr"><div class="mini"><div class="mh"><span class="dot"></span>Petrol PumpAI</div><div class="mb"><div class="bar b"></div><div class="bar a"></div><div class="bar c"></div><span class="pill">Reports</span></div></div></div><div class="neck"></div><div class="foot"></div></div>
+        <div class="desktop"><div class="scr"><div class="scrn">
+          <div class="top"><svg aria-hidden="true"><use href="#i-chart"/></svg> Reports <span class="rt">Mahina</span></div>
+          <div class="body">
+            <div class="s-chart"><i style="height:40%"></i><i style="height:65%"></i><i style="height:55%"></i><i style="height:80%"></i><i class="a2" style="height:95%"></i><i style="height:70%"></i></div>
+            <div class="s-list"><div class="s-li"><span class="nm">Petrol</span><span class="amt g">Rs 42 L</span></div><div class="s-li"><span class="nm">Diesel</span><span class="amt g">Rs 31 L</span></div></div>
+          </div>
+        </div></div><div class="neck"></div><div class="foot"></div></div>
         <span class="cap"><svg class="ic" aria-hidden="true"><use href="#i-desktop"/></svg> Computer</span>
       </div>
     </div>
