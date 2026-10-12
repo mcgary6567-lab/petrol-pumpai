@@ -248,6 +248,12 @@
   .s-chart i.a2{background:var(--accent);opacity:.85}
   .s-ok{display:flex;align-items:center;gap:6px;background:color-mix(in srgb,var(--good) 14%,transparent);color:var(--good);border-radius:8px;padding:7px 9px;font-family:var(--display);font-weight:700;font-size:.62rem}
   .s-ok svg{width:12px;height:12px}
+  .s-lbl{display:flex;align-items:center;gap:6px;font-size:.54rem;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+  .live{width:7px;height:7px;border-radius:50%;background:#25d366;box-shadow:0 0 0 3px rgba(37,211,102,.25);flex:none;animation:ppulse 1.8s ease-in-out infinite}
+  @keyframes ppulse{0%,100%{opacity:1}50%{opacity:.35}}
+  @media (prefers-reduced-motion:reduce){.live{animation:none}}
+  .scrn .top .rt{display:inline-flex;align-items:center;gap:5px}
+  .scrn .top .rt .live{box-shadow:none}
   .s-gauge{background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:7px 8px}
   .s-gauge .lab{display:flex;justify-content:space-between;font-size:.56rem;font-weight:600;margin-bottom:4px}
   .s-gauge .bar{height:7px;border-radius:5px;background:var(--line);overflow:hidden}
@@ -368,20 +374,24 @@
     <div>
       <div class="phone-xl" aria-label="Petrol PumpAI app — dashboard (misaal)">
         <div class="scrn">
-          <div class="top"><svg aria-hidden="true"><use href="#i-pump"/></svg> Petrol PumpAI <span class="rt">Shaam 8:00</span></div>
+          <div class="top"><svg aria-hidden="true"><use href="#i-chart"/></svg> CEO Dashboard <span class="rt"><span class="live"></span> Live</span></div>
           <div class="body">
             <div class="s-tabs"><span class="on">Aaj</span><span>Hafta</span><span>Mahina</span></div>
             <div class="s-stats">
-              <div class="s-stat"><div class="k">Aaj bika</div><div class="v g">Rs 3,38,000</div></div>
+              <div class="s-stat"><div class="k">Aaj ki sale</div><div class="v g">Rs 3,38,000</div></div>
               <div class="s-stat"><div class="k">Aaj ka nafa</div><div class="v g">Rs 48,600</div></div>
-              <div class="s-stat"><div class="k">Cash jama</div><div class="v">Rs 2,10,000</div></div>
+              <div class="s-stat"><div class="k">Kharcha</div><div class="v r">Rs 36,500</div></div>
               <div class="s-stat"><div class="k">Udhaar baqi</div><div class="v r">Rs 45,000</div></div>
             </div>
+            <div class="s-lbl"><span class="live"></span> Nayi entries · aa rahi hain</div>
             <div class="s-list">
-              <div class="s-li"><span class="av"><svg aria-hidden="true"><use href="#i-pump"/></svg></span><span class="nm">Petrol</span><span class="amt">1,240 L</span></div>
-              <div class="s-li"><span class="av"><svg aria-hidden="true"><use href="#i-pump"/></svg></span><span class="nm">Diesel</span><span class="amt">860 L</span></div>
+              <div class="s-li"><span class="av"><svg aria-hidden="true"><use href="#i-pump"/></svg></span><span class="nm">Asif · Petrol 20 L</span><span class="amt g">+5,600</span></div>
+              <div class="s-li"><span class="av"><svg aria-hidden="true"><use href="#i-book"/></svg></span><span class="nm">Khata: Ali · 40 L</span><span class="amt r">11,200</span></div>
+              <div class="s-li"><span class="av"><svg aria-hidden="true"><use href="#i-coins"/></svg></span><span class="nm">Cashier jama</span><span class="amt g">+50,000</span></div>
             </div>
-            <div class="s-ok"><svg aria-hidden="true"><use href="#i-check"/></svg> Sab barabar — koi farq nahi</div>
+            <div class="s-ok"><svg aria-hidden="true"><use href="#i-check"/></svg> Aaj 142 entries · sab barabar</div>
+            <div class="s-lbl"><svg aria-hidden="true" style="width:11px;height:11px;stroke:currentColor;fill:none;stroke-width:2"><use href="#i-chart"/></svg> Roz ki bikri · litre</div>
+            <div class="s-chart"><i style="height:45%"></i><i style="height:68%"></i><i style="height:52%"></i><i class="a2" style="height:88%"></i><i style="height:60%"></i><i style="height:74%"></i><i style="height:95%"></i></div>
           </div>
           <div class="s-nav">
             <a class="on"><svg aria-hidden="true"><use href="#i-chart"/></svg>Home</a>
