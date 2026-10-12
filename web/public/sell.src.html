@@ -291,6 +291,9 @@
   .gitem{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:14px;box-shadow:var(--shadow)}
   .gitem .frame{height:200px;border-radius:12px;overflow:hidden;border:1px solid var(--line);background:#0d1a15}
   .gitem .frame .scrn{border-radius:0}
+  .shot{width:100%;height:100%;object-fit:cover;object-position:top center;display:block}
+  .phone .shot{border-radius:16px}
+  .phone-xl .shot{border-radius:22px}
   .gitem h4{font-family:var(--display);font-size:1rem;margin:14px 0 3px;display:flex;align-items:center;gap:7px}
   .gitem h4 svg{width:17px;height:17px;color:var(--brand)}
   .gitem p{color:var(--muted);font-size:.86rem}
@@ -395,34 +398,7 @@
     </div>
     <div>
       <div class="phone-xl" aria-label="Petrol PumpAI app — dashboard (misaal)">
-        <div class="scrn">
-          <div class="top"><svg aria-hidden="true"><use href="#i-chart"/></svg> CEO Dashboard <span class="rt"><span class="live"></span> Live</span></div>
-          <div class="body">
-            <div class="s-tabs"><span class="on">Aaj</span><span>Hafta</span><span>Mahina</span></div>
-            <div class="s-stats">
-              <div class="s-stat"><div class="k">Aaj ki sale</div><div class="v g">Rs 3,38,000</div></div>
-              <div class="s-stat"><div class="k">Aaj ka nafa</div><div class="v g">Rs 48,600</div></div>
-              <div class="s-stat"><div class="k">Kharcha</div><div class="v r">Rs 36,500</div></div>
-              <div class="s-stat"><div class="k">Udhaar baqi</div><div class="v r">Rs 45,000</div></div>
-            </div>
-            <div class="s-lbl"><span class="live"></span> Nayi entries · aa rahi hain</div>
-            <div class="s-list">
-              <div class="s-li"><span class="av"><svg aria-hidden="true"><use href="#i-pump"/></svg></span><span class="nm">Asif · Petrol 20 L</span><span class="amt g">+5,600</span></div>
-              <div class="s-li"><span class="av"><svg aria-hidden="true"><use href="#i-book"/></svg></span><span class="nm">Khata: Ali · 40 L</span><span class="amt r">11,200</span></div>
-              <div class="s-li"><span class="av"><svg aria-hidden="true"><use href="#i-coins"/></svg></span><span class="nm">Cashier jama</span><span class="amt g">+50,000</span></div>
-            </div>
-            <div class="s-ok"><svg aria-hidden="true"><use href="#i-check"/></svg> Aaj 142 entries · sab barabar</div>
-            <div class="s-lbl"><svg aria-hidden="true" style="width:11px;height:11px;stroke:currentColor;fill:none;stroke-width:2"><use href="#i-chart"/></svg> Roz ki bikri · litre</div>
-            <div class="s-chart"><i style="height:45%"></i><i style="height:68%"></i><i style="height:52%"></i><i class="a2" style="height:88%"></i><i style="height:60%"></i><i style="height:74%"></i><i style="height:95%"></i></div>
-          </div>
-          <div class="s-nav">
-            <a class="on"><svg aria-hidden="true"><use href="#i-chart"/></svg>Home</a>
-            <a><svg aria-hidden="true"><use href="#i-pump"/></svg>Sale</a>
-            <a><svg aria-hidden="true"><use href="#i-book"/></svg>Khata</a>
-            <a><svg aria-hidden="true"><use href="#i-coins"/></svg>Cashier</a>
-            <a><svg aria-hidden="true"><use href="#i-bot"/></svg>AI</a>
-          </div>
-        </div>
+        <img class="shot" src="shots/dashboard.jpg" alt="Petrol PumpAI — CEO dashboard" fetchpriority="high">
       </div>
     </div>
   </div>
@@ -576,113 +552,49 @@
     <div class="gallery">
 
       <div class="gitem">
-        <div class="frame"><div class="scrn">
-          <div class="top"><svg aria-hidden="true"><use href="#i-pump"/></svg> Sale / POS</div>
-          <div class="body">
-            <div class="s-tabs"><span class="on">Petrol</span><span>Diesel</span><span>Hi-Oct</span></div>
-            <div class="s-amt"><div class="k">Rakam</div><div class="big">Rs 2,000</div></div>
-            <div class="s-keys"><i>1</i><i>2</i><i>3</i><i>4</i><i>5</i><i>6</i><i>7</i><i>8</i><i>9</i></div>
-            <div class="s-btn">Bikri karein</div>
-          </div>
-        </div></div>
+        <div class="frame"><img class="shot" src="shots/pos.jpg" alt="Sale / POS — asli screen" loading="lazy"></div>
         <h4><svg aria-hidden="true"><use href="#i-pump"/></svg> Sale / POS</h4>
         <p>Ek tap mein bikri — petrol, diesel, hi-octane. Cash, card ya khata.</p>
       </div>
 
       <div class="gitem">
-        <div class="frame"><div class="scrn">
-          <div class="top"><svg aria-hidden="true"><use href="#i-book"/></svg> Khata (Udhaar)</div>
-          <div class="body">
-            <div class="s-list">
-              <div class="s-li"><span class="av"><svg aria-hidden="true"><use href="#i-users"/></svg></span><span class="nm">Ali Transport</span><span class="amt r">Rs 23,700</span></div>
-              <div class="s-li"><span class="av"><svg aria-hidden="true"><use href="#i-users"/></svg></span><span class="nm">Khan Traders</span><span class="amt r">Rs 8,400</span></div>
-              <div class="s-li"><span class="av"><svg aria-hidden="true"><use href="#i-users"/></svg></span><span class="nm">Bilal Sb</span><span class="amt g">Rs 0</span></div>
-            </div>
-            <div class="s-btn wa">WhatsApp par yaad dilayein</div>
-          </div>
-        </div></div>
+        <div class="frame"><img class="shot" src="shots/khata.jpg" alt="Khata — asli screen" loading="lazy"></div>
         <h4><svg aria-hidden="true"><use href="#i-book"/></svg> Khata (Udhaar)</h4>
         <p>Har customer ka udhaar, limit aur WhatsApp yaad-dahani.</p>
       </div>
 
       <div class="gitem">
-        <div class="frame"><div class="scrn">
-          <div class="top"><svg aria-hidden="true"><use href="#i-coins"/></svg> Cashier desk</div>
-          <div class="body">
-            <div class="s-tabs"><span class="on">Wasooli</span><span>Adaigi</span><span>Cheque</span><span>Bank</span></div>
-            <div class="s-stats"><div class="s-stat"><div class="k">Aaj jama</div><div class="v g">Rs 2,10,000</div></div><div class="s-stat"><div class="k">Aaj kharch</div><div class="v r">Rs 36,500</div></div></div>
-            <div class="s-list"><div class="s-li"><span class="nm">Day book</span><span class="sub">roznamcha</span><span class="amt">42 entry</span></div></div>
-          </div>
-        </div></div>
+        <div class="frame"><img class="shot" src="shots/cashier.jpg" alt="Cashier desk — asli screen" loading="lazy"></div>
         <h4><svg aria-hidden="true"><use href="#i-coins"/></svg> Cashier desk</h4>
         <p>Wasooli, adaigi, cheque, bank aur day book — cashier ke liye.</p>
       </div>
 
       <div class="gitem">
-        <div class="frame"><div class="scrn">
-          <div class="top"><svg aria-hidden="true"><use href="#i-container"/></svg> Wholesale Supply</div>
-          <div class="body">
-            <div class="s-tabs"><span class="on">Trips</span><span>Clients</span><span>Wasooli</span></div>
-            <div class="s-list">
-              <div class="s-li"><span class="av"><svg aria-hidden="true"><use href="#i-truck"/></svg></span><span class="nm">Tanker A → Ali</span><span class="amt">20,000 L</span></div>
-              <div class="s-li"><span class="av"><svg aria-hidden="true"><use href="#i-truck"/></svg></span><span class="nm">Tanker B → Khan</span><span class="amt">12,000 L</span></div>
-            </div>
-            <div class="s-btn">Naya trip</div>
-          </div>
-        </div></div>
+        <div class="frame"><img class="shot" src="shots/wholesale.jpg" alt="Wholesale Supply — asli screen" loading="lazy"></div>
         <h4><svg aria-hidden="true"><use href="#i-container"/></svg> Wholesale Supply</h4>
         <p>Thok supply, tanker trips, alag rate aur wasooli.</p>
       </div>
 
       <div class="gitem">
-        <div class="frame"><div class="scrn">
-          <div class="top"><svg aria-hidden="true"><use href="#i-pump"/></svg> Tank &amp; Stock</div>
-          <div class="body">
-            <div class="s-gauge"><div class="lab"><span>Petrol tank</span><span>14,400 / 20,000 L</span></div><div class="bar"><i style="width:72%"></i></div></div>
-            <div class="s-gauge"><div class="lab"><span>Diesel tank</span><span>8,000 / 20,000 L</span></div><div class="bar"><i class="low" style="width:40%"></i></div></div>
-            <div class="s-ok"><svg aria-hidden="true"><use href="#i-bell"/></svg> Diesel kam — order ka waqt</div>
-          </div>
-        </div></div>
+        <div class="frame"><img class="shot" src="shots/stock.jpg" alt="Tank & Stock — asli screen" loading="lazy"></div>
         <h4><svg aria-hidden="true"><use href="#i-pump"/></svg> Tank &amp; Stock</h4>
         <p>Kitna tel tank mein, kab khatam — live gauge aur alert.</p>
       </div>
 
       <div class="gitem">
-        <div class="frame"><div class="scrn">
-          <div class="top"><svg aria-hidden="true"><use href="#i-users"/></svg> Staff</div>
-          <div class="body">
-            <div class="s-list">
-              <div class="s-li"><span class="av"><svg aria-hidden="true"><use href="#i-check"/></svg></span><span class="nm">Asif — Hazir</span><span class="sub">6:02 AM</span><span class="amt g">✓</span></div>
-              <div class="s-li"><span class="av"><svg aria-hidden="true"><use href="#i-check"/></svg></span><span class="nm">Waqar — Hazir</span><span class="sub">6:10 AM</span><span class="amt g">✓</span></div>
-            </div>
-            <div class="s-stats"><div class="s-stat"><div class="k">Tankhwah</div><div class="v">Rs 25,000</div></div><div class="s-stat"><div class="k">Advance</div><div class="v r">Rs 4,000</div></div></div>
-          </div>
-        </div></div>
+        <div class="frame"><img class="shot" src="shots/staff.jpg" alt="Staff — asli screen" loading="lazy"></div>
         <h4><svg aria-hidden="true"><use href="#i-users"/></svg> Staff</h4>
         <p>Hazri (selfie + jagah), tankhwah, advance aur loan.</p>
       </div>
 
       <div class="gitem">
-        <div class="frame"><div class="scrn">
-          <div class="top"><svg aria-hidden="true"><use href="#i-chart"/></svg> Reports &amp; Insights</div>
-          <div class="body">
-            <div class="s-chart"><i style="height:40%"></i><i style="height:65%"></i><i style="height:52%"></i><i style="height:80%"></i><i class="a2" style="height:95%"></i><i style="height:70%"></i><i style="height:58%"></i></div>
-            <div class="s-stats"><div class="s-stat"><div class="k">Is mahine</div><div class="v g">Rs 14.6 L</div></div><div class="s-stat"><div class="k">Nafa</div><div class="v g">Rs 2.1 L</div></div></div>
-          </div>
-        </div></div>
+        <div class="frame"><img class="shot" src="shots/reports.jpg" alt="Reports — asli screen" loading="lazy"></div>
         <h4><svg aria-hidden="true"><use href="#i-chart"/></svg> Reports &amp; Insights</h4>
         <p>Aaj ka nafa, mahana PDF — ghar baithe poora pump dekhein.</p>
       </div>
 
       <div class="gitem">
-        <div class="frame"><div class="scrn">
-          <div class="top"><svg aria-hidden="true"><use href="#i-ban"/></svg> Corrections (Void)</div>
-          <div class="body">
-            <div class="s-list"><div class="s-li"><span class="av"><svg aria-hidden="true"><use href="#i-pump"/></svg></span><span class="nm">Ghalat sale — 50 L</span><span class="amt r">Rs 14,000</span></div></div>
-            <div class="s-btn">Theek karein (void)</div>
-            <div class="s-ok"><svg aria-hidden="true"><use href="#i-check"/></svg> Hisaab phir barabar — 0 rupay farq</div>
-          </div>
-        </div></div>
+        <div class="frame"><img class="shot" src="shots/corrections.jpg" alt="Corrections — asli screen" loading="lazy"></div>
         <h4><svg aria-hidden="true"><use href="#i-ban"/></svg> Corrections (Void)</h4>
         <p>Malik koi bhi ghalat entry ek click mein theek kare.</p>
       </div>
@@ -725,39 +637,15 @@
     </div>
     <div class="stage">
       <div class="dev">
-        <div class="phone"><div class="scrn">
-          <div class="top"><svg aria-hidden="true"><use href="#i-pump"/></svg> Sale / POS</div>
-          <div class="body">
-            <div class="s-tabs"><span class="on">Petrol</span><span>Diesel</span><span>Hi-Oct</span></div>
-            <div class="s-amt"><div class="k">Rakam</div><div class="big">Rs 2,000</div></div>
-            <div class="s-keys"><i>1</i><i>2</i><i>3</i><i>4</i><i>5</i><i>6</i></div>
-            <div class="s-btn">Bikri karein</div>
-          </div>
-          <div class="s-nav"><a class="on"><svg aria-hidden="true"><use href="#i-pump"/></svg>Sale</a><a><svg aria-hidden="true"><use href="#i-book"/></svg>Khata</a><a><svg aria-hidden="true"><use href="#i-chart"/></svg>Home</a></div>
-        </div></div>
+        <div class="phone"><img class="shot" src="shots/pos.jpg" alt="Sale / POS" loading="lazy"></div>
         <span class="cap"><svg class="ic" aria-hidden="true"><use href="#i-phone"/></svg> Mobile</span>
       </div>
       <div class="dev">
-        <div class="laptop"><div class="scr"><div class="scrn wide">
-          <div class="top"><svg aria-hidden="true"><use href="#i-chart"/></svg> Dashboard <span class="rt">Malik</span></div>
-          <div class="body">
-            <div class="rail"><a class="on"><svg aria-hidden="true"><use href="#i-chart"/></svg>Home</a><a><svg aria-hidden="true"><use href="#i-pump"/></svg>Sale</a><a><svg aria-hidden="true"><use href="#i-book"/></svg>Khata</a><a><svg aria-hidden="true"><use href="#i-container"/></svg>Wholesale</a><a><svg aria-hidden="true"><use href="#i-coins"/></svg>Cashier</a></div>
-            <div class="main">
-              <div class="s-stats"><div class="s-stat"><div class="k">Aaj bika</div><div class="v g">Rs 3,38,000</div></div><div class="s-stat"><div class="k">Nafa</div><div class="v g">Rs 48,600</div></div></div>
-              <div class="s-chart"><i style="height:50%"></i><i style="height:70%"></i><i style="height:45%"></i><i class="a2" style="height:85%"></i><i style="height:60%"></i><i style="height:75%"></i></div>
-            </div>
-          </div>
-        </div></div><div class="base"></div></div>
+        <div class="laptop"><div class="scr"><img class="shot" src="shots/dashboard-d.jpg" alt="Dashboard" loading="lazy"></div><div class="base"></div></div>
         <span class="cap"><svg class="ic" aria-hidden="true"><use href="#i-laptop"/></svg> Laptop</span>
       </div>
       <div class="dev">
-        <div class="desktop"><div class="scr"><div class="scrn">
-          <div class="top"><svg aria-hidden="true"><use href="#i-chart"/></svg> Reports <span class="rt">Mahina</span></div>
-          <div class="body">
-            <div class="s-chart"><i style="height:40%"></i><i style="height:65%"></i><i style="height:55%"></i><i style="height:80%"></i><i class="a2" style="height:95%"></i><i style="height:70%"></i></div>
-            <div class="s-list"><div class="s-li"><span class="nm">Petrol</span><span class="amt g">Rs 42 L</span></div><div class="s-li"><span class="nm">Diesel</span><span class="amt g">Rs 31 L</span></div></div>
-          </div>
-        </div></div><div class="neck"></div><div class="foot"></div></div>
+        <div class="desktop"><div class="scr"><img class="shot" src="shots/reports-d.jpg" alt="Reports" loading="lazy"></div><div class="neck"></div><div class="foot"></div></div>
         <span class="cap"><svg class="ic" aria-hidden="true"><use href="#i-desktop"/></svg> Computer</span>
       </div>
     </div>
