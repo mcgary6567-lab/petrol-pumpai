@@ -14,7 +14,7 @@
     --display:"Poppins",system-ui,sans-serif;
     --body:"Mulish",system-ui,sans-serif;
     --urdu:"Noto Nastaliq Urdu",serif;
-    --maxw:1100px;
+    --maxw:1120px;
   }
   @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
     --bg:#0a1512; --surface:#11211b; --ink:#e9f3ee; --muted:#9cb3aa;
@@ -65,10 +65,10 @@
   .eyebrow{display:inline-flex;align-items:center;gap:8px;font-family:var(--display);font-weight:600;font-size:.82rem;letter-spacing:.08em;text-transform:uppercase;color:#ffd77a;background:rgba(240,165,0,.14);border:1px solid rgba(240,165,0,.3);padding:7px 14px;border-radius:999px}
   .hero h1{font-size:clamp(2.1rem,6vw,3.5rem);font-weight:800;color:#fff;margin-top:20px;letter-spacing:-.02em}
   .hero h1 .hl{color:#ffce5a}
-  .hero .sub{font-size:1.15rem;color:#cfeadd;margin-top:18px;max-width:34ch}
+  .hero .sub{font-size:1.15rem;color:#cfeadd;margin-top:18px;max-width:36ch}
   .hero .sub .urdu{color:#eafaf2;font-size:1.25rem}
   .hero .cta{display:flex;flex-wrap:wrap;gap:14px;margin-top:30px}
-  .trust{display:flex;flex-wrap:wrap;gap:18px;margin-top:28px;color:#bfe3d4;font-size:.95rem;font-weight:600}
+  .trust{display:flex;flex-wrap:wrap;gap:16px;margin-top:28px;color:#bfe3d4;font-size:.95rem;font-weight:600}
   .trust span{display:inline-flex;align-items:center;gap:8px}
   .trust svg{color:#6ee7a8}
   /* hero device card */
@@ -83,33 +83,48 @@
   .row .v{font-family:var(--display);font-weight:700;font-variant-numeric:tabular-nums}
   .device .ok{margin-top:14px;display:flex;align-items:center;gap:10px;background:color-mix(in srgb,var(--good) 14%,transparent);color:var(--good);border-radius:12px;padding:12px 14px;font-family:var(--display);font-weight:700}
   /* ---------- section head ---------- */
-  .shead{text-align:center;max-width:40ch;margin:0 auto 46px}
+  .shead{text-align:center;max-width:44ch;margin:0 auto 46px}
   .shead .kick{font-family:var(--display);font-weight:700;color:var(--brand);letter-spacing:.06em;text-transform:uppercase;font-size:.82rem}
   .shead h2{font-size:clamp(1.7rem,4.2vw,2.5rem);font-weight:700;margin-top:12px}
   .shead p{color:var(--muted);margin-top:14px;font-size:1.08rem}
-  /* ---------- big three ---------- */
-  .three{display:grid;grid-template-columns:1fr;gap:22px}
-  @media(min-width:800px){.three{grid-template-columns:repeat(3,1fr)}}
-  .big{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:30px;box-shadow:var(--shadow);text-align:center}
-  .big .halo{width:70px;height:70px;border-radius:20px;display:grid;place-items:center;margin:0 auto 18px;font-size:30px}
+  /* ---------- big four ---------- */
+  .three{display:grid;grid-template-columns:1fr;gap:20px}
+  @media(min-width:640px){.three{grid-template-columns:1fr 1fr}}
+  @media(min-width:980px){.three{grid-template-columns:repeat(4,1fr)}}
+  .big{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:26px;box-shadow:var(--shadow);text-align:center}
+  .big .halo{width:64px;height:64px;border-radius:18px;display:grid;place-items:center;margin:0 auto 16px;font-size:27px}
   .big.red .halo{background:#fdecec;color:#d14343}
   .big.blue .halo{background:#e9f1fd;color:#2f6fd1}
   .big.green .halo{background:#e4f6ec;color:var(--good)}
+  .big.gold .halo{background:var(--accent-soft);color:var(--accent)}
   @media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .big.red .halo{background:#2a1515;color:#f08a8a}:root:not([data-theme="light"]) .big.blue .halo{background:#142031;color:#8bb6f0}:root:not([data-theme="light"]) .big.green .halo{background:#0f2a1e;color:#4fe09a}}
   :root[data-theme="dark"] .big.red .halo{background:#2a1515;color:#f08a8a}
   :root[data-theme="dark"] .big.blue .halo{background:#142031;color:#8bb6f0}
   :root[data-theme="dark"] .big.green .halo{background:#0f2a1e;color:#4fe09a}
-  .big h3{font-size:1.3rem;margin-bottom:10px}
-  .big p{color:var(--muted)}
-  .big .urdu{color:var(--ink);font-size:1.05rem;margin-top:8px}
-  /* ---------- features grid ---------- */
-  .feat{display:grid;grid-template-columns:1fr;gap:18px}
+  .big h3{font-size:1.2rem;margin-bottom:9px}
+  .big p{color:var(--muted);font-size:.97rem}
+  .big .urdu{color:var(--ink);font-size:1rem;margin-top:7px}
+  /* ---------- roles ---------- */
+  .roles{display:grid;grid-template-columns:1fr;gap:18px}
+  @media(min-width:560px){.roles{grid-template-columns:1fr 1fr}}
+  @media(min-width:960px){.roles{grid-template-columns:repeat(5,1fr)}}
+  .role{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:22px;text-align:center}
+  .role .av{width:58px;height:58px;border-radius:50%;display:grid;place-items:center;margin:0 auto 14px;font-family:var(--display);font-weight:800;color:#fff;font-size:1.3rem}
+  .role h3{font-size:1.08rem}
+  .role .ur{font-family:var(--urdu);color:var(--muted);font-size:.95rem;margin-top:2px;display:block}
+  .role p{color:var(--muted);font-size:.9rem;margin-top:10px}
+  /* ---------- feature groups ---------- */
+  .fgroup{margin-top:40px}
+  .fgroup:first-of-type{margin-top:0}
+  .fgroup > h3{display:flex;align-items:center;gap:10px;font-size:1.15rem;margin-bottom:18px;color:var(--brand)}
+  .fgroup > h3 .gi{width:34px;height:34px;border-radius:10px;background:var(--brand);color:#fff;display:grid;place-items:center;font-size:18px}
+  .feat{display:grid;grid-template-columns:1fr;gap:16px}
   @media(min-width:620px){.feat{grid-template-columns:1fr 1fr}}
   @media(min-width:960px){.feat{grid-template-columns:repeat(3,1fr)}}
-  .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:24px;display:flex;flex-direction:column;gap:10px}
-  .card .ico{width:50px;height:50px;border-radius:14px;display:grid;place-items:center;background:var(--brand);color:#fff;font-size:22px}
-  .card h3{font-size:1.15rem}
-  .card p{color:var(--muted);font-size:.98rem}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:20px;display:flex;gap:14px;align-items:flex-start}
+  .card .ico{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;background:color-mix(in srgb,var(--brand) 12%,var(--surface));color:var(--brand);font-size:20px;flex:none}
+  .card h4{font-family:var(--display);font-size:1.03rem;margin:0 0 4px}
+  .card p{color:var(--muted);font-size:.92rem}
   /* ---------- AI band ---------- */
   .ai{background:linear-gradient(160deg,#0a3b2b,var(--brand-ink));color:#eafaf2}
   .ai .wrap{display:grid;grid-template-columns:1fr;gap:40px;align-items:center}
@@ -122,42 +137,65 @@
   .ailist b{color:#fff;font-family:var(--display)}
   .ailist p{color:#bfe3d4;font-size:.98rem}
   .aichat{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:22px;padding:22px}
-  .bubble{border-radius:16px;padding:13px 16px;margin-bottom:12px;max-width:85%;font-size:1rem}
+  .bubble{border-radius:16px;padding:13px 16px;margin-bottom:12px;max-width:88%;font-size:1rem}
   .bubble.me{background:#25d366;color:#05331b;margin-inline-start:auto;border-bottom-right-radius:5px;font-weight:600}
   .bubble.ai{background:#fff;color:#122;border-bottom-left-radius:5px;box-shadow:0 6px 16px rgba(0,0,0,.2)}
   .bubble .tag{display:block;font-size:.72rem;font-weight:700;opacity:.6;margin-bottom:3px;font-family:var(--display)}
-  /* ---------- install / security split ---------- */
-  .split{display:grid;grid-template-columns:1fr;gap:22px}
-  @media(min-width:820px){.split{grid-template-columns:1fr 1fr}}
+  /* ---------- devices showcase ---------- */
+  .devices{background:color-mix(in srgb,var(--brand) 6%,var(--bg))}
+  .stage{display:flex;align-items:flex-end;justify-content:center;gap:clamp(10px,3vw,34px);flex-wrap:wrap;margin-top:12px}
+  .mini{background:linear-gradient(170deg,var(--brand-deep),#0a3b2b);color:#eafaf2;border-radius:8px;overflow:hidden;width:100%;height:100%;display:flex;flex-direction:column}
+  .mini .mh{background:rgba(255,255,255,.08);padding:7px 9px;font-family:var(--display);font-weight:700;font-size:.62rem;display:flex;align-items:center;gap:5px}
+  .mini .mh .dot{width:12px;height:12px;border-radius:4px;background:#ffce5a}
+  .mini .mb{padding:8px 9px;display:flex;flex-direction:column;gap:6px;flex:1}
+  .mini .bar{height:7px;border-radius:4px;background:rgba(255,255,255,.14)}
+  .mini .bar.a{width:80%}.mini .bar.b{width:55%}.mini .bar.c{width:68%;background:rgba(240,165,0,.5)}.mini .bar.d{width:40%}
+  .mini .pill{margin-top:auto;align-self:flex-start;background:#25d366;color:#05331b;font-family:var(--display);font-weight:700;font-size:.56rem;border-radius:6px;padding:4px 8px}
+  .dev{display:flex;flex-direction:column;align-items:center;gap:12px}
+  .dev .cap{font-family:var(--display);font-weight:600;color:var(--muted);font-size:.9rem;display:flex;align-items:center;gap:7px}
+  .dev .cap svg{color:var(--brand)}
+  /* phone */
+  .phone{width:132px;height:270px;border-radius:22px;background:#0d1a15;padding:9px;box-shadow:0 20px 40px rgba(0,0,0,.28);border:1px solid var(--line)}
+  .phone .mini{border-radius:14px}
+  /* laptop */
+  .laptop{display:flex;flex-direction:column;align-items:center}
+  .laptop .scr{width:270px;height:170px;background:#0d1a15;border-radius:12px 12px 0 0;padding:9px;border:1px solid var(--line);border-bottom:0}
+  .laptop .base{width:320px;height:13px;background:linear-gradient(#cfd8d3,#9fb0a8);border-radius:0 0 11px 11px;position:relative}
+  .laptop .base::after{content:"";position:absolute;top:0;left:50%;transform:translateX(-50%);width:70px;height:5px;background:rgba(0,0,0,.18);border-radius:0 0 6px 6px}
+  :root[data-theme="dark"] .laptop .base,@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .laptop .base{background:linear-gradient(#2a3a33,#15241e)}}
+  /* desktop */
+  .desktop{display:flex;flex-direction:column;align-items:center}
+  .desktop .scr{width:250px;height:165px;background:#0d1a15;border-radius:12px;padding:9px;border:1px solid var(--line)}
+  .desktop .neck{width:16px;height:16px;background:#9fb0a8}
+  .desktop .foot{width:90px;height:9px;background:#9fb0a8;border-radius:4px}
+  /* ---------- security ---------- */
   .panel{border-radius:22px;padding:34px;border:1px solid var(--line);background:var(--surface);box-shadow:var(--shadow)}
-  .panel .ico{width:56px;height:56px;border-radius:16px;display:grid;place-items:center;font-size:26px;margin-bottom:18px}
-  .panel.inst .ico{background:#e9f1fd;color:#2f6fd1}
-  .panel.sec .ico{background:#e4f6ec;color:var(--good)}
-  @media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .panel.inst .ico{background:#142031;color:#8bb6f0}:root:not([data-theme="light"]) .panel.sec .ico{background:#0f2a1e;color:#4fe09a}}
-  :root[data-theme="dark"] .panel.inst .ico{background:#142031;color:#8bb6f0}
-  :root[data-theme="dark"] .panel.sec .ico{background:#0f2a1e;color:#4fe09a}
+  .panel .ico{width:56px;height:56px;border-radius:16px;display:grid;place-items:center;font-size:26px;margin-bottom:18px;background:#e4f6ec;color:var(--good)}
+  @media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .panel .ico{background:#0f2a1e;color:#4fe09a}}
+  :root[data-theme="dark"] .panel .ico{background:#0f2a1e;color:#4fe09a}
   .panel h3{font-size:1.45rem;margin-bottom:12px}
-  .panel ul{list-style:none;padding:0;margin:18px 0 0;display:flex;flex-direction:column;gap:12px}
-  .panel li{display:flex;gap:11px;align-items:flex-start;color:var(--muted)}
-  .panel li svg{color:var(--good);margin-top:3px;flex:none}
-  .panel li b{color:var(--ink);font-family:var(--display);font-weight:600}
+  .seclist{list-style:none;padding:0;margin:18px 0 0;display:grid;grid-template-columns:1fr;gap:12px}
+  @media(min-width:680px){.seclist{grid-template-columns:1fr 1fr}}
+  .seclist li{display:flex;gap:11px;align-items:flex-start;color:var(--muted)}
+  .seclist li svg{color:var(--good);margin-top:3px;flex:none}
+  .seclist li b{color:var(--ink);font-family:var(--display);font-weight:600}
   /* ---------- steps / price ---------- */
-  .steps{display:grid;grid-template-columns:1fr;gap:20px;counter-reset:s}
+  .steps{display:grid;grid-template-columns:1fr;gap:20px}
   @media(min-width:800px){.steps{grid-template-columns:repeat(3,1fr)}}
-  .step{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:28px;position:relative}
+  .step{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:28px}
   .step .n{width:40px;height:40px;border-radius:12px;background:var(--brand);color:#fff;font-family:var(--display);font-weight:800;display:grid;place-items:center;font-size:1.1rem;margin-bottom:14px}
   .step h3{font-size:1.15rem;margin-bottom:8px}
   .step p{color:var(--muted);font-size:.98rem}
   .pricecard{margin-top:40px;background:linear-gradient(165deg,var(--brand-deep),#0a3b2b);color:#eafaf2;border-radius:26px;padding:40px;text-align:center}
   .pricecard .tag{color:#ffce5a;font-family:var(--display);font-weight:700;letter-spacing:.05em;text-transform:uppercase;font-size:.85rem}
   .pricecard h3{color:#fff;font-size:clamp(1.6rem,4vw,2.2rem);margin:12px 0}
-  .pricecard p{color:#cfeadd;max-width:46ch;margin:0 auto 26px}
+  .pricecard p{color:#cfeadd;max-width:48ch;margin:0 auto 26px}
   .pricecard .cta{display:flex;flex-wrap:wrap;gap:14px;justify-content:center}
   /* ---------- final + footer ---------- */
   .final{background:var(--accent-soft)}
   .final .box{text-align:center}
   .final h2{font-size:clamp(1.8rem,5vw,2.6rem)}
-  .final p{color:var(--muted);font-size:1.12rem;margin:16px auto 0;max-width:44ch}
+  .final p{color:var(--muted);font-size:1.12rem;margin:16px auto 0;max-width:46ch}
   .wa-num{margin-top:22px;display:inline-flex;align-items:center;gap:10px;background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:12px 20px;font-family:var(--display);font-weight:700;font-size:1.15rem;user-select:all}
   .wa-num svg{color:#25d366}
   footer{background:var(--brand-ink);color:#bfe3d4;padding-block:34px;font-size:.92rem}
@@ -171,9 +209,9 @@
 <!-- ===== icon sprite ===== -->
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
   <symbol id="i-eyeoff" viewBox="0 0 24 24"><path d="M9.9 4.24A9.1 9.1 0 0 1 12 4c7 0 10 8 10 8a18 18 0 0 1-2.16 3.19M6.6 6.6A18 18 0 0 0 2 12s3 8 10 8a9 9 0 0 0 5.4-1.6"/><path d="M14.1 14.1a3 3 0 1 1-4.2-4.2"/><line x1="2" y1="2" x2="22" y2="22"/></symbol>
-  <symbol id="i-calc" viewBox="0 0 24 24"><rect x="4" y="2" width="16" height="20" rx="2"/><line x1="8" y1="6" x2="16" y2="6"/><line x1="8" y1="10" x2="8" y2="10"/><line x1="12" y1="10" x2="12" y2="10"/><line x1="16" y1="10" x2="16" y2="10"/><line x1="8" y1="14" x2="8" y2="14"/><line x1="12" y1="14" x2="12" y2="14"/><line x1="16" y1="14" x2="16" y2="18"/><line x1="8" y1="18" x2="12" y2="18"/></symbol>
-  <symbol id="i-wifioff" viewBox="0 0 24 24"><line x1="2" y1="2" x2="22" y2="22"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><path d="M2 8.8a15.9 15.9 0 0 1 4.3-2.6"/><path d="M5 12.5a10 10 0 0 1 3-1.9"/><path d="M10.7 5.1A16 16 0 0 1 22 8.8"/><path d="M16.8 11.3A10 10 0 0 1 19 12.5"/><line x1="12" y1="20" x2="12" y2="20"/></symbol>
-  <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 3l1.9 4.6L18.5 9l-4.6 1.9L12 15l-1.9-4.1L5.5 9l4.6-1.4L12 3z"/><path d="M19 14l.8 2 .2.8-2-.8"/><path d="M5 16l.8 2 2 .8-2 .2"/></symbol>
+  <symbol id="i-calc" viewBox="0 0 24 24"><rect x="4" y="2" width="16" height="20" rx="2"/><line x1="8" y1="6" x2="16" y2="6"/><line x1="16" y1="14" x2="16" y2="18"/><line x1="8" y1="18" x2="12" y2="18"/></symbol>
+  <symbol id="i-wifioff" viewBox="0 0 24 24"><line x1="2" y1="2" x2="22" y2="22"/><path d="M8.5 16.5a5 5 0 0 1 7 0"/><path d="M2 8.8a15.9 15.9 0 0 1 4.3-2.6"/><path d="M10.7 5.1A16 16 0 0 1 22 8.8"/><path d="M5 12.5a10 10 0 0 1 3-1.9"/><path d="M16.8 11.3A10 10 0 0 1 19 12.5"/></symbol>
+  <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 3l1.9 4.6L18.5 9l-4.6 1.9L12 15l-1.9-4.1L5.5 9l4.6-1.4L12 3z"/></symbol>
   <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></symbol>
   <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></symbol>
   <symbol id="i-pump" viewBox="0 0 24 24"><path d="M4 21V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v16"/><line x1="3" y1="21" x2="15" y2="21"/><rect x="6" y="6" width="6" height="4"/><path d="M14 8h3a2 2 0 0 1 2 2v6a1.5 1.5 0 0 0 3 0V9l-2-2"/></symbol>
@@ -184,10 +222,28 @@
   <symbol id="i-cam" viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></symbol>
   <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0"/><line x1="12" y1="19" x2="12" y2="22"/></symbol>
   <symbol id="i-wa" viewBox="0 0 24 24" stroke="none" fill="currentColor"><path d="M12 2a10 10 0 0 0-8.6 15l-1.3 4.7 4.8-1.3A10 10 0 1 0 12 2zm5.3 14.1c-.2.6-1.3 1.2-1.8 1.2-.5.1-1 .1-1.7-.1-.4-.1-.9-.3-1.6-.6-2.8-1.2-4.6-4-4.7-4.2-.1-.2-1.1-1.5-1.1-2.8s.7-2 .9-2.2c.2-.3.5-.3.7-.3h.5c.2 0 .4 0 .6.5l.8 2c.1.2.1.3 0 .5l-.4.5c-.2.2-.3.4-.1.6.2.4.9 1.4 1.9 2 .8.5 1.1.6 1.4.5.2-.1.5-.5.7-.8.2-.2.4-.2.6-.1l1.9.9c.2.1.4.2.4.3.1.2.1.6-.1 1.2z"/></symbol>
-  <symbol id="i-devices" viewBox="0 0 24 24"><rect x="2" y="4" width="14" height="10" rx="1.5"/><line x1="2" y1="18" x2="12" y2="18"/><rect x="17" y="8" width="5" height="12" rx="1.5"/></symbol>
+  <symbol id="i-phone" viewBox="0 0 24 24"><rect x="7" y="2" width="10" height="20" rx="2"/><line x1="11" y1="18" x2="13" y2="18"/></symbol>
+  <symbol id="i-laptop" viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="11" rx="1.5"/><line x1="2" y1="20" x2="22" y2="20"/></symbol>
+  <symbol id="i-desktop" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="1.5"/><line x1="8" y1="20" x2="16" y2="20"/><line x1="12" y1="16" x2="12" y2="20"/></symbol>
   <symbol id="i-cloud" viewBox="0 0 24 24"><path d="M17.5 19a4.5 4.5 0 0 0 .5-9 6 6 0 0 0-11.6-1.5A4 4 0 0 0 6.5 19z"/><path d="M9 13l2 2 4-4"/></symbol>
   <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></symbol>
   <symbol id="i-coins" viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v6c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/><path d="M4 12v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></symbol>
+  <symbol id="i-truck" viewBox="0 0 24 24"><rect x="1" y="6" width="13" height="10" rx="1"/><path d="M14 9h4l3 3v4h-7z"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="18" r="2"/></symbol>
+  <symbol id="i-container" viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="12" rx="1"/><line x1="7" y1="7" x2="7" y2="19"/><line x1="12" y1="7" x2="12" y2="19"/><line x1="17" y1="7" x2="17" y2="19"/></symbol>
+  <symbol id="i-bank" viewBox="0 0 24 24"><path d="M3 10l9-6 9 6"/><line x1="4" y1="10" x2="4" y2="20"/><line x1="20" y1="10" x2="20" y2="20"/><line x1="8" y1="10" x2="8" y2="20"/><line x1="12" y1="10" x2="12" y2="20"/><line x1="16" y1="10" x2="16" y2="20"/><line x1="2" y1="20" x2="22" y2="20"/></symbol>
+  <symbol id="i-cheque" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M6 15l2 2 4-4"/><line x1="14" y1="10" x2="18" y2="10"/><line x1="14" y1="14" x2="18" y2="14"/></symbol>
+  <symbol id="i-shop" viewBox="0 0 24 24"><path d="M3 9l1.5-5h15L21 9"/><path d="M4 9v10a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V9"/><path d="M3 9a3 3 0 0 0 6 0 3 3 0 0 0 6 0 3 3 0 0 0 6 0"/></symbol>
+  <symbol id="i-factory" viewBox="0 0 24 24"><path d="M3 21V9l6 4V9l6 4V7h3v14z"/><line x1="3" y1="21" x2="21" y2="21"/></symbol>
+  <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/><rect x="10" y="14" width="4" height="6"/></symbol>
+  <symbol id="i-receipt" viewBox="0 0 24 24"><path d="M5 2v20l2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1z"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="9" y1="12" x2="15" y2="12"/></symbol>
+  <symbol id="i-ticket" viewBox="0 0 24 24"><path d="M3 8a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2 2 2 0 0 0 0 4 2 2 0 0 1-2 2H5a2 2 0 0 1-2-2 2 2 0 0 0 0-4z"/><line x1="13" y1="6" x2="13" y2="18"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+  <symbol id="i-wrench" viewBox="0 0 24 24"><path d="M14.7 6.3a4 4 0 0 0-5.2 5.2L3 18l3 3 6.5-6.5a4 4 0 0 0 5.2-5.2l-2.5 2.5-2.5-2.5z"/></symbol>
+  <symbol id="i-ban" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><line x1="5.6" y1="5.6" x2="18.4" y2="18.4"/></symbol>
+  <symbol id="i-history" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 4v4h4"/><path d="M12 8v4l3 2"/></symbol>
+  <symbol id="i-bot" viewBox="0 0 24 24"><rect x="4" y="8" width="16" height="12" rx="2"/><circle cx="9" cy="14" r="1"/><circle cx="15" cy="14" r="1"/><line x1="12" y1="4" x2="12" y2="8"/><circle cx="12" cy="3" r="1"/></symbol>
+  <symbol id="i-star" viewBox="0 0 24 24"><path d="M12 3l2.9 6 6.6.9-4.8 4.6 1.2 6.5L12 18.8 6.1 21l1.2-6.5L2.5 9.9 9.1 9z"/></symbol>
+  <symbol id="i-gauge" viewBox="0 0 24 24"><path d="M12 14l4-4"/><path d="M4 18a8 8 0 1 1 16 0"/><circle cx="12" cy="14" r="1.3"/></symbol>
   <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
 </svg>
 
@@ -221,7 +277,7 @@
     <div>
       <span class="eyebrow"><svg class="ic" aria-hidden="true"><use href="#i-spark"/></svg> Poora system AI par</span>
       <h1>Apna petrol pump <span class="hl">AI</span> ke saath chalayein</h1>
-      <p class="sub">Sale, udhaar (khata), stock, staff aur cash — sab ek app mein. <span class="urdu">چوری بند، حساب بالکل ٹھیک۔</span></p>
+      <p class="sub">Sale, khata, wholesale supply, cashier, stock, staff aur accounts — poora pump ek app mein. <span class="urdu">چوری بند، حساب بالکل ٹھیک۔</span></p>
       <div class="cta">
         <a class="btn btn-primary btn-lg" href="SIGNUP_URL"><svg class="ic" aria-hidden="true"><use href="#i-pump"/></svg> 7 din Muft Try Karein</a>
         <a class="btn btn-wa btn-lg" href="WHATSAPP_URL"><svg class="ic" aria-hidden="true"><use href="#i-wa"/></svg> WhatsApp par baat karein</a>
@@ -230,6 +286,7 @@
         <span><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg> Chori band</span>
         <span><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg> Hisaab 100% theek</span>
         <span><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg> Net ke baghair bhi chale</span>
+        <span><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg> Phone, laptop, computer</span>
       </div>
     </div>
     <div>
@@ -245,54 +302,139 @@
   </div>
 </section>
 
-<!-- ===== BIG THREE ===== -->
+<!-- ===== BIG FOUR ===== -->
 <section class="band">
   <div class="wrap">
     <div class="shead">
-      <div class="kick">Teen badi fikrein — khatam</div>
+      <div class="kick">Chaar badi fikrein — khatam</div>
       <h2>Jo pareshani har pump wale ko hai, uska hal</h2>
     </div>
     <div class="three">
       <div class="big red">
         <div class="halo"><svg class="ic" aria-hidden="true"><use href="#i-eyeoff"/></svg></div>
         <h3>Chori khatam</h3>
-        <p>Har litre, har rupaya record hota hai. Meter, cash aur stock khud milate hain — paisa idhar-udhar nahi ho sakta.</p>
+        <p>Har litre, har rupaya record. Meter, cash aur stock khud milate hain — paisa idhar-udhar nahi ho sakta.</p>
         <p class="urdu">اب کوئی چوری نہیں۔</p>
       </div>
       <div class="big blue">
         <div class="halo"><svg class="ic" aria-hidden="true"><use href="#i-calc"/></svg></div>
         <h3>Ghalat hisaab khatam</h3>
-        <p>App khud jama-tafreeq karta hai. Din ke akhir mein sab apne aap barabar — kaghaz par ginti ki ghalti nahi.</p>
+        <p>App khud jama-tafreeq karta hai. Din ke akhir mein sab apne aap barabar — ginti ki ghalti nahi.</p>
         <p class="urdu">حساب بالکل ٹھیک۔</p>
+      </div>
+      <div class="big gold">
+        <div class="halo"><svg class="ic" aria-hidden="true"><use href="#i-ban"/></svg></div>
+        <h3>Malik sab theek kare</h3>
+        <p>Koi entry ghalat ho to CEO ek click mein theek (void) kare — poora hisaab phir barabar, 0 rupay farq.</p>
+        <p class="urdu">ہر غلطی مالک ٹھیک کرے۔</p>
       </div>
       <div class="big green">
         <div class="halo"><svg class="ic" aria-hidden="true"><use href="#i-wifioff"/></svg></div>
         <h3>Net ke baghair bhi</h3>
-        <p>Bijli ya net chala jaye, app phir bhi chalta rahta hai. Net aate hi sab apne aap save ho jata hai.</p>
+        <p>Bijli ya net chala jaye, app phir bhi chale. Net aate hi sab apne aap save ho jata hai.</p>
         <p class="urdu">انٹرنیٹ نہ ہو تب بھی چلے۔</p>
       </div>
     </div>
   </div>
 </section>
 
-<!-- ===== FEATURES ===== -->
-<section class="band" id="features" style="background:color-mix(in srgb,var(--brand) 6%,var(--bg))">
+<!-- ===== ROLES ===== -->
+<section class="band" style="background:color-mix(in srgb,var(--brand) 6%,var(--bg))">
   <div class="wrap">
     <div class="shead">
-      <div class="kick">Sab kuch ek app mein</div>
-      <h2>Aap ke pump ka har kaam</h2>
-      <p>Har feature AI ke saath — aasan, tez aur bharosemand.</p>
+      <div class="kick">Har banda, apna kaam</div>
+      <h2>Malik se salesman tak — sab ke liye</h2>
+      <p>Har aadmi sirf apna kaam dekhta hai. Malik poora pump — ghar baithe.</p>
     </div>
-    <div class="feat">
-      <div class="card"><div class="ico"><svg class="ic" aria-hidden="true"><use href="#i-pump"/></svg></div><h3>Sale (POS)</h3><p>Petrol, diesel, hi-octane — ek tap mein bikri. Meter reading bhi app sambhalta hai.</p></div>
-      <div class="card"><div class="ico"><svg class="ic" aria-hidden="true"><use href="#i-book"/></svg></div><h3>Udhaar / Khata</h3><p>Har customer ka udhaar alag. Balance, limit aur WhatsApp par yaad-dahani — sab khud.</p></div>
-      <div class="card"><div class="ico"><svg class="ic" aria-hidden="true"><use href="#i-coins"/></svg></div><h3>Cash aur Bank</h3><p>Cashier ki jama-nikasi, cheque aur bank — har rupay ka hisaab roz barabar.</p></div>
-      <div class="card"><div class="ico"><svg class="ic" aria-hidden="true"><use href="#i-pump"/></svg></div><h3>Stock / Tank</h3><p>Kitna tel tank mein hai, kab khatam hoga, supplier se kitna aaya — sab live.</p></div>
-      <div class="card"><div class="ico"><svg class="ic" aria-hidden="true"><use href="#i-users"/></svg></div><h3>Staff</h3><p>Hazri (selfie + jagah), tankhwah, advance aur shift cash — mulazmon ka poora record.</p></div>
-      <div class="card"><div class="ico"><svg class="ic" aria-hidden="true"><use href="#i-cam"/></svg></div><h3>Photo se entry</h3><p>Meter ya parchi ki photo kheenchein — AI khud padh ke entry bana deta hai.</p></div>
-      <div class="card"><div class="ico"><svg class="ic" aria-hidden="true"><use href="#i-mic"/></svg></div><h3>Bol ke entry</h3><p>Likhna na aaye? Bas bol dein — "500 ka diesel udhaar" — AODAI samajh ke likh deta hai.</p></div>
-      <div class="card"><div class="ico"><svg class="ic" aria-hidden="true"><use href="#i-chart"/></svg></div><h3>Malik ki report</h3><p>Aaj kitna kamaya, kitna nafa — saaf saaf. Ghar baithe phone par poora pump dekhein.</p></div>
-      <div class="card"><div class="ico"><svg class="ic" aria-hidden="true"><use href="#i-bell"/></svg></div><h3>Yaad-dahani</h3><p>Udhaar wasooli, license ki tareekh, tank kam — app khud yaad dilata hai.</p></div>
+    <div class="roles">
+      <div class="role"><div class="av" style="background:#334155">M</div><h3>Malik / CEO</h3><span class="ur">مالک</span><p>Poora pump, reports, nafa. Har ghalti theek kare (void). Sab ka control.</p></div>
+      <div class="role"><div class="av" style="background:#2f6fd1">M</div><h3>Manager</h3><span class="ur">مینیجر</span><p>Rozana kaam — rate, stock, approvals aur staff sambhale.</p></div>
+      <div class="role"><div class="av" style="background:var(--accent);color:#3a2a00">C</div><h3>Cashier</h3><span class="ur">کیشئر</span><p>Wasooli, adaigi, cheque, bank aur salesman se cash handover.</p></div>
+      <div class="role"><div class="av" style="background:var(--good)">S</div><h3>Salesman</h3><span class="ur">سیلزمین</span><p>Apni bikri, shift, meter reading aur rozana check — bas itna.</p></div>
+      <div class="role"><div class="av" style="background:#7c3aed">W</div><h3>Wholesale</h3><span class="ur">ہول سیل</span><p>Thok supply, tanker trips, rate aur wasooli — alag se.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== FEATURES ===== -->
+<section class="band" id="features">
+  <div class="wrap">
+    <div class="shead">
+      <div class="kick">Poora system</div>
+      <h2>Aap ke pump ka har kaam — ek app mein</h2>
+      <p>Har feature AI ke saath: aasan, tez aur bharosemand.</p>
+    </div>
+
+    <div class="fgroup">
+      <h3><span class="gi"><svg class="ic" aria-hidden="true"><use href="#i-pump"/></svg></span> Bikri &amp; Shift</h3>
+      <div class="feat">
+        <div class="card"><div class="ico"><svg class="ic" aria-hidden="true"><use href="#i-pump"/></svg></div><div><h4>Sale / POS</h4><p>Petrol, diesel, hi-octane — ek tap mein bikri aur parchi.</p></div></div>
+        <div class="card"><div class="ico"><svg class="ic" aria-hidden="true"><use href="#i-gauge"/></svg></div><div><h4>Meter reading</h4><p>Nozzle meter khud sambhale — test litre bhi alag ginti.</p></div></div>
+        <div class="card"><div class="ico"><svg class="ic" aria-hidden="true"><use href="#i-clock"/></svg></div><div><h4>Shift close</h4><p>Shift khatam — online total, cash, udhaar sab ek click mein milayein.</p></div></div>
+      </div>
+    </div>
+
+    <div class="fgroup">
+      <h3><span class="gi"><svg class="ic" aria-hidden="true"><use href="#i-users"/></svg></span> Customer &amp; Khata</h3>
+      <div class="feat">
+        <div class="card"><div class="ico"><svg class="ic" aria-hidden="true"><use href="#i-users"/></svg></div><div><h4>Clients / Customer</h4><p>Har customer ka naam, gaari aur poora record ek jagah.</p></div></div>
+        <div class="card"><div class="ico"><svg class="ic" aria-hidden="true"><use href="#i-book"/></svg></div><div><h4>Khata (Udhaar)</h4><p>Har customer ka udhaar alag, limit aur WhatsApp par yaad-dahani.</p></div></div>
+        <div class="card"><div class="ico"><svg class="ic" aria-hidden="true"><use href="#i-ticket"/></svg></div><div><h4>Coupons &amp; Wallet</h4><p>Advance wallet, coupon aur loyalty — pakke customer ke liye.</p></div></div>
+        <div class="card"><div class="ico"><svg class="ic" aria-hidden="true"><use href="#i-wa"/></svg></div><div><h4>WhatsApp CRM</h4><p>Customer ke message ka jawab aur bill — sab WhatsApp par.</p></div></div>
+      </div>
+    </div>
+
+    <div class="fgroup">
+      <h3><span class="gi"><svg class="ic" aria-hidden="true"><use href="#i-container"/></svg></span> Wholesale Supply &amp; Carriage</h3>
+      <div class="feat">
+        <div class="card"><div class="ico"><svg class="ic" aria-hidden="true"><use href="#i-container"/></svg></div><div><h4>Thok supply</h4><p>Wholesale clients, order book aur unka alag rate &amp; khata.</p></div></div>
+        <div class="card"><div class="ico"><svg class="ic" aria-hidden="true"><use href="#i-truck"/></svg></div><div><h4>Tanker trips</h4><p>Konsa tanker, kitna tel, konse client tak — poora trip record.</p></div></div>
+        <div class="card"><div class="ico"><svg class="ic" aria-hidden="true"><use href="#i-coins"/></svg></div><div><h4>Recovery / Wasooli</h4><p>Kis client se kitna lena — call list aur yaad-dahani.</p></div></div>
+        <div class="card"><div class="ico"><svg class="ic" aria-hidden="true"><use href="#i-truck"/></svg></div><div><h4>Carriage / Kiraya</h4><p>Thekedar aur kiraye ka hisaab — har trip ka paisa clear.</p></div></div>
+      </div>
+    </div>
+
+    <div class="fgroup">
+      <h3><span class="gi"><svg class="ic" aria-hidden="true"><use href="#i-bank"/></svg></span> Paisa, Cashier &amp; Account</h3>
+      <div class="feat">
+        <div class="card"><div class="ico"><svg class="ic" aria-hidden="true"><use href="#i-coins"/></svg></div><div><h4>Cashier desk</h4><p>Wasooli, adaigi aur din ka roznamcha (day book) — cashier ke liye.</p></div></div>
+        <div class="card"><div class="ico"><svg class="ic" aria-hidden="true"><use href="#i-cheque"/></svg></div><div><h4>Cheque</h4><p>Cheque lena-dena, clear/bounce — bank se poora milan.</p></div></div>
+        <div class="card"><div class="ico"><svg class="ic" aria-hidden="true"><use href="#i-bank"/></svg></div><div><h4>Cash &amp; Bank</h4><p>Pakistani bank list, per-bank balance aur rozana tally.</p></div></div>
+        <div class="card"><div class="ico"><svg class="ic" aria-hidden="true"><use href="#i-receipt"/></svg></div><div><h4>Kharcha (Expenses)</h4><p>Bijli, mazdoori, maramat — har kharcha category ke saath.</p></div></div>
+        <div class="card"><div class="ico"><svg class="ic" aria-hidden="true"><use href="#i-factory"/></svg></div><div><h4>Suppliers</h4><p>Supplier se tel, payment aur unka khata — sab hisaab.</p></div></div>
+        <div class="card"><div class="ico"><svg class="ic" aria-hidden="true"><use href="#i-cheque"/></svg></div><div><h4>Card machine (POS)</h4><p>Bank POS card se bikri — settlement aur "pending" clear hone tak poora track.</p></div></div>
+        <div class="card"><div class="ico"><svg class="ic" aria-hidden="true"><use href="#i-bank"/></svg></div><div><h4>Bank milan &amp; Tax</h4><p>Bank statement se milan (reconcile), accounts aur tax — sab apne aap barabar.</p></div></div>
+        <div class="card"><div class="ico"><svg class="ic" aria-hidden="true"><use href="#i-home"/></svg></div><div><h4>Property &amp; Rent</h4><p>Dukaan/property ka kiraya aur receipt — alag record.</p></div></div>
+      </div>
+    </div>
+
+    <div class="fgroup">
+      <h3><span class="gi"><svg class="ic" aria-hidden="true"><use href="#i-pump"/></svg></span> Stock, Rate &amp; Shop</h3>
+      <div class="feat">
+        <div class="card"><div class="ico"><svg class="ic" aria-hidden="true"><use href="#i-pump"/></svg></div><div><h4>Tank &amp; Stock</h4><p>Kitna tel tank mein, kab khatam hoga — sab live.</p></div></div>
+        <div class="card"><div class="ico"><svg class="ic" aria-hidden="true"><use href="#i-book"/></svg></div><div><h4>Stock register</h4><p>Aaya kitna, bika kitna, bacha kitna — poora khata-bahi.</p></div></div>
+        <div class="card"><div class="ico"><svg class="ic" aria-hidden="true"><use href="#i-shop"/></svg></div><div><h4>Shop &amp; Lubricants</h4><p>Mobil oil aur dukaan ka saaman — chhoti POS.</p></div></div>
+      </div>
+    </div>
+
+    <div class="fgroup">
+      <h3><span class="gi"><svg class="ic" aria-hidden="true"><use href="#i-users"/></svg></span> Staff &amp; Safety</h3>
+      <div class="feat">
+        <div class="card"><div class="ico"><svg class="ic" aria-hidden="true"><use href="#i-users"/></svg></div><div><h4>Staff &amp; Tankhwah</h4><p>Hazri (selfie + jagah), tankhwah, advance aur loan.</p></div></div>
+        <div class="card"><div class="ico"><svg class="ic" aria-hidden="true"><use href="#i-star"/></svg></div><div><h4>Rating &amp; Commission</h4><p>Salesman ki performance aur commission — khud.</p></div></div>
+        <div class="card"><div class="ico"><svg class="ic" aria-hidden="true"><use href="#i-shield"/></svg></div><div><h4>Licence &amp; Checklist</h4><p>License ki tareekh, rozana safety check — yaad khud dilaye.</p></div></div>
+        <div class="card"><div class="ico"><svg class="ic" aria-hidden="true"><use href="#i-wrench"/></svg></div><div><h4>Machines</h4><p>Dispenser/machine ki service, kharabi aur warranty.</p></div></div>
+      </div>
+    </div>
+
+    <div class="fgroup">
+      <h3><span class="gi"><svg class="ic" aria-hidden="true"><use href="#i-chart"/></svg></span> Malik ka Control &amp; AI</h3>
+      <div class="feat">
+        <div class="card"><div class="ico"><svg class="ic" aria-hidden="true"><use href="#i-chart"/></svg></div><div><h4>Reports &amp; Insights</h4><p>Aaj ka nafa, mahana PDF report — ghar baithe sab dekhein.</p></div></div>
+        <div class="card"><div class="ico"><svg class="ic" aria-hidden="true"><use href="#i-ban"/></svg></div><div><h4>Corrections (Void)</h4><p>Koi ghalat entry? CEO ek click mein theek kare, 0 farq.</p></div></div>
+        <div class="card"><div class="ico"><svg class="ic" aria-hidden="true"><use href="#i-history"/></svg></div><div><h4>Audit log</h4><p>Kis ne kya badla, kab — har tabdeeli ka poora record.</p></div></div>
+        <div class="card"><div class="ico"><svg class="ic" aria-hidden="true"><use href="#i-bot"/></svg></div><div><h4>AI Automations</h4><p>Yaad-dahani, wasooli aur rozana kaam — AI khud kare.</p></div></div>
+      </div>
     </div>
   </div>
 </section>
@@ -305,48 +447,58 @@
       <h2>Aap ka poora pump — AI ke dimagh se</h2>
       <p class="lead">Likhna-parhna kam aata ho to koi baat nahi. App se baat karein — bol ke, photo se ya WhatsApp par — AI baaki sab khud sambhal leta hai.</p>
       <ul class="ailist">
-        <li><span class="b"><svg class="ic" aria-hidden="true"><use href="#i-mic"/></svg></span><div><b>Bol ke kaam</b><p>Roman Urdu mein bolein, AI entry bana deta hai.</p></div></li>
-        <li><span class="b"><svg class="ic" aria-hidden="true"><use href="#i-cam"/></svg></span><div><b>Photo samajhta hai</b><p>Meter, cheque, parchi ki photo se khud number nikal leta hai.</p></div></li>
+        <li><span class="b"><svg class="ic" aria-hidden="true"><use href="#i-cam"/></svg></span><div><b>AI meter reading</b><p>Meter ki photo kheenchein — AI khud reading padh ke bikri bana deta hai.</p></div></li>
+        <li><span class="b"><svg class="ic" aria-hidden="true"><use href="#i-mic"/></svg></span><div><b>Bol ke kaam</b><p>Roman Urdu mein bolein — "40 litre diesel udhaar" — AI entry bana deta hai.</p></div></li>
         <li><span class="b"><svg class="ic" aria-hidden="true"><use href="#i-wa"/></svg></span><div><b>WhatsApp par jawab</b><p>Customer ke message ka jawab aur yaad-dahani — AI khud.</p></div></li>
       </ul>
     </div>
     <div class="aichat" aria-label="AI misaal">
+      <div class="bubble me"><span class="tag">Aap ne meter ki photo bheji</span>📷 Nozzle 2 — meter 84,520</div>
+      <div class="bubble ai"><span class="tag">Petrol PumpAI</span>Padh liya ✓ Pichhli reading 84,060 thi. 460 L diesel bika (Rs 1,28,800). Shift mein likh diya.</div>
       <div class="bubble me"><span class="tag">Aap ne bola</span>Ali bhai ko 40 litre diesel udhaar</div>
-      <div class="bubble ai"><span class="tag">Petrol PumpAI</span>Theek hai ✓ Ali bhai ke khate mein 40 L diesel (Rs 11,200) likh diya. Naya balance Rs 23,700.</div>
-      <div class="bubble me"><span class="tag">Aap ne bola</span>Aaj ka nafa kitna?</div>
-      <div class="bubble ai"><span class="tag">Petrol PumpAI</span>Aaj ka nafa Rs 48,600. Petrol sab se zyada bika. Udhaar Rs 45,000 abhi baqi hai.</div>
+      <div class="bubble ai"><span class="tag">Petrol PumpAI</span>Theek hai ✓ Ali bhai ke khate mein 40 L (Rs 11,200). Naya balance Rs 23,700.</div>
     </div>
   </div>
 </section>
 
-<!-- ===== INSTALL + SECURITY ===== -->
-<section class="band">
+<!-- ===== DEVICES ===== -->
+<section class="devices band">
   <div class="wrap">
     <div class="shead">
-      <div class="kick">Har jagah, mehfooz</div>
-      <h2>Phone ho ya computer — foran shuru</h2>
+      <div class="kick">Har device par chale</div>
+      <h2>Phone, laptop ya computer — ek jaisa app</h2>
+      <p>App ki tarah install ho jata hai. Koi CD ya setup nahi — bas kholein aur "Install" dabayein. Net na ho tab bhi chale.</p>
     </div>
-    <div class="split">
-      <div class="panel inst">
-        <div class="ico"><svg class="ic" aria-hidden="true"><use href="#i-devices"/></svg></div>
-        <h3>Mobile, laptop, computer — sab par</h3>
-        <p style="color:var(--muted)">App ki tarah install ho jata hai. Koi CD ya setup nahi — bas kholein aur "Install" dabayein.</p>
-        <ul>
-          <li><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg><span><b>Android phone</b> par app ki tarah — home screen par icon.</span></li>
-          <li><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg><span><b>Laptop ya computer</b> par browser se — ya desktop app bana lein.</span></li>
-          <li><svg class="ic" aria-hidden="true"><use href="#i-cloud"/></svg><span><b>Online + offline</b> — net na ho tab bhi chale, baad mein khud save.</span></li>
-        </ul>
+    <div class="stage">
+      <div class="dev">
+        <div class="phone"><div class="mini"><div class="mh"><span class="dot"></span>Petrol PumpAI</div><div class="mb"><div class="bar a"></div><div class="bar b"></div><div class="bar c"></div><div class="bar d"></div><div class="bar b"></div><span class="pill">Sale karein</span></div></div></div>
+        <span class="cap"><svg class="ic" aria-hidden="true"><use href="#i-phone"/></svg> Mobile</span>
       </div>
-      <div class="panel sec">
-        <div class="ico"><svg class="ic" aria-hidden="true"><use href="#i-shield"/></svg></div>
-        <h3>Sab se mehfooz — aap ka data, aap ka</h3>
-        <p style="color:var(--muted)">Har pump ka data bilkul alag aur taala-band. Dusra koi aap ka hisaab nahi dekh sakta.</p>
-        <ul>
-          <li><svg class="ic" aria-hidden="true"><use href="#i-lock"/></svg><span><b>PIN aur password</b> se mehfooz — har banda sirf apna kaam dekhe.</span></li>
-          <li><svg class="ic" aria-hidden="true"><use href="#i-shield"/></svg><span><b>Har tabdeeli ka record</b> — kis ne kya badla, poora hisaab (audit).</span></li>
-          <li><svg class="ic" aria-hidden="true"><use href="#i-cloud"/></svg><span><b>Roz backup</b> — data kabhi zaya nahi hota.</span></li>
-        </ul>
+      <div class="dev">
+        <div class="laptop"><div class="scr"><div class="mini"><div class="mh"><span class="dot"></span>Petrol PumpAI · Dashboard</div><div class="mb"><div class="bar a"></div><div class="bar c"></div><div class="bar b"></div><span class="pill">Aaj ka nafa</span></div></div></div><div class="base"></div></div>
+        <span class="cap"><svg class="ic" aria-hidden="true"><use href="#i-laptop"/></svg> Laptop</span>
       </div>
+      <div class="dev">
+        <div class="desktop"><div class="scr"><div class="mini"><div class="mh"><span class="dot"></span>Petrol PumpAI</div><div class="mb"><div class="bar b"></div><div class="bar a"></div><div class="bar c"></div><span class="pill">Reports</span></div></div></div><div class="neck"></div><div class="foot"></div></div>
+        <span class="cap"><svg class="ic" aria-hidden="true"><use href="#i-desktop"/></svg> Computer</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== SECURITY ===== -->
+<section class="band">
+  <div class="wrap">
+    <div class="panel">
+      <div class="ico"><svg class="ic" aria-hidden="true"><use href="#i-shield"/></svg></div>
+      <h3>Sab se mehfooz — aap ka data, sirf aap ka</h3>
+      <p style="color:var(--muted)">Har pump ka data bilkul alag aur taala-band. Dusra koi pump aap ka hisaab nahi dekh sakta.</p>
+      <ul class="seclist">
+        <li><svg class="ic" aria-hidden="true"><use href="#i-lock"/></svg><span><b>PIN &amp; password</b> — har banda sirf apna kaam dekhe.</span></li>
+        <li><svg class="ic" aria-hidden="true"><use href="#i-history"/></svg><span><b>Har tabdeeli ka record</b> — kis ne kya badla (audit).</span></li>
+        <li><svg class="ic" aria-hidden="true"><use href="#i-cloud"/></svg><span><b>Roz backup</b> — data kabhi zaya nahi hota.</span></li>
+        <li><svg class="ic" aria-hidden="true"><use href="#i-shield"/></svg><span><b>Alag-alag pump</b> — har kisi ka data poori tarah juda.</span></li>
+      </ul>
     </div>
   </div>
 </section>
@@ -360,8 +512,8 @@
     </div>
     <div class="steps">
       <div class="step"><div class="n">1</div><h3>Sign up karein</h3><p>App kholein, "Naya pump banayein" dabayein. 7 din bilkul muft — koi card nahi.</p></div>
-      <div class="step"><div class="n">2</div><h3>Pump ki tafseel</h3><p>Apna naam, tank aur rate daalein. 5 minute mein sab set.</p></div>
-      <div class="step"><div class="n">3</div><h3>Chalana shuru</h3><p>Sale, khata, staff — sab chalana shuru. Pasand aaye to ek baar payment par hamesha ke liye aap ka.</p></div>
+      <div class="step"><div class="n">2</div><h3>Pump ki tafseel</h3><p>Apna naam, tank, rate aur staff daalein. 5 minute mein sab set.</p></div>
+      <div class="step"><div class="n">3</div><h3>Chalana shuru</h3><p>Sale, khata, wholesale, cashier — sab chalayein. Pasand aaye to ek baar payment par hamesha ke liye aap ka.</p></div>
     </div>
     <div class="pricecard">
       <div class="tag">Seedhi baat</div>
