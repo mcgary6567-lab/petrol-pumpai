@@ -105,3 +105,14 @@ test("a pump owner activates with a one-time code (after cash)", async () => {
   // the same code can't be used twice
   assert.equal((await call(bTok, "POST", "/api/account/activate", { code })).status, 400);
 });
+
+test("public sales page is served (no login) in SaaS mode", async () => {
+  const res = await fetch(base + "/sell");
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get("content-type") ?? "", /html/);
+  const html = await res.text();
+  assert.match(html, /Petrol PumpAI/);
+  assert.match(html, /Chori khatam/);                    // key selling point present
+  assert.match(html, /\/signup/);                         // CTA points at sign-up
+  assert.doesNotMatch(html, /SIGNUP_URL|WHATSAPP_URL/);   // placeholders were filled
+});

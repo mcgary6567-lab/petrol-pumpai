@@ -10,6 +10,7 @@ import { requireAuth, errorHandler, authenticate, issueSession, twoFaRequired, c
 import { sendToPhone } from "./whatsapp/cloud.js";
 import { securityHeaders, rateLimit } from "./security.js";
 import { privacyPage, termsPage } from "./legal.js";
+import { sellPage } from "./sell.js";
 import { operations } from "./routes/operations.js";
 import { crm } from "./routes/crm.js";
 import { waWebhook, inbox } from "./routes/whatsapp.js";
@@ -160,6 +161,10 @@ app.get("/day/:token", (req, res) => {
 });
 app.get("/privacy", (_req, res) => res.type("html").send(privacyPage()));
 app.get("/terms", (_req, res) => res.type("html").send(termsPage()));
+// public sales / landing page (SaaS) — pump owners read it and sign up
+if (config.saas) {
+  app.get(["/sell", "/landing"], (_req, res) => res.type("html").send(sellPage()));
+}
 // Digital Asset Links — proves this website owns the Android app (Play Store TWA). Empty until the
 // app's package + signing fingerprint(s) are set (ANDROID_PACKAGE, ANDROID_CERT_FINGERPRINTS).
 app.get("/.well-known/assetlinks.json", (_req, res) => {
