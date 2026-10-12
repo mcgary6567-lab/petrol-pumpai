@@ -291,9 +291,17 @@
   .gitem{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:14px;box-shadow:var(--shadow)}
   .gitem .frame{height:200px;border-radius:12px;overflow:hidden;border:1px solid var(--line);background:#0d1a15}
   .gitem .frame .scrn{border-radius:0}
-  .shot{width:100%;height:100%;object-fit:cover;object-position:top center;display:block}
+  .shot{width:100%;height:100%;object-fit:cover;object-position:top center;display:block;cursor:zoom-in}
   .phone .shot{border-radius:16px}
   .phone-xl .shot{border-radius:22px}
+  .gitem .frame{position:relative}
+  .gitem .frame::after{content:"⤢ dekhein";position:absolute;right:8px;bottom:8px;background:rgba(5,20,15,.72);color:#fff;font-family:var(--display);font-weight:700;font-size:.62rem;padding:4px 9px;border-radius:999px;pointer-events:none}
+  /* lightbox */
+  .lbox{position:fixed;inset:0;z-index:100;background:rgba(5,20,15,.93);display:flex;align-items:center;justify-content:center;padding:calc(16px + env(safe-area-inset-top,0px)) 16px calc(16px + env(safe-area-inset-bottom,0px))}
+  .lbox[hidden]{display:none}
+  .lbox img{max-width:100%;max-height:90vh;border-radius:14px;box-shadow:0 20px 60px rgba(0,0,0,.6);object-fit:contain;cursor:zoom-out}
+  .lbox-x{position:absolute;top:calc(12px + env(safe-area-inset-top,0px));right:14px;width:46px;height:46px;border-radius:50%;border:0;background:rgba(255,255,255,.16);color:#fff;font-size:1.4rem;line-height:1;cursor:pointer;display:grid;place-items:center}
+  .lbox-hint{position:absolute;bottom:calc(14px + env(safe-area-inset-bottom,0px));left:0;right:0;text-align:center;color:rgba(255,255,255,.7);font-size:.85rem;font-family:var(--display)}
   .gitem h4{font-family:var(--display);font-size:1rem;margin:14px 0 3px;display:flex;align-items:center;gap:7px}
   .gitem h4 svg{width:17px;height:17px;color:var(--brand)}
   .gitem p{color:var(--muted);font-size:.86rem}
@@ -721,6 +729,13 @@
   </div>
 </footer>
 
+<!-- lightbox: tap any screenshot to see it full -->
+<div class="lbox" id="lbox" hidden>
+  <button class="lbox-x" id="lboxX" aria-label="Band karein">✕</button>
+  <img id="lboxImg" src="" alt="">
+  <div class="lbox-hint">Band karne ke liye kahin bhi tap karein</div>
+</div>
+
 <script>
   (function(){
     var btn=document.getElementById('themeBtn');
@@ -735,5 +750,13 @@
     mb&&mb.addEventListener('click',function(){setMenu(menu.hidden);});
     menu&&menu.querySelectorAll('a').forEach(function(a){a.addEventListener('click',function(){setMenu(false);});});
     window.addEventListener('resize',function(){if(window.innerWidth>=760)setMenu(false);});
+    // lightbox — tap any screenshot to view it full size
+    var lb=document.getElementById('lbox'),lbi=document.getElementById('lboxImg'),lbx=document.getElementById('lboxX');
+    function openLb(src,alt){if(!lb)return;lbi.src=src;lbi.alt=alt||'';lb.hidden=false;document.body.style.overflow='hidden';}
+    function closeLb(){if(!lb)return;lb.hidden=true;lbi.src='';document.body.style.overflow='';}
+    document.querySelectorAll('.shot').forEach(function(img){img.addEventListener('click',function(){openLb(img.currentSrc||img.src,img.alt);});});
+    lb&&lb.addEventListener('click',function(e){if(e.target!==lbi||e.target===lbx)closeLb();});
+    lbx&&lbx.addEventListener('click',closeLb);
+    document.addEventListener('keydown',function(e){if(e.key==='Escape'&&lb&&!lb.hidden)closeLb();});
   })();
 </script>
