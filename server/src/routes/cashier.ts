@@ -379,7 +379,9 @@ function handovers(t: number) {
   const since = new Date(Date.now() - HANDOVER_DAYS * 86400_000).toISOString();
   const cols = `sh.id, sh.attendant, sh.opened_at, sh.closed_at, sh.cash_expected, sh.cash_actual, sh.variance, sh.handed_amount, sh.handed_to, sh.handed_at, sh.handover_note, s.name station_name`;
   return {
-    pending: all(`SELECT ${cols} FROM shifts sh JOIN stations s ON s.id=sh.station_id WHERE s.tenant_id=? AND sh.status='closed' AND sh.handed_at IS NULL AND sh.closed_at >= ? ORDER BY sh.closed_at`, t, since),
+    // a shift with no cash at all (strike / pump closed, nothing sold) has nothing to hand over
+    pending: all(`SELECT ${cols} FROM shifts sh JOIN stations s ON s.id=sh.station_id WHERE s.tenant_id=? AND sh.status='closed' AND sh.handed_at IS NULL AND sh.closed_at >= ?
+      AND NOT (COALESCE(sh.cash_actual,0)=0 AND COALESCE(sh.cash_expected,0)=0) ORDER BY sh.closed_at`, t, since),
     done: all(`SELECT ${cols} FROM shifts sh JOIN stations s ON s.id=sh.station_id WHERE s.tenant_id=? AND sh.handed_at IS NOT NULL ORDER BY sh.handed_at DESC LIMIT 20`, t),
   };
 }
@@ -444,7 +446,7 @@ export function cashierDayBook(t: number, d: string, showPrivate = true) {
     ...all(`SELECT l.created_at at, CASE WHEN l.type='advance' OR l.type='bonus' THEN 'out' ELSE 'in' END dir,
       CASE l.type WHEN 'advance' THEN 'Staff advance' WHEN 'bonus' THEN 'Staff bonus' WHEN 'deduction' THEN 'Kept back from salary (advance / loan)' ELSE 'Staff paid back' END what,
       u.name party, COALESCE(l.method,'Cash') method, l.amount, l.account_id, l.created_by who FROM staff_ledger l JOIN users u ON u.id=l.user_id
-      WHERE l.tenant_id=? AND (l.type IN ('advance','repayment') OR (l.type='bonus' AND l.month IS NULL) OR (l.type='deduction' AND l.month IS NOT NULL)) AND l.created_at >= ? AND l.created_at < ?`, ...P),
+      WHERE l.tenant_id=? AND (l.type IN ('advance','repayment') OR (l.type='bonus' AND l.month IS NULL) OR (l.type='deduction' AND l.month IS NOT NULL)) AND COALESCE(l.ref,'')<>'open:' AND l.created_at >= ? AND l.created_at < ?`, ...P),
     ...all(`SELECT sold_at at, 'in' dir, 'Fuel coupons sold' what, COALESCE(buyer,'') party, 'Cash' method, value amount, NULL account_id, sold_by who
       FROM fuel_coupons WHERE tenant_id=? AND method='cash' AND sold_at >= ? AND sold_at < ?`, ...P),
     ...all(`SELECT created_at at, CASE WHEN type='refund' THEN 'out' ELSE 'in' END dir, CASE WHEN type='refund' THEN 'Wallet refund' ELSE 'Wallet top-up' END what, '' party, 'Cash' method,
