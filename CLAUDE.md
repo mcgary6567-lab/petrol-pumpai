@@ -146,3 +146,7 @@ Party balances are signed everywhere: positive = they owe us, negative = their a
 ## Number entry on phones (never regress)
 
 Every `<input type="number">` carries `inputMode="decimal"` (phone keypad); `main.tsx` also sets `inputmode` on any number input added later (MutationObserver), blurs a focused number input on mouse wheel and swallows ArrowUp/ArrowDown on it, so a typed figure never changes by a stray scroll or key. `index.css`: spinner arrows removed for all browsers, `font-variant-numeric: tabular-nums`, `input/select/textarea { min-width:0; max-width:100% }`, grid children `min-width:0` (no horizontal overflow), and `.input` is 16px under 640px (no iOS focus zoom). The QuickAdd `AccountForm` (mobile "Add customer") has the same `OpeningBalanceField` as `CustomerForm`.
+
+## Login: portal chooser (role shortcuts) (never regress)
+
+`pages/Login.tsx` opens on a role chooser (`screen`: "roles" → "pin" | "email"): cards for Salesman / Cashier / Wholesale / Manager / Admin (CEO) + an Email tile. Tapping a role → the PIN screen filtered to that role on an enrolled device (else email labeled for the role, demo-prefilled). Preserves the SaaS bits: brand default "Petrol PumpAI", the `setup_needed && !saas` redirect, and the "Naya pump banayein" signup block.
