@@ -150,3 +150,7 @@ Every `<input type="number">` carries `inputMode="decimal"` (phone keypad); `mai
 ## Login: portal chooser (role shortcuts) (never regress)
 
 `pages/Login.tsx` opens on a role chooser (`screen`: "roles" → "pin" | "email"): cards for Salesman / Cashier / Wholesale / Manager / Admin (CEO) + an Email tile. Tapping a role → the PIN screen filtered to that role on an enrolled device (else email labeled for the role, demo-prefilled). Preserves the SaaS bits: brand default "Petrol PumpAI", the `setup_needed && !saas` redirect, and the "Naya pump banayein" signup block.
+
+## Offline fonts (never regress)
+
+`web/public/sw.js` runtime-caches Google Fonts in a separate FONT_CACHE (cache-first, cross-origin), so the Urdu/Latin fonts work offline after one online load; activate keeps both CACHE and FONT_CACHE.
