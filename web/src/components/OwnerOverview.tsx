@@ -6,6 +6,7 @@ import { Ur } from "./VoiceShell";
 import { BankLogo } from "./BankParts";
 import { OnlineToday } from "./OnlineMoney";
 import { num, pkr, pkrShort } from "../lib/format";
+import { useAuth } from "../App";
 
 const Row = ({ label, ur, v, to, tone = "", note }: { label: string; ur: string; v: number; to?: string; tone?: string; note?: string }) => {
   const body = (
@@ -21,6 +22,7 @@ const Row = ({ label, ur, v, to, tone = "", note }: { label: string; ur: string;
 export function OwnerOverview() {
   const { data } = useApi<any>("/owner/overview", 60_000);
   const nav = useNavigate();
+  const { modules } = useAuth();
   if (!data) return <div className="card"><Loading /></div>;
   const m = data.money, o = data.owed_to_us, w = data.we_owe, t = data.today, mo = data.month;
   return (
@@ -53,7 +55,7 @@ export function OwnerOverview() {
           <h2 className="mb-1 flex items-center gap-2 font-semibold"><Scale size={17} /> Owed to us / we owe · <Ur>لینا / دینا</Ur></h2>
           <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Others owe us · <Ur>لینا</Ur></div>
           <Row label="Khata customers" ur="کھاتہ" v={o.khata} to="/khata" />
-          <Row label="Wholesale clients" ur="ہول سیل" v={o.wholesale} to="/wholesale?tab=collect" />
+          {modules.wholesale && <Row label="Wholesale clients" ur="ہول سیل" v={o.wholesale} to="/wholesale?tab=collect" />}
           {o.staff_advances > 0 && <Row label="Staff advances" ur="ملازمین" v={o.staff_advances} to="/staff" />}
           <div className="mt-2 text-xs font-semibold uppercase tracking-wide text-rose-700">We owe · <Ur>دینا</Ur></div>
           <Row label="Suppliers (depots)" ur="سپلائر" v={w.suppliers} to="/suppliers" tone="text-rose-700"
@@ -72,7 +74,7 @@ export function OwnerOverview() {
         <div className="card p-4">
           <h2 className="mb-1 flex items-center gap-2 font-semibold"><TrendingUp size={17} /> Today · <Ur>آج</Ur></h2>
           <Row label={`Fuel sold (${num(t.retail_litres)} L)`} ur="فیول سیل" v={t.retail_sales} to="/reports" />
-          {t.wholesale ? <Row label={`Wholesale (${num(t.wholesale_litres)} L)`} ur="ہول سیل" v={t.wholesale} to="/wholesale" /> : null}
+          {modules.wholesale && t.wholesale ? <Row label={`Wholesale (${num(t.wholesale_litres)} L)`} ur="ہول سیل" v={t.wholesale} to="/wholesale" /> : null}
           {t.shop ? <Row label="Shop & lubricants" ur="دکان" v={t.shop} to="/shop" /> : null}
           <div className="mt-1 grid grid-cols-2 gap-2 text-sm">
             <div className="rounded-xl bg-emerald-50 p-2"><div className="flex items-center gap-1 text-xs text-emerald-800"><ArrowDownCircle size={13} /> Money in · <Ur>آیا</Ur></div>

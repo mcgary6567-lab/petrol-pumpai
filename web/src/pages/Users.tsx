@@ -153,6 +153,9 @@ export default function Users() {
 export function UserForm({ initial, stations, onClose, onSaved }: { initial: Partial<U>; stations: any[]; onClose: () => void; onSaved: () => void }) {
   const isNew = !initial.id;
   const [f, setF] = useState({ name: initial.name ?? "", email: initial.email ?? "", phone: (initial as any).phone ?? "", role: initial.role ?? "salesman", station_id: initial.station_id ?? "", password: "", pin: "", clearPin: false });
+  const { modules } = useAuth();
+  // the "wholesale officer" role only exists when the Wholesale & carriage module is on (unless editing one that already is)
+  const roles = ["admin", "manager", "salesman", "wholesale", "cashier"].filter((r) => r !== "wholesale" || modules.wholesale || initial.role === "wholesale");
   const { busy, run } = useAction();
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -173,7 +176,7 @@ export function UserForm({ initial, stations, onClose, onSaved }: { initial: Par
         </div>
         <Field label="Role">
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            {["admin", "manager", "salesman", "wholesale", "cashier"].map((r) => {
+            {roles.map((r) => {
               const I = roleInfo(r).icon;
               return (
                 <button type="button" key={r} onClick={() => setF({ ...f, role: r })}

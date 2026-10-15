@@ -59,6 +59,7 @@ function Panel({ onLogout }: { onLogout: () => void }) {
   useEffect(() => { load(); }, [load]);
 
   const act = async (id: number, action: string) => { await pfetch(`/platform/tenants/${id}/${action}`, {}).then(load).catch((e) => setErr(e.message)); };
+  const toggleModule = async (id: number, on: boolean) => { await pfetch(`/platform/tenants/${id}/module`, { module: "wholesale", on }).then(load).catch((e) => setErr(e.message)); };
   const makeCode = async () => { const r = await pfetch("/platform/codes", { count: 1, plan: "lifetime" }).catch((e) => setErr(e.message)); if (r) { setMade(r.codes); load(); } };
 
   if (!tenants) return <div className="p-8 text-center text-slate-500">Loading… {err && <ErrorBox error={err} />}</div>;
@@ -94,6 +95,9 @@ function Panel({ onLogout }: { onLogout: () => void }) {
                   <div className="flex flex-wrap gap-1">
                     {t.status !== "active" && <button className="rounded-lg bg-emerald-600 px-2 py-1 text-xs font-semibold text-white" onClick={() => act(t.id, "activate")}>Activate</button>}
                     {t.status !== "suspended" && <button className="rounded-lg bg-rose-600 px-2 py-1 text-xs font-semibold text-white" onClick={() => act(t.id, "suspend")}>Suspend</button>}
+                    <button className={`rounded-lg px-2 py-1 text-xs font-semibold ${t.module_wholesale ? "bg-indigo-600 text-white" : "border border-indigo-300 text-indigo-700"}`}
+                      title="Wholesale & carriage module (extra paid add-on)"
+                      onClick={() => toggleModule(t.id, !t.module_wholesale)}>Wholesale {t.module_wholesale ? "ON" : "OFF"}</button>
                   </div>
                 </td>
               </tr>

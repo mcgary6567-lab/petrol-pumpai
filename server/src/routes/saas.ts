@@ -16,8 +16,8 @@ import { z } from "zod";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import { config } from "../config.js";
-import { all, get, run, now } from "../db.js";
-import { h, parse, tid } from "../auth.js";
+import { all, get, run, now, setSetting } from "../db.js";
+import { h, parse, tid, forgetModules } from "../auth.js";
 import { AppError } from "../services.js";
 import { setupBody, provisionTenant } from "./setup.js";
 
@@ -108,8 +108,18 @@ platform.use(requirePlatform);
 platform.get("/tenants", h(() =>
   ({ tenants: all(`SELECT t.id, t.name, t.owner_name, t.owner_phone, t.status, t.trial_ends_at, t.activated_at, t.plan, t.created_at,
        (SELECT COUNT(*) FROM users u WHERE u.tenant_id=t.id) users,
-       (SELECT email FROM users u WHERE u.tenant_id=t.id AND u.role='admin' ORDER BY u.id LIMIT 1) admin_email
-     FROM tenants t ORDER BY t.id DESC`) })));
+       (SELECT email FROM users u WHERE u.tenant_id=t.id AND u.role='admin' ORDER BY u.id LIMIT 1) admin_email,
+       (SELECT value FROM settings s WHERE s.tenant_id=t.id AND s.key='module_wholesale')='1' module_wholesale
+     FROM tenants t ORDER BY t.id DESC`).map((r) => ({ ...r, module_wholesale: Boolean(r.module_wholesale) })) })));
+// turn a paid add-on module on/off for one pump (extra payment taken offline) — only the super-admin can do this
+platform.post("/tenants/:id/module", h((req) => {
+  const id = Number(req.params.id);
+  const b = parse(z.object({ module: z.enum(["wholesale"]), on: z.boolean() }), req.body);
+  if (!get("SELECT id FROM tenants WHERE id=?", id)) throw new AppError(404, "Pump nahi mila");
+  setSetting(id, `module_${b.module}`, b.on ? "1" : "0");
+  forgetModules(id);
+  return { ok: true, module: b.module, on: b.on };
+}));
 platform.post("/tenants/:id/:action", h((req) => {
   const id = Number(req.params.id), action = req.params.action;
   if (!get("SELECT id FROM tenants WHERE id=?", id)) throw new AppError(404, "Pump nahi mila");

@@ -37,6 +37,7 @@ test("24h duty: off days of the a-day-on/a-day-off cycle are not absent and not 
   // make the whole month countable: joined at month start, daily salary, no weekly off
   db.run("UPDATE users SET created_at=?, salary=30000, weekly_off=NULL WHERE id=?", `${month}-01T00:00:00+05:00`, u.id);
   db.run("DELETE FROM attendance WHERE user_id=? AND day LIKE ?", u.id, `${month}-%`);
+  db.run("DELETE FROM leaves WHERE user_id=?", u.id); // clear any demo leave so the gap day is a true absence, not a leave day
   // set him to 24h duty (a day on / a day off)
   ok(await call("manager", "PATCH", `/api/staff/${u.id}/duty`, { duty_hours: 24 }), "set 24h duty");
 

@@ -98,6 +98,8 @@ export const setupBody = z.object({
     })).min(1, "Add at least one tank"),
   })).min(1, "Add at least one station").max(20),
   prices: z.record(product, z.number().positive().max(2000)),
+  // paid add-on modules chosen at install — "Wholesale & carriage" is off unless the pump does wholesale supply
+  modules: z.object({ wholesale: z.boolean() }).optional(),
 });
 
 setupPublic.post("/setup", h((req) => {
@@ -145,6 +147,8 @@ export function provisionTenant(b: z.infer<typeof setupBody>, opts: { status: st
     ensureAutomations(tenantId);
     addDefaultChecklist(tenantId);
     ensureProducts(tenantId);
+    // Wholesale & carriage module: off by default (most pumps don't do wholesale); the super-admin turns it on later
+    setSetting(tenantId, "module_wholesale", b.modules?.wholesale ? "1" : "0");
     setSetting(tenantId, "installed_at", ts);
     return { tenantId, adminId };
   });

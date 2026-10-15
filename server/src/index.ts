@@ -6,7 +6,7 @@ import { config, aiEnabled, aiProvider, aiModelName, waLive, APP_VERSION } from 
 import { migrate, get, run, closeDb } from "./db.js";
 import bcrypt from "bcryptjs";
 import { AppError } from "./services.js";
-import { requireAuth, errorHandler, authenticate, issueSession, twoFaRequired, create2fa, verify2fa, pinLogin, pinUsers, h, parse, permissionsOf, mediaToken, signToken, revokeSessions } from "./auth.js";
+import { requireAuth, errorHandler, authenticate, issueSession, twoFaRequired, create2fa, verify2fa, pinLogin, pinUsers, h, parse, permissionsOf, modulesOf, mediaToken, signToken, revokeSessions } from "./auth.js";
 import { sendToPhone } from "./whatsapp/cloud.js";
 import { securityHeaders, rateLimit } from "./security.js";
 import { privacyPage, termsPage } from "./legal.js";
@@ -232,6 +232,8 @@ api.get("/me", h((req) => ({
   user: { ...req.user, station_name: req.user!.station_id ? get("SELECT name FROM stations WHERE id=?", req.user!.station_id)?.name : null },
   tenant: get("SELECT id, name FROM tenants WHERE id=?", req.user!.tenant_id),
   permissions: permissionsOf(req.user!.role, req.user!.tenant_id),
+  // paid add-on modules this pump has (Wholesale & carriage is off by default)
+  modules: modulesOf(req.user!.tenant_id),
   // SaaS mode: whether this pump is locked (trial over / suspended) so the app can show the activate screen
   account: config.saas ? { saas: true, ...tenantState(req.user!.tenant_id) } : { saas: false },
   // for links the browser opens itself (photos, downloads, live feed): short-lived and read-only

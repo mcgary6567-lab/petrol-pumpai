@@ -3,7 +3,7 @@ import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import { z, ZodError } from "zod";
 import { config } from "./config.js";
-import { all, get, run, type Row } from "./db.js";
+import { all, get, run, getSetting, type Row } from "./db.js";
 import { AppError } from "./services.js";
 
 /**
@@ -96,7 +96,26 @@ function tenantOverrides(t: number) {
   return m;
 }
 export const forgetRoleOverrides = (t: number) => overrides.delete(t);
+
+/*
+ * Paid add-on modules (SaaS). "Wholesale & carriage" covers wholesale supply, carriage/kiraya and depot
+ * bypass. It is OFF by default — most pumps do not do wholesale — so the whole module (menu, pages and API)
+ * disappears for that pump. The platform super-admin turns it on for a pump that pays for it. The flag is a
+ * per-tenant setting; cached here because allowed() is a hot path.
+ */
+const WHOLESALE_MODULE_PERMS = (p: string) => p.startsWith("wholesale.") || p.startsWith("carriage.");
+const moduleOn = new Map<number, boolean>(); // tenant → "Wholesale & carriage" on
+function wholesaleModuleOn(t: number) {
+  let v = moduleOn.get(t);
+  if (v === undefined) { v = getSetting(t, "module_wholesale", "0") === "1"; moduleOn.set(t, v); }
+  return v;
+}
+export const forgetModules = (t: number) => moduleOn.delete(t);
+export const modulesOf = (t: number) => ({ wholesale: wholesaleModuleOn(t) });
+
 export function allowed(tenantId: number, role: Role, perm: Permission): boolean {
+  // paid module gate: with "Wholesale & carriage" off, nobody at this pump — not even the owner — has these
+  if (WHOLESALE_MODULE_PERMS(perm) && !wholesaleModuleOn(tenantId)) return false;
   if (role === "admin") return true;
   const o = tenantOverrides(tenantId).get(`${perm}|${role}`);
   return o ?? (PERMISSIONS[perm] as readonly Role[]).includes(role);
@@ -173,7 +192,7 @@ export function pinLogin(device: string | undefined, userId: number, pin: string
   run("UPDATE users SET pin_fails=0, pin_locked_until=NULL WHERE id=?", u.id);
   auditLogin(u, true, "PIN");
   const user: AuthUser = { id: u.id, tenant_id: u.tenant_id, name: u.name, email: u.email, role: u.role, station_id: u.station_id };
-  return { token: signToken(user), user, permissions: permissionsOf(user.role, user.tenant_id) };
+  return { token: signToken(user), user, permissions: permissionsOf(user.role, user.tenant_id), modules: modulesOf(user.tenant_id) };
 }
 
 const PW_TRIES = 8, PW_LOCK_MIN = 15;
@@ -203,7 +222,7 @@ export function issueSession(u: Row, how = "password") {
   const user: AuthUser = { id: u.id, tenant_id: u.tenant_id, name: u.name, email: u.email, role: u.role, station_id: u.station_id };
   // only the owner / a manager links a shared tablet for PIN sign-in
   const links = ["admin", "manager"].includes(u.role);
-  return { token: signToken(user), user, permissions: permissionsOf(user.role, user.tenant_id), ...(links ? { device_token: deviceToken(u.tenant_id) } : {}) };
+  return { token: signToken(user), user, permissions: permissionsOf(user.role, user.tenant_id), modules: modulesOf(user.tenant_id), ...(links ? { device_token: deviceToken(u.tenant_id) } : {}) };
 }
 export function login(email: string, password: string) {
   return issueSession(authenticate(email, password));

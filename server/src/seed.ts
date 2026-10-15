@@ -35,6 +35,7 @@ export function seed() {
   const T0 = Date.now();
   tx(() => {
     const tenantId = run("INSERT INTO tenants (name, owner_name, owner_phone) VALUES (?,?,?)", "Al-Madina Petroleum", "Haji Abdul Rehman", "923001234567").id;
+    setSetting(tenantId, "module_wholesale", "1"); // demo pump does wholesale supply + carriage, so the module is on
     const hash = bcrypt.hashSync("demo1234", 8);
     run("INSERT INTO users (tenant_id,name,email,password_hash,role) VALUES (?,?,?,?,?)", tenantId, "Haji Abdul Rehman (CEO)", "admin@pumpai.pk", hash, "admin");
     run("INSERT INTO users (tenant_id,name,email,password_hash,role) VALUES (?,?,?,?,?)", tenantId, "Kamran Shah", "manager@pumpai.pk", hash, "manager");

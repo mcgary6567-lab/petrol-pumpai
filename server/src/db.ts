@@ -768,6 +768,19 @@ export function migrate() {
     run("UPDATE users SET duty_start='08:00' WHERE role='salesman' AND (duty_start IS NULL OR duty_start='')");
     run("INSERT INTO settings (tenant_id,key,value) VALUES (0,'mig_salesman_duty8','1')");
   }
+  // one-time: "Wholesale & carriage" module is now off by default, but pumps ALREADY using wholesale/carriage/bypass
+  // keep it on (grandfathered) so the new default never hides their existing data.
+  if (!get("SELECT value FROM settings WHERE tenant_id=0 AND key='mig_module_wholesale'")) {
+    for (const t of all("SELECT id FROM tenants")) {
+      if (get("SELECT value FROM settings WHERE tenant_id=? AND key='module_wholesale'", t.id)) continue;
+      const has = get("SELECT 1 v FROM wholesale_clients WHERE tenant_id=? LIMIT 1", t.id)
+        || get("SELECT 1 v FROM carriage_txns WHERE tenant_id=? LIMIT 1", t.id)
+        || get("SELECT 1 v FROM bypass_deliveries WHERE tenant_id=? LIMIT 1", t.id)
+        || get("SELECT 1 v FROM thekedars WHERE tenant_id=? LIMIT 1", t.id);
+      run("INSERT INTO settings (tenant_id,key,value) VALUES (?, 'module_wholesale', ?)", t.id, has ? "1" : "0");
+    }
+    run("INSERT INTO settings (tenant_id,key,value) VALUES (0,'mig_module_wholesale','1')");
+  }
 }
 
 /** Allow the cashier role on databases made before it (the users table keeps every column it has today). */

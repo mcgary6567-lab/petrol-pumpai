@@ -177,3 +177,11 @@ Every `<input type="number">` carries `inputMode="decimal"` (phone keypad); `mai
 ## Offline fonts (never regress)
 
 `web/public/sw.js` runtime-caches Google Fonts in a separate FONT_CACHE (cache-first, cross-origin), so the Urdu/Latin fonts work offline after one online load; activate keeps both CACHE and FONT_CACHE.
+
+## Paid "Wholesale & carriage" module toggle (never regress)
+
+Wholesale supply + carriage/kiraya + depot bypass is a per-pump paid add-on, **off by default** (most pumps don't do wholesale). The gate is the per-tenant setting `module_wholesale` ("1"/"0").
+- **Enforcement is at the permission layer** (`auth.ts` `allowed()`): when the module is off, every `wholesale.*` / `carriage.*` permission is denied **even for the owner (admin)**, before the admin-always-true shortcut. Since nav (`Layout` `visible = NAV.filter(can)`), client routes (`<Need perm>`), and all server routers (`wholesale`/`wholesaleDesk`/`wholesaleVoice` mount `requirePerm("wholesale.view")`, `carriage` `carriage.view`, `bypass` `wholesale.view`) key off these perms, the whole module (menu, pages, API) disappears — direct API calls 403. Cached per tenant (`moduleOn` map), `forgetModules(t)` on change; `modulesOf(t)` → `{wholesale}`.
+- Surfaced to the client in `/me`, login + pin-login payloads as `modules`; `useAuth().modules.wholesale` gates the Users "wholesale officer" role option and the OwnerOverview wholesale rows (nav/routes already gated by `can`).
+- **Setup wizard** (`Setup.tsx` pump step → `setupBody.modules.wholesale`, default false) sets it at install. **Super-admin** turns it on for a paying pump: `POST /platform/tenants/:id/module {module:"wholesale", on}` (saas.ts) + the "Wholesale ON/OFF" button on the Platform panel; `/platform/tenants` returns `module_wholesale`.
+- **Never deletes data**: off only hides + blocks; back on reveals it intact, books tally in both states. Migration `mig_module_wholesale` grandfathers existing pumps that already have wholesale/carriage/bypass/thekedar rows to ON; the demo seed sets tenant 1 ON. `test/module_wholesale.test.ts` (572 tests, tally green on and off).
