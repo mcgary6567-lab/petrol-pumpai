@@ -96,6 +96,10 @@ app.use("/api/auth", rateLimit("auth", 30, 10 * 60_000));
 app.use("/api/setup", rateLimit("setup", 20, 10 * 60_000));
 // the PIN page and its PIN tries; slip photos on the page (behind the PIN cookie) are not counted
 app.use(/^\/(w|k)\/[^/]+\/?$/, rateLimit("portal", 60, 10 * 60_000));
+// SaaS public doors: stop tenant-spam sign-ups, platform-login guessing and activation-code brute force
+app.use("/api/signup", rateLimit("signup", 10, 10 * 60_000));
+app.use("/api/platform/login", rateLimit("platform-login", 20, 10 * 60_000));
+app.use("/api/account/activate", rateLimit("activate", 15, 10 * 60_000));
 
 app.get("/api/health", (_req, res) => {
   let db = true;
