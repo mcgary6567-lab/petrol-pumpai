@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { Plus, PackagePlus, ClipboardCheck, Pencil, Undo2 } from "lucide-react";
+import { ImportExport } from "../components/ImportExport";
+
 import { api, useApi } from "../lib/api";
 import { useAuth } from "../App";
 import { AccountPicker } from "../components/BankParts";
@@ -42,6 +44,7 @@ export default function Shop() {
       <PageHeader title="Shop & lubricants" subtitle="Engine oil, filters, tuck shop — sold from the POS, stock kept automatically"
         actions={<>
           <select className="input w-auto" value={sid} onChange={(e) => setStation(Number(e.target.value))}>{stations.data.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select>
+          {can("stock.manage") && <ImportExport kind="shop" onDone={reload} />}
           <button className="btn-primary" onClick={() => setForm({ kind: "item" })}><Plus size={15} /> Add item</button>
         </>} />
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">

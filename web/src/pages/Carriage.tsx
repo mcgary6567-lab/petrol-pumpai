@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { Plus, Search, Truck, Send, ArrowLeft, Ban, Pencil, HandCoins, Download, Printer } from "lucide-react";
+import { ImportExport } from "../components/ImportExport";
+
 import { api, linkToken, useApi } from "../lib/api";
 import { Badge, CnicInput, Empty, ErrorBox, Field, FilterChips, ListTools, Loading, Modal, PageHeader, PhoneInput, useAction, useListFilter } from "../components/ui";
 import { WhatsAppDoc } from "../components/WhatsAppDoc";
@@ -30,7 +32,7 @@ function ThekedarList() {
   return (
     <div className="space-y-4">
       <PageHeader title="Carriage / kiraya" subtitle="Bypass on our depot ID — run with thekedars"
-        actions={can("carriage.manage") && <button className="btn-primary" onClick={() => setAdd(true)}><Plus size={16} /> New thekedar</button>} />
+        actions={<div className="flex flex-wrap gap-2"><ImportExport kind="thekedars" canImport={can("carriage.manage")} onDone={reload} />{can("carriage.manage") && <button className="btn-primary" onClick={() => setAdd(true)}><Plus size={16} /> New thekedar</button>}</div>} />
       <p className="rounded-lg bg-sky-50 px-3 py-2 text-xs text-sky-900">Depot humari ID par load karta hai aur hamein invoice deta hai — fuel ka paisa humari books mein nahi aata. Hum sirf <b>kiraya</b> thekedar se charge karte hain, jo poora munafa hai. <Ur className="block">صرف کرایہ ٹھیکیدار کے ذمے — فیول ہمارے کھاتے میں نہیں</Ur></p>
       <CarriageSummary />
       <CollectionList />

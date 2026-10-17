@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { Plus, MessageCircle, Wallet, BellRing, Car, Pencil } from "lucide-react";
+import { ImportExport } from "../components/ImportExport";
+
 import { api, useApi } from "../lib/api";
 import { Badge, CnicInput, Empty, ErrorBox, Field, ListTools, Loading, Modal, PageHeader, PhoneInput, Stat, statusTone, useAction, useListFilter } from "../components/ui";
 import { ago, d, dt, num, phone, pkr } from "../lib/format";
@@ -44,7 +46,7 @@ export default function Customers() {
   return (
     <div>
       <PageHeader title="Customers" subtitle="AI-segmented CRM with churn & credit-risk scores"
-        actions={<button className="btn-primary" onClick={() => setAdding(true)}><Plus size={16} /> {can("credit.set_limit") ? "Add customer / khata" : "Add customer"}</button>} />
+        actions={<div className="flex flex-wrap gap-2"><ImportExport kind="customers" canImport={can("customers.create")} onDone={list.reload} /><button className="btn-primary" onClick={() => setAdding(true)}><Plus size={16} /> {can("credit.set_limit") ? "Add customer / khata" : "Add customer"}</button></div>} />
       <div className="card">
         <div className="border-b border-slate-200 p-3 pb-1">
           <ListTools q={q} onQ={setQ} placeholder="Name, phone or vehicle plate · نام، فون یا گاڑی" chips={chips} chip={chip} onChip={setChip} shown={rows.length} total={list.data?.length}

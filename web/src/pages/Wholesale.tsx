@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Plus, Search, Truck, Wallet, Undo2, SlidersHorizontal, Download, Printer, Ban, ArrowLeft, Pencil, Send, Receipt } from "lucide-react";
+import { ImportExport } from "../components/ImportExport";
+
 import { api, linkToken, useApi } from "../lib/api";
 import { Badge, Empty, ErrorBox, Field, ListTools, Loading, Modal, PageHeader, PhoneInput, Stat, useAction, useListFilter } from "../components/ui";
 import { WhatsAppDoc } from "../components/WhatsAppDoc";
@@ -199,6 +201,7 @@ function ClientsTable({ onAdd }: { onAdd: () => void }) {
           {can("wholesale.rates") && <button className="btn-secondary" onClick={() => setCompare(true)}><SlidersHorizontal size={15} /> Is mahine vs pichla</button>}
           {can("wholesale.rates") && <button className="btn-secondary" onClick={() => setHistory(true)}><SlidersHorizontal size={15} /> Rate history</button>}
           {can("wholesale.rates") && <button className="btn-secondary" onClick={() => setBulk(true)}><SlidersHorizontal size={15} /> Sab ka rate badlo</button>}
+          <ImportExport kind="wholesale" canImport={can("wholesale.manage")} onDone={list.reload} />
           {can("wholesale.manage") && <button className="btn-primary" onClick={onAdd}><Plus size={16} /> Add client</button>}
         </div>
       </div>

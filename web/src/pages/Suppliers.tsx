@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { Plus, Printer, Wallet, Building2, Pencil, Download } from "lucide-react";
+import { ImportExport } from "../components/ImportExport";
+
 import { VoucherSlip } from "./Cashier";
 import { api, linkToken, useApi } from "../lib/api";
 import { ProofPhotos, ProofThumbs } from "../components/Capture";
@@ -36,7 +38,8 @@ export default function Suppliers() {
   return (
     <div className="space-y-5">
       <PageHeader title="Suppliers & depots" subtitle="Har depot ke andar company aur banda — order aur payment sahi aadmi ko. Tanker deliveries bhi yahan khud-ba-khud aati hain."
-        actions={<div className="flex gap-2">
+        actions={<div className="flex flex-wrap gap-2">
+          <ImportExport kind="suppliers" onDone={reload} />
           <button className="btn-secondary" onClick={() => setAddDepot(true)}><Building2 size={16} /> Add depot</button>
           <button className="btn-primary" onClick={() => setAdding(true)}><Plus size={16} /> Add contact</button>
         </div>} />

@@ -327,7 +327,7 @@ function guardFinancials(req: Request, b: { credit_limit?: number; opening_balan
     throw new AppError(403, "Only the admin can set rates, credit limits and opening balances");
 }
 
-function saveRates(clientId: number, newRates: Partial<Record<string, RateInput>>, by: string) {
+export function saveRates(clientId: number, newRates: Partial<Record<string, RateInput>>, by: string) {
   const tenant = get("SELECT tenant_id FROM wholesale_clients WHERE id=?", clientId)!.tenant_id;
   const pump = currentPrices(tenant);
   const old = rateCard(clientId);
