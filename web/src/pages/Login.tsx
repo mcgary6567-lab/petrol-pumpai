@@ -4,7 +4,7 @@ import { Delete, Mail, ArrowLeft, Fuel, Banknote, Container, UserCog, Crown } fr
 import { api, getDevice, setDevice } from "../lib/api";
 import { useAuth } from "../App";
 import { ErrorBox } from "../components/ui";
-import { useBranding, loadBranding, getPumpSlug, setPumpSlug } from "../lib/brand";
+import { useBranding, loadBranding, getPumpSlug } from "../lib/brand";
 import { InstallAppButton } from "../components/InstallApp";
 
 const ROLE: Record<string, string> = { admin: "Admin (CEO)", manager: "Manager", salesman: "Salesman", wholesale: "Wholesale", cashier: "Cashier" };
@@ -50,15 +50,12 @@ export default function Login() {
         <div className="mb-6 text-center text-white">
           {brand?.logo_url ? <img src={brand.logo_url} alt="" className="mx-auto h-20 w-20 rounded-2xl bg-white object-contain p-1.5 shadow" /> : <div className="text-5xl">⛽</div>}
           <h1 className="mt-2 text-2xl font-bold">{brand?.name ?? "Petrol PumpAI"}</h1>
-          <p className="text-white/80">{brand?.name && brand.name !== "PumpAI" ? "PumpAI — forecourt management & WhatsApp CRM" : "AI WhatsApp CRM & forecourt management"}</p>
+          <p className="text-white/80">AI Pump Management System · <span lang="ur" dir="rtl" className="font-urdu">پمپ مینجمنٹ سسٹم</span></p>
           <div className="mt-3 flex justify-center"><div className="w-56"><InstallAppButton variant="login" /></div></div>
         </div>
         {screen === "roles" && <RoleChooser people={people} enrolled={enrolled} onPick={pickRole} onEmail={() => toEmail(null)} onAll={() => { setRole(null); setScreen("pin"); }} />}
         {screen === "pin" && <PinLogin people={people} roleFilter={role} onDone={done} onEmail={() => toEmail(role)} onBack={() => setScreen("roles")} />}
         {screen === "email" && <EmailLogin demo={Boolean(brand?.demo) && !brand?.pump} role={role} pump={brand?.pump?.slug ?? pumpSlug} onDone={done} onBack={() => setScreen("roles")} onPin={roleHasPin(role) ? () => setScreen("pin") : undefined} />}
-        {brand?.pump && (
-          <p className="mt-3 text-center text-xs text-white/70">Yeh <b>{brand.pump.name}</b> ka sign-in link hai · <button type="button" className="underline" onClick={() => { setPumpSlug(null); location.href = "/login"; }}>doosra pump</button></p>
-        )}
         {brand?.saas && !brand?.pump && (
           <div className="mt-4 rounded-2xl bg-white/10 p-3 text-center text-white">
             <p className="text-sm">Apna pump abhi add karein?</p>
