@@ -13,6 +13,7 @@ import { config, APP_VERSION, PRODUCTS } from "../config.js";
 import { get, run, now, tx, getSetting, setSetting } from "../db.js";
 import { h, parse, tid, requirePerm, signToken } from "../auth.js";
 import { AppError, normalizePhone, audit } from "../services.js";
+import { newPumpDefaults } from "./golive.js";
 import { ensureCategories } from "./expenses.js";
 import { ensureAutomations } from "../automation/scheduler.js";
 import { addDefaultChecklist } from "./compliance.js";
@@ -100,6 +101,8 @@ export const setupBody = z.object({
   prices: z.record(product, z.number().positive().max(2000)),
   // paid add-on modules chosen at install — "Wholesale & carriage" is off unless the pump does wholesale supply
   modules: z.object({ wholesale: z.boolean() }).optional(),
+  // first-day defaults (all optional, the go-live checklist can change them later)
+  defaults: z.object({ shift_hours: z.number().min(1).max(72).optional() }).optional(),
 });
 
 setupPublic.post("/setup", h((req) => {
@@ -150,6 +153,7 @@ export function provisionTenant(b: z.infer<typeof setupBody>, opts: { status: st
     // Wholesale & carriage module: off by default (most pumps don't do wholesale); the super-admin turns it on later
     setSetting(tenantId, "module_wholesale", b.modules?.wholesale ? "1" : "0");
     setSetting(tenantId, "installed_at", ts);
+    newPumpDefaults(tenantId, { shift_hours: b.defaults?.shift_hours });
     return { tenantId, adminId };
   });
   audit(tenantId, { id: adminId, name: b.admin.name }, "setup", "tenant", { business: b.business.name, stations: b.stations.length, status: opts.status });
