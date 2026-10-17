@@ -46,7 +46,7 @@ export async function loadBranding(pump?: string | null): Promise<Branding> {
   if (b.pump) applyPumpManifest(b.pump.slug, b.pump.name);
   cache = b;
   applyBrand(b.color);
-  if (b.name) document.title = b.setup_needed ? "Petrol PumpAI — setup" : b.name === "Petrol PumpAI" ? "Petrol PumpAI" : `${b.name} · Petrol PumpAI`;
+  if (b.name) document.title = b.setup_needed ? "Petrol PumpAI — setup" : b.name;
   listeners.forEach((f) => f(b));
   return b;
 }

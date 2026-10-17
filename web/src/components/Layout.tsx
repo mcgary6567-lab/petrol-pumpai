@@ -332,7 +332,7 @@ export default function Layout() {
         {(tenant?.logo_url ?? brand?.logo_url) ? <img src={tenant?.logo_url ?? brand?.logo_url ?? ""} alt="" className="h-10 w-10 shrink-0 rounded-lg bg-white object-contain p-0.5" /> : <span className="text-2xl">⛽</span>}
         <div className="min-w-0 flex-1">
           <div className="truncate font-semibold leading-tight" title={tenant?.name}>{tenant?.name ?? "Petrol PumpAI"}</div>
-          <div className="truncate text-[11px] text-emerald-200/70">Petrol PumpAI</div>
+          {!tenant?.name && <div className="truncate text-[11px] text-emerald-200/70">AI Pump Management System</div>}
         </div>
         <div className="hidden lg:block"><NotificationBell dark /></div>
       </div>

@@ -90,7 +90,7 @@ export const useAuth = () => useContext(AuthCtx);
 function brandFor(t: { name?: string; color?: string | null; slug?: string | null } | null) {
   if (!t) return;
   if (t.color) applyBrand(t.color);
-  if (t.name) document.title = `${t.name} · Petrol PumpAI`;
+  if (t.name) document.title = t.name; // the pump's own name only — the installed app's title bar already carries the app name
   if (t.slug) { setPumpSlug(t.slug); applyPumpManifest(t.slug, t.name); } // the signed-in pump becomes this device's pump
 }
 
