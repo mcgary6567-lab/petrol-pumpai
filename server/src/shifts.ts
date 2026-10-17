@@ -76,13 +76,14 @@ export function shiftDipRecon(shiftId: number) {
   const tanks = all<Row>(`SELECT DISTINCT t.id, t.name, t.product FROM meter_readings r JOIN nozzles n ON n.id=r.nozzle_id JOIN tanks t ON t.id=n.tank_id WHERE r.shift_id=? ORDER BY t.name`, shiftId);
   return tanks.map((t) => {
     const meter = round2(get<{ v: number }>(`SELECT COALESCE(SUM((COALESCE(r.closing, r.opening) - r.opening) - COALESCE(r.test_l,0)),0) v FROM meter_readings r JOIN nozzles n ON n.id=r.nozzle_id WHERE r.shift_id=? AND n.tank_id=?`, shiftId, t.id)!.v);
-    const od = get<{ measured_l: number }>("SELECT measured_l FROM shift_dips WHERE shift_id=? AND tank_id=? AND phase='open' ORDER BY id DESC LIMIT 1", shiftId, t.id)?.measured_l ?? null;
-    const cd = get<{ measured_l: number }>("SELECT measured_l FROM shift_dips WHERE shift_id=? AND tank_id=? AND phase='close' ORDER BY id DESC LIMIT 1", shiftId, t.id)?.measured_l ?? null;
+    const odRow = get<{ measured_l: number; measured_cm: number | null }>("SELECT measured_l, measured_cm FROM shift_dips WHERE shift_id=? AND tank_id=? AND phase='open' ORDER BY id DESC LIMIT 1", shiftId, t.id);
+    const cdRow = get<{ measured_l: number; measured_cm: number | null }>("SELECT measured_l, measured_cm FROM shift_dips WHERE shift_id=? AND tank_id=? AND phase='close' ORDER BY id DESC LIMIT 1", shiftId, t.id);
+    const od = odRow?.measured_l ?? null, cd = cdRow?.measured_l ?? null;
     const deliveries_l = round2(get<{ v: number }>("SELECT COALESCE(SUM(received_l),0) v FROM deliveries WHERE tank_id=? AND created_at >= ? AND created_at <= ?", t.id, shift.opened_at, endIso)!.v);
     const hasDips = od != null && cd != null;
     const dip_sold_l = hasDips ? round2(od + deliveries_l - cd) : null;
     const variance_l = dip_sold_l != null ? round2(meter - dip_sold_l) : null;
-    return { tank_id: t.id as number, tank: t.name as string, product: t.product as string, meter_l: meter, opening_dip: od, closing_dip: cd, deliveries_l, dip_sold_l, variance_l, variance_pct: variance_l != null && meter ? round2((variance_l / meter) * 100) : null };
+    return { tank_id: t.id as number, tank: t.name as string, product: t.product as string, meter_l: meter, opening_dip: od, closing_dip: cd, opening_cm: odRow?.measured_cm ?? null, closing_cm: cdRow?.measured_cm ?? null, deliveries_l, dip_sold_l, variance_l, variance_pct: variance_l != null && meter ? round2((variance_l / meter) * 100) : null };
   });
 }
 

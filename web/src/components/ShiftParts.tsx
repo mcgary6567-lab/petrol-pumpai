@@ -14,12 +14,71 @@ const Ur = ({ children }: { children: ReactNode }) => <span lang="ur" dir="rtl" 
  * Shift handover sheet: for each nozzle, the previous shift's closing reading is the starting point.
  * The salesman checks the meter, corrects the reading if it differs, and ticks the nozzles they run.
  */
+/* ---------------- Dip stick entry (cm / mm / litres) ---------------- */
+export type DipValue = { tank_id: number; measured_cm?: number; measured_l?: number };
+type DipUnit = "cm" | "mm" | "l";
+const DIP_UNIT_KEY = "pumpai_dip_unit";
+export function useDipUnit(): [DipUnit, (u: DipUnit) => void] {
+  const [unit, set] = useState<DipUnit>(() => { try { return (localStorage.getItem(DIP_UNIT_KEY) as DipUnit) || "cm"; } catch { return "cm"; } });
+  return [unit, (u) => { set(u); try { localStorage.setItem(DIP_UNIT_KEY, u); } catch { /* private mode */ } }];
+}
+/** Unit chips shared by the opening and closing dip blocks. */
+export function DipUnitChips({ unit, onChange }: { unit: DipUnit; onChange: (u: DipUnit) => void }) {
+  return (
+    <div className="flex items-center gap-1 text-xs">
+      <span className="text-slate-500">Dip likhein:</span>
+      {(["cm", "mm", "l"] as DipUnit[]).map((u) => (
+        <button key={u} type="button" onClick={() => onChange(u)} className={`rounded-full px-2.5 py-0.5 font-medium ring-1 ${unit === u ? "bg-brand-600 text-white ring-brand-600" : "bg-white text-slate-600 ring-slate-300"}`}>{u === "l" ? "Litres" : u}</button>
+      ))}
+    </div>
+  );
+}
+/** Turn what was typed into the API shape: a stick reading goes as cm (the server uses the tank's dip chart), litres go as-is. */
+export function dipValue(tankId: number, raw: string | undefined, unit: DipUnit): DipValue | null {
+  if (raw === undefined || raw === "" || isNaN(Number(raw)) || Number(raw) < 0) return null;
+  const n = Number(raw);
+  return unit === "l" ? { tank_id: tankId, measured_l: n } : { tank_id: tankId, measured_cm: unit === "mm" ? n / 10 : n };
+}
+/** One tank's dip line: the input plus a live "≈ litres" read from the tank's dip chart, so the salesman sees the stock the stick means. */
+export function DipInput({ tank, unit, value, onChange, ariaLabel }: { tank: { tank_id: number; tank: string; product: string }; unit: DipUnit; value: string; onChange: (v: string) => void; ariaLabel: string }) {
+  const [look, setLook] = useState<any>(null);
+  useEffect(() => {
+    if (unit === "l" || value === "" || isNaN(Number(value))) { setLook(null); return; }
+    const t = setTimeout(() => {
+      api(`/shifts/dip-litres?tank_id=${tank.tank_id}&${unit}=${encodeURIComponent(value)}`).then(setLook).catch((e: any) => setLook({ error: e.message }));
+    }, 350);
+    return () => clearTimeout(t);
+  }, [unit, value, tank.tank_id]);
+  return (
+    <div className="space-y-0.5">
+      <label className="flex items-center gap-2 text-sm">
+        <span className="min-w-0 flex-1 truncate">{tank.tank} <span className="text-xs text-slate-500">{PRODUCTS[tank.product]}</span></span>
+        <div className="relative shrink-0">
+          <input className="input w-32 pr-9 text-right tabular-nums" type="number" min={0} step={unit === "l" ? "1" : unit === "mm" ? "1" : "0.1"} inputMode="decimal" placeholder={unit === "l" ? "Litres" : "0"}
+            value={value} onChange={(e) => onChange(e.target.value)} aria-label={ariaLabel} />
+          <span className="pointer-events-none absolute inset-y-0 right-2 flex items-center text-xs text-slate-400">{unit === "l" ? "L" : unit}</span>
+        </div>
+      </label>
+      {unit !== "l" && value !== "" && (
+        look?.litres != null ? (
+          <div className="flex items-center justify-end gap-2 text-xs text-emerald-700">
+            <span>≈ <b className="tabular-nums">{num(look.litres, 0)} L</b>{look.pct_full != null ? ` · ${num(look.pct_full, 0)}% full` : ""}</span>
+            {look.book_l != null && <span className="text-slate-500">· book {num(look.book_l, 0)} L</span>}
+          </div>
+        ) : look?.error ? <div className="text-right text-xs text-amber-700">{look.error}</div>
+        : <div className="text-right text-xs text-slate-400">…</div>
+      )}
+    </div>
+  );
+}
+
 export function StartShiftSheet({ stationId, attendant, onStarted, big }: { stationId?: number; attendant?: string; onStarted: (s: any) => void; big?: boolean }) {
   const { data } = useApi<any>(`/shifts/handover${stationId ? `?station_id=${stationId}` : ""}`);
   const [vals, setVals] = useState<Record<number, string>>({});
   const [use, setUse] = useState<Record<number, boolean>>({});
   const [photos, setPhotos] = useState<number[]>([]);
   const [dips, setDips] = useState<Record<number, string>>({});
+  const [dipUnit, setDipUnit] = useDipUnit();
   const { busy, run } = useAction();
   /** a meter photo may show several totalizers: take the one that fits this nozzle's last reading */
   const fromPhoto = (n: any) => (r: any, id: number) => {
@@ -41,8 +100,7 @@ export function StartShiftSheet({ stationId, attendant, onStarted, big }: { stat
 
   const start = async () => {
     const readings = Object.fromEntries(chosen.map((n: any) => [n.nozzle_id, Number(vals[n.nozzle_id])]));
-    const dipRows = chosenTanks.filter((t: any) => dips[t.tank_id] !== undefined && dips[t.tank_id] !== "" && Number(dips[t.tank_id]) >= 0)
-      .map((t: any) => ({ tank_id: t.tank_id, measured_l: Number(dips[t.tank_id]) }));
+    const dipRows = chosenTanks.map((t: any) => dipValue(t.tank_id, dips[t.tank_id], dipUnit)).filter(Boolean) as DipValue[];
     const r: any = await run(() => api("/shifts/open", { body: { station_id: data.station_id, attendant, readings, photo_ids: photos, ...(dipRows.length ? { dips: dipRows } : {}) } }),
       (x: any) => (x.handover_gaps?.length ? `Shift started. Manager alerted about ${x.handover_gaps.reduce((a: number, g: any) => a + g.litres, 0)} L meter gap.` : "Shift started")
         + (x.attendance_missing ? ` · ${x.attendant}: attendance not marked — check in with selfie in My account · حاضری لگائیں` : ""));
@@ -81,13 +139,10 @@ export function StartShiftSheet({ stationId, attendant, onStarted, big }: { stat
         <details className="rounded-xl border border-slate-200">
           <summary className="cursor-pointer px-3 py-2 text-sm font-medium">🛢️ Opening dip of each tank <span className="text-slate-500">(optional) · <Ur>شروع کی ڈپ</Ur></span></summary>
           <div className="space-y-2 border-t border-slate-100 p-3">
-            <p className="text-xs text-slate-500">Dip the tank now (litres from your dip chart). At the end the system compares the meter sale with the fuel the tank actually lost · <Ur>اختیاری — چاہیں تو ڈپ لکھیں</Ur></p>
+            <p className="text-xs text-slate-500">Stick se dip lein aur cm / mm likhein — system dip chart se litre dikhayega. Shift close par meter ki sale aur tank ki kami ka farq nikalega · <Ur>اختیاری — چاہیں تو ڈپ لکھیں</Ur></p>
+            <DipUnitChips unit={dipUnit} onChange={setDipUnit} />
             {chosenTanks.map((t: any) => (
-              <label key={t.tank_id} className="flex items-center gap-2 text-sm">
-                <span className="min-w-0 flex-1 truncate">{t.tank} <span className="text-xs text-slate-500">{PRODUCTS[t.product]}</span></span>
-                <input className="input w-32 shrink-0 text-right tabular-nums" type="number" min={0} step="1" inputMode="decimal" placeholder="Litres"
-                  value={dips[t.tank_id] ?? ""} onChange={(e) => setDips({ ...dips, [t.tank_id]: e.target.value })} aria-label={`${t.tank} opening dip litres`} />
-              </label>
+              <DipInput key={t.tank_id} tank={t} unit={dipUnit} value={dips[t.tank_id] ?? ""} onChange={(v) => setDips({ ...dips, [t.tank_id]: v })} ariaLabel={`${t.tank} opening dip`} />
             ))}
           </div>
         </details>
@@ -225,9 +280,9 @@ function ReportBody({ r }: { r: any }) {
               <tbody>{r.dip_recon.map((d: any) => (
                 <tr key={d.tank_id}>
                   <td className="td">{d.tank} <span className="text-xs text-slate-500">{PRODUCTS[d.product]}</span></td>
-                  <td className="td text-right tabular-nums">{num(d.opening_dip, 0)}</td>
+                  <td className="td text-right tabular-nums">{num(d.opening_dip, 0)}{d.opening_cm != null && <span className="block text-[11px] text-slate-500">{d.opening_cm} cm</span>}</td>
                   <td className="td text-right tabular-nums">{d.deliveries_l > 0 ? `+${num(d.deliveries_l, 0)}` : "—"}</td>
-                  <td className="td text-right tabular-nums">{num(d.closing_dip, 0)}</td>
+                  <td className="td text-right tabular-nums">{num(d.closing_dip, 0)}{d.closing_cm != null && <span className="block text-[11px] text-slate-500">{d.closing_cm} cm</span>}</td>
                   <td className="td text-right tabular-nums">{num(d.dip_sold_l, 1)}</td>
                   <td className="td text-right tabular-nums">{num(d.meter_l, 1)}</td>
                   <td className={`td text-right font-semibold tabular-nums ${Math.abs(d.variance_l) < 0.5 ? "text-emerald-700" : Math.abs(d.variance_l) >= 40 ? "text-red-600" : "text-amber-700"}`}>{Math.abs(d.variance_l) < 0.5 ? "✓" : `${d.variance_l < 0 ? "−" : "+"}${num(Math.abs(d.variance_l), 1)} L`}</td>

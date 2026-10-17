@@ -944,6 +944,24 @@ function closeShiftCore(req: Request, shift: Row, b: CloseInput, dryRun: boolean
   })!;
 }
 
+/** Dip stick → litres for the shift sheets (open / close). Salesmen hold shifts.manage, not stock.manage, so this lives here.
+ *  Never throws for a tank without a chart: the sheet then asks for litres instead. */
+operations.get("/shifts/dip-litres", requirePerm("shifts.manage"), h((req) => {
+  const t = tid(req);
+  const tank = get("SELECT tk.id, tk.name, tk.capacity_l, tk.dip_chart_id, tk.current_l FROM tanks tk JOIN stations s ON s.id=tk.station_id WHERE tk.id=? AND s.tenant_id=?", Number(req.query.tank_id), t);
+  if (!tank) throw new AppError(404, "Tank not found");
+  const rows = tank.dip_chart_id
+    ? all("SELECT depth_mm/10.0 cm, litres FROM dip_chart_rows WHERE chart_id=? ORDER BY depth_mm", tank.dip_chart_id)
+    : all("SELECT cm, litres FROM tank_charts WHERE tank_id=? ORDER BY cm", tank.id);
+  const range = rows.length >= 2 ? { min_cm: rows[0].cm, max_cm: rows[rows.length - 1].cm, max_l: rows[rows.length - 1].litres } : null;
+  const cm = req.query.mm !== undefined ? Number(req.query.mm) / 10 : req.query.cm !== undefined ? Number(req.query.cm) : undefined;
+  if (cm === undefined || isNaN(cm)) return { tank_id: tank.id, has_chart: !!range, range, litres: null, book_l: tank.current_l };
+  if (!range) return { tank_id: tank.id, has_chart: false, range: null, litres: null, book_l: tank.current_l, error: "Is tank ka dip chart nahi laga — litre likhein ya Dip charts me chart lagayein" };
+  if (cm < range.min_cm || cm > range.max_cm) return { tank_id: tank.id, has_chart: true, range, litres: null, book_l: tank.current_l, error: `Dip ${range.min_cm}–${range.max_cm} cm ke beech honi chahiye` };
+  const litres = litresFromCm(tank.id, cm);
+  return { tank_id: tank.id, has_chart: true, range, cm, litres, book_l: tank.current_l, pct_full: tank.capacity_l ? round2((litres / tank.capacity_l) * 100) : null };
+}));
+
 /** Wet-stock reconciliation for a shift: per tank, meter sale vs dip-measured drop (for the shift report). */
 operations.get("/shifts/:id/dip-recon", requirePerm("shifts.manage"), h((req) => {
   const shift = get("SELECT sh.* FROM shifts sh JOIN stations s ON s.id=sh.station_id WHERE sh.id=? AND s.tenant_id=?", Number(req.params.id), tid(req));
