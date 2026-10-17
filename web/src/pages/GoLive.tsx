@@ -122,20 +122,21 @@ function Form({ it, post, busy }: { it: Item; post: (p: string, body?: any, msg?
         <div className="sm:col-span-4"><Btn label="Account banayein" onClick={() => post("/bank/accounts", { bank: v("bank"), title: v("title") || null, account_no: v("account_no") || null, kind: /jazz|easy|sada|upaisa|wallet/i.test(v("bank")) ? "wallet" : "current", opening_balance: Number(v("opening_balance")) || 0 }, "Bank account ban gaya")} /></div>
       </div>);
     case "staff": {
-      const rows: { name: string; role: string; phone: string; pin: string }[] = v("rows", [{ name: "", role: "manager", phone: "", pin: "" }, { name: "", role: "cashier", phone: "", pin: "" }, { name: "", role: "salesman", phone: "", pin: "" }, { name: "", role: "salesman", phone: "", pin: "" }]);
+      const rows: { name: string; role: string; phone: string; pin: string; password: string }[] = v("rows", [{ name: "", role: "manager", phone: "", pin: "", password: "" }, { name: "", role: "cashier", phone: "", pin: "", password: "" }, { name: "", role: "salesman", phone: "", pin: "", password: "" }, { name: "", role: "salesman", phone: "", pin: "", password: "" }]);
       const upd = (i: number, k: string, val: string) => set("rows", rows.map((r, j) => (j === i ? { ...r, [k]: val } : r)));
       return (
         <div className="space-y-2">
-          <div className="text-xs text-slate-500">Naam aur 4-digit PIN kaafi hai — wo PIN se login karenge. Khali rows chhor dein.</div>
+          <div className="text-xs text-slate-500">Naam + 4-digit PIN kaafi hai (PIN se login). Phone + password bhi dein to wo pump ke link par phone number se sign in kar sakenge. Khali rows chhor dein.</div>
           {rows.map((r, i) => (
-            <div key={i} className="grid gap-2 sm:grid-cols-4">
+            <div key={i} className="grid gap-2 sm:grid-cols-5">
               <input className="input" placeholder="Naam" value={r.name} onChange={(e) => upd(i, "name", e.target.value)} />
               <select className="input" value={r.role} onChange={(e) => upd(i, "role", e.target.value)}>{(it.roles ?? ["manager", "cashier", "salesman", "wholesale", "staff"]).map((x: string) => <option key={x} value={x}>{x}</option>)}</select>
               <input className="input" placeholder="Phone (optional)" value={r.phone} onChange={(e) => upd(i, "phone", e.target.value)} />
               <input className="input tabular-nums" placeholder="PIN (4 digit)" inputMode="numeric" maxLength={4} value={r.pin} onChange={(e) => upd(i, "pin", e.target.value.replace(/\D/g, "").slice(0, 4))} />
+              <input className="input" placeholder="Password (optional, 8+)" type="text" value={r.password} onChange={(e) => upd(i, "password", e.target.value)} />
             </div>))}
-          <div className="flex gap-2"><button className="btn-secondary text-xs" onClick={() => set("rows", [...rows, { name: "", role: "salesman", phone: "", pin: "" }])}>+ row</button>
-            <Btn label="Users banayein" onClick={() => post("/golive/staff", { users: rows.filter((r) => r.name.trim().length >= 2).map((r) => ({ name: r.name.trim(), role: r.role, phone: r.phone || null, pin: r.pin || "" })) }, "Staff users ban gaye")} /></div>
+          <div className="flex gap-2"><button className="btn-secondary text-xs" onClick={() => set("rows", [...rows, { name: "", role: "salesman", phone: "", pin: "", password: "" }])}>+ row</button>
+            <Btn label="Users banayein" onClick={() => post("/golive/staff", { users: rows.filter((r) => r.name.trim().length >= 2).map((r) => ({ name: r.name.trim(), role: r.role, phone: r.phone || null, pin: r.pin || "", password: r.password || "" })) }, "Staff users ban gaye")} /></div>
         </div>);
     }
     case "shift": return (

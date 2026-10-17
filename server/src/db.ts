@@ -743,6 +743,10 @@ export function migrate() {
   addColumn("tenants", "activated_by", "TEXT");
   addColumn("tenants", "plan", "TEXT");
   addColumn("tenants", "note", "TEXT");
+  // each pump's own sign-in link: /p/<slug> (SaaS); existing pumps get one from their name on first start after this update
+  addColumn("tenants", "slug", "TEXT");
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_tenants_slug ON tenants(slug)");
+  for (const t of all("SELECT id, name FROM tenants WHERE slug IS NULL OR slug=''")) run("UPDATE tenants SET slug=? WHERE id=?", uniqueSlug(t.name as string), t.id);
   // one-time activation codes the platform owner hands out after cash payment
   db.exec(`CREATE TABLE IF NOT EXISTS activation_codes (
     id INTEGER PRIMARY KEY, code TEXT NOT NULL UNIQUE, plan TEXT, note TEXT,
@@ -875,4 +879,16 @@ export function setSetting(tenantId: number, key: string, value: string) {
     "INSERT INTO settings (tenant_id,key,value) VALUES (?,?,?) ON CONFLICT(tenant_id,key) DO UPDATE SET value=excluded.value",
     tenantId, key, value,
   );
+}
+
+/** URL-safe pump id from its name: "Haroon Petroleum" → "haroon-petroleum" (unique: -2, -3… when taken). */
+export function slugify(name: string) {
+  const base = name.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
+  return base || "pump";
+}
+export function uniqueSlug(name: string, exceptId?: number) {
+  const base = slugify(name);
+  let s = base, n = 1;
+  while (get("SELECT id FROM tenants WHERE slug=? AND id<>?", s, exceptId ?? 0)) s = `${base}-${++n}`;
+  return s;
 }

@@ -87,7 +87,8 @@ function Panel({ onLogout }: { onLogout: () => void }) {
           <tbody>
             {tenants.map((t) => (
               <tr key={t.id} className="border-t border-slate-100">
-                <td className="p-2"><div className="font-medium">{t.name}</div><div className="text-xs text-slate-400">{t.admin_email} · {t.users} users</div></td>
+                <td className="p-2"><div className="font-medium">{t.name}</div><div className="text-xs text-slate-400">{t.admin_email} · {t.users} users</div>
+                  {t.pump_url && <div className="mt-0.5 flex items-center gap-1 text-[11px]"><a className="font-mono text-brand-700 underline" href={t.pump_url} target="_blank" rel="noreferrer">/p/{t.slug}</a><button type="button" className="rounded border border-slate-200 px-1 text-[10px]" onClick={() => navigator.clipboard?.writeText(t.pump_url)}>copy</button></div>}</td>
                 <td className="text-xs">{t.owner_name}<div className="text-slate-400">{t.owner_phone}</div></td>
                 <td><span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${STATUS_TONE[t.status] ?? "bg-slate-100"}`}>{t.status}</span>
                   {t.status === "trial" && t.trial_ends_at && <div className="text-[11px] text-slate-400">till {String(t.trial_ends_at).slice(0, 10)}</div>}</td>

@@ -108,11 +108,11 @@ saasPublic.post("/platform/login", h((req) => {
 const platform = Router();
 platform.use(requirePlatform);
 platform.get("/tenants", h(() =>
-  ({ tenants: all(`SELECT t.id, t.name, t.owner_name, t.owner_phone, t.status, t.trial_ends_at, t.activated_at, t.plan, t.created_at,
+  ({ tenants: all(`SELECT t.id, t.name, t.slug, t.owner_name, t.owner_phone, t.status, t.trial_ends_at, t.activated_at, t.plan, t.created_at,
        (SELECT COUNT(*) FROM users u WHERE u.tenant_id=t.id) users,
        (SELECT email FROM users u WHERE u.tenant_id=t.id AND u.role='admin' ORDER BY u.id LIMIT 1) admin_email,
        (SELECT value FROM settings s WHERE s.tenant_id=t.id AND s.key='module_wholesale')='1' module_wholesale
-     FROM tenants t ORDER BY t.id DESC`).map((r) => ({ ...r, module_wholesale: Boolean(r.module_wholesale) })) })));
+     FROM tenants t ORDER BY t.id DESC`).map((r) => ({ ...r, module_wholesale: Boolean(r.module_wholesale), pump_url: r.slug ? `${config.publicUrl}/p/${r.slug}` : null })) })));
 // turn a paid add-on module on/off for one pump (extra payment taken offline) — only the super-admin can do this
 platform.post("/tenants/:id/module", h((req) => {
   const id = Number(req.params.id);

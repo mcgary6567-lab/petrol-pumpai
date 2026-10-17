@@ -199,8 +199,18 @@ export function pinLogin(device: string | undefined, userId: number, pin: string
 const PW_TRIES = 8, PW_LOCK_MIN = 15;
 const DUMMY_HASH = bcrypt.hashSync("not-a-real-password", 10);
 /** Check email + password (with lockout). Returns the user row on success; throws on failure. Does NOT issue a session. */
-export function authenticate(email: string, password: string): Row {
-  const u = get("SELECT * FROM users WHERE email=?", email.toLowerCase().trim());
+export function authenticate(login: string, password: string, tenantScope?: number): Row {
+  const id = login.toLowerCase().trim();
+  let u: Row | undefined;
+  if (id.includes("@")) u = get("SELECT * FROM users WHERE email=?", id);
+  else {
+    // a phone number: within the pump the link named, else across all pumps — ambiguous means "use your pump's own link"
+    const digits = id.replace(/\D/g, "");
+    const phone = digits.startsWith("0") ? "92" + digits.slice(1) : digits.startsWith("92") ? digits : digits ? "92" + digits : "";
+    const rows = phone ? all(`SELECT * FROM users WHERE phone=? AND active=1 ${tenantScope ? "AND tenant_id=?" : ""} ORDER BY id`, ...(tenantScope ? [phone, tenantScope] : [phone])) : [];
+    if (rows.length > 1) throw new AppError(400, "Is number par aik se zyada pumps ke accounts hain — apne pump ka apna link istemal karein, ya email se sign in karein");
+    u = rows[0];
+  }
   if (u?.pw_locked_until && Date.parse(u.pw_locked_until) > Date.now())
     throw new AppError(429, `Too many wrong passwords. Try again after ${Math.ceil((Date.parse(u.pw_locked_until) - Date.now()) / 60000)} minutes.`);
   // the same work is done whether or not the email exists, so the answer time doesn't give it away

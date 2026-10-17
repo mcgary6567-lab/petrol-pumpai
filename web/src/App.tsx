@@ -62,7 +62,15 @@ import Margins from "./pages/Margins";
 import ProfitExplainer from "./pages/ProfitExplainer";
 import Roster from "./pages/Roster";
 import Kiosk from "./pages/Kiosk";
-import { loadBranding, applyBrand } from "./lib/brand";
+import { loadBranding, applyBrand, setPumpSlug } from "./lib/brand";
+import { useParams } from "react-router-dom";
+
+/** A pump's own sign-in link (/p/<slug>): remember the pump, then show its sign-in page. */
+function PumpLink() {
+  const { slug } = useParams();
+  setPumpSlug(slug ?? null);
+  return <Navigate to={`/login?pump=${encodeURIComponent(slug ?? "")}`} replace />;
+}
 import Activate from "./pages/Activate";
 import Platform from "./pages/Platform";
 
@@ -157,6 +165,7 @@ export default function App() {
         <BrowserRouter>
           <Routes>
             <Route path="/login" element={<Login />} />
+            <Route path="/p/:slug" element={<PumpLink />} />
             <Route path="/setup" element={<Setup />} />
             <Route path="/signup" element={<Setup signup />} />
             <Route path="/platform" element={<Platform />} />

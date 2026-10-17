@@ -66,7 +66,7 @@ import { docs } from "./routes/docs.js";
 import { docFromToken } from "./docs.js";
 import { paymentInbox } from "./routes/paymentInbox.js";
 import { people, slipPdf } from "./routes/people.js";
-import { setupPublic, business, applyStoredConfig } from "./routes/setup.js";
+import { setupPublic, business, applyStoredConfig, pumpUrl } from "./routes/setup.js";
 import { saasPublic, saasAuthed, tenantGate, seedPlatformAdmin, tenantState } from "./routes/saas.js";
 import { auditTrail, auditRouter } from "./routes/auditTrail.js";
 import { machines } from "./routes/machines.js";
@@ -144,8 +144,11 @@ app.get("/manifest.webmanifest", (_req, res) => {
   }));
 });
 app.post("/api/auth/login", h(async (req) => {
-  const b = parse(z.object({ email: z.string().email(), password: z.string().min(1) }), req.body);
-  const u = authenticate(b.email, b.password);
+  // `email` may also be a phone number (staff rarely have email); `pump` = the slug from the pump's own link, so a phone
+  // shared by two pumps' staff still resolves to the right one
+  const b = parse(z.object({ email: z.string().trim().min(3).max(120), password: z.string().min(1), pump: z.string().trim().max(60).optional() }), req.body);
+  const scope = b.pump ? (get("SELECT id FROM tenants WHERE slug=?", b.pump.toLowerCase())?.id as number | undefined) : undefined;
+  const u = authenticate(b.email, b.password, scope);
   // owner two-factor: password is right, now send a one-time code on WhatsApp and ask for it
   if (twoFaRequired(u)) {
     const code = create2fa(u.id);
@@ -245,7 +248,8 @@ api.get("/me", h((req) => ({
   user: { ...req.user, station_name: req.user!.station_id ? get("SELECT name FROM stations WHERE id=?", req.user!.station_id)?.name : null },
   // the signed-in pump's own identity: name, brand colour and logo (SaaS: never another pump's)
   tenant: { ...get("SELECT id, name FROM tenants WHERE id=?", req.user!.tenant_id)!, color: getSetting(req.user!.tenant_id, "brand_color") || null,
-    logo_url: getSetting(req.user!.tenant_id, "logo_photo_id") ? `/branding/logo?v=${getSetting(req.user!.tenant_id, "logo_photo_id")}` : null },
+    logo_url: getSetting(req.user!.tenant_id, "logo_photo_id") ? `/branding/logo?v=${getSetting(req.user!.tenant_id, "logo_photo_id")}` : null,
+    slug: get("SELECT slug FROM tenants WHERE id=?", req.user!.tenant_id)?.slug ?? null, pump_url: pumpUrl(req.user!.tenant_id) },
   permissions: permissionsOf(req.user!.role, req.user!.tenant_id),
   // paid add-on modules this pump has (Wholesale & carriage is off by default)
   modules: modulesOf(req.user!.tenant_id),

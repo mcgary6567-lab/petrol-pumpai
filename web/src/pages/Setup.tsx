@@ -58,6 +58,7 @@ export default function Setup({ signup = false }: { signup?: boolean }) {
   const nav = useNavigate();
   const [status, setStatus] = useState<any>(null);
   const [step, setStep] = useState(0);
+  const [doneUrl, setDoneUrl] = useState<string | null>(null); // SaaS: the pump's own sign-in link, shown once the pump is made
   const [wholesale, setWholesale] = useState(false); // "Wholesale & carriage" module — off unless this pump does wholesale supply
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -93,6 +94,7 @@ export default function Setup({ signup = false }: { signup?: boolean }) {
   // single-pump install: only while the pump is not set up. SaaS sign-up: always allowed (and only in SaaS mode).
   if (signup && !status.saas) return <Navigate to="/login" replace />;
   if (!signup && !status.needed) return <Navigate to="/login" replace />;
+  if (doneUrl) return <PumpReady url={doneUrl} name={biz.name} onGo={() => nav("/")} />;
 
   const used = [...new Set(stations.flatMap((s) => s.tanks.map((t) => t.product)))];
   const key = STEPS[step].key;
@@ -147,7 +149,7 @@ export default function Setup({ signup = false }: { signup?: boolean }) {
       try { localStorage.removeItem(DRAFT_KEY); } catch { /* ignore */ }
       await login(r.token);
       await loadBranding();
-      nav("/");
+      if (r.pump_url) setDoneUrl(r.pump_url); else nav("/");
     } catch (e: any) { setErr(e.message); } finally { setBusy(false); }
   };
   const setStation = (i: number, patch: Partial<Station>) => setStations(stations.map((s, j) => (j === i ? { ...s, ...patch } : s)));
@@ -365,3 +367,29 @@ const Row = ({ k, children, onEdit }: { k: string; children: ReactNode; onEdit: 
   <div className="flex gap-3 border-b border-slate-100 pb-2"><span className="w-24 shrink-0 text-slate-500">{k}</span><span className="min-w-0 flex-1">{children}</span>
     <button type="button" className="shrink-0 text-xs font-medium text-brand-700 hover:underline" onClick={onEdit}>Edit</button></div>
 );
+
+/** Shown once after sign-up: the pump's own link, to save, share with staff and open from now on. */
+function PumpReady({ url, name, onGo }: { url: string; name: string; onGo: () => void }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => { try { await navigator.clipboard.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch { /* old browser */ } };
+  const wa = `https://wa.me/?text=${encodeURIComponent(`${name} — Petrol PumpAI login link:\n${url}\n\nIsi link se sign in karein (email/phone + password, ya PIN).`)}`;
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-brand-900 via-brand-700 to-brand-500 p-4">
+      <div className="card w-full max-w-lg animate-slide-up p-6 text-center">
+        <div className="mx-auto flex h-16 w-16 animate-pop items-center justify-center rounded-full bg-emerald-100 text-emerald-700"><Check size={36} strokeWidth={3} /></div>
+        <h1 className="mt-3 text-2xl font-bold">{name} tayyar hai 🎉</h1>
+        <p className="mt-1 text-sm text-slate-600">Yeh aap ke pump ka <b>apna link</b> hai. Isi se aap aur aap ka staff roz sign in karenge — is par aap ka logo aur naam dikhega. Save kar lein aur staff ko bhej dein.</p>
+        <div className="mt-4 flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 p-2">
+          <input readOnly className="input flex-1 bg-white font-mono text-sm" value={url} onFocus={(e) => e.currentTarget.select()} />
+          <button className="btn-primary shrink-0" onClick={copy}>{copied ? "Copied ✓" : "Copy"}</button>
+        </div>
+        <div className="mt-3 flex flex-wrap justify-center gap-2">
+          <a className="btn-secondary" href={wa} target="_blank" rel="noreferrer">WhatsApp par bhejein</a>
+          <button className="btn-secondary" onClick={() => window.print()}>Print</button>
+        </div>
+        <p className="mt-3 text-xs text-slate-500">Bhool jayein to Settings → Business profile me dobara mil jayega. Staff PIN se sign in kare to pehle ek dafa is link par email/phone se login zaroori hai (device link).</p>
+        <button className="btn-primary mt-5 w-full py-3 text-base" onClick={onGo}>Dashboard kholen →</button>
+      </div>
+    </div>
+  );
+}

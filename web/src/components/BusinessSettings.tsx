@@ -28,6 +28,15 @@ export function BusinessProfile() {
   return (
     <div className="card space-y-3 p-4">
       <h2 className="font-semibold">Business profile & branding</h2>
+      {f.pump_url && (
+        <div className="flex flex-wrap items-center gap-2 rounded-xl bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+          <span className="font-medium">Aap ke pump ka sign-in link:</span>
+          <a className="font-mono text-xs underline" href={f.pump_url} target="_blank" rel="noreferrer">{f.pump_url}</a>
+          <button type="button" className="btn-secondary !py-1 text-xs" onClick={() => navigator.clipboard?.writeText(f.pump_url)}>Copy</button>
+          <a className="btn-secondary !py-1 text-xs" href={`https://wa.me/?text=${encodeURIComponent(`${f.name} — login link: ${f.pump_url}`)}`} target="_blank" rel="noreferrer">WhatsApp</a>
+          <span className="w-full text-xs text-emerald-700">Staff ko yahi link dein — is par aap ka logo/naam dikhta hai aur phone number se bhi sign in ho jata hai.</span>
+        </div>
+      )}
       <div className="flex flex-wrap items-center gap-4">
         <label className="flex h-24 w-24 cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-300 text-xs text-slate-500 hover:border-brand-500">
           {f.logo || f.logo_url ? <img src={f.logo ?? f.logo_url} alt="Logo" className="h-full w-full rounded-xl object-contain" /> : <><Upload size={20} />Logo</>}

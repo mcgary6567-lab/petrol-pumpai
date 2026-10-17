@@ -77,14 +77,15 @@ golive.post("/golive/dismiss", requirePerm("settings.manage"), h((req) => { setS
 golive.post("/golive/staff", requirePerm("users.manage"), h((req) => {
   const t = tid(req);
   const b = parse(z.object({ users: z.array(z.object({ name: z.string().trim().min(2).max(80), role: z.enum(ROLES.filter((r) => r !== "admin") as [string, ...string[]]),
-    phone: z.string().max(16).optional().nullable(), pin: z.string().regex(/^\d{4}$/, "PIN 4 hindsay").optional().or(z.literal("")), station_id: z.number().int().optional().nullable() })).min(1).max(20) }), req.body);
+    phone: z.string().max(16).optional().nullable(), pin: z.string().regex(/^\d{4}$/, "PIN 4 hindsay").optional().or(z.literal("")), station_id: z.number().int().optional().nullable(),
+    password: z.string().min(8, "Password kam az kam 8 harf").max(72).optional().or(z.literal("")) })).min(1).max(20) }), req.body);
   const station = get("SELECT id FROM stations WHERE tenant_id=? ORDER BY id LIMIT 1", t)?.id as number | undefined;
   const made: { id: number; name: string; role: string; email: string }[] = [];
   for (const u of b.users) {
     const slug = u.name.toLowerCase().replace(/[^a-z0-9]+/g, ".").replace(/^\.|\.$/g, "") || "staff";
     let email = `${slug}@pump${t}.local`, n = 1;
     while (get("SELECT 1 x FROM users WHERE email=?", email)) email = `${slug}${++n}@pump${t}.local`;
-    const pwd = Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 6);
+    const pwd = u.password || Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 6);
     const sid = u.role === "salesman" ? (u.station_id ?? station ?? null) : (u.station_id ?? null);
     const id = run("INSERT INTO users (tenant_id,name,email,password_hash,role,station_id,phone,pin_hash,duty_start) VALUES (?,?,?,?,?,?,?,?,?)",
       t, u.name, email, bcrypt.hashSync(pwd, 10), u.role, sid, u.phone ? normalizePhone(u.phone) : null, u.pin ? bcrypt.hashSync(u.pin, 10) : null, u.role === "salesman" ? "08:00" : null).id;

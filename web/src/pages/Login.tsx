@@ -4,7 +4,7 @@ import { Delete, Mail, ArrowLeft, Fuel, Banknote, Container, UserCog, Crown } fr
 import { api, getDevice, setDevice } from "../lib/api";
 import { useAuth } from "../App";
 import { ErrorBox } from "../components/ui";
-import { useBranding } from "../lib/brand";
+import { useBranding, loadBranding, getPumpSlug, setPumpSlug } from "../lib/brand";
 import { InstallAppButton } from "../components/InstallApp";
 
 const ROLE: Record<string, string> = { admin: "Admin (CEO)", manager: "Manager", salesman: "Salesman", wholesale: "Wholesale", cashier: "Cashier" };
@@ -23,6 +23,9 @@ export default function Login() {
   const { user, login } = useAuth();
   const nav = useNavigate();
   const brand = useBranding();
+  const pumpSlug = getPumpSlug();
+  // opened through a pump's own link: that pump's name / logo / colour on this page, and sign-in scoped to it
+  useEffect(() => { if (pumpSlug) loadBranding(pumpSlug).catch(() => {}); }, [pumpSlug]);
   const enrolled = Boolean(getDevice());
   // first the portal chooser (roles), then the chosen portal's PIN or email sign-in
   const [screen, setScreen] = useState<"roles" | "pin" | "email">("roles");
@@ -52,8 +55,11 @@ export default function Login() {
         </div>
         {screen === "roles" && <RoleChooser people={people} enrolled={enrolled} onPick={pickRole} onEmail={() => toEmail(null)} onAll={() => { setRole(null); setScreen("pin"); }} />}
         {screen === "pin" && <PinLogin people={people} roleFilter={role} onDone={done} onEmail={() => toEmail(role)} onBack={() => setScreen("roles")} />}
-        {screen === "email" && <EmailLogin demo={Boolean(brand?.demo)} role={role} onDone={done} onBack={() => setScreen("roles")} onPin={roleHasPin(role) ? () => setScreen("pin") : undefined} />}
-        {brand?.saas && (
+        {screen === "email" && <EmailLogin demo={Boolean(brand?.demo) && !brand?.pump} role={role} pump={brand?.pump?.slug ?? pumpSlug} onDone={done} onBack={() => setScreen("roles")} onPin={roleHasPin(role) ? () => setScreen("pin") : undefined} />}
+        {brand?.pump && (
+          <p className="mt-3 text-center text-xs text-white/70">Yeh <b>{brand.pump.name}</b> ka sign-in link hai · <button type="button" className="underline" onClick={() => { setPumpSlug(null); location.href = "/login"; }}>doosra pump</button></p>
+        )}
+        {brand?.saas && !brand?.pump && (
           <div className="mt-4 rounded-2xl bg-white/10 p-3 text-center text-white">
             <p className="text-sm">Apna pump abhi add karein?</p>
             <a href="/signup" className="mt-1 inline-block rounded-xl bg-white px-5 py-2 font-semibold text-brand-700 shadow">⛽ Naya pump banayein</a>
@@ -161,7 +167,7 @@ function PinLogin({ people, roleFilter, onDone, onEmail, onBack }: { people: any
   );
 }
 
-function EmailLogin({ demo, role, onDone, onBack, onPin }: { demo: boolean; role: string | null; onDone: (r: any) => Promise<void>; onBack: () => void; onPin?: () => void }) {
+function EmailLogin({ demo, role, pump, onDone, onBack, onPin }: { demo: boolean; role: string | null; pump?: string | null; onDone: (r: any) => Promise<void>; onBack: () => void; onPin?: () => void }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   // the demo pump fills in a sample login for the chosen portal (admin by default); a real installation starts empty
@@ -175,7 +181,7 @@ function EmailLogin({ demo, role, onDone, onBack, onPin }: { demo: boolean; role
     setBusy(true);
     setError(null);
     try {
-      const r: any = await api("/auth/login", { body: { email, password } });
+      const r: any = await api("/auth/login", { body: { email: email.trim(), password, ...(pump ? { pump } : {}) } });
       if (r.twofa) { setTwofa({ user_id: r.user_id, phone_hint: r.phone_hint }); setCode(""); }
       else await onDone(r);
     } catch (err: any) { setError(err.message); }
@@ -205,7 +211,7 @@ function EmailLogin({ demo, role, onDone, onBack, onPin }: { demo: boolean; role
         {role && <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold text-white ${ROLE_TONE[role] ?? "bg-slate-600"}`}>{ROLE[role]} sign-in</span>}
       </div>
       {error && <ErrorBox error={error} />}
-      <label className="block"><span className="label">Email</span><input className="input" type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} required /></label>
+      <label className="block"><span className="label">Email ya phone number · <span lang="ur" dir="rtl" className="font-urdu">ای میل یا فون</span></span><input className="input" type="text" inputMode="email" autoComplete="username" placeholder="name@email.com ya 03xx xxxxxxx" value={email} onChange={(e) => setEmail(e.target.value)} required /></label>
       <label className="block"><span className="label">Password</span><input className="input" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required /></label>
       <button className="btn-primary w-full" disabled={busy}>{busy ? "Signing in…" : "Sign in"}</button>
       {onPin && <button type="button" onClick={onPin} className="w-full text-sm text-brand-600 hover:underline">Quick sign in with PIN</button>}

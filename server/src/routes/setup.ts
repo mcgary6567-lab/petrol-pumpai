@@ -10,7 +10,7 @@ import { Router } from "express";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { config, APP_VERSION, PRODUCTS } from "../config.js";
-import { get, run, now, tx, getSetting, setSetting } from "../db.js";
+import { get, run, now, tx, getSetting, setSetting, uniqueSlug } from "../db.js";
 import { h, parse, tid, requirePerm, signToken } from "../auth.js";
 import { AppError, normalizePhone, audit } from "../services.js";
 import { newPumpDefaults } from "./golive.js";
@@ -36,6 +36,7 @@ export function profile(t: number) {
     name: tenant.name, owner_name: tenant.owner_name, owner_phone: getSetting(t, "owner_phone", tenant.owner_phone ?? ""),
     ...Object.fromEntries(PROFILE_KEYS.map((k) => [k, getSetting(t, k)])),
     logo_url: getSetting(t, "logo_photo_id") ? `/branding/logo?v=${getSetting(t, "logo_photo_id")}` : null,
+    slug: tenant.slug ?? null, pump_url: pumpUrl(t),
     // where the pump is, for letterheads: the business address, else the first station's
     place: [getSetting(t, "biz_address"), getSetting(t, "biz_city")].filter(Boolean).join(", ")
       || [first?.address, first?.city].filter(Boolean).join(", ") || null,
@@ -58,11 +59,15 @@ export function logoJpeg(t: number): Buffer | null {
   return p && p.mime === "image/jpeg" ? Buffer.from(p.data as Uint8Array) : null;
 }
 
-setupPublic.get("/branding", h(() => {
-  // SaaS: the public pages (sign-in, sign-up) carry the platform's own brand — a pump's name/logo/colour is applied after sign-in from /me
-  const t = config.saas ? null : firstTenant();
+setupPublic.get("/branding", h((req) => {
+  // SaaS: the public pages (sign-in, sign-up) carry the platform's own brand — unless opened through a pump's own link (?pump=<slug>),
+  // then that pump's name/logo/colour show on the sign-in page; after sign-in /me carries the brand anyway
+  const slug = String(req.query.pump ?? "").trim().toLowerCase();
+  const byLink = slug ? get("SELECT id, name, slug FROM tenants WHERE slug=?", slug) : null;
+  const t = byLink ?? (config.saas ? null : firstTenant());
   const first = firstTenant();
   return {
+    pump: byLink ? { slug: byLink.slug, name: byLink.name } : null,
     setup_needed: !first, saas: config.saas, version: APP_VERSION, vendor: config.vendor,
     // the demo pump (sample logins shown on the sign-in page); never true on a real installation
     demo: Boolean(get("SELECT id FROM users WHERE email='admin@pumpai.pk' AND password_hash IS NOT NULL")),
@@ -128,8 +133,8 @@ export function provisionTenant(b: z.infer<typeof setupBody>, opts: { status: st
   for (const p of used) if (!b.prices[p]) throw new AppError(400, `Enter today's price for ${PRODUCTS[p]}`);
   const ts = now();
   const { tenantId, adminId } = tx(() => {
-    const tenantId = run("INSERT INTO tenants (name, owner_name, owner_phone, status, trial_ends_at) VALUES (?,?,?,?,?)",
-      b.business.name, b.business.owner_name, normalizePhone(b.business.owner_phone), opts.status, opts.trialEndsAt ?? null).id;
+    const tenantId = run("INSERT INTO tenants (name, owner_name, owner_phone, status, trial_ends_at, slug) VALUES (?,?,?,?,?,?)",
+      b.business.name, b.business.owner_name, normalizePhone(b.business.owner_phone), opts.status, opts.trialEndsAt ?? null, uniqueSlug(b.business.name)).id;
     setSetting(tenantId, "owner_phone", normalizePhone(b.business.owner_phone));
     for (const k of PROFILE_KEYS) if (b.business[k]) setSetting(tenantId, k, String(b.business[k]));
     if (b.business.ntn) setSetting(tenantId, "ntn", b.business.ntn);
@@ -162,7 +167,12 @@ export function provisionTenant(b: z.infer<typeof setupBody>, opts: { status: st
   audit(tenantId, { id: adminId, name: b.admin.name }, "setup", "tenant", { business: b.business.name, stations: b.stations.length, status: opts.status });
   refreshProducts(); // the new pump's products become the live dictionary
   const user = get("SELECT id, tenant_id, name, email, role, station_id FROM users WHERE id=?", adminId)!;
-  return { token: signToken(user), user, tenantId };
+  return { token: signToken(user), user, tenantId, pump_url: pumpUrl(tenantId) };
+}
+/** The pump's own sign-in link (SaaS): shows its logo/name on the sign-in page and scopes phone/PIN sign-in to it. */
+export function pumpUrl(t: number) {
+  const slug = get("SELECT slug FROM tenants WHERE id=?", t)?.slug as string | undefined;
+  return slug ? `${config.publicUrl}/p/${slug}` : null;
 }
 
 /* ================= Business profile (after setup) ================= */
