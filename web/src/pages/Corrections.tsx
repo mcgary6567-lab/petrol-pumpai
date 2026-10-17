@@ -149,7 +149,7 @@ function SupplierVoid() {
 }
 
 /** Edit a direct supplier payment/purchase/adjustment amount (purchase: litres×rate), ref & note. Payable + bank follow. */
-function EditSupplierTxn({ x, url, onClose, onDone }: { x: any; url: string; onClose: () => void; onDone: () => void }) {
+export function EditSupplierTxn({ x, url, onClose, onDone }: { x: any; url: string; onClose: () => void; onDone: () => void }) {
   const isPurchase = x.type === "purchase";
   const [litres, setLitres] = useState(String(x.litres ?? ""));
   const [rate, setRate] = useState(String(x.rate ?? ""));

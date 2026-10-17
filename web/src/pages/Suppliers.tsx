@@ -1,5 +1,7 @@
 import { useState } from "react";
-import { Plus, Printer, Wallet, Building2, Pencil, Download } from "lucide-react";
+import { useAuth } from "../App";
+import { EditSupplierTxn } from "./Corrections";
+import { Plus, Printer, Wallet, Building2, Pencil, Download, Trash2 } from "lucide-react";
 import { ImportExport } from "../components/ImportExport";
 import { PrintListButton } from "../components/PrintList";
 
@@ -186,7 +188,20 @@ function SupplierDetail({ id, onClose, onChanged, depots, onDepots }: { id: numb
   const [slip, setSlip] = useState<any>(null);
   const [edit, setEdit] = useState(false);
   const { busy, run } = useAction();
+  const { can } = useAuth();
   const title = s ? label(s) : "Supplier";
+  // CEO corrections on a statement line: a pump-side purchase / payment / adjustment is edited in place (amount, ref, note) or
+  // voided with a reason; a bypass purchase or payment is voided (then re-entered on the Bypass page — its client leg follows)
+  const [editLine, setEditLine] = useState<any>(null);
+  const [voidLine, setVoidLine] = useState<any>(null);
+  const canEdit = (t: any) => t.source !== "bypass" && can("entries.edit") && !String(t.ref ?? "").match(/^(wtx:|claim:|shopbuy:)/) && t.method !== "WHT" && !t.delivery_id && !t.trip_id;
+  const canVoid = (t: any) => t.source === "bypass" ? can("wholesale.void") : can("corrections.manage") && !String(t.ref ?? "").match(/^(wtx:|claim:|shopbuy:)/) && t.method !== "WHT" && !t.delivery_id;
+  const lineActions = (t: any) => (
+    <>
+      {canEdit(t) && <button className="btn-secondary !px-2 !py-1" aria-label="Edit entry" title="Edit (CEO)" onClick={() => setEditLine(t)}><Pencil size={14} /></button>}
+      {canVoid(t) && <button className="btn-secondary !px-2 !py-1 !text-red-700" aria-label="Void entry" title="Void (CEO)" onClick={() => setVoidLine(t)}><Trash2 size={14} /></button>}
+    </>
+  );
   // on-screen ledger filters only — the printed statement and the CSV always carry the full account
   const [lq, setLq] = useState("");
   const [lrange, setLrange] = useState({ from: "", to: "" });
@@ -273,7 +288,7 @@ function SupplierDetail({ id, onClose, onChanged, depots, onDepots }: { id: numb
                   </div>
                   <div className="break-words text-xs text-slate-600">{t.product ? `${num(t.litres)} L ${PRODUCTS[t.product]} @ Rs ${t.rate}` : t.method} <span className="text-slate-500">{[t.ref, t.note].filter(Boolean).join(" · ")}</span></div>
                   <div className="flex items-center justify-between gap-2"><ProofThumbs ids={t.proof_ids} />
-                    {printable(t) && <button className="btn-secondary ml-auto min-h-9 !px-2 !py-1" aria-label="Print voucher" onClick={() => setSlip(voucherOf(t, t.balance))}><Printer size={14} /></button>}</div>
+                    <span className="ml-auto flex gap-1">{lineActions(t)}{printable(t) && <button className="btn-secondary min-h-9 !px-2 !py-1" aria-label="Print voucher" onClick={() => setSlip(voucherOf(t, t.balance))}><Printer size={14} /></button>}</span></div>
                 </li>
               ))}
             </ul>
@@ -287,15 +302,40 @@ function SupplierDetail({ id, onClose, onChanged, depots, onDepots }: { id: numb
                   <td className="td text-right tabular-nums">{t.debit ? pkr(t.debit) : ""}</td>
                   <td className="td text-right tabular-nums text-emerald-700">{t.credit ? pkr(t.credit) : ""}</td>
                   <td className="td text-right font-medium tabular-nums">{pkr(t.balance)}</td>
-                  <td className="td">{printable(t) && <button className="btn-secondary !px-2 !py-1" aria-label="Print voucher" title="Print voucher" onClick={() => setSlip(voucherOf(t, t.balance))}><Printer size={14} /></button>}</td>
+                  <td className="td"><div className="flex justify-end gap-1">{lineActions(t)}{printable(t) && <button className="btn-secondary !px-2 !py-1" aria-label="Print voucher" title="Print voucher" onClick={() => setSlip(voucherOf(t, t.balance))}><Printer size={14} /></button>}</div></td>
                 </tr>
               ))}</tbody>
             </table>
             {!s.lines.length && <Empty>No entries</Empty>}
             {allLines.length > 0 && !lines.length && lineFiltered && <Empty>Kuch nahi mila · کچھ نہیں ملا</Empty>}
           </div>
+          {editLine && <EditSupplierTxn x={{ ...editLine, supplier: label(s) }} url={`/corrections/supplier-txn/${editLine.id}/edit`} onClose={() => setEditLine(null)} onDone={() => { setEditLine(null); reload(); onChanged(); }} />}
+          {voidLine && <VoidLine t={voidLine} supplier={label(s)} onClose={() => setVoidLine(null)} onDone={() => { setVoidLine(null); reload(); onChanged(); }} />}
         </div>
       )}
+    </Modal>
+  );
+}
+
+/** Void one statement line with a reason (CEO). Pump-side rows go through Corrections; bypass rows through the Bypass void routes. */
+function VoidLine({ t, supplier, onClose, onDone }: { t: any; supplier: string; onClose: () => void; onDone: () => void }) {
+  const [reason, setReason] = useState("");
+  const { busy, run } = useAction();
+  const isBypass = t.source === "bypass";
+  const rawId = String(t.id).replace(/^b/, "");
+  const url = isBypass ? (t.type === "purchase" ? `/bypass/purchases/${rawId}/void` : `/bypass/payments/${rawId}/void`) : `/corrections/supplier-txn/${t.id}/void`;
+  const what = `${t.type}${isBypass ? " (bypass)" : ""} · ${t.product ? `${num(t.litres)} L ${PRODUCTS[t.product]} · ` : ""}${pkr(t.amount)}`;
+  return (
+    <Modal open onClose={onClose} title={`Void entry — ${supplier}`}>
+      <div className="space-y-3">
+        <div className="rounded-xl bg-red-50 p-3 text-sm text-red-900"><b>{what}</b><div className="text-xs">{dt(t.txn_date)}{t.ref ? ` · ${t.ref}` : ""}{t.note ? ` · ${t.note}` : ""}</div></div>
+        <p className="text-sm text-slate-600">{isBypass ? "Bypass entry void hogi (payment ke saath client ki taraf wali entry bhi). Sahi entry Bypass page se dobara karein." : "Entry hat jayegi: supplier ka baqaya, cash/bank aur ledger sab wapas ho jayenge. Audit log me wajah ke saath record rahega."}</p>
+        <Field label="Wajah (kyun void) — zaroori"><input className="input" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. galti se 52 lakh likha, 52 hazar tha" /></Field>
+        <div className="flex justify-end gap-2">
+          <button className="btn-secondary" onClick={onClose}>Cancel</button>
+          <button className="btn-primary !bg-red-600 hover:!bg-red-700" disabled={busy || reason.trim().length < 3} onClick={async () => { if (await run(() => api(url, { body: { reason: reason.trim() } }), "Entry void ho gayi")) onDone(); }}><Trash2 size={15} /> Void karein</button>
+        </div>
+      </div>
     </Modal>
   );
 }
