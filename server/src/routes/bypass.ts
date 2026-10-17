@@ -10,7 +10,7 @@
  */
 import { Router } from "express";
 import { z } from "zod";
-import { all, get, run, tx, now, pkDate, pkStart, pkEnd } from "../db.js";
+import { all, get, run, tx, now, pkDate, pkStart, pkEnd, stampFor } from "../db.js";
 import { h, parse, tid, requirePerm } from "../auth.js";
 import { AppError, round2, audit } from "../services.js";
 import { productSchema } from "../products.js";
@@ -157,7 +157,7 @@ bypass.post("/bypass/deliveries", requirePerm("wholesale.manage"), h((req) => {
     added[d.client_id] = (added[d.client_id] ?? 0) + p.amount;
     return { ...d, ...p, product: prod };
   });
-  const ts = b.txn_date ? new Date(`${b.txn_date}T12:00:00+05:00`).toISOString() : now();
+  const ts = stampFor(b.txn_date);
   const by = req.user!.name;
   const out = tx(() => {
     const { id } = run(`INSERT INTO bypass_deliveries (tenant_id,station_id,tanker_id,driver_id,vehicle_no,driver_name,tankers,note,created_by,txn_date,created_at)
@@ -174,7 +174,7 @@ bypass.post("/bypass/deliveries", requirePerm("wholesale.manage"), h((req) => {
     const drops: any[] = [];
     for (const d of priced) {
       const txn = insertTxn(req, d.c.id, { type: "supply", station_id: b.station_id, tank_id: null, product: d.product, litres: d.litres, rate: d.rate, amount: d.amount,
-        ref: d.ref ?? `BYP-${id}`, note: `Bypass delivery #${id}`, location: d.location ?? null, txn_date: b.txn_date, ...fl });
+        ref: d.ref ?? `BYP-${id}`, note: `Bypass delivery #${id}`, location: d.location ?? null, txn_date: ts, ...fl });
       deliverOrder(t, d.order_id, d.c.id, txn.id);
       const unit = avg[d.product] ?? 0;
       run(`INSERT INTO bypass_drops (tenant_id,delivery_id,wtx_id,client_id,product,litres,unit_cost,cost_amount,created_by,txn_date,created_at)
@@ -209,7 +209,7 @@ bypass.post("/bypass/to-tank", requirePerm("wholesale.manage"), h((req) => {
   if (b.litres > st.litres + 0.01) throw new AppError(400, `Only ${st.litres} L ${PRODUCTS[b.product] ?? b.product} bypass stock is on hand — cannot unload ${b.litres} L`);
   if (tank.current_l + b.litres > tank.capacity_l * 1.001) throw new AppError(400, `${tank.name} would go over its capacity (${Math.round(tank.capacity_l)} L)`);
   if (b.delivery_id && !get("SELECT id FROM bypass_deliveries WHERE id=? AND tenant_id=?", b.delivery_id, t)) throw new AppError(400, "Bypass delivery not found");
-  const ts = b.txn_date ? new Date(`${b.txn_date}T12:00:00+05:00`).toISOString() : now();
+  const ts = stampFor(b.txn_date);
   // the value of the fuel put in the tank: a typed amount wins, else litres × the bypass average cost
   const cost = b.amount != null ? round2(b.amount) : round2(b.litres * st.avg_cost);
   const unit = round2(cost / b.litres);
@@ -440,7 +440,7 @@ bypass.post("/bypass/suppliers/:id/payment", requirePerm("wholesale.manage"), h(
     ref: z.string().max(60).optional().nullable(), note: z.string().max(200).optional().nullable(), txn_date: day.optional(), photo_ids: proofPhotos,
   }), req.body);
   const amount = round2(b.amount);
-  const ts = b.txn_date ? new Date(`${b.txn_date}T12:00:00+05:00`).toISOString() : now();
+  const ts = stampFor(b.txn_date);
   // the client legs lower that client's due to us as well — pick the client who paid
   let client: any = null;
   if (b.mode !== "we_pay") {
@@ -455,10 +455,10 @@ bypass.post("/bypass/suppliers/:id/payment", requirePerm("wholesale.manage"), h(
     let wtxId: number | null = null;
     if (b.mode === "client_direct") {
       // client paid the supplier direct: no money through us — just lowers the client's due (BYPASS_PAY is booked against the bypass payable)
-      wtxId = insertTxn(req, client.id, { type: "payment", amount, method: BYPASS_PAY, ref: b.ref ?? null, note: b.note || `Paid ${s.name} direct (bypass)`, txn_date: b.txn_date }).id as number;
+      wtxId = insertTxn(req, client.id, { type: "payment", amount, method: BYPASS_PAY, ref: b.ref ?? null, note: b.note || `Paid ${s.name} direct (bypass)`, txn_date: ts }).id as number;
     } else if (b.mode === "through_us") {
       // client sent it to us (a normal receipt into our account) and we forward it on to the supplier (the payment below)
-      wtxId = insertTxn(req, client.id, { type: "payment", amount, method: b.method ?? "Bank transfer", account_id: acc, ref: b.ref ?? null, note: b.note || `For ${s.name} (bypass, through us)`, txn_date: b.txn_date }).id as number;
+      wtxId = insertTxn(req, client.id, { type: "payment", amount, method: b.method ?? "Bank transfer", account_id: acc, ref: b.ref ?? null, note: b.note || `For ${s.name} (bypass, through us)`, txn_date: ts }).id as number;
     }
     const { id } = run(`INSERT INTO bypass_supplier_payments (tenant_id,supplier_id,amount,mode,client_id,wtx_id,method,account_id,ref,note,created_by,txn_date,created_at)
       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`, t, s.id, amount, b.mode, client?.id ?? null, wtxId, b.method ?? null, acc ?? null, b.ref ?? null, b.note ?? null, req.user!.name, ts, now());

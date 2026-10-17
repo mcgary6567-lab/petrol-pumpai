@@ -59,6 +59,14 @@ export const now = () => new Date().toISOString();
 export const METER = "('No.' || n.meter_no || ' · ' || n.label)";
 export const meterName = (n: { meter_no?: number | null; label: string }) => (n.meter_no ? `No.${n.meter_no} · ${n.label}` : n.label);
 export const pkDate = (ms = Date.now()) => new Date(ms + 5 * 3600_000).toISOString().slice(0, 10);
+/** Timestamp for a dated entry: no date or today → right now (so "Aaj" totals pick it up at once); an earlier day → noon of
+ *  that day in Pakistan (never a future stamp: an entry stamped at noon but made at 10am would hide from "today" till noon). */
+export const stampFor = (d?: string | null) => {
+  if (!d) return now();
+  const day = d.slice(0, 10);
+  if (day >= pkDate()) return now();
+  return new Date(`${day}T12:00:00+05:00`).toISOString();
+};
 /** A "YYYY-MM-DD" Pakistan date → UTC timestamp of its midnight (ISO strings pass through). */
 export const pkStart = (d: string) => (d.length === 10 ? new Date(`${d}T00:00:00+05:00`).toISOString() : d);
 /** Exclusive end of a Pakistan date: midnight of the next day (ISO strings pass through). */

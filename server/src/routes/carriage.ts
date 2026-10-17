@@ -11,7 +11,7 @@
  */
 import { Router } from "express";
 import { z } from "zod";
-import { all, get, run, tx, now, pkDate, getSetting } from "../db.js";
+import { all, get, run, tx, now, pkDate, getSetting, stampFor } from "../db.js";
 import { h, parse, tid, requirePerm } from "../auth.js";
 import { AppError, createAlert, round2, pkr, audit } from "../services.js";
 import { productSchema } from "../products.js";
@@ -221,7 +221,7 @@ carriage.post("/carriage/thekedars/:id/carriage", requirePerm("carriage.manage")
   const govtCut = round2(gross * pct / 100);
   const kiraya = round2(gross - govtCut);
   if (kiraya <= 0) throw new AppError(400, "Net kiraya after the govt cut must be more than zero");
-  const ts = b.txn_date ? new Date(`${b.txn_date}T12:00:00+05:00`).toISOString() : now();
+  const ts = stampFor(b.txn_date);
   const breakdown = b.lines.map((l) => `${round2(l.litres)} L ${PRODUCTS[l.product] ?? l.product}`).join(" + ");
   const single = b.lines.length === 1 ? b.lines[0].product : null;
   const note = [`Bypass on our ID · ${depot.name}`, breakdown, pct > 0 ? `kiraya ${gross} − govt ${pct}% (${govtCut}) = ${kiraya}` : "fixed kiraya", b.note].filter(Boolean).join(" · ");
@@ -251,7 +251,7 @@ carriage.post("/carriage/thekedars/:id/payment", requirePerm("carriage.manage"),
     ref: z.string().max(60).optional().nullable(), note: z.string().max(200).optional().nullable(), txn_date: day.optional(),
     photo_ids: proofPhotos, notify: z.boolean().default(true),
   }), req.body);
-  const ts = b.txn_date ? new Date(`${b.txn_date}T12:00:00+05:00`).toISOString() : now();
+  const ts = stampFor(b.txn_date);
   const acc = bankAccountFor(t, b.account_id, b.method ?? "cash");
   const { id } = run(`INSERT INTO carriage_txns (tenant_id,thekedar_id,type,amount,method,account_id,ref,note,created_by,txn_date,created_at)
     VALUES (?,?,?,?,?,?,?,?,?,?,?)`, t, k.id, "payment", round2(b.amount), b.method ?? "Cash", acc ?? null, b.ref ?? null, b.note ?? null, req.user!.name, ts, now());
@@ -264,7 +264,7 @@ carriage.post("/carriage/thekedars/:id/adjustment", requirePerm("carriage.manage
   const t = tid(req);
   const k = own(t, Number(req.params.id));
   const b = parse(z.object({ amount: z.number().refine((n) => n !== 0, "non-zero"), note: z.string().max(200), txn_date: day.optional() }), req.body);
-  const ts = b.txn_date ? new Date(`${b.txn_date}T12:00:00+05:00`).toISOString() : now();
+  const ts = stampFor(b.txn_date);
   const { id } = run(`INSERT INTO carriage_txns (tenant_id,thekedar_id,type,amount,note,created_by,txn_date,created_at)
     VALUES (?,?,?,?,?,?,?,?)`, t, k.id, "adjustment", round2(b.amount), b.note, req.user!.name, ts, now());
   return { txn: get("SELECT * FROM carriage_txns WHERE id=?", id), due: thekedarDue(k.id) };
@@ -323,7 +323,7 @@ carriage.post("/carriage/thekedars/:id/fuel-payment", requirePerm("carriage.mana
   }), req.body);
   const depot = get("SELECT name FROM suppliers WHERE id=? AND tenant_id=?", b.supplier_id, t);
   if (!depot) throw new AppError(400, "Choose the depot the fuel was lifted on");
-  const ts = b.txn_date ? new Date(`${b.txn_date}T12:00:00+05:00`).toISOString() : now();
+  const ts = stampFor(b.txn_date);
   const by = req.user!.name;
   const id = tx(() => recordFuel(t, k, b.supplier_id, depot.name, b, b.invoice_ref ?? null, b.note ?? null, ts, by, null));
   if (b.photo_ids?.length) linkPhotos(t, b.photo_ids, `bfp:${id}`);

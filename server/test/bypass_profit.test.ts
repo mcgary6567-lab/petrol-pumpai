@@ -53,10 +53,13 @@ test("no purchase rate anywhere: bypass 100 L bought 38,000 sold 39,081 → +1,0
   assert.ok(a.rep.cost_assumed_products.length > 0, "report flags the assumed cost");
   assert.ok(a.pl.cost_note, "P&L carries the note");
 
-  const d = ok(await call("wholesale", "POST", "/api/bypass/deliveries", { station_id: st,
+  // the form sends today's date (Tareekh box defaults to today): the entry must count in "Aaj" at once, whatever the hour
+  const todayPk = new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 10);
+  const d = ok(await call("wholesale", "POST", "/api/bypass/deliveries", { station_id: st, txn_date: todayPk,
     purchases: [{ supplier_id: sup.id, product: "HSD", litres: 100, amount: 38000, cost_rate: 380 }],
     drops: [{ client_id: cl.id, product: "HSD", litres: 100, amount: 39081, override_limit: true }] }), "bypass delivery");
   near(d.billed, 39081); near(d.cost, 38000); near(d.margin, 1081, "form margin");
+  assert.ok(Date.parse(d.delivery.txn_date) <= Date.now(), "a same-day entry is never stamped in the future (noon)");
 
   const b = await snap();
   near(b.today.revenue - a.today.revenue, 39081, "today revenue up by the sale");
