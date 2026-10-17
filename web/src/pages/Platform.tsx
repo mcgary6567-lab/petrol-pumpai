@@ -1,14 +1,15 @@
 import { useEffect, useState, useCallback } from "react";
 import { ErrorBox } from "../components/ui";
+import { BackupsPanel } from "../components/BackupsPanel";
 
 /** Platform owner (super-admin) panel: every pump, activate / suspend, and one-time activation codes. Separate login. */
 const KEY = "pp_platform_token";
 const getTok = () => { try { return localStorage.getItem(KEY); } catch { return null; } };
 const setTok = (t: string | null) => { try { t ? localStorage.setItem(KEY, t) : localStorage.removeItem(KEY); } catch { /* */ } };
 
-async function pfetch(path: string, body?: unknown) {
+async function pfetch(path: string, body?: unknown, method?: string) {
   const res = await fetch(`/api${path}`, {
-    method: body ? "POST" : "GET",
+    method: method ?? (body ? "POST" : "GET"),
     headers: { "content-type": "application/json", ...(getTok() ? { authorization: `Bearer ${getTok()}` } : {}) },
     body: body ? JSON.stringify(body) : undefined,
   });
@@ -104,6 +105,11 @@ function Panel({ onLogout }: { onLogout: () => void }) {
             ))}
           </tbody>
         </table>
+      </div>
+
+      {/* whole-database backups: every pump in one file, kept on the volume + Google Drive / Dropbox */}
+      <div className="mt-4">
+        <BackupsPanel title="Backups — saare pumps (poora database)" base="/platform/backups" request={(p, i) => pfetch(p, i?.body, i?.method)} downloadUrl={(n) => `/api/platform/backups/${n}?token=${getTok() ?? ""}`} />
       </div>
     </div>
   );

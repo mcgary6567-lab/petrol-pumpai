@@ -20,6 +20,7 @@ import { all, get, run, now, setSetting } from "../db.js";
 import { h, parse, tid, forgetModules } from "../auth.js";
 import { AppError } from "../services.js";
 import { setupBody, provisionTenant } from "./setup.js";
+import { mountBackupRoutes } from "./system.js";
 
 export const saasPublic = Router();  // no login (sign-up, platform login + panel)
 export const saasAuthed = Router();  // after requireAuth (the pump owner's own account)
@@ -85,7 +86,8 @@ export function seedPlatformAdmin() {
 const platformToken = (id: number) => jwt.sign({ padmin: id }, config.jwtSecret, { expiresIn: "7d" });
 function requirePlatform(req: Request, _res: Response, next: NextFunction) {
   const hdr = req.headers.authorization;
-  const token = hdr?.startsWith("Bearer ") ? hdr.slice(7) : "";
+  // a backup download opens in the browser itself, so a GET may carry the platform token as ?token=
+  const token = hdr?.startsWith("Bearer ") ? hdr.slice(7) : req.method === "GET" && typeof req.query.token === "string" ? req.query.token : "";
   try {
     const p = jwt.verify(token, config.jwtSecret) as { padmin?: number };
     const a = p.padmin ? get("SELECT id, email, name FROM platform_admins WHERE id=?", p.padmin) : null;
@@ -130,6 +132,8 @@ platform.post("/tenants/:id/:action", h((req) => {
   return { ok: true, status: get("SELECT status FROM tenants WHERE id=?", id)!.status };
 }));
 platform.get("/codes", h(() => ({ codes: all("SELECT * FROM activation_codes ORDER BY id DESC LIMIT 200") })));
+// whole-database backups (every pump in one file) + Google Drive / Dropbox copies — platform owner only in SaaS
+mountBackupRoutes(platform, (_req, _res, next) => next(), (req) => ({ t: 0, user: { id: 0, name: `platform:${(req as Request & { padmin?: { email: string } }).padmin?.email ?? ""}` } }));
 platform.post("/codes", h((req) => {
   const b = parse(z.object({ count: z.number().int().min(1).max(50).default(1), plan: z.string().max(40).optional(), note: z.string().max(120).optional() }), req.body);
   const made: string[] = [];

@@ -53,90 +53,105 @@ export function listBackups() {
     .sort((a, b) => b.name.localeCompare(a.name));
 }
 
-system.get("/backups", requirePerm("settings.manage"), h(() => ({ dir: backupDir(), backups: listBackups(), restore_pending: fs.existsSync(`${config.dbPath}.restore`), can_restart: process.env.SUPERVISED === "1",
-  offsite: { configured: Boolean(process.env.BACKUP_COPY_CMD), last: (() => { try { return JSON.parse(getSetting(0, "offsite_last", "null")); } catch { return null; } })() },
-  cloud: cloudStatus() })));
+/**
+ * Backup routes, mounted twice: on the pump's own API (single-pump install, Settings → Backups) and on the SaaS platform panel.
+ * In SaaS mode the database holds EVERY pump, so a pump admin must never download / restore / re-route it — those routes 403 there.
+ */
+type Actor = (req: import("express").Request) => { t: number; user: { id: number; name: string } };
+export function mountBackupRoutes(r: Router, guard: import("express").RequestHandler, actor: Actor) {
+  r.get("/backups", guard, h(() => ({ dir: backupDir(), backups: listBackups(), restore_pending: fs.existsSync(`${config.dbPath}.restore`), can_restart: process.env.SUPERVISED === "1",
+    offsite: { configured: Boolean(process.env.BACKUP_COPY_CMD), last: (() => { try { return JSON.parse(getSetting(0, "offsite_last", "null")); } catch { return null; } })() },
+    cloud: cloudStatus() })));
+  
+  /* ---- cloud copies (Google Drive / Dropbox) ---- */
+  const provider = (p: string): Provider => { if (!(PROVIDERS as readonly string[]).includes(p)) throw new AppError(400, "Unknown provider"); return p as Provider; };
+  /** Google Drive: paste the service-account key JSON + the shared folder's ID; checked live before it is saved. */
+  r.put("/backups/cloud/gdrive", guard, h(async (req) => {
+    const b = parse(z.object({ json: z.string().min(20).max(20_000), folder_id: z.string().trim().min(5).max(300) }), req.body);
+    let key: { client_email: string; private_key: string };
+    try { key = parseServiceAccount(b.json); } catch (e: any) { throw new AppError(400, e.message); }
+    const cfg = { ...key, folder_id: b.folder_id.replace(/^.*\/folders\//, "").split(/[?#]/)[0] };
+    let check: { folder: string };
+    try { check = await gdriveCheck(cfg); } catch (e: any) { throw new AppError(400, `Google Drive: ${e.message}. Share the folder with ${key.client_email} (Editor) and check the folder ID.`); }
+    setSetting(0, "cloud_gdrive", JSON.stringify(cfg));
+    audit(actor(req).t, actor(req).user, "backup_cloud_connected", "gdrive", { email: key.client_email, folder: check.folder });
+    return { ok: true, folder: check.folder, email: key.client_email, cloud: cloudStatus() };
+  }));
+  /** Dropbox step 1: the link the owner opens to get a one-time code (offline access → refresh token). */
+  r.get("/backups/cloud/dropbox/auth-url", guard, h((req) => {
+    const k = String(req.query.app_key ?? "").trim();
+    if (k.length < 5) throw new AppError(400, "Enter the Dropbox app key first");
+    return { url: dropboxAuthUrl(k) };
+  }));
+  /** Dropbox step 2: app key + secret + that code → refresh token, kept here. */
+  r.post("/backups/cloud/dropbox/connect", guard, h(async (req) => {
+    const b = parse(z.object({ app_key: z.string().trim().min(5).max(100), app_secret: z.string().trim().min(5).max(100), code: z.string().trim().min(5).max(200) }), req.body);
+    let cfg;
+    try { cfg = await dropboxConnect(b.app_key, b.app_secret, b.code); } catch (e: any) { throw new AppError(400, e.message); }
+    setSetting(0, "cloud_dropbox", JSON.stringify(cfg));
+    audit(actor(req).t, actor(req).user, "backup_cloud_connected", "dropbox", { account: cfg.account });
+    return { ok: true, account: cfg.account, cloud: cloudStatus() };
+  }));
+  /** Re-check a connected provider (token still good, folder still reachable). */
+  r.post("/backups/cloud/:provider/check", guard, h(async (req) => {
+    const p = provider(req.params.provider);
+    if (!cloudConfigured(p)) throw new AppError(400, "Not connected");
+    try {
+      const g = JSON.parse(getSetting(0, "cloud_gdrive", "null")), d = JSON.parse(getSetting(0, "cloud_dropbox", "null"));
+      return { ok: true, ...(p === "gdrive" ? await gdriveCheck(g) : await dropboxCheck(d)) };
+    } catch (e: any) { throw new AppError(400, e.message); }
+  }));
+  /** Upload the newest backup to one provider now (also what the nightly backup does by itself). */
+  r.post("/backups/cloud/:provider/push", guard, h(async (req) => {
+    const p = provider(req.params.provider);
+    if (!cloudConfigured(p)) throw new AppError(400, "Not connected");
+    const latest = listBackups()[0] ?? (() => { const b = makeBackup(); return { name: b.name }; })();
+    const r = await cloudPush(p, path.join(backupDir(), latest.name));
+    if (!r.ok) throw new AppError(502, r.message ?? "Upload failed");
+    return { ok: true, result: r, cloud: cloudStatus() };
+  }));
+  r.delete("/backups/cloud/:provider", guard, h((req) => {
+    const p = provider(req.params.provider);
+    setSetting(0, p === "gdrive" ? "cloud_gdrive" : "cloud_dropbox", "null");
+    setSetting(0, `cloud_last_${p}`, "null");
+    audit(actor(req).t, actor(req).user, "backup_cloud_disconnected", p, {});
+    return { ok: true, cloud: cloudStatus() };
+  }));
+  r.post("/backups", guard, h(() => makeBackup()));
+  r.get("/backups/:name", guard, (req, res, next) => {
+    try {
+      if (!NAME.test(req.params.name)) throw new AppError(400, "Bad backup name");
+      const file = path.join(backupDir(), req.params.name);
+      if (!fs.existsSync(file)) throw new AppError(404, "Backup not found");
+      res.download(file);
+    } catch (e) { next(e); }
+  });
+  /** Restore is staged and swapped in at the next start, so the running database is never overwritten. */
+  r.post("/backups/:name/restore", guard, h((req) => {
+    if (!NAME.test(req.params.name)) throw new AppError(400, "Bad backup name");
+    const file = path.join(backupDir(), req.params.name);
+    if (!fs.existsSync(file)) throw new AppError(404, "Backup not found");
+    makeBackup(); // safety copy of today's data first
+    fs.copyFileSync(file, `${config.dbPath}.restore`);
+    return { ok: true, message: "Restart the app to finish the restore. The current data is kept as a backup." };
+  }));
+  r.delete("/backups/restore", guard, h(() => { fs.rmSync(`${config.dbPath}.restore`, { force: true }); return { ok: true }; }));
+}
 
-/* ---- cloud copies (Google Drive / Dropbox) ---- */
-const provider = (p: string): Provider => { if (!(PROVIDERS as readonly string[]).includes(p)) throw new AppError(400, "Unknown provider"); return p as Provider; };
-/** Google Drive: paste the service-account key JSON + the shared folder's ID; checked live before it is saved. */
-system.put("/backups/cloud/gdrive", requirePerm("settings.manage"), h(async (req) => {
-  const b = parse(z.object({ json: z.string().min(20).max(20_000), folder_id: z.string().trim().min(5).max(300) }), req.body);
-  let key: { client_email: string; private_key: string };
-  try { key = parseServiceAccount(b.json); } catch (e: any) { throw new AppError(400, e.message); }
-  const cfg = { ...key, folder_id: b.folder_id.replace(/^.*\/folders\//, "").split(/[?#]/)[0] };
-  let check: { folder: string };
-  try { check = await gdriveCheck(cfg); } catch (e: any) { throw new AppError(400, `Google Drive: ${e.message}. Share the folder with ${key.client_email} (Editor) and check the folder ID.`); }
-  setSetting(0, "cloud_gdrive", JSON.stringify(cfg));
-  audit(tid(req), req.user!, "backup_cloud_connected", "gdrive", { email: key.client_email, folder: check.folder });
-  return { ok: true, folder: check.folder, email: key.client_email, cloud: cloudStatus() };
-}));
-/** Dropbox step 1: the link the owner opens to get a one-time code (offline access → refresh token). */
-system.get("/backups/cloud/dropbox/auth-url", requirePerm("settings.manage"), h((req) => {
-  const k = String(req.query.app_key ?? "").trim();
-  if (k.length < 5) throw new AppError(400, "Enter the Dropbox app key first");
-  return { url: dropboxAuthUrl(k) };
-}));
-/** Dropbox step 2: app key + secret + that code → refresh token, kept here. */
-system.post("/backups/cloud/dropbox/connect", requirePerm("settings.manage"), h(async (req) => {
-  const b = parse(z.object({ app_key: z.string().trim().min(5).max(100), app_secret: z.string().trim().min(5).max(100), code: z.string().trim().min(5).max(200) }), req.body);
-  let cfg;
-  try { cfg = await dropboxConnect(b.app_key, b.app_secret, b.code); } catch (e: any) { throw new AppError(400, e.message); }
-  setSetting(0, "cloud_dropbox", JSON.stringify(cfg));
-  audit(tid(req), req.user!, "backup_cloud_connected", "dropbox", { account: cfg.account });
-  return { ok: true, account: cfg.account, cloud: cloudStatus() };
-}));
-/** Re-check a connected provider (token still good, folder still reachable). */
-system.post("/backups/cloud/:provider/check", requirePerm("settings.manage"), h(async (req) => {
-  const p = provider(req.params.provider);
-  if (!cloudConfigured(p)) throw new AppError(400, "Not connected");
-  try {
-    const g = JSON.parse(getSetting(0, "cloud_gdrive", "null")), d = JSON.parse(getSetting(0, "cloud_dropbox", "null"));
-    return { ok: true, ...(p === "gdrive" ? await gdriveCheck(g) : await dropboxCheck(d)) };
-  } catch (e: any) { throw new AppError(400, e.message); }
-}));
-/** Upload the newest backup to one provider now (also what the nightly backup does by itself). */
-system.post("/backups/cloud/:provider/push", requirePerm("settings.manage"), h(async (req) => {
-  const p = provider(req.params.provider);
-  if (!cloudConfigured(p)) throw new AppError(400, "Not connected");
-  const latest = listBackups()[0] ?? (() => { const b = makeBackup(); return { name: b.name }; })();
-  const r = await cloudPush(p, path.join(backupDir(), latest.name));
-  if (!r.ok) throw new AppError(502, r.message ?? "Upload failed");
-  return { ok: true, result: r, cloud: cloudStatus() };
-}));
-system.delete("/backups/cloud/:provider", requirePerm("settings.manage"), h((req) => {
-  const p = provider(req.params.provider);
-  setSetting(0, p === "gdrive" ? "cloud_gdrive" : "cloud_dropbox", "null");
-  setSetting(0, `cloud_last_${p}`, "null");
-  audit(tid(req), req.user!, "backup_cloud_disconnected", p, {});
-  return { ok: true, cloud: cloudStatus() };
-}));
+const tenantBackupGuard: import("express").RequestHandler = (req, res, next) => {
+  if (config.saas) return next(new AppError(403, "SaaS par backups platform owner ke paas hain (Platform panel)"));
+  requirePerm("settings.manage")(req, res, next);
+};
+mountBackupRoutes(system, tenantBackupGuard, (req) => ({ t: tid(req), user: req.user! }));
+
 /** Under systemd / Docker the app comes straight back after exiting — used to finish a restore from the browser. */
 system.post("/system/restart", requirePerm("settings.manage"), h((req) => {
+  if (config.saas) throw new AppError(403, "SaaS par restart platform owner karta hai");
   if (process.env.SUPERVISED !== "1") throw new AppError(400, "Restart the app from the server (it is not running as a service)");
   audit(tid(req), req.user!, "app_restart", "system", {});
   setTimeout(() => { closeDb(); process.exit(0); }, 600);
   return { ok: true, message: "Restarting — the app is back in a few seconds" };
 }));
-system.post("/backups", requirePerm("settings.manage"), h(() => makeBackup()));
-system.get("/backups/:name", requirePerm("settings.manage"), (req, res, next) => {
-  try {
-    if (!NAME.test(req.params.name)) throw new AppError(400, "Bad backup name");
-    const file = path.join(backupDir(), req.params.name);
-    if (!fs.existsSync(file)) throw new AppError(404, "Backup not found");
-    res.download(file);
-  } catch (e) { next(e); }
-});
-/** Restore is staged and swapped in at the next start, so the running database is never overwritten. */
-system.post("/backups/:name/restore", requirePerm("settings.manage"), h((req) => {
-  if (!NAME.test(req.params.name)) throw new AppError(400, "Bad backup name");
-  const file = path.join(backupDir(), req.params.name);
-  if (!fs.existsSync(file)) throw new AppError(404, "Backup not found");
-  makeBackup(); // safety copy of today's data first
-  fs.copyFileSync(file, `${config.dbPath}.restore`);
-  return { ok: true, message: "Restart the app to finish the restore. The current data is kept as a backup." };
-}));
-system.delete("/backups/restore", requirePerm("settings.manage"), h(() => { fs.rmSync(`${config.dbPath}.restore`, { force: true }); return { ok: true }; }));
 
 /* ================= Push notifications ================= */
 system.get("/push/key", h((req) => ({ key: vapidPublicKey(), subscribed: subscriptionCount(req.user!.id) })));
