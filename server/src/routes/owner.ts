@@ -62,7 +62,7 @@ owner.get("/owner/overview", requirePerm("reports.view"), h((req) => {
   const today_ = {
     revenue: r.revenue, retail_sales: r.retail_sales, retail_litres: r.retail_litres, retail_txns: r.retail_txns,
     wholesale: r.wholesale_net, wholesale_litres: r.wholesale_litres, shop: r.shop_sales,
-    expenses: r.expenses, profit_estimate: r.gross_profit_estimate,
+    expenses: r.expenses, profit_estimate: r.gross_profit_estimate, cost_assumed: r.cost_assumed_products, cost_missing: r.cost_missing_products,
     money_in: { cash: book.totals.in_cash, bank: book.totals.in_bank }, money_out: { cash: book.totals.out_cash, bank: book.totals.out_bank },
     deposited: book.totals.deposited,
   };

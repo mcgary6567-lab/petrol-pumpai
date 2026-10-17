@@ -4,6 +4,7 @@
  * account — fuel out, fuel back, billed, received and due — is always reproducible from the ledger.
  */
 import { Router, type Request } from "express";
+import { fuelCostPerL } from "../fuelCost.js";
 import { z } from "zod";
 import { all, get, run, tx, now, pkDayStart, pkDate, pkStart, pkEnd, type Row } from "../db.js";
 import { h, parse, tid, requirePerm, requireAny, can } from "../auth.js";
@@ -63,16 +64,18 @@ const rd = (n: number) => `Rs ${Math.abs(n).toFixed(2)}`;
 export const rateLabel = (mode: string, discount: number | null) =>
   mode === "discount" ? (discount! >= 0 ? `pump − ${rd(discount!)}` : `pump + ${rd(discount!)}`) : "fixed";
 
-/** Last purchase rate per product (what a litre cost us), for the margin shown on the rate card. */
+/** What a litre cost us (go-live opening value + purchases, weighted — fuelCost.ts), for the margin on the rate card and the profit figures. */
 function lastCost(tenantId: number, product: string): number | null {
-  return get("SELECT rate FROM supplier_txns WHERE tenant_id=? AND type='purchase' AND product=? AND rate > 0 ORDER BY txn_date DESC, id DESC LIMIT 1", tenantId, product)?.rate ?? null;
+  return fuelCostPerL(tenantId, product);
 }
+/** Supplies that are really bypass drops (depot → client, never in our tanks): their profit is bypassProfit's, costed from the bypass purchase. */
+const NOT_BYPASS = "AND NOT EXISTS (SELECT 1 FROM bypass_drops bd WHERE bd.wtx_id = wholesale_txns.id)";
 
-/** Wholesale supply profit in a window: each supply's (rate − our last purchase cost) × litres. */
+/** Wholesale supply profit in a window (from our own tanks only): each supply's (rate − our cost per litre) × litres. */
 export function wholesaleProfit(tenantId: number, fromIso: string, toIso?: string): number {
   const cost: Record<string, number | null> = Object.fromEntries(Object.keys(PRODUCTS).map((p) => [p, lastCost(tenantId, p)]));
   let p = 0;
-  for (const x of all(`SELECT product, litres, rate FROM wholesale_txns WHERE tenant_id=? AND voided=0 AND type='supply' AND txn_date >= ?${toIso ? " AND txn_date < ?" : ""}`,
+  for (const x of all(`SELECT product, litres, rate FROM wholesale_txns WHERE tenant_id=? AND voided=0 AND type='supply' ${NOT_BYPASS} AND txn_date >= ?${toIso ? " AND txn_date < ?" : ""}`,
     ...(toIso ? [tenantId, fromIso, toIso] : [tenantId, fromIso])))
     if (cost[x.product] != null) p += x.litres * (x.rate - cost[x.product]!);
   return round2(p);
@@ -173,7 +176,7 @@ wholesale.get("/wholesale/dashboard", h((req) => {
   const mtd = period(monthStart, new Date(nowMs + 1000)), lastMtd = period(lastMonthStart, lastMonthSameDay);
   const pct = (a: number, b: number) => (b > 0 ? Math.round(((a - b) / b) * 100) : null);
   const cost: Record<string, number | null> = Object.fromEntries(Object.keys(PRODUCTS).map((p) => [p, lastCost(t, p)]));
-  const monthSupplies = all("SELECT client_id, product, litres, rate, amount FROM wholesale_txns WHERE tenant_id=? AND voided=0 AND type='supply' AND txn_date >= ?", t, monthStart.toISOString());
+  const monthSupplies = all(`SELECT client_id, product, litres, rate, amount FROM wholesale_txns WHERE tenant_id=? AND voided=0 AND type='supply' ${NOT_BYPASS} AND txn_date >= ?`, t, monthStart.toISOString());
   const withCost = monthSupplies.filter((x) => cost[x.product] != null);
   const profit = withCost.reduce((a, x) => a + x.litres * (x.rate - cost[x.product]!), 0);
   const costedL = withCost.reduce((a, x) => a + x.litres, 0);

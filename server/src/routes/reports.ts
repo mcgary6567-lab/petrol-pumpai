@@ -142,6 +142,16 @@ export function buildReport(t: number, from: string, to: string) {
   // one cost per litre for the whole app (fuelCost.ts): go-live opening value + purchases of the last 120 days, weighted
   const avgCost: Record<string, number | null> = {};
   for (const p of products) avgCost[p] = fuelCostPerL(t, p, to);
+  // no cost known for a fuel (no opening rate, no purchase yet): cost it at today's pump price = zero margin, and say so.
+  // Never zero cost — that would show the whole sale as profit.
+  const pumpPrice = currentPrices(t);
+  const costAssumed: string[] = [];
+  const costUsed = (p: string): number | null => {
+    if (avgCost[p] != null) return avgCost[p];
+    const pr = pumpPrice[p]?.price ?? null;
+    if (pr != null && !costAssumed.includes(p)) costAssumed.push(p);
+    return pr;
+  };
   const stock = {
     products: products.map((p) => {
       const soldL = (inPeriod.retail_out[p] ?? 0) + (inPeriod.wholesale_out[p] ?? 0) - (inPeriod.returns_in[p] ?? 0);
@@ -198,13 +208,16 @@ export function buildReport(t: number, from: string, to: string) {
   };
 
   /* ---------- Summary ---------- */
-  const tankCogs = products.reduce<number | null>((a, p) => {
+  const costMissing: string[] = [];
+  const tankCogs = products.reduce<number>((a, p) => {
     const row = stock.products.find((x) => x.product === p)!;
     if (row.net_sold_l === 0) return a;
-    return avgCost[p] == null || a == null ? null : a + row.net_sold_l * avgCost[p]!;
+    const c = costUsed(p);
+    if (c == null) { costMissing.push(p); return a; }
+    return a + row.net_sold_l * c;
   }, 0);
-  // + what depot-direct trips cost (the supplier's bill, freight on it included); cash freight is already an expense
-  const cogs = tankCogs == null ? null : tankCogs + direct;
+  // + what depot-direct trips and bypass drops cost (the supplier's bill); cash freight is already an expense
+  const cogs: number = tankCogs + direct;
   const shopS = shopSummary(t, from, to);
   const revenue = round2(retail.amount + wholesale.net_billed + shopS.sales);
   const digital = sales.by_payment.filter((m) => ["jazzcash", "easypaisa", "raast", "card"].includes(m.method)).reduce((a, m) => a + m.amount, 0);
@@ -214,10 +227,12 @@ export function buildReport(t: number, from: string, to: string) {
     revenue, retail_sales: round2(retail.amount), retail_litres: r0(retail.litres), retail_txns: retail.txns,
     wholesale_net: wholesale.net_billed, wholesale_litres: r0(wholesale.supplied_l - wholesale.returned_l),
     expenses: expenses.total,
-    fuel_cost_estimate: cogs == null ? null : r0(cogs),
-    gross_profit_estimate: cogs == null ? null : r0(revenue - cogs - shopS.cost),
+    fuel_cost_estimate: r0(cogs),
+    gross_profit_estimate: r0(revenue - cogs - shopS.cost),
     rent_income, carriage_income,
-    net_profit_estimate: cogs == null ? null : r0(revenue - cogs - shopS.cost - expenses.total + rent_income + carriage_income),
+    net_profit_estimate: r0(revenue - cogs - shopS.cost - expenses.total + rent_income + carriage_income),
+    // fuels whose cost had to be assumed at pump price (zero margin) / could not be costed at all — the owner should enter an opening rate
+    cost_assumed_products: costAssumed.map((p) => PRODUCTS[p] ?? p), cost_missing_products: costMissing.map((p) => PRODUCTS[p] ?? p),
     shop_sales: shopS.sales, shop_profit: shopS.profit,
     purchases_cost: r0(stock.purchases.reduce((a, p) => a + p.cost, 0)),
     money_in: {

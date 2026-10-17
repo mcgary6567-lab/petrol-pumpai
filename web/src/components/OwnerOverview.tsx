@@ -86,7 +86,8 @@ export function OwnerOverview() {
               <div className="font-semibold tabular-nums text-rose-800">{pkr(t.money_out.cash + t.money_out.bank)}</div><div className="text-[11px] text-rose-700">cash {pkrShort(t.money_out.cash)} · bank {pkrShort(t.money_out.bank)}</div></div>
           </div>
           {t.deposited > 0 && <Row label="Cash put in bank" ur="بینک میں جمع" v={t.deposited} to="/cash" />}
-          {t.profit_estimate != null && <Row label="Profit on today's sales (est.)" ur="منافع" v={t.profit_estimate} to="/insights" tone="text-emerald-700" />}
+          {t.profit_estimate != null && <Row label="Profit on today's sales (est.)" ur="منافع" v={t.profit_estimate} to="/insights" tone="text-emerald-700"
+            note={t.cost_assumed?.length ? `${t.cost_assumed.join(", ")} ki khareed rate nahi — pump price par cost mana (0 margin). Opening balances → Tank stock me rate likhein.` : t.cost_missing?.length ? `${t.cost_missing.join(", ")} ka cost pata nahi — Opening balances me rate likhein` : undefined} />}
           <Link to="/cashier?tab=daybook" className="mt-1 inline-block py-1 text-xs font-medium text-brand-700 hover:underline">Day book — every entry · <Ur>روزنامچہ</Ur> →</Link>
         </div>
 

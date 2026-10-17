@@ -95,7 +95,7 @@ export function profitAndLoss(t: number, month: string, showPrivate = true) {
   const to = Math.min(Date.parse(pkEnd(`${month}-${String(lastDay).padStart(2, "0")}`)), Date.now());
   const r = buildReport(t, from, new Date(to).toISOString());
   const s = r.summary;
-  const fuelCost = s.fuel_cost_estimate ?? 0;
+  const fuelCost = s.fuel_cost_estimate ?? 0; // never null any more: unknown cost is assumed at pump price (zero margin), flagged below
   const dipLoss = round2(r.stock.products.reduce((a: number, p: any) => a + (p.dip_adjust_l ?? 0) * (p.avg_cost ?? 0), 0));
   const shopCost = round2(s.shop_sales - s.shop_profit);
   const income = {
@@ -127,7 +127,8 @@ export function profitAndLoss(t: number, month: string, showPrivate = true) {
   const miscIncome = r0(J.trial_balance.filter((x) => MISC.includes(x.account)).reduce((a, x) => a - x.balance, 0));
   const otherIncome = r0(rentalIncome(t, from, toIso) + carriageIncome(t, from, toIso) + carriageIncomeThekedar(t, from, toIso) + ceoIncome + miscIncome);
   const net = r0(gross + otherIncome - expensesTotal - ceoDiscount);
-  return {
+  const cost_note = (s as any).cost_assumed_products?.length ? `${(s as any).cost_assumed_products.join(", ")}: khareed rate nahi — pump price par cost mana (0 margin). Opening balances → Tank stock me rate likhein.` : null;
+  return { cost_note,
     month, from, to: toIso, income, cost_of_sales: cost, gross_profit: gross,
     other_income: otherIncome,
     other_income_ceo: ceoIncome,

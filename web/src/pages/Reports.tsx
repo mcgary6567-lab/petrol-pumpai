@@ -152,7 +152,7 @@ function Overview({ r }: { r: any }) {
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Stat label="Total revenue" value={pkrShort(s.revenue)} tone="green" hint={`Retail ${pkrShort(s.retail_sales)} (${num(s.retail_litres)} L) · Wholesale ${pkrShort(s.wholesale_net)} (${num(s.wholesale_litres)} L)`} />
         <Stat label="Expenses" value={pkrShort(s.expenses)} tone="red" hint={`${r.expenses.count} entries`} />
-        <Stat label="Gross profit (est.)" value={est ? pkrShort(s.gross_profit_estimate) : "—"} tone="blue" hint={est ? `Revenue − fuel cost ${pkrShort(s.fuel_cost_estimate)}` : "Add purchase rates on deliveries"} />
+        <Stat label="Gross profit (est.)" value={est ? pkrShort(s.gross_profit_estimate) : "—"} tone="blue" hint={est ? (s.cost_assumed_products?.length ? `${s.cost_assumed_products.join(", ")}: khareed rate nahi, pump price par cost mana (0 margin) — Opening balances me rate likhein` : `Revenue − fuel cost ${pkrShort(s.fuel_cost_estimate)}`) : "Add purchase rates on deliveries"} />
         <Stat label="Net profit (est.)" value={est ? pkrShort(s.net_profit_estimate) : "—"} tone={est && s.net_profit_estimate < 0 ? "red" : "green"} hint="Gross profit − expenses" />
       </div>
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
