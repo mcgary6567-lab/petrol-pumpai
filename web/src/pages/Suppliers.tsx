@@ -25,7 +25,8 @@ export default function Suppliers() {
   const [editDepot, setEditDepot] = useState<any>(null);
   const [q, setQ] = useState(() => new URLSearchParams(window.location.search).get("q") ?? ""); // global search lands here with ?q=
   if (!data) return <Loading />;
-  const total = data.reduce((a, s) => a + Math.max(0, s.owed), 0);
+  const total = data.reduce((a, s) => a + Math.max(0, s.total_owed ?? s.owed), 0);
+  const bypassTotal = data.reduce((a, s) => a + Math.max(0, s.bypass_owed ?? 0), 0);
   const shown = data.filter((s) => matchQuery(q, s.name, s.company, s.phone, s.depot_name, s.city));
   // group the contacts under their depot; standalone ones go last under "No depot"
   const byDepot = new Map<string, { depot: any; rows: any[] }>();
@@ -53,7 +54,7 @@ export default function Suppliers() {
           <button className="btn-primary" onClick={() => setAdding(true)}><Plus size={16} /> Add contact</button>
         </div>} />
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Stat label="We owe suppliers" value={pkrShort(total)} tone="red" />
+        <Stat label="We owe suppliers" value={pkrShort(total)} tone="red" hint={bypassTotal > 0 ? `incl. bypass ${pkrShort(bypassTotal)}` : "pump + bypass"} />
         <Stat label="Depots" value={depots.data?.length ?? "—"} />
         <Stat label="Contacts" value={data.length} />
         <Stat label="Bought this month" value={`${num(data.reduce((a, s) => a + s.month_l, 0))} L`} />
@@ -69,7 +70,7 @@ export default function Suppliers() {
               {depot && <div className="text-xs text-slate-500">{[depot.address, depot.city].filter(Boolean).join(" · ") || "No address"}</div>}
             </div>
             <div className="shrink-0 text-right">
-              <div className="text-sm font-semibold tabular-nums">{pkr(rows.reduce((a, s) => a + Math.max(0, s.owed), 0))}</div>
+              <div className="text-sm font-semibold tabular-nums">{pkr(rows.reduce((a, s) => a + Math.max(0, s.total_owed ?? s.owed), 0))}</div>
               <div className="text-[11px] text-slate-500">we owe</div>
               {depot && <button className="btn-secondary mt-1 !px-2 !py-0.5 text-xs" onClick={() => setEditDepot(depot)}><Pencil size={11} /> Edit</button>}
             </div>
@@ -81,7 +82,8 @@ export default function Suppliers() {
                   <span className="block font-medium">{s.company ? <><span className="text-slate-900">{s.company}</span> <span className="text-slate-400">—</span> {s.name}</> : s.name}</span>
                   <span className="text-xs text-slate-500">{[s.phone ? phone(s.phone) : "", s.month_l ? `${num(s.month_l)} L this month` : "", s.last_purchase ? `bought ${ago(s.last_purchase)}` : ""].filter(Boolean).join(" · ")}</span>
                 </span>
-                <span className="shrink-0 text-right"><span className="block font-semibold tabular-nums">{pkr(s.owed)}</span><span className="text-[11px] text-slate-500">we owe · <Ur>باقی</Ur></span></span>
+                <span className="shrink-0 text-right"><span className="block font-semibold tabular-nums">{pkr(s.total_owed ?? s.owed)}</span><span className="text-[11px] text-slate-500">we owe · <Ur>باقی</Ur></span>
+                  {Math.abs(s.bypass_owed ?? 0) > 0.5 && <span className="block text-[11px] tabular-nums text-slate-500">pump {pkr(s.owed)} · bypass {pkr(s.bypass_owed)}</span>}</span>
               </li>
             ))}
           </ul>
@@ -190,8 +192,9 @@ function SupplierDetail({ id, onClose, onChanged, depots, onDepots }: { id: numb
   const [lrange, setLrange] = useState({ from: "", to: "" });
   const [ltype, setLtype] = useState("");
   const allLines: any[] = s?.lines ?? [];
-  const typeChips = [{ k: "", label: "All", n: allLines.length }, ...["purchase", "payment", "adjustment"].map((k) => ({ k, label: k[0].toUpperCase() + k.slice(1), n: allLines.filter((t) => t.type === k).length })).filter((c) => c.n > 0)];
-  const lines = useListFilter(allLines, { q: lq, from: lrange.from, to: lrange.to, dateKey: "txn_date", keep: (t) => !ltype || t.type === ltype,
+  const typeChips = [{ k: "", label: "All", n: allLines.length }, ...["purchase", "payment", "adjustment"].map((k) => ({ k, label: k[0].toUpperCase() + k.slice(1), n: allLines.filter((t) => t.type === k).length })).filter((c) => c.n > 0),
+    ...(allLines.some((t) => t.source === "bypass") ? [{ k: "pump", label: "Pump only", n: allLines.filter((t) => t.source !== "bypass").length }, { k: "bypass", label: "Bypass only", n: allLines.filter((t) => t.source === "bypass").length }] : [])];
+  const lines = useListFilter(allLines, { q: lq, from: lrange.from, to: lrange.to, dateKey: "txn_date", keep: (t) => !ltype || (ltype === "pump" ? t.source !== "bypass" : ltype === "bypass" ? t.source === "bypass" : t.type === ltype),
     text: (t) => [t.ref, t.note, t.method, t.product, t.product && PRODUCTS[t.product], t.litres, t.rate, t.debit, t.credit, t.amount].filter((v) => v != null && v !== false && v !== "").join(" ") });
   const lineFiltered = lines.length !== allLines.length;
   // the cashier's two-copy payment voucher, for a payment made from this page
@@ -211,7 +214,7 @@ function SupplierDetail({ id, onClose, onChanged, depots, onDepots }: { id: numb
           <div className="own-title hidden print:block">
             <div className="flex items-end justify-between border-b border-slate-300 pb-2">
               <div><div className="text-lg font-bold">{label(s)}</div><div className="text-xs text-slate-600">{[s.depot_name ? `Depot: ${s.depot_name}${s.depot_address ? `, ${s.depot_address}` : ""}` : "", s.phone ? phone(s.phone) : "", "Supplier account statement"].filter(Boolean).join(" · ")}</div></div>
-              <div className="text-right text-sm">We owe: <b className="tabular-nums">{pkr(s.owed)}</b><div className="text-xs text-slate-500">as on {dt(new Date().toISOString())}</div></div>
+              <div className="text-right text-sm">We owe: <b className="tabular-nums">{pkr(s.total_owed ?? s.owed)}</b><div className="text-xs text-slate-500">{Math.abs(s.bypass_owed ?? 0) > 0.5 ? `pump ${pkr(s.owed)} · bypass ${pkr(s.bypass_owed)} · ` : ""}as on {dt(new Date().toISOString())}</div></div>
             </div>
             <table className="mt-2 w-full">
               <thead><tr><th className="th">Date</th><th className="th">Entry</th><th className="th">Details</th><th className="th text-right">Purchased</th><th className="th text-right">Paid</th><th className="th text-right">We owe</th></tr></thead>
@@ -219,7 +222,7 @@ function SupplierDetail({ id, onClose, onChanged, depots, onDepots }: { id: numb
                 <tr><td className="td" colSpan={5}>Opening balance</td><td className="td whitespace-nowrap text-right tabular-nums">{pkr(s.opening_balance ?? 0)}</td></tr>
                 {[...s.lines].reverse().map((t: any) => (
                   <tr key={t.id}>
-                    <td className="td whitespace-nowrap">{d(t.txn_date)}</td><td className="td capitalize">{t.type}</td>
+                    <td className="td whitespace-nowrap">{d(t.txn_date)}</td><td className="td capitalize">{t.type}{t.source === "bypass" ? " (bypass)" : ""}</td>
                     <td className="td">{t.product ? `${num(t.litres)} L ${PRODUCTS[t.product]} @ Rs ${t.rate}` : t.method}<span className="text-[10px] text-slate-500">{[t.ref, t.note].filter(Boolean).map((x) => ` · ${x}`).join("")}</span></td>
                     <td className="td whitespace-nowrap text-right tabular-nums">{t.debit ? pkr(t.debit) : ""}</td>
                     <td className="td whitespace-nowrap text-right tabular-nums">{t.credit ? pkr(t.credit) : ""}</td>
@@ -228,7 +231,7 @@ function SupplierDetail({ id, onClose, onChanged, depots, onDepots }: { id: numb
                 <tr className="font-bold"><td className="td border-t-2 border-slate-800" colSpan={3}>Closing balance (we owe)</td>
                 <td className="td whitespace-nowrap text-right tabular-nums">{pkr(s.lines.reduce((a: number, t: any) => a + t.debit, 0))}</td>
                 <td className="td whitespace-nowrap text-right tabular-nums">{pkr(s.lines.reduce((a: number, t: any) => a + t.credit, 0))}</td>
-                <td className="td whitespace-nowrap text-right tabular-nums">{pkr(s.owed)}</td></tr>
+                <td className="td whitespace-nowrap text-right tabular-nums">{pkr(s.total_owed ?? s.owed)}</td></tr>
               </tbody>
             </table>
             <div className="mt-8 grid break-inside-avoid grid-cols-2 gap-10 text-center text-xs text-slate-600"><div className="border-t border-slate-500 pt-1">Prepared by</div><div className="border-t border-slate-500 pt-1">Supplier (confirmed) · <Ur>سپلائر</Ur></div></div>
@@ -240,7 +243,7 @@ function SupplierDetail({ id, onClose, onChanged, depots, onDepots }: { id: numb
             <button type="button" className="btn-secondary ml-auto min-h-9 !py-1" onClick={() => setEdit(true)}><Pencil size={14} /> Edit contact</button>
           </div>
           <div className="flex flex-wrap items-end gap-3 print:hidden">
-            <Stat label="We owe" value={pkr(s.owed)} tone="red" />
+            <Stat label="We owe (pump + bypass)" value={pkr(s.total_owed ?? s.owed)} tone="red" hint={Math.abs(s.bypass_owed ?? 0) > 0.5 ? `pump ${pkr(s.owed)} · bypass ${pkr(s.bypass_owed)}` : undefined} />
             <a className="btn-secondary min-h-10" href={`/api/suppliers/${id}/statement.csv?token=${linkToken()}`}><Download size={15} /> Excel / CSV</a>
             <WhatsAppDoc kind="supplier" id={Number(id)} className="btn-secondary min-h-10" />
             <button type="button" className="btn-secondary min-h-10" onClick={() => window.print()}><Printer size={15} /> Print statement · <Ur>پرنٹ</Ur></button>
@@ -265,7 +268,7 @@ function SupplierDetail({ id, onClose, onChanged, depots, onDepots }: { id: numb
               {lines.map((t: any) => (
                 <li key={t.id} className="px-3 py-2">
                   <div className="flex items-start justify-between gap-2">
-                    <span className="min-w-0"><Badge tone={t.type === "purchase" ? "blue" : t.type === "payment" ? "green" : "violet"}>{t.type}</Badge> <span className="text-xs text-slate-500">{dt(t.txn_date)}</span></span>
+                    <span className="min-w-0"><Badge tone={t.type === "purchase" ? "blue" : t.type === "payment" ? "green" : "violet"}>{t.type}</Badge>{t.source === "bypass" && <Badge tone="amber">bypass</Badge>} <span className="text-xs text-slate-500">{dt(t.txn_date)}</span></span>
                     <span className="shrink-0 text-right tabular-nums">{t.debit ? <span className="block font-semibold">{pkr(t.debit)}</span> : null}{t.credit ? <span className="block font-semibold text-emerald-700">−{pkr(t.credit)}</span> : null}<span className="text-[11px] text-slate-500">owe {pkr(t.balance)}</span></span>
                   </div>
                   <div className="break-words text-xs text-slate-600">{t.product ? `${num(t.litres)} L ${PRODUCTS[t.product]} @ Rs ${t.rate}` : t.method} <span className="text-slate-500">{[t.ref, t.note].filter(Boolean).join(" · ")}</span></div>
@@ -279,7 +282,7 @@ function SupplierDetail({ id, onClose, onChanged, depots, onDepots }: { id: numb
               <tbody>{lines.map((t: any) => (
                 <tr key={t.id}>
                   <td className="td text-xs">{dt(t.txn_date)}</td>
-                  <td className="td"><Badge tone={t.type === "purchase" ? "blue" : t.type === "payment" ? "green" : "violet"}>{t.type}</Badge></td>
+                  <td className="td"><Badge tone={t.type === "purchase" ? "blue" : t.type === "payment" ? "green" : "violet"}>{t.type}</Badge>{t.source === "bypass" && <> <Badge tone="amber">bypass</Badge></>}</td>
                   <td className="td text-xs">{t.product ? `${num(t.litres)} L ${PRODUCTS[t.product]} @ Rs ${t.rate}` : t.method} <span className="text-slate-500">{[t.ref, t.note].filter(Boolean).join(" · ")}</span> <ProofThumbs ids={t.proof_ids} /></td>
                   <td className="td text-right tabular-nums">{t.debit ? pkr(t.debit) : ""}</td>
                   <td className="td text-right tabular-nums text-emerald-700">{t.credit ? pkr(t.credit) : ""}</td>

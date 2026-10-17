@@ -21,6 +21,7 @@ import { insertTxn, fleet, priceSupply, clientDue } from "./wholesale.js";
 import { BYPASS_PAY } from "./banks.js";
 import { deliverOrder } from "./wholesaleDesk.js";
 import { profile } from "./setup.js";
+import { supplierOwed } from "./suppliers.js";
 import { SOCIALS } from "../brandPrint.js";
 
 export const bypass = Router();
@@ -60,7 +61,7 @@ bypass.get("/bypass/suppliers", h((req) => {
   const t = tid(req);
   return all(`SELECT s.id, s.name, s.phone, s.depot_id, s.company, d.name depot_name FROM suppliers s LEFT JOIN depots d ON d.id=s.depot_id
     WHERE s.tenant_id=? AND COALESCE(s.active,1)=1 ORDER BY COALESCE(d.name,''), s.company, s.name`, t)
-    .map((s) => ({ ...s, bypass_owed: bypassOwed(s.id) }));
+    .map((s) => ({ ...s, bypass_owed: bypassOwed(s.id), pump_owed: supplierOwed(s.id), total_owed: round2(bypassOwed(s.id) + supplierOwed(s.id)) }));
 }));
 
 /** Move bypass stock into OUR own tank inside a tx: a tank-side bypass_drop + a stock-register delivery + fill the tank.
@@ -405,7 +406,7 @@ export function bypassStatement(tenantId: number, supplierId: number, from?: str
     bal = round2(bal + debit - credit);
     return { ...r, debit, credit, balance: bal };
   });
-  return { supplier: { ...s, bypass_owed: bypassOwed(s.id) }, from: from ?? null, to: to ?? null, opening_balance: opening, closing_balance: bal, lines };
+  return { supplier: { ...s, bypass_owed: bypassOwed(s.id), pump_owed: supplierOwed(s.id), total_owed: round2(bypassOwed(s.id) + supplierOwed(s.id)) }, from: from ?? null, to: to ?? null, opening_balance: opening, closing_balance: bal, lines };
 }
 bypass.get("/bypass/suppliers/:id/statement", h((req) =>
   bypassStatement(tid(req), Number(req.params.id), req.query.from as string | undefined, req.query.to as string | undefined)));

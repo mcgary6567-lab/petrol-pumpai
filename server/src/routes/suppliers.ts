@@ -8,6 +8,7 @@ import { bankAccountFor, accountIdField, chequeToRegister, accountName } from ".
 import { h, parse, tid, can, requirePerm } from "../auth.js";
 import { AppError, normalizePhone, round2 } from "../services.js";
 import { announce } from "../notifications.js";
+import { bypassOwed } from "./bypass.js";
 
 export const suppliers = Router();
 // the cashier may pay a supplier (cash.pay) without seeing the rest of the supplier accounts
@@ -73,7 +74,7 @@ function own(tenantId: number, id: number) {
 
 suppliers.get("/suppliers", h((req) => all(`SELECT s.*, d.name depot_name, d.address depot_address, d.city depot_city
     FROM suppliers s LEFT JOIN depots d ON d.id=s.depot_id WHERE s.tenant_id=? ORDER BY s.active DESC, COALESCE(d.name,''), s.company, s.name`, tid(req)).map((s) => ({
-  ...s, owed: supplierOwed(s.id),
+  ...s, owed: supplierOwed(s.id), bypass_owed: bypassOwed(s.id), total_owed: round2(supplierOwed(s.id) + bypassOwed(s.id)),
   ...get(`SELECT MAX(CASE WHEN type='purchase' THEN txn_date END) last_purchase, MAX(CASE WHEN type='payment' THEN txn_date END) last_payment,
       COALESCE(SUM(CASE WHEN type='purchase' AND txn_date >= ? THEN litres END),0) month_l FROM supplier_txns WHERE supplier_id=?`,
     new Date().toISOString().slice(0, 7) + "-01", s.id)!,
@@ -116,25 +117,37 @@ suppliers.get("/suppliers/:id", h((req) => {
   const s0 = own(tid(req), Number(req.params.id));
   const dep = s0.depot_id ? get("SELECT name, address, city FROM depots WHERE id=?", s0.depot_id) : null;
   const s = { ...s0, depot_name: dep?.name ?? null, depot_address: dep?.address ?? null, depot_city: dep?.city ?? null };
-  let bal = s.opening_balance;
-  const lines = all(`SELECT x.*, ${proofCol("'stx:'||x.id")} FROM supplier_txns x WHERE x.supplier_id=? ORDER BY x.txn_date, x.id`, s.id).map((t) => {
-    const effect = t.type === "payment" ? -t.amount : t.amount;
-    bal = round2(bal + effect);
-    const acc = t.account_id ? get("SELECT * FROM bank_accounts WHERE id=?", t.account_id) : null;
-    return { ...t, debit: effect > 0 ? effect : 0, credit: effect < 0 ? -effect : 0, balance: bal, account_name: acc ? accountName(acc) : null };
-  });
-  return { ...s, owed: supplierOwed(s.id), lines: lines.reverse() };
+  return { ...s, owed: supplierOwed(s.id), bypass_owed: bypassOwed(s.id), total_owed: round2(supplierOwed(s.id) + bypassOwed(s.id)), lines: supplierLines(s).reverse() };
 }));
+
+/**
+ * One account per supplier: the pump's own purchases/payments (supplier_txns) AND the bypass purchases/payments for clients
+ * (bypass_purchases / bypass_supplier_payments), merged by date with one running balance — what we owe this supplier in all.
+ * Each line says where it came from (`source`: pump | bypass). Opening balance is the pump account's.
+ */
+export function supplierLines(s: { id: number; opening_balance: number }) {
+  const pump = all(`SELECT x.*, ${proofCol("'stx:'||x.id")} FROM supplier_txns x WHERE x.supplier_id=?`, s.id).map((t) => ({ ...t, source: "pump", effect: t.type === "payment" ? -t.amount : t.amount }));
+  const byPur = all("SELECT id, 'purchase' type, txn_date, created_at, product, litres, cost_rate rate, amount, ref, note, created_by FROM bypass_purchases WHERE supplier_id=? AND voided=0", s.id)
+    .map((t) => ({ ...t, id: `b${t.id}`, source: "bypass", effect: t.amount }));
+  const byPay = all(`SELECT p.id, 'payment' type, p.txn_date, p.created_at, p.amount, p.mode, p.method, p.account_id, p.ref, p.note, p.created_by, c.name client_name, ${proofCol("'byp:pay:'||p.id")} FROM bypass_supplier_payments p
+    LEFT JOIN wholesale_clients c ON c.id=p.client_id WHERE p.supplier_id=? AND p.voided=0`, s.id)
+    .map((t) => ({ ...t, id: `b${t.id}`, source: "bypass", effect: -t.amount, note: [t.mode === "client_direct" ? `client ${t.client_name ?? ""} ne seedha diya` : t.mode === "through_us" ? `client ${t.client_name ?? ""} ka paisa hum ne aage diya` : null, t.note].filter(Boolean).join(" · ") || null }));
+  const rows = [...pump, ...byPur, ...byPay].sort((a, b) => (a.txn_date < b.txn_date ? -1 : a.txn_date > b.txn_date ? 1 : String(a.created_at ?? "").localeCompare(String(b.created_at ?? ""))));
+  let bal = s.opening_balance;
+  return rows.map((t) => {
+    bal = round2(bal + t.effect);
+    const acc = t.account_id ? get("SELECT * FROM bank_accounts WHERE id=?", t.account_id) : null;
+    const { effect, ...rest } = t;
+    return { ...rest, debit: effect > 0 ? effect : 0, credit: effect < 0 ? -effect : 0, balance: bal, account_name: acc ? accountName(acc) : null };
+  });
+}
 
 /** The supplier's account statement as a CSV (Excel) download — oldest entry first. */
 suppliers.get("/suppliers/:id/statement.csv", (req, res, next) => {
   try {
     const s = own(tid(req), Number(req.params.id));
-    let bal = s.opening_balance as number;
-    const lines = all(`SELECT * FROM supplier_txns WHERE supplier_id=? ORDER BY txn_date, id`, s.id).map((t) => {
-      const effect = t.type === "payment" ? -t.amount : t.amount;
-      bal = round2(bal + effect);
-      return { ...t, debit: effect > 0 ? effect : 0, credit: effect < 0 ? -effect : 0, balance: bal };
+    const lines = supplierLines(s).map((t) => {
+      return { ...t, type: t.source === "bypass" ? `${t.type} (bypass)` : t.type };
     });
     const name = [s.company, s.name].filter(Boolean).join(" — ");
     const esc = (v: unknown) => `"${String(v ?? "").replaceAll('"', '""')}"`;
@@ -143,7 +156,7 @@ suppliers.get("/suppliers/:id/statement.csv", (req, res, next) => {
       ["Opening balance", s.opening_balance].map(esc).join(","),
       ["Date", "Type", "Product", "Litres", "Rate", "Purchased (debit)", "Paid (credit)", "We owe", "Method", "Ref", "Note"].map(esc).join(","),
       ...lines.map((t) => [String(t.txn_date).slice(0, 10), t.type, t.product ?? "", t.litres ?? "", t.rate ?? "", t.debit || "", t.credit || "", t.balance, t.method ?? "", t.ref ?? "", t.note ?? ""].map(esc).join(",")),
-      ["Closing balance (we owe)", supplierOwed(s.id)].map(esc).join(","),
+      ["Closing balance (we owe — pump + bypass)", round2(supplierOwed(s.id) + bypassOwed(s.id))].map(esc).join(","),
     ].join("\n");
     res.setHeader("Content-Type", "text/csv; charset=utf-8");
     res.setHeader("Content-Disposition", `attachment; filename="supplier-${String(name).replace(/[^\w-]+/g, "_")}.csv"`);

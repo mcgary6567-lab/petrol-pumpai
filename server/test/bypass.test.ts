@@ -227,3 +227,34 @@ test("void a client drop: litres back in bypass stock, client's bill cancelled, 
   await tallyBooks("after bypass drop void");
   assert.equal(ok(await call("admin", "GET", "/api/books/check"), "books").ok, true);
 });
+
+test("one supplier account: pump purchases and bypass purchases/payments merge into one statement and one total owed", async () => {
+  // S already carries bypass purchases (and a payment) from the tests above; add a pump-side purchase on the same supplier
+  const pump0 = await supOwed(S.id);
+  const byp0 = ok(await call("wholesale", "GET", "/api/bypass/suppliers"), "bypass suppliers").find((x: any) => x.id === S.id).bypass_owed;
+  const sup = db.get("SELECT * FROM suppliers WHERE id=?", S.id) as any;
+  const { recordPurchase } = await import("../src/routes/suppliers.js");
+  recordPurchase(sup.tenant_id, { supplier_id: S.id, product: "PMG", litres: 1000, rate: 250, amount: 250000, ref: "PUMP-INV-1", by: "test" });
+
+  const list = ok(await call("admin", "GET", "/api/suppliers"), "suppliers list").find((x: any) => x.id === S.id);
+  assert.ok(Math.abs(list.owed - (pump0 + 250000)) < 0.6, "pump account up by the purchase");
+  assert.ok(Math.abs(list.bypass_owed - byp0) < 0.6, "bypass account untouched");
+  assert.ok(Math.abs(list.total_owed - (list.owed + list.bypass_owed)) < 0.6, "total = pump + bypass");
+
+  const det = ok(await call("admin", "GET", `/api/suppliers/${S.id}`), "supplier detail");
+  assert.equal(det.total_owed, list.total_owed);
+  assert.ok(det.lines.some((l: any) => l.source === "bypass" && l.type === "purchase"), "bypass purchase on the statement");
+  assert.ok(det.lines.some((l: any) => l.source === "bypass" && l.type === "payment"), "bypass payment on the statement");
+  assert.ok(det.lines.some((l: any) => l.source === "pump" && l.ref === "PUMP-INV-1"), "pump purchase on the statement");
+  // the running balance ends at the total owed (lines come newest first)
+  assert.ok(Math.abs(det.lines[0].balance - det.total_owed) < 0.6, `running balance ${det.lines[0].balance} ends at total ${det.total_owed}`);
+
+  // the bypass list shows the pump side too
+  const bl = ok(await call("wholesale", "GET", "/api/bypass/suppliers"), "bypass suppliers").find((x: any) => x.id === S.id);
+  assert.ok(Math.abs(bl.pump_owed - list.owed) < 0.6); assert.ok(Math.abs(bl.total_owed - list.total_owed) < 0.6);
+
+  // CEO dashboard "whom we owe" carries the combined figure once
+  const ov = ok(await call("admin", "GET", "/api/owner/overview"), "overview");
+  const rows = ov.dues.payable.filter((d: any) => d.kind === "supplier" && d.id === S.id);
+  assert.equal(rows.length, 1, "one row per supplier"); assert.ok(Math.abs(rows[0].amount - list.total_owed) < 0.6, "dashboard = total");
+});

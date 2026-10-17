@@ -90,7 +90,8 @@ export function BypassPanel() {
             {(sups.data ?? []).map((s) => (
               <li key={s.id}><button className="flex w-full items-center justify-between px-4 py-3 text-left hover:bg-slate-50" onClick={() => setOpenSup(s.id)}>
                 <div><div className="font-medium">{[s.company, s.name].filter(Boolean).join(" — ")}</div><div className="text-xs text-slate-400">{s.depot_name ?? "—"}</div></div>
-                <div className={`text-right font-bold tabular-nums ${s.bypass_owed > 0 ? "text-rose-600" : s.bypass_owed < 0 ? "text-emerald-600" : "text-slate-400"}`}>{pkr(s.bypass_owed)}<div className="text-xs font-normal text-slate-400">{s.bypass_owed > 0 ? "we owe" : s.bypass_owed < 0 ? "advance" : "clear"}</div></div>
+                <div className={`text-right font-bold tabular-nums ${s.bypass_owed > 0 ? "text-rose-600" : s.bypass_owed < 0 ? "text-emerald-600" : "text-slate-400"}`}>{pkr(s.bypass_owed)}<div className="text-xs font-normal text-slate-400">{s.bypass_owed > 0 ? "we owe (bypass)" : s.bypass_owed < 0 ? "advance" : "clear"}</div>
+                  {Math.abs(s.pump_owed ?? 0) > 0.5 && <div className="text-xs font-normal tabular-nums text-slate-500">+ pump {pkr(s.pump_owed)} = total {pkr(s.total_owed)}</div>}</div>
               </button></li>
             ))}
           </ul>
@@ -505,7 +506,7 @@ function SupplierStatement({ id, onClose, onChanged }: { id: number; onClose: ()
             </div>
           </div>
           <div className="flex flex-wrap items-end gap-3 print:hidden">
-            <Stat label="We owe (bypass)" value={pkr(s.bypass_owed)} tone="red" />
+            <Stat label="We owe (bypass)" value={pkr(s.bypass_owed)} tone="red" hint={Math.abs(s.pump_owed ?? 0) > 0.5 ? `+ pump ${pkr(s.pump_owed)} = total ${pkr(s.total_owed)}` : undefined} />
             {can("wholesale.manage") && <button className="btn-primary min-h-10" onClick={() => setPay(true)}><HandCoins size={15} /> Pay supplier</button>}
             <Field label="From"><input className="input" type="date" value={range.from} onChange={(e) => setRange({ ...range, from: e.target.value })} /></Field>
             <Field label="To"><input className="input" type="date" value={range.to} onChange={(e) => setRange({ ...range, to: e.target.value })} /></Field>
