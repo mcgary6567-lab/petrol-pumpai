@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { Plus, MessageCircle, Wallet, BellRing, Car, Pencil } from "lucide-react";
+import { Plus, MessageCircle, Wallet, BellRing, Car, Pencil, Trash2 } from "lucide-react";
+import { EditKhata, VoidWithReason } from "./Corrections";
 import { ImportExport } from "../components/ImportExport";
 import { PrintListButton } from "../components/PrintList";
 
@@ -190,6 +191,16 @@ function CustomerDetail({ id, onClose, onChanged }: { id: string; onClose: () =>
   const [lf, setLf] = useState({ q: "", from: "", to: "" }); // ledger search + date range (client-side, over the rows shown)
   const ledger = useListFilter<any>(c?.ledger, { ...lf, dateKey: "created_at", text: (l) => [l.note, l.ref, l.product, l.vehicle_no, l.slip_no, l.amount, l.type === "credit" ? "payment" : "charge"].filter(Boolean).join(" ") });
   const refresh = () => { reload(); onChanged(); };
+  // CEO corrections on a khata line: sale / shop / opening / other-entry rows have their own editors (the server says which)
+  const [editLine, setEditLine] = useState<any>(null);
+  const [voidLine, setVoidLine] = useState<any>(null);
+  const fixable = (l: any) => !/^(SALE-|SHOP-|oth-|open:|LATE-)/.test(String(l.ref ?? "")) && !l.product;
+  const lineActions = (l: any) => (
+    <span className="ml-auto flex shrink-0 gap-1">
+      {can("entries.edit") && fixable(l) && <button className="btn-secondary !px-2 !py-1" aria-label="Edit khata entry" title="Edit (CEO)" onClick={() => setEditLine(l)}><Pencil size={13} /></button>}
+      {can("corrections.manage") && fixable(l) && <button className="btn-secondary !px-2 !py-1 !text-red-700" aria-label="Void khata entry" title="Void (CEO)" onClick={() => setVoidLine(l)}><Trash2 size={13} /></button>}
+    </span>
+  );
 
   return (
     <Modal open onClose={onClose} title={c?.name ?? "Customer"} wide>
@@ -244,7 +255,7 @@ function CustomerDetail({ id, onClose, onChanged }: { id: string; onClose: () =>
                     <li key={l.id} className="px-3 py-2">
                       <div className="flex items-start justify-between gap-2"><span className="min-w-0 text-sm">{l.product ? <>{num(l.litres, 2)} L {l.product} @ Rs {l.rate}</> : l.note ?? l.ref}</span>
                         <span className={`shrink-0 text-sm font-medium tabular-nums ${l.type === "credit" ? "text-emerald-600" : ""}`}>{l.type === "credit" ? "−" : "+"}{pkr(l.amount)}</span></div>
-                      <div className="text-xs text-slate-500">{[d(l.created_at), l.vehicle_no, l.slip_no && `Slip ${l.slip_no}`].filter(Boolean).join(" · ")}</div>
+                      <div className="flex items-center gap-2 text-xs text-slate-500"><span>{[d(l.created_at), l.vehicle_no, l.slip_no && `Slip ${l.slip_no}`].filter(Boolean).join(" · ")}</span>{lineActions(l)}</div>
                       <ProofThumbs ids={l.proof_ids} />
                     </li>
                   ))}
@@ -253,11 +264,15 @@ function CustomerDetail({ id, onClose, onChanged }: { id: string; onClose: () =>
                   {ledger.map((l: any) => (
                     <tr key={l.id}><td className="td text-xs text-slate-500">{d(l.created_at)}</td>
                       <td className="td text-xs">{l.product ? <>{num(l.litres, 2)} L {l.product} @ Rs {l.rate}<div className="text-slate-400">{[l.vehicle_no, l.slip_no && `Slip ${l.slip_no}`].filter(Boolean).join(" · ")}</div></> : l.note ?? l.ref} <ProofThumbs ids={l.proof_ids} /></td>
-                      <td className={`td text-right text-sm tabular-nums ${l.type === "credit" ? "text-emerald-600" : ""}`}>{l.type === "credit" ? "−" : "+"}{pkr(l.amount)}</td></tr>
+                      <td className={`td text-right text-sm tabular-nums ${l.type === "credit" ? "text-emerald-600" : ""}`}>{l.type === "credit" ? "−" : "+"}{pkr(l.amount)}</td>
+                      <td className="td">{lineActions(l)}</td></tr>
                   ))}
                 </tbody></table>
                 {!ledger.length && <Empty>{c.ledger.length ? "Is filter me koi entry nahi" : "No khata entries"}</Empty>}
               </div>
+              {editLine && <EditKhata entry={editLine} onClose={() => setEditLine(null)} onDone={() => { setEditLine(null); refresh(); }} />}
+              {voidLine && <VoidWithReason title={`Void khata entry — ${c.name}`} what={`${voidLine.type === "credit" ? "Payment" : "Charge"} · ${pkr(voidLine.amount)} · ${d(voidLine.created_at)}${voidLine.note ? ` · ${voidLine.note}` : ""}`}
+                url={`/corrections/khata/${voidLine.id}/void`} onClose={() => setVoidLine(null)} onDone={() => { setVoidLine(null); refresh(); }} />}
             </section>
             <section className="min-w-0">
               <h3 className="mb-2 text-sm font-semibold">Recent purchases</h3>

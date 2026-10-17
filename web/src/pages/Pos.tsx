@@ -10,7 +10,7 @@ import { num, pkr, PRODUCTS, PRODUCT_COLORS, PRODUCT_UR, activeProducts } from "
 import { iconMap, labelMap, useLookups, type LookupEntry } from "../lib/lookups";
 import { useAuth } from "../App";
 import { useNotifications } from "../components/Notifications";
-import { ShiftExpenses, StartShiftSheet } from "../components/ShiftParts";
+import { ShiftExpenses, CounterExpenses, StartShiftSheet } from "../components/ShiftParts";
 import { LiveSelfie } from "../components/LiveSelfie";
 import { PhotoButton, VoiceButton, PhotoThumb } from "../components/Capture";
 import { speak } from "../components/VoiceShell";
@@ -60,7 +60,7 @@ const Ur = ({ children, className = "" }: { children: ReactNode; className?: str
 
 export default function Pos() {
   const PAY = usePay();
-  const { user, modules, account } = useAuth();
+  const { user, modules, account, can } = useAuth();
   // Wholesale POS sales: on the single-pump app always, on SaaS only when the Wholesale module is on for this pump.
   const showWholesale = Boolean(modules?.wholesale) || !account?.saas;
   const isSalesman = user?.role === "salesman";
@@ -658,6 +658,7 @@ function StartShift({ onStarted }: { onStarted: () => void }) {
 }
 
 function ShiftPanel({ d, reload, onUndo, myId, expPreset }: { d: any; reload: () => void; onUndo: (sale: any) => void; myId?: number; expPreset?: any }) {
+  const { can } = useAuth();
   const s = d.shift?.summary;
   // server clock offset, so the 2-minute undo window matches the server even if the tablet clock is wrong
   const skew = d.server_time ? Date.parse(d.server_time) - Date.now() : 0;
@@ -690,7 +691,8 @@ function ShiftPanel({ d, reload, onUndo, myId, expPreset }: { d: any; reload: ()
           <div className="flex justify-between text-red-300"><span>− Expenses · <Ur>خرچہ</Ur></span><span className="tabular-nums">{pkr(s?.expenses_total ?? 0)}</span></div>
         </div>
       </div>
-      {d.shift && <div id="pos-expenses" className="rounded-2xl bg-white p-3 ring-1 ring-slate-200"><ShiftExpenses shiftId={d.shift.id} expenses={s.expenses} onChange={reload} preset={expPreset} /></div>}
+      {d.shift ? <div id="pos-expenses" className="rounded-2xl bg-white p-3 ring-1 ring-slate-200"><ShiftExpenses shiftId={d.shift.id} expenses={s.expenses} onChange={reload} preset={expPreset} /></div>
+        : can("expenses.create") && d.station?.id ? <div id="pos-expenses" className="rounded-2xl bg-white p-3 ring-1 ring-slate-200"><CounterExpenses stationId={d.station.id} preset={expPreset} /></div> : null}
       <div className="rounded-2xl bg-white p-3 ring-1 ring-slate-200">
         <div className="mb-2 flex items-center justify-between gap-2">
           <h3 className="font-semibold">Last sales · <Ur className="text-slate-500">آخری سیل</Ur></h3>

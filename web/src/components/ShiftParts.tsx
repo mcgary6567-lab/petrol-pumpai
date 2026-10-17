@@ -172,7 +172,15 @@ export const MeterNo = ({ n, small }: { n?: number | null; small?: boolean }) =>
 const QUICK_EXP = [["Tea & food", "☕"], ["Generator fuel", "⚡"], ["Maintenance & repairs", "🔧"], ["Other", "📝"]];
 
 /** Expenses paid from the shift's cash. */
-export function ShiftExpenses({ shiftId, expenses, onChange, preset }: { shiftId: number; expenses: any[]; onChange: () => void; preset?: { category: string; amount: number | null; note: string | null; key: number } | null }) {
+/** With no shift open (owner / manager at the counter), the same form books a cash expense of the station (Expenses page sees it). */
+export function CounterExpenses({ stationId, preset }: { stationId: number; preset?: { category: string; amount: number | null; note: string | null; key: number } | null }) {
+  const today = new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 10);
+  const list = useApi<any>(`/expenses?station_id=${stationId}&month=${today.slice(0, 7)}`);
+  const rows: any[] = (Array.isArray(list.data) ? list.data : list.data?.expenses ?? []).filter((e: any) => e.expense_date === today && !e.shift_id && e.method === "cash" && e.status !== "rejected");
+  return <ShiftExpenses shiftId={null} stationId={stationId} expenses={rows} onChange={list.reload} preset={preset} />;
+}
+
+export function ShiftExpenses({ shiftId, stationId, expenses, onChange, preset }: { shiftId: number | null; stationId?: number; expenses: any[]; onChange: () => void; preset?: { category: string; amount: number | null; note: string | null; key: number } | null }) {
   const cats = useApi<string[]>("/shifts/expense-categories");
   const [open, setOpen] = useState(false);
   const [f, setF] = useState({ category: "Tea & food", amount: "", note: "", photo_id: null as number | null });
@@ -184,7 +192,7 @@ export function ShiftExpenses({ shiftId, expenses, onChange, preset }: { shiftId
   return (
     <div>
       <div className="mb-2 flex items-center justify-between">
-        <span className="font-semibold">Expenses from cash · <Ur>خرچہ</Ur></span>
+        <span className="font-semibold">{shiftId ? <>Expenses from cash · <Ur>خرچہ</Ur></> : <>Counter kharcha (cash) · <Ur>خرچہ</Ur> <span className="text-xs font-normal text-slate-500">· koi shift nahi: office cash se</span></>}</span>
         <button className="rounded-lg bg-amber-500 px-3 py-1.5 text-sm font-semibold text-white" onClick={() => setOpen(true)}>+ Add</button>
       </div>
       <ul className="space-y-1 text-sm">
@@ -192,7 +200,7 @@ export function ShiftExpenses({ shiftId, expenses, onChange, preset }: { shiftId
           <li key={e.id} className="flex items-center gap-2">
             <span className="flex-1">{e.category}{e.note ? <span className="text-xs text-slate-500"> · {e.note}</span> : null}{e.status === "pending" && <span className="ml-1 text-xs text-amber-600">(awaiting approval)</span>}</span>
             <span className="tabular-nums">{pkr(e.amount)}</span>
-            <button aria-label="Remove expense" className="text-slate-400 hover:text-red-600" onClick={() => run(() => api(`/shifts/${shiftId}/expenses/${e.id}`, { method: "DELETE" }), "Removed").then(onChange)}><Trash2 size={14} /></button>
+            <button aria-label="Remove expense" className="text-slate-400 hover:text-red-600" onClick={() => run(() => api(shiftId ? `/shifts/${shiftId}/expenses/${e.id}` : `/expenses/${e.id}`, { method: "DELETE" }), "Removed").then(onChange)}><Trash2 size={14} /></button>
           </li>
         ))}
         {!expenses.length && <li className="text-slate-500">None</li>}
@@ -201,7 +209,13 @@ export function ShiftExpenses({ shiftId, expenses, onChange, preset }: { shiftId
       <Modal open={open} onClose={() => setOpen(false)} title="Expense paid from shift cash · شفٹ کے نقد سے خرچہ">
         <form className="space-y-3" onSubmit={async (e) => {
           e.preventDefault();
-          if (await run(() => api(`/shifts/${shiftId}/expenses`, { body: { category: custom.trim().length >= 2 ? custom.trim() : f.category, new_category: custom.trim().length >= 2, amount: Number(f.amount), note: f.note || null, photo_id: f.photo_id } }), (r: any) => r.expense.status === "pending" ? "Saved — waiting for manager approval" : "Expense saved")) {
+          const category = custom.trim().length >= 2 ? custom.trim() : f.category;
+          // a typed name, or a quick button this pump's list does not have: let the server add it to the list
+          const new_category = custom.trim().length >= 2 || !(cats.data ?? []).includes(category);
+          const req = shiftId
+            ? api(`/shifts/${shiftId}/expenses`, { body: { category, new_category, amount: Number(f.amount), note: f.note || null, photo_id: f.photo_id } })
+            : api(`/expenses`, { body: { category, new_category, amount: Number(f.amount), note: f.note || null, method: "cash", station_id: stationId ?? null, photo_id: f.photo_id } });
+          if (await run(() => req, (r: any) => (r.expense?.status ?? r.status) === "pending" ? "Saved — waiting for manager approval" : "Expense saved")) {
             setOpen(false); setF({ ...f, amount: "", note: "", photo_id: null }); setCustom(""); cats.reload(); onChange();
           }
         }}>

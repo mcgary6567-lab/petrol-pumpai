@@ -7,7 +7,7 @@ import { claimForDelivery } from "./claims.js";
 import { all, get, run, tx, now, getSetting, pkDate, pkDayStart, pkStart, pkEnd, METER, meterName, type Row } from "../db.js";
 import { meterSales } from "./reports.js";
 import { h, parse, tid, requirePerm, requireAny, scopedStation, can, modulesOf } from "../auth.js";
-import { ensureCategory } from "./expenses.js";
+import { resolveCategory } from "./expenses.js";
 import { AppError, recordSale, undoSale, audit, UNDO_SECONDS, currentPrices, createAlert, round2, pkr, rateFmt, correctTo15, priceOf, type SaleInput } from "../services.js";
 import { productSchema } from "../products.js";
 import { moneyMethods, SPECIAL_METHODS } from "./lookups.js";
@@ -765,8 +765,8 @@ operations.post("/shifts/:id/expenses", requirePerm("shifts.expenses"), h(async 
   const shift = ownOpenShift(req, Number(req.params.id));
   if (shift.status !== "open") throw new AppError(400, "Shift is closed");
   const b = parse(z.object({ category: z.string().trim().min(2).max(60), new_category: z.boolean().optional(), amount: z.number().positive().max(1_000_000), paid_to: z.string().max(80).optional().nullable(), note: z.string().max(200).optional().nullable(), photo_id: z.number().optional().nullable() }), req.body);
-  if (b.new_category) ensureCategory(tid(req), b.category); // "apni likhein": the typed category is added to the pump's list once, then reused
-  if (!get("SELECT id FROM expense_categories WHERE tenant_id=? AND name=? AND active=1", tid(req), b.category)) throw new AppError(400, "Unknown expense category");
+  // "apni likhein" (or a quick button the pump's list lacks) adds the name to the list once; a switched-off one is refused
+  b.category = resolveCategory(tid(req), b.category, Boolean(b.new_category));
   const limit = Number(getSetting(tid(req), "expense_approval_limit", "10000"));
   const status = req.user!.role === "admin" || b.amount <= limit ? "approved" : "pending";
   const { id } = run(`INSERT INTO expenses (tenant_id,station_id,shift_id,category,amount,paid_to,method,note,status,created_by,approved_by,expense_date,created_at)

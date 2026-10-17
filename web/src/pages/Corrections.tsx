@@ -418,7 +418,7 @@ function KhataVoid() {
 }
 
 /** Edit a manual khata charge/payment: change type (charge⇄payment), amount or note. Balance + ledger follow. */
-function EditKhata({ entry, onClose, onDone }: { entry: any; onClose: () => void; onDone: () => void }) {
+export function EditKhata({ entry, onClose, onDone }: { entry: any; onClose: () => void; onDone: () => void }) {
   const [type, setType] = useState<"debit" | "credit">(entry.type);
   const [amount, setAmount] = useState(String(entry.amount));
   const [note, setNote] = useState(entry.note ?? "");
@@ -435,5 +435,24 @@ function EditKhata({ entry, onClose, onDone }: { entry: any; onClose: () => void
         <Field label="Amount (Rs)"><input className="input" type="number" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} /></Field>
         <Field label="Note (optional)"><input className="input" value={note} onChange={(e) => setNote(e.target.value)} /></Field>
       </>} />
+  );
+}
+
+/** Void an entry with a reason (CEO) — used from the party pages (khata customer, supplier) so the fix happens where the entry was seen. */
+export function VoidWithReason({ title, what, hint, url, onClose, onDone }: { title: string; what: string; hint?: string; url: string; onClose: () => void; onDone: () => void }) {
+  const [reason, setReason] = useState("");
+  const { busy, run } = useAction();
+  return (
+    <Modal open onClose={onClose} title={title}>
+      <div className="space-y-3">
+        <div className="rounded-xl bg-red-50 p-3 text-sm text-red-900"><b>{what}</b></div>
+        <p className="text-sm text-slate-600">{hint ?? "Entry hat jayegi: balance, cash/bank aur ledger sab wapas ho jayenge. Audit log me wajah ke saath record rahega."}</p>
+        <Field label="Wajah (kyun void) — zaroori"><input className="input" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. galti se double entry ho gayi" /></Field>
+        <div className="flex justify-end gap-2">
+          <button className="btn-secondary" onClick={onClose}>Cancel</button>
+          <button className="btn-primary !bg-red-600 hover:!bg-red-700" disabled={busy || reason.trim().length < 3} onClick={async () => { if (await run(() => api(url, { body: { reason: reason.trim() } }), "Entry void ho gayi — books tally")) onDone(); }}><Ban size={15} /> Void karein</button>
+        </div>
+      </div>
+    </Modal>
   );
 }

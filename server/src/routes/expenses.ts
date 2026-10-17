@@ -18,6 +18,16 @@ export const DEFAULT_CATEGORIES: [string, number | null][] = [
 ];
 
 /** A category typed by the user (POS / expense form): created once (case-insensitive), re-activated if it was switched off. */
+/** The category an expense is booked under: an active one by name; a switched-off one is refused (the admin turned it off);
+ *  an unknown name is created only when the form said so (allowNew — "apni likhein" or a quick button the list lacks). */
+export function resolveCategory(tenantId: number, name: string, allowNew: boolean) {
+  const n = name.trim().replace(/\s+/g, " ");
+  const hit = get("SELECT id, name, active FROM expense_categories WHERE tenant_id=? AND lower(name)=lower(?)", tenantId, n);
+  if (hit && hit.active) return hit.name as string;
+  if (hit && !hit.active) throw new AppError(400, `"${hit.name}" category band hai — Settings → Expense categories me on karein ya doosri chunein`);
+  if (!allowNew) throw new AppError(400, "Unknown category");
+  return ensureCategory(tenantId, n);
+}
 export function ensureCategory(tenantId: number, name: string) {
   const n = name.trim().replace(/\s+/g, " ");
   const hit = get("SELECT id, name, active FROM expense_categories WHERE tenant_id=? AND lower(name)=lower(?)", tenantId, n);
@@ -174,8 +184,7 @@ expenses.post("/expenses", requireAny("expenses.create", "cash.pay"), h((req) =>
 /** Book an expense (approved at once up to the approval limit, else sent to the owner). Also used by the cashier desk. */
 export async function createExpense(req: Request, b: z.infer<typeof expenseBody>) {
   const t = tid(req);
-  if (b.new_category) b.category = ensureCategory(t, b.category);
-  if (!get("SELECT id FROM expense_categories WHERE tenant_id=? AND name=? AND active=1", t, b.category)) throw new AppError(400, "Unknown category");
+  b.category = resolveCategory(t, b.category, Boolean(b.new_category));
   if (b.station_id && !get("SELECT id FROM stations WHERE id=? AND tenant_id=?", b.station_id, t)) throw new AppError(400, "Station not found");
   const autoApprove = can(req.user, "expenses.approve") || b.amount <= approvalLimit(t);
   const date = b.expense_date ?? pkDate();
