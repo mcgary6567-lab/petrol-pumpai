@@ -3,6 +3,7 @@
  * balance sheet, payment-statement reconciliation, price-change planner and tank gain/loss.
  */
 import { Router } from "express";
+import { fuelCostPerL } from "../fuelCost.js";
 import { z } from "zod";
 import { all, get, run, now, pkDate, pkStart, pkEnd, getSetting } from "../db.js";
 import { h, parse, tid, requirePerm } from "../auth.js";
@@ -304,9 +305,8 @@ export function productMargins(t: number, month: string) {
     WHERE st.tenant_id=? AND s.created_at >= ? AND s.created_at < ? GROUP BY s.product`, t, from, to);
   const prices = currentPrices(t);
   return sales.filter((r) => r.l > 0).map((r) => {
-    // weighted average purchase cost this month, else the latest purchase rate, else current pump price
-    const wp = get(`SELECT SUM(litres*rate) v, SUM(litres) l FROM supplier_txns WHERE tenant_id=? AND type='purchase' AND product=? AND created_at >= ? AND created_at < ?`, t, r.product, from, to);
-    const cost = wp?.l ? wp.v / wp.l : (get("SELECT rate FROM supplier_txns WHERE tenant_id=? AND type='purchase' AND product=? ORDER BY txn_date DESC LIMIT 1", t, r.product)?.rate ?? prices[r.product]?.price ?? 0);
+    // the app-wide cost per litre (go-live opening value + purchases, weighted); no cost known → pump price (zero margin, never a fake profit)
+    const cost = fuelCostPerL(t, r.product, to) ?? prices[r.product]?.price ?? 0;
     const avgSale = r.rev / r.l;
     const marginL = round2(avgSale - cost);
     return { product: r.product, name: PRODUCTS[r.product] ?? r.product, litres: round2(r.l), revenue: round2(r.rev),

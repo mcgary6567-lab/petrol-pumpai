@@ -14,6 +14,7 @@ import { PRODUCTS } from "../config.js";
 import { clientDue, carriageIncome } from "./wholesale.js";
 import { thekedarDue, carriageIncomeThekedar } from "./carriage.js";
 import { supplierOwed } from "./suppliers.js";
+import { fuelCostPerL } from "../fuelCost.js";
 import { tankOutlook } from "../ai/analytics.js";
 import { rentalIncome } from "./property.js";
 import { shopSummary } from "./shop.js";
@@ -138,15 +139,9 @@ export function buildReport(t: number, from: string, to: string) {
     + (get(`SELECT COALESCE(SUM(cost_amount),0) cost FROM bypass_drops WHERE tenant_id=? AND voided=0 AND tank_id IS NULL AND txn_date >= ? AND txn_date < ?`, ...P)!.cost as number); // only the bypass fuel delivered to clients (own-tank leftover is stock, costed when sold)
   const directL: Record<string, number> = Object.fromEntries(all(`SELECT w.product, SUM(w.litres) l FROM wholesale_txns w JOIN wholesale_trips tr ON tr.id=w.trip_id
     WHERE w.tenant_id=? AND w.voided=0 AND w.type='supply' AND tr.source='depot' AND w.txn_date >= ? AND w.txn_date < ? GROUP BY w.product`, ...P).map((x) => [x.product, x.l as number]));
+  // one cost per litre for the whole app (fuelCost.ts): go-live opening value + purchases of the last 120 days, weighted
   const avgCost: Record<string, number | null> = {};
-  for (const p of products) {
-    // weighted average purchase rate over the 120 days up to the end of the period
-    const r = get(`SELECT SUM(amount) a, SUM(litres) l FROM supplier_txns WHERE tenant_id=? AND type='purchase' AND trip_id IS NULL AND product=? AND txn_date < ? AND txn_date >= ?`,
-      t, p, to, new Date(Date.parse(to) - 120 * DAY).toISOString())!;
-    // no purchases in that window → fall back to the last purchase rate ever recorded
-    avgCost[p] = r.l ? r.a / r.l
-      : get(`SELECT rate FROM supplier_txns WHERE tenant_id=? AND type='purchase' AND product=? AND rate > 0 AND txn_date < ? ORDER BY txn_date DESC LIMIT 1`, t, p, to)?.rate ?? null;
-  }
+  for (const p of products) avgCost[p] = fuelCostPerL(t, p, to);
   const stock = {
     products: products.map((p) => {
       const soldL = (inPeriod.retail_out[p] ?? 0) + (inPeriod.wholesale_out[p] ?? 0) - (inPeriod.returns_in[p] ?? 0);

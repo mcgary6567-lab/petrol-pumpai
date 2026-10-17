@@ -118,6 +118,12 @@ export function journal(t: number, fromDay: string, toDay: string, showPrivate =
     const v = round2(Math.abs(r.amount ?? r.qty * (r.cost ?? 0)));
     if (v) add(day(r.created_at), "Journal", `Shop goods in (no money entry) — ${r.name} × ${r.qty}`, [dr("Shop stock", v), cr(OPENING_EQ, v)]);
   }
+  // go-live value of the fuel in the tanks (Opening balances → Tank stock → rate): an asset against the go-live equity, never P&L.
+  // A re-entered value voids the old row: the void reverses the old entry on its day, the new row books the new value.
+  for (const r of all("SELECT * FROM fuel_opening_values WHERE tenant_id=? AND created_at >= ? AND created_at < ?", ...P))
+    if (r.amount) add(day(r.created_at), "Opening", `Fuel stock booked (go-live) — ${Math.round(r.litres).toLocaleString()} L ${PRODUCTS[r.product] ?? r.product} @ Rs ${r.rate}`, [dr("Fuel stock (go-live)", r.amount), cr(OPENING_EQ, r.amount)]);
+  for (const r of all("SELECT * FROM fuel_opening_values WHERE tenant_id=? AND voided=1 AND voided_at >= ? AND voided_at < ?", ...P))
+    if (r.amount) add(day(r.voided_at), "Opening", `Fuel stock booking reversed (${r.void_reason ?? "re-entered"}) — ${Math.round(r.litres).toLocaleString()} L ${PRODUCTS[r.product] ?? r.product} @ Rs ${r.rate}`, [dr(OPENING_EQ, r.amount), cr("Fuel stock (go-live)", r.amount)]);
   // one-click go-live booking of old shelf stock (books.ts): the shelf value comes in against the go-live equity, never P&L
   for (const r of all(`SELECT m.*, i.name FROM shop_moves m JOIN shop_items i ON i.id=m.item_id WHERE i.tenant_id=? AND m.type='book' AND m.created_at >= ? AND m.created_at < ?`, ...P)) {
     const v = round2(Math.abs(r.amount ?? 0));

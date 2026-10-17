@@ -1,4 +1,4 @@
-/** Go-live checklist: 13 items auto-detected, every one skippable, quick inline actions work, CEO-only, books untouched. */
+/** Go-live checklist: 14 items auto-detected, every one skippable, quick inline actions work, CEO-only, books untouched. */
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import os from "node:os";
@@ -29,13 +29,13 @@ before(async () => {
 });
 after(() => { server.close(); fs.rmSync(dir, { recursive: true, force: true }); });
 
-test("the checklist has 13 items, detects what the data already says, and is CEO-only", async () => {
+test("the checklist has 14 items, detects what the data already says, and is CEO-only", async () => {
   const s = ok(await call(adminTok, "GET", "/api/golive"), "golive");
-  assert.equal(s.items.length, 13);
+  assert.equal(s.items.length, 14);
   assert.equal(item(s, "bank").status, "done", "demo has bank accounts");
   assert.equal(item(s, "staff").status, "done", "demo has staff");
   assert.equal(item(s, "sample").status, "pending");
-  assert.equal(s.done + s.skipped + s.pending, 13);
+  assert.equal(s.done + s.skipped + s.pending, 14);
   assert.equal((await call(mgrTok, "GET", "/api/golive")).status, 403);
 });
 

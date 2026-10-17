@@ -26,6 +26,8 @@ import { thekedarDue } from "./carriage.js";
 import { staffBalance } from "./staff.js";
 import { cashPosition } from "./backoffice.js";
 import { assertLookup } from "./lookups.js";
+import { fuelOpening, litresInTanks, lastPurchaseRate } from "../fuelCost.js";
+import { PRODUCTS } from "../config.js";
 
 export const opening = Router();
 export const OPEN_REF = "open:";
@@ -72,6 +74,7 @@ opening.get("/opening", requirePerm("opening.manage"), h((req) => {
     staff: all("SELECT id, name, role FROM users WHERE tenant_id=? AND active=1 AND role<>'admin' ORDER BY name", t).map((u) => ({
       ...u, balance: staffBalance(u.id), opening: get("SELECT COALESCE(SUM(amount),0) v FROM staff_ledger WHERE user_id=? AND ref=?", u.id, OPEN_REF)!.v })),
     stock: all(`SELECT tk.id, tk.name, tk.product, tk.capacity_l, tk.current_l, s.name station FROM tanks tk JOIN stations s ON s.id=tk.station_id WHERE s.tenant_id=? AND COALESCE(tk.active,1)=1 ORDER BY s.id, tk.id`, t),
+    fuel_values: fuelValues(t),
     cash: { first_count: get("SELECT amount, created_at, counted_by FROM cash_counts WHERE tenant_id=? ORDER BY created_at, id LIMIT 1", t) ?? null, cash_in_hand: cash.cash_in_hand },
   };
 }));
@@ -168,6 +171,41 @@ opening.post("/opening/staff", requirePerm("opening.manage"), h((req) => {
   return { ok: true, user_id: u.id, name: u.name, balance: staffBalance(u.id) };
 }));
 
+/** Per fuel with tanks: litres now, the active opening value (if any) and the last purchase rate as a default. */
+function fuelValues(t: number) {
+  const inTanks = litresInTanks(t);
+  return Object.keys(inTanks).map((p) => {
+    const o = fuelOpening(t, p);
+    return { product: p, name: PRODUCTS[p] ?? p, litres_now: inTanks[p], last_purchase_rate: lastPurchaseRate(t, p),
+      opening: o ? { id: o.id, litres: o.litres, rate: o.rate, amount: o.amount, created_at: o.created_at, created_by: o.created_by } : null };
+  });
+}
+/** Book (or re-book) one fuel's opening value: litres = what is in its tanks now, amount = litres × rate. The old row is voided, never edited. */
+export function bookFuelOpening(t: number, product: string, rate: number, by: string, note?: string | null, reason = "re-entered") {
+  const litres = litresInTanks(t)[product] ?? 0;
+  const ts = now();
+  const old = fuelOpening(t, product);
+  if (old) {
+    if (Math.abs(old.litres - litres) < 0.005 && Math.abs(old.rate - rate) < 0.0005) return old; // nothing changed
+    run("UPDATE fuel_opening_values SET voided=1, voided_at=?, void_reason=? WHERE id=?", ts, reason, old.id);
+  }
+  if (rate <= 0 || litres <= 0) return null; // rate 0 clears the value; no fuel → nothing to value
+  const { id } = run("INSERT INTO fuel_opening_values (tenant_id,product,litres,rate,amount,note,created_by,created_at) VALUES (?,?,?,?,?,?,?,?)", t, product, litres, rate, round2(litres * rate), note ?? null, by, ts);
+  return get("SELECT * FROM fuel_opening_values WHERE id=?", id);
+}
+
+/** Opening rate per fuel (Rs/L it was bought at). One rate per fuel — the same depot sells it at one price. */
+opening.post("/opening/fuel-rates", requirePerm("opening.manage"), h((req) => {
+  const b = parse(z.object({ rows: z.array(z.object({ product: z.string().min(1), rate: z.number().min(0).max(100000), note: z.string().max(200).optional() })).min(1).max(20) }), req.body);
+  const t = tid(req);
+  const out = tx(() => b.rows.map((r) => {
+    if (!(r.product in PRODUCTS)) throw new AppError(400, `Unknown fuel ${r.product}`);
+    return { product: r.product, row: bookFuelOpening(t, r.product, r.rate, req.user!.name, r.note) };
+  }));
+  audit(t, req.user!, "opening_fuel_rate", "opening", { rows: out.map((x) => ({ product: x.product, litres: x.row?.litres ?? 0, rate: x.row?.rate ?? 0, amount: x.row?.amount ?? 0 })) });
+  return { ok: true, fuel_values: fuelValues(t) };
+}));
+
 /** Fuel in a tank on day one: recorded as a dip so the stock register starts from it. */
 opening.post("/opening/stock", requirePerm("opening.manage"), h((req) => {
   const b = parse(z.object({ tank_id: z.number().int(), litres: z.number().min(0) }), req.body);
@@ -179,6 +217,9 @@ opening.post("/opening/stock", requirePerm("opening.manage"), h((req) => {
     // the go-live figure IS the book: no variance, so the first month's P&L shows no phantom stock gain/loss
     run("INSERT INTO dip_readings (tank_id,measured_l,book_l,variance_pct,created_at) VALUES (?,?,?,?,?)", tank.id, b.litres, b.litres, 0, now());
     run("UPDATE tanks SET current_l=? WHERE id=?", b.litres, tank.id);
+    // the fuel's go-live value follows its litres: same rate, new litres (old row voided, never edited)
+    const o = fuelOpening(t, tank.product);
+    if (o) bookFuelOpening(t, tank.product, o.rate, req.user!.name, o.note, "opening litres changed");
   });
   audit(t, req.user!, "opening_stock", `tank:${tank.id}`, { tank: tank.name, litres: b.litres, was: tank.current_l });
   return { ok: true, tank: get("SELECT * FROM tanks WHERE id=?", tank.id) };

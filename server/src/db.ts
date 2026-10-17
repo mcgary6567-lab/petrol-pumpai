@@ -745,6 +745,14 @@ export function migrate() {
   addColumn("tenants", "note", "TEXT");
   // each pump's own sign-in link: /p/<slug> (SaaS); existing pumps get one from their name on first start after this update
   addColumn("tenants", "slug", "TEXT");
+  // go-live value of the fuel already in the tanks: one active row per fuel (litres at booking × the rate it was bought at).
+  // Re-entering voids the old row and adds a new one, so nothing is ever overwritten.
+  db.exec(`CREATE TABLE IF NOT EXISTS fuel_opening_values (
+    id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, product TEXT NOT NULL, litres REAL NOT NULL, rate REAL NOT NULL, amount REAL NOT NULL,
+    note TEXT, created_by TEXT, created_at TEXT NOT NULL, voided INTEGER NOT NULL DEFAULT 0, voided_at TEXT, void_reason TEXT
+  )`);
+  db.exec("CREATE INDEX IF NOT EXISTS idx_fuel_open ON fuel_opening_values(tenant_id, product, voided)");
+
   db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_tenants_slug ON tenants(slug)");
   for (const t of all("SELECT id, name FROM tenants WHERE slug IS NULL OR slug=''")) run("UPDATE tenants SET slug=? WHERE id=?", uniqueSlug(t.name as string), t.id);
   // one-time activation codes the platform owner hands out after cash payment

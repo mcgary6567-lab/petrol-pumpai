@@ -17,6 +17,7 @@ const META: Record<string, { icon: any; en: string; ur: string; why: string; lin
   bank: { icon: Landmark, en: "Pump ka bank account", ur: "بینک اکاؤنٹ", why: "Card, JazzCash, Easypaisa aur transfer ka paisa kisi bank/wallet account me jata hai. Kam az kam ek account banayein.", link: { to: "/banks", label: "Banks page" } },
   staff: { icon: Users, en: "Staff users (manager, cashier, salesman)", ur: "عملے کے لاگ ان", why: "Har banda apne PIN se login kare — shift, cash aur entries uske naam par likhi jayengi.", link: { to: "/users", label: "Users & Roles" } },
   opening: { icon: BookOpenCheck, en: "Purana hisaab (opening balances)", ur: "پرانا حساب", why: "Khata customers ka baqaya, suppliers ko dena, bank balance, tank stock, shop stock — purane register se aaj ki tareekh par le aayein.", link: { to: "/opening-balances", label: "Opening balances" } },
+  fuel_cost: { icon: Fuel, en: "Tank ke fuel ka khareed rate (opening cost)", ur: "ٹینک کے تیل کی لاگت", why: "Jo fuel go-live par tank me hai wo kis rate par mila tha. Isi se pehle din se profit sirf margin dikhta hai, poori sale nahi.", link: { to: "/opening-balances", label: "Opening balances → Tank stock" } },
   shift: { icon: Clock, en: "Shift ki lambai", ur: "شفٹ کا دورانیہ", why: "12 ghante (din/raat do shift) ya 24 ghante (ek din on, ek off). Isi se shift-close ka reminder aur salary ka hisaab chalta hai." },
   khata: { icon: BookOpen, en: "Khata rules", ur: "کھاتہ قواعد", why: "Kitne din payment na aaye to khata khud hold ho, aur salesman kitna discount de sakta hai." },
   reorder: { icon: Fuel, en: "Tank reorder level (litre)", ur: "ٹینک آرڈر لیول", why: "Jis litre par 'order karo' ka alert aaye. Abhi 25% capacity par hai." },
@@ -89,6 +90,7 @@ function Summary({ it }: { it: Item }) {
     case "bank": return it.accounts?.length ? <div className={c}>{it.accounts.map((a: any) => `${a.bank}${a.title ? ` · ${a.title}` : ""}`).join(", ")}</div> : null;
     case "staff": return it.users?.length ? <div className={c}>{it.users.map((u: any) => `${u.name} (${u.role})`).join(", ")}</div> : null;
     case "opening": return <div className={c}>Khata rows {it.khata_rows} · parties/banks {it.parties} · shop bookings {it.shop_bookings}</div>;
+    case "fuel_cost": return <div className={c}>{it.fuels?.length ? it.fuels.map((f: any) => `${f.name} ${num(f.litres)} L ${f.rate ? `@ Rs ${f.rate} = ${pkr(f.amount)}` : f.cost ? `(cost Rs ${num(f.cost, 2)} purchase se)` : "— rate nahi"}`).join(" · ") : "Tank me fuel nahi"}</div>;
     case "shift": return <div className={c}>Abhi: {it.shift_hours} ghante</div>;
     case "khata": return <div className={c}>Hold {it.block_days} din ({it.auto_block ? "auto on" : "auto off"}) · salesman discount max {pkr(it.khata_discount_max)}</div>;
     case "reorder": return <div className={c}>{it.tanks?.map((k: any) => `${k.name} ${num(k.reorder_l)} L`).join(" · ")}</div>;
@@ -149,6 +151,15 @@ function Form({ it, post, busy }: { it: Item; post: (p: string, body?: any, msg?
         <Field label="Hold after (din bina payment)"><input className="input w-32 tabular-nums" type="number" inputMode="numeric" min={15} max={365} value={v("block_days", it.block_days)} onChange={(e) => set("block_days", e.target.value)} /></Field>
         <Field label="Salesman khata discount max (Rs)"><input className="input w-36 tabular-nums" type="number" inputMode="decimal" min={0} value={v("khata_discount_max", it.khata_discount_max)} onChange={(e) => set("khata_discount_max", e.target.value)} /></Field>
         <Btn onClick={() => post("/settings", { khata_rules: { block_days: Number(v("block_days", it.block_days)) }, limits: { khata_discount_max: Number(v("khata_discount_max", it.khata_discount_max)) } }, "Khata rules set").then(() => post(`/golive/khata/done`))} />
+      </div>);
+    case "fuel_cost": return (
+      <div className="space-y-2">
+        {(it.fuels ?? []).map((f: any) => (
+          <div key={f.product} className="flex flex-wrap items-center gap-2 text-sm"><span className="w-56 truncate">{f.name} · {num(f.litres)} L in tanks</span>
+            <input className="input w-32 tabular-nums" type="number" inputMode="decimal" min={0} step="0.01" placeholder={f.last_purchase_rate ? String(f.last_purchase_rate) : "Rs / L"} value={v(`r${f.product}`, f.rate ?? f.last_purchase_rate ?? "")} onChange={(e) => set(`r${f.product}`, e.target.value)} />
+            <span className="text-xs text-slate-500">Rs/L → value {pkr(Number(v(`r${f.product}`, f.rate ?? f.last_purchase_rate ?? 0)) * f.litres)}</span></div>))}
+        <p className="text-xs text-slate-500">Ek fuel ka ek rate (depot ka bhao). Value ledger me "Fuel stock (go-live)" ban kar aayegi; tank ke litre badlein to value khud update hogi.</p>
+        <Btn onClick={() => post("/opening/fuel-rates", { rows: (it.fuels ?? []).map((f: any) => ({ product: f.product, rate: Number(v(`r${f.product}`, f.rate ?? f.last_purchase_rate ?? 0)) })).filter((r: any) => r.rate > 0) }, "Opening fuel cost set").then(() => post(`/golive/fuel_cost/done`))} />
       </div>);
     case "reorder": return (
       <div className="space-y-2">

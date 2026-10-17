@@ -189,10 +189,41 @@ function StaffTab({ data, reload }: { data: any; reload: () => void }) {
 function StockTab({ data, reload }: { data: any; reload: () => void }) {
   const { busy, run } = useAction();
   const [vals, setVals] = useState<Record<number, string>>({});
-  useEffect(() => { setVals({}); }, [data]);
+  const [rates, setRates] = useState<Record<string, string>>({});
+  useEffect(() => { setVals({}); setRates({}); }, [data]);
+  const fuels: any[] = data.fuel_values ?? [];
+  const rateOf = (f: any) => rates[f.product] ?? String(f.opening?.rate ?? f.last_purchase_rate ?? "");
+  const changed = fuels.some((f) => rates[f.product] !== undefined && Number(rates[f.product]) !== Number(f.opening?.rate ?? 0));
+  const totalValue = fuels.reduce((a, f) => a + (Number(rateOf(f)) || 0) * f.litres_now, 0);
   return (
     <div className="rounded-xl bg-white shadow-sm ring-1 ring-slate-200">
       <p className="px-3 pt-3 text-sm text-slate-600">Go-live ki subah har tank ka dip (litre). Stock register yahin se shuru hota hai.</p>
+      {fuels.length > 0 && (
+        <div className="m-3 rounded-xl border border-amber-200 bg-amber-50/60 p-3">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <div className="font-medium">Is fuel ki khareed rate · <span lang="ur" className="font-urdu">خریداری ریٹ</span></div>
+            <div className="text-sm tabular-nums">Stock value: <b>{pkr(totalValue)}</b></div>
+          </div>
+          <p className="mb-2 text-xs text-slate-600">Jo fuel abhi tank me hai wo kis rate (Rs/L) par mila tha. Litre × rate = opening stock ki value, jo ledger me "Fuel stock (go-live)" ban kar aati hai aur profit sirf margin par nikalta hai. Ek fuel ka ek rate.</p>
+          <ul className="divide-y divide-amber-100">
+            {fuels.map((f) => (
+              <li key={f.product} className="grid grid-cols-[1fr_auto_auto] items-center gap-2 py-1.5 text-sm">
+                <div className="min-w-0"><div className="truncate font-medium">{f.name}</div>
+                  <div className="text-xs text-slate-500">{num(f.litres_now, 0)} L in tanks{f.opening ? ` · booked ${num(f.opening.litres, 0)} L @ Rs ${f.opening.rate} = ${pkr(f.opening.amount)}` : f.last_purchase_rate ? ` · last purchase Rs ${f.last_purchase_rate}/L` : " · rate nahi"}</div></div>
+                <div className="relative"><input className="input min-h-10 w-32 pr-10 text-right tabular-nums" type="number" inputMode="decimal" min={0} step="0.01" placeholder="Rs / L" value={rateOf(f)} onChange={(e) => setRates({ ...rates, [f.product]: e.target.value })} aria-label={`${f.name} opening rate`} />
+                  <span className="pointer-events-none absolute inset-y-0 right-2 flex items-center text-xs text-slate-400">Rs/L</span></div>
+                <div className="w-28 text-right text-xs tabular-nums text-slate-600">= {pkr((Number(rateOf(f)) || 0) * f.litres_now)}</div>
+              </li>
+            ))}
+          </ul>
+          <div className="mt-2 flex justify-end">
+            <button className="btn-primary min-h-10" disabled={busy || !changed} onClick={async () => {
+              const rows = fuels.filter((f) => rates[f.product] !== undefined).map((f) => ({ product: f.product, rate: Number(rates[f.product]) || 0 }));
+              if (await run(() => api("/opening/fuel-rates", { body: { rows } }), "Opening fuel cost set")) reload();
+            }}><Check size={16} /> Rate save karein</button>
+          </div>
+        </div>
+      )}
       <ul className="divide-y divide-slate-100">
         {data.stock.map((t: any) => (
           <li key={t.id} className="grid grid-cols-[1fr_auto_auto] items-center gap-2 px-3 py-2">

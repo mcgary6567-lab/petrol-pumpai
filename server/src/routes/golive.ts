@@ -5,19 +5,20 @@
  * letterhead, wholesale module) through this router; the bigger ones link to their own page.
  */
 import { Router } from "express";
+import { fuelOpening, fuelCostPerL, litresInTanks, lastPurchaseRate } from "../fuelCost.js";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
 import { all, get, run, now, getSetting, setSetting } from "../db.js";
 import { h, parse, tid, requirePerm, ROLES } from "../auth.js";
 import * as authMod from "../auth.js";
 import { AppError, audit, normalizePhone } from "../services.js";
-import { config, aiProvider } from "../config.js";
+import { config, aiProvider, PRODUCTS } from "../config.js";
 import { SENSITIVITY_DEFAULTS } from "../ai/analytics.js";
 import { gdriveCfg, dropboxCfg } from "../backupCloud.js";
 
 export const golive = Router();
 
-export const GOLIVE_KEYS = ["cash", "bank", "staff", "opening", "shift", "khata", "reorder", "alerts", "letterhead", "backup", "whatsapp_ai", "sample", "wholesale"] as const;
+export const GOLIVE_KEYS = ["cash", "bank", "staff", "opening", "fuel_cost", "shift", "khata", "reorder", "alerts", "letterhead", "backup", "whatsapp_ai", "sample", "wholesale"] as const;
 type Key = (typeof GOLIVE_KEYS)[number];
 
 const mark = (t: number, k: Key) => getSetting(t, `golive:${k}`, "") as "" | "done" | "skip";
@@ -42,6 +43,12 @@ function detect(t: number): Record<Key, { auto: boolean; info: Record<string, un
     bank: { auto: banks.length > 0, info: { accounts: banks } },
     staff: { auto: staffRows.length > 0, info: { users: staffRows, roles: ROLES.filter((r) => r !== "admin") } },
     opening: { auto: openKhata + openParties + openShop > 0, info: { khata_rows: openKhata, parties: openParties, shop_bookings: openShop } },
+    fuel_cost: (() => {
+      // every fuel with litres in the tanks has a known cost (opening value or a purchase) → profit is margin only
+      const inTanks = litresInTanks(t);
+      const fuels = Object.entries(inTanks).filter(([, l]) => l > 0.5).map(([p, l]) => ({ product: p, name: PRODUCTS[p] ?? p, litres: l, opening: fuelOpening(t, p), cost: fuelCostPerL(t, p), last_purchase_rate: lastPurchaseRate(t, p) }));
+      return { auto: fuels.length > 0 && fuels.every((f) => f.cost != null), info: { fuels: fuels.map((f) => ({ product: f.product, name: f.name, litres: f.litres, rate: f.opening?.rate ?? null, amount: f.opening?.amount ?? null, cost: f.cost, last_purchase_rate: f.last_purchase_rate })) } };
+    })(),
     shift: { auto: has(t, "shift_hours"), info: { shift_hours: Number(getSetting(t, "shift_hours", "24")) } },
     khata: { auto: has(t, "khata_block_days"), info: { block_days: Number(getSetting(t, "khata_block_days", "60")), auto_block: getSetting(t, "khata_auto_block", "1") === "1", khata_discount_max: Number(getSetting(t, "khata_discount_max", "500")) } },
     reorder: { auto: tanks.some((k) => Number(k.reorder_pct) !== 25), info: { tanks: tanks.map((k) => ({ ...k, reorder_l: Math.round((k.capacity_l * k.reorder_pct) / 100) })) } },
