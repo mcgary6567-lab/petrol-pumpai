@@ -114,6 +114,48 @@ app.get("/api/health", (_req, res) => {
 app.use("/api", setupPublic); // setup wizard + branding (no login)
 app.use("/api", saasPublic); // SaaS mode: public sign-up + platform owner panel (no login)
 // business logo (login page, receipts, bills, TV board, app icon)
+/**
+ * The pump's own app icon: its logo on a square PNG (192 / 512 for the manifest, 180 for iOS). ?pump=<slug> or ?v=<logo id>;
+ * &maskable=1 pads the logo into the safe zone on the brand colour so Android's round / squircle masks never cut it.
+ * Rendered once per (logo, size, shape) and kept in memory; a pump without a logo (or an image Jimp can't read) gets the generic icon.
+ */
+const iconCache = new Map<string, Buffer>();
+app.get("/branding/icon-:size.png", async (req, res) => {
+  const size = Math.min(1024, Math.max(32, Number(req.params.size) || 192));
+  const maskable = req.query.maskable === "1";
+  const slug = String(req.query.pump ?? "").trim().toLowerCase();
+  const t = slug ? get("SELECT id FROM tenants WHERE slug=?", slug) : null;
+  const v = Number(req.query.v) || (t ? Number(getSetting(t.id, "logo_photo_id")) : 0);
+  const tenantId = t?.id ?? (v ? get("SELECT tenant_id FROM photos WHERE id=? AND kind='logo'", v)?.tenant_id : null);
+  const color = tenantId ? (getSetting(tenantId, "brand_color", "") || "#059669") : "#059669";
+  const fallback = () => res.redirect(302, size > 256 ? "/icon-512.png" : size > 150 ? "/icon-192.png" : "/icon-192.png");
+  const p = v ? get("SELECT mime, data FROM photos WHERE id=? AND kind='logo'", v) : null;
+  if (!p) return fallback();
+  const key = `${v}:${size}:${maskable ? "m" : "a"}:${color}`;
+  try {
+    let png = iconCache.get(key);
+    if (!png) {
+      const { Jimp } = await import("jimp");
+      const logo = await Jimp.read(Buffer.from(p.data as Uint8Array));
+      // "any": logo on white with a little air; "maskable": logo inside the 80% safe zone on the brand colour
+      const pad = maskable ? 0.2 : 0.08;
+      const inner = Math.round(size * (1 - 2 * pad));
+      logo.contain({ w: inner, h: inner });
+      const bg = maskable ? parseInt(color.replace("#", "").padEnd(6, "0").slice(0, 6) + "ff", 16) : 0xffffffff;
+      const canvas = new Jimp({ width: size, height: size, color: bg });
+      canvas.composite(logo, Math.round((size - logo.bitmap.width) / 2), Math.round((size - logo.bitmap.height) / 2));
+      png = await canvas.getBuffer("image/png");
+      if (iconCache.size > 200) iconCache.clear();
+      iconCache.set(key, png);
+    }
+    res.setHeader("content-type", "image/png");
+    res.setHeader("cache-control", "public, max-age=86400");
+    res.send(png);
+  } catch (e) {
+    console.error("[icon]", (e as Error).message);
+    fallback();
+  }
+});
 app.get("/branding/logo", (req, res) => {
   // ?v=<photo id> → that pump's logo (SaaS: every pump has its own); no id → the first pump's (single-pump install)
   const v = Number(req.query.v) || 0;
@@ -145,7 +187,12 @@ app.get("/manifest.webmanifest", (req, res) => {
     description: t?.name ? `${t.name} — AI Pump Management System` : "AI Pump Management System — sales, khata, stock and accounts, works offline.",
     start_url: home, scope: "/", display: "standalone", orientation: "portrait",
     background_color: "#ffffff", theme_color: color,
-    icons: logo ? [{ src: `/branding/logo?v=${logo}`, sizes: "512x512", type: "image/jpeg", purpose: "any" }, ...pngIcons] : pngIcons,
+    // the pump's logo rendered as real square PNGs (any + maskable), so the installed app carries the pump's own icon
+    icons: logo ? [
+      { src: `/branding/icon-192.png?v=${logo}`, sizes: "192x192", type: "image/png", purpose: "any" },
+      { src: `/branding/icon-512.png?v=${logo}`, sizes: "512x512", type: "image/png", purpose: "any" },
+      { src: `/branding/icon-512.png?v=${logo}&maskable=1`, sizes: "512x512", type: "image/png", purpose: "maskable" },
+    ] : pngIcons,
   }));
 });
 app.post("/api/auth/login", h(async (req) => {

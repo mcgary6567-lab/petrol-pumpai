@@ -17,7 +17,7 @@ const write = (k: string, v: QueuedSale[]) => { try { localStorage.setItem(k, JS
 
 export const newUid = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`);
 /** fetch() rejects with a TypeError when there is no connection; HTTP errors come back as ApiError. */
-export const isOffline = (e: unknown) => !(e instanceof ApiError);
+export const isOffline = (e: unknown) => !(e instanceof ApiError) || e.status === 0 || e.status === 503 && /internet nahi/i.test(e.message);
 
 export function queueSale(body: any, label: string) {
   write(QUEUE, [...read(QUEUE), { body: { ...body, offline_at: new Date().toISOString() }, queued_at: new Date().toISOString(), label }]);

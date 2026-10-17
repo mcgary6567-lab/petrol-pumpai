@@ -26,6 +26,18 @@ export function applyPumpManifest(slug: string | null, name?: string) {
   const link = document.querySelector('link[rel="manifest"]');
   if (link) link.setAttribute("href", slug ? `/manifest.webmanifest?pump=${encodeURIComponent(slug)}` : "/manifest.webmanifest");
   if (name) document.querySelector('meta[name="apple-mobile-web-app-title"]')?.setAttribute("content", name.slice(0, 20));
+  applyPumpIcons(slug);
+}
+/** iOS ignores the manifest: the home-screen icon is the apple-touch-icon link, so it (and the tab icon) point at this pump's logo too. */
+export function applyPumpIcons(slug: string | null) {
+  const q = slug ? `?pump=${encodeURIComponent(slug)}` : "";
+  const set = (rel: string, href: string) => {
+    let el = document.querySelector(`link[rel="${rel}"]`) as HTMLLinkElement | null;
+    if (!el) { el = document.createElement("link"); el.rel = rel; document.head.appendChild(el); }
+    el.href = href;
+  };
+  set("apple-touch-icon", slug ? `/branding/icon-180.png${q}` : "/apple-touch-icon.png");
+  if (slug) set("icon", `/branding/icon-64.png${q}`);
 }
 export async function loadBranding(pump?: string | null): Promise<Branding> {
   const slug = pump === undefined ? getPumpSlug() : pump;

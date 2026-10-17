@@ -13,6 +13,7 @@ import { useBranding } from "../lib/brand";
 import { InstallAppButton } from "./InstallApp";
 import { GoLiveBanner } from "./GoLiveBanner";
 import { useOfflineQueue } from "../lib/offline";
+import { useOffline } from "../lib/api";
 
 /** Shortcuts under "Wholesale Supply" in the menu (open the right tab or form). */
 const WHOLESALE_SUB = [
@@ -418,7 +419,7 @@ export default function Layout() {
           <button onClick={toggleTheme} aria-label="Theme" className="text-slate-500">{dark ? <Sun size={20} /> : <Moon size={20} />}</button>
           <NotificationBell />
         </header>
-        <main className="mx-auto max-w-7xl p-4 lg:p-6 print:max-w-none print:p-0"><PrintHeader /><GoLiveBanner /><div key={pageLoc.pathname} className="animate-page-in"><Outlet /></div><PrintFooter />
+        <main className="mx-auto max-w-7xl p-4 lg:p-6 print:max-w-none print:p-0"><PrintHeader /><OfflineBanner /><GoLiveBanner /><div key={pageLoc.pathname} className="animate-page-in"><Outlet /></div><PrintFooter />
           </main>
         <PageGuideButton />
       </div>
@@ -439,5 +440,18 @@ function PageGuideButton() {
       className="fixed bottom-20 right-4 z-30 flex h-11 w-11 items-center justify-center rounded-full bg-brand-900 text-white shadow-lg ring-2 ring-white/70 hover:bg-brand-700 lg:bottom-6 print:hidden">
       <CircleHelp size={22} />
     </Link>
+  );
+}
+
+/** Shown while the app is running on its offline copy: the numbers are the last ones seen, POS fuel sales are queued, other entries wait. */
+function OfflineBanner() {
+  const { offline, since } = useOffline();
+  if (!offline) return null;
+  return (
+    <div className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 print:hidden" role="status">
+      <span className="text-base">📴</span>
+      <b>Offline</b> — internet nahi hai{since ? ` (${new Date(since).toLocaleTimeString("en-PK", { hour: "2-digit", minute: "2-digit" })} se)` : ""}. Jo numbers dikh rahe hain wo aakhri baar ke hain.
+      <span className="text-xs text-amber-800">POS ki fuel sales mehfooz rehti hain aur net aate hi khud upload hoti hain; baqi entries net aane par karein.</span>
+    </div>
   );
 }

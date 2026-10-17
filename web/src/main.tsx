@@ -6,7 +6,12 @@ import "./index.css";
 // the pump this browser belongs to (its /p/<slug> link, or the last sign-in): the install-app manifest must be that pump's from the first paint
 try {
   const q = new URLSearchParams(location.search).get("pump") || localStorage.getItem("pumpai_pump");
-  if (q) document.querySelector('link[rel="manifest"]')?.setAttribute("href", `/manifest.webmanifest?pump=${encodeURIComponent(q.toLowerCase())}`);
+  if (q) {
+    const slug = encodeURIComponent(q.toLowerCase());
+    document.querySelector('link[rel="manifest"]')?.setAttribute("href", `/manifest.webmanifest?pump=${slug}`);
+    document.querySelector('link[rel="apple-touch-icon"]')?.setAttribute("href", `/branding/icon-180.png?pump=${slug}`);
+    document.querySelector('link[rel="icon"]')?.setAttribute("href", `/branding/icon-64.png?pump=${slug}`);
+  }
 } catch { /* private mode */ }
 
 // Theme: apply the saved choice before first paint (default: light). Dark mode is opt-in from the menu.

@@ -2,7 +2,31 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 const TOKEN_KEY = "pumpai_token";
 export const getToken = () => { try { return localStorage.getItem(TOKEN_KEY); } catch { return null; } };
-export const setToken = (t: string | null) => { try { t ? localStorage.setItem(TOKEN_KEY, t) : localStorage.removeItem(TOKEN_KEY); } catch { /* storage blocked */ } };
+export const setToken = (t: string | null) => {
+  try { t ? localStorage.setItem(TOKEN_KEY, t) : localStorage.removeItem(TOKEN_KEY); } catch { /* storage blocked */ }
+  // the offline copy of API reads belongs to the person who was signed in: never show it to the next one
+  try { navigator.serviceWorker?.controller?.postMessage("clear-api-cache"); caches?.delete("pumpai-api-v1").catch(() => {}); } catch { /* no SW / private mode */ }
+};
+
+/* ---- offline: the service worker answers API reads from its last copy when the net is gone, marked x-pumpai-offline ---- */
+let offlineSince: number | null = null;
+const offlineListeners = new Set<(v: number | null) => void>();
+const setOffline = (v: boolean) => {
+  const next = v ? (offlineSince ?? Date.now()) : null;
+  if (next === offlineSince) return;
+  offlineSince = next;
+  offlineListeners.forEach((f) => f(offlineSince));
+};
+if (typeof window !== "undefined") {
+  window.addEventListener("offline", () => setOffline(true));
+  window.addEventListener("online", () => { setOffline(false); notifyChanged(); });
+}
+/** true while the app is showing its offline copy (or the browser says there is no connection). */
+export function useOffline() {
+  const [since, setSince] = useState<number | null>(offlineSince ?? (typeof navigator !== "undefined" && !navigator.onLine ? Date.now() : null));
+  useEffect(() => { offlineListeners.add(setSince); return () => { offlineListeners.delete(setSince); }; }, []);
+  return { offline: since != null, since };
+}
 
 /** Short-lived read-only token for links the browser opens by itself (photos, downloads, live feed) — never the session. */
 let media = "";
@@ -30,14 +54,21 @@ export const setDevice = (t: string | null) => { try { t ? localStorage.setItem(
 
 export async function api<T = any>(path: string, opts: { method?: string; body?: unknown; headers?: Record<string, string> } = {}): Promise<T> {
   const token = getToken();
-  const res = await fetch(`/api${path}`, {
+  let res: Response;
+  try {
+    res = await fetch(`/api${path}`, {
     method: opts.method ?? (opts.body ? "POST" : "GET"),
     // never let the browser / a proxy serve a stale GET — reports must show the latest entry at once
     cache: "no-store",
     headers: { "content-type": "application/json", "x-client-id": CLIENT_ID, ...(token ? { authorization: `Bearer ${token}` } : {}), ...opts.headers },
     body: opts.body ? JSON.stringify(opts.body) : undefined,
-  });
+    });
+  } catch {
+    setOffline(true);
+    throw new ApiError(0, "Internet nahi hai — ye entry save nahi hui. Net aane par dobara karein (POS ki fuel sales khud mehfooz rehti hain).");
+  }
   const data = await res.json().catch(() => ({}));
+  if (res.headers.get("x-pumpai-offline")) setOffline(true); else if (res.ok) setOffline(false);
   // a write that went through: every screen in this tab refreshes (other tabs / devices hear it on /live)
   if (res.ok && (opts.method ?? (opts.body ? "POST" : "GET")) !== "GET") notifyChanged();
   if (res.status === 401 && !path.startsWith("/auth/")) {
