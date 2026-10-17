@@ -109,8 +109,10 @@ export function BypassPanel() {
                 <div className="flex shrink-0 items-center gap-3">
                   <ProofThumbs ids={d.proof_ids} onChanged={() => dels.reload()} />
                   <div className="text-right tabular-nums">
-                    <div className={`font-semibold ${d.margin > 0 ? "text-emerald-600" : d.margin < 0 ? "text-rose-600" : "text-slate-500"}`}>munafa {pkr(d.margin)}</div>
-                    <div className="text-xs text-slate-400">{pkr(d.billed)} − cost {pkr(d.sold_cost)}</div>
+                    {d.margin == null
+                      ? <><div className="font-semibold text-amber-700">munafa — cost darj nahi</div><div className="text-xs text-slate-400">{pkr(d.billed)} billed · purchase cost 0</div></>
+                      : <><div className={`font-semibold ${d.margin > 0 ? "text-emerald-600" : d.margin < 0 ? "text-rose-600" : "text-slate-500"}`}>munafa {pkr(d.margin)}</div>
+                        <div className="text-xs text-slate-400">{pkr(d.billed)} − cost {pkr(d.sold_cost)}</div></>}
                   </div>
                   {d.drop_litres > 0 && <button className="btn-secondary !px-2 !py-1.5" title="Open voucher / challan" onClick={() => setVoucher(d.id)}><Printer size={15} /></button>}
                 </div>
@@ -155,7 +157,7 @@ export function BypassVoucher({ id, onClose }: { id: number; onClose: () => void
           {/* phone: one card per drop */}
           <ul className="divide-y divide-slate-100 rounded-lg ring-1 ring-slate-200 sm:hidden print:hidden">
             {data.drops.map((x: any, i: number) => (
-              <li key={x.id} className={`space-y-0.5 p-3 ${x.voided ? "text-slate-400 line-through" : ""}`}>
+              <li key={x.id} className={`space-y-0.5 p-3 ${x.voided ? "text-slate-400 line-through print:hidden" : ""}`}>
                 <div className="flex justify-between gap-2"><b className="min-w-0">{i + 1}. {x.client_name}</b><b className="shrink-0 tabular-nums">{pkr(x.amount)}</b></div>
                 <div className="flex justify-between gap-2 text-xs text-slate-600"><span>{PRODUCTS[x.product]} · {num(x.litres, 2)} L × Rs {x.rate}/L</span><span className="shrink-0">{x.ref ?? ""}</span></div>
                 {x.balance != null && <div className="text-xs text-slate-500">Khata balance ab: {pkr(x.balance)}</div>}

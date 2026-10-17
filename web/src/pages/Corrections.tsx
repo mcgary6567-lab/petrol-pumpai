@@ -191,7 +191,7 @@ function WholesaleVoid() {
 }
 
 /** Edit a direct wholesale supply (litres/rate) or payment (amount/method). Tank stock + client due follow. */
-function EditWholesaleTxn({ x, url, onClose, onDone }: { x: any; url: string; onClose: () => void; onDone: () => void }) {
+export function EditWholesaleTxn({ x, url, onClose, onDone }: { x: any; url: string; onClose: () => void; onDone: () => void }) {
   const isSupply = x.type === "supply";
   const [litres, setLitres] = useState(String(x.litres ?? ""));
   const [rate, setRate] = useState(String(x.rate ?? ""));
@@ -283,7 +283,7 @@ function SaleVoid() {
 }
 
 /** Edit a sale's litres / amount / vehicle / slip. Backend reverses + re-records so khata, cash, stock, meter and the ledger all follow. */
-function EditSale({ sale, onClose, onDone }: { sale: any; onClose: () => void; onDone: () => void }) {
+export function EditSale({ sale, onClose, onDone }: { sale: any; onClose: () => void; onDone: () => void }) {
   const [mode, setMode] = useState<"litres" | "amount">("litres");
   const [val, setVal] = useState(String(mode === "litres" ? num(sale.litres, 2) : sale.amount));
   const [vehicle, setVehicle] = useState(sale.vehicle_no ?? "");

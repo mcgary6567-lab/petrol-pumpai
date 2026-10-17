@@ -1,7 +1,8 @@
+import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { AlertTriangle, ArrowDownCircle, ArrowUpCircle, Banknote, Landmark, Scale, TrendingUp, Users, FileCheck2 } from "lucide-react";
+import { AlertTriangle, ArrowDownCircle, ArrowUpCircle, Banknote, Landmark, Scale, TrendingUp, Users, FileCheck2, ChevronDown, Receipt } from "lucide-react";
 import { useApi } from "../lib/api";
-import { Loading, CountUp } from "./ui";
+import { Loading, CountUp, pkDay } from "./ui";
 import { Ur } from "./VoiceShell";
 import { BankLogo } from "./BankParts";
 import { OnlineToday } from "./OnlineMoney";
@@ -20,6 +21,7 @@ const Row = ({ label, ur, v, to, tone = "", note }: { label: string; ur: string;
 
 /** The owner's first look: where the money is, who owes what, today across every module, and this month's profit. */
 export function OwnerOverview() {
+  const { can } = useAuth();
   const { data } = useApi<any>("/owner/overview", 60_000);
   const nav = useNavigate();
   const { modules } = useAuth();
@@ -64,6 +66,7 @@ export function OwnerOverview() {
           {w.unused_coupons > 0 && <Row label="Unused fuel coupons" ur="کوپن" v={w.unused_coupons} to="/prepaid" tone="text-rose-700" />}
           {w.withholding_tax > 0 && <Row label="Tax to deposit (FBR)" ur="ٹیکس" v={w.withholding_tax} to="/accounts" tone="text-rose-700" />}
           {w.pending_expenses > 0 && <Row label="Expenses waiting approval" ur="منظوری" v={w.pending_expenses} to="/expenses" tone="text-rose-700" />}
+          {data.dues && <DuesDetail dues={data.dues} />}
           <div className="mt-2 flex items-baseline justify-between border-t-2 border-slate-800 pt-2">
             <span className="font-semibold">Net position · <Ur>کل مالیت</Ur><span className="block text-xs font-normal text-slate-500">money + owed to us − we owe (stock not included)</span></span>
             <span className={`shrink-0 text-xl font-bold tabular-nums ${data.net_position < 0 ? "text-red-600" : "text-emerald-700"}`}>{pkr(data.net_position)}</span>
@@ -104,6 +107,9 @@ export function OwnerOverview() {
       {/* online money: not in the cash, it goes to the bank */}
       <OnlineToday o={data.online} onBank={() => nav("/cash")} />
 
+      {/* kharcha kis cheez par: category-wise, today / 7 days / month / any dates */}
+      {can("expenses.view") && <ExpenseBreakdown />}
+
       {/* every module today */}
       <div className="card p-4">
         <h2 className="mb-2 flex items-center gap-2 font-semibold"><Users size={17} /> What happened today · <Ur>آج کیا ہوا</Ur></h2>
@@ -125,3 +131,77 @@ export function OwnerOverview() {
 const Amt = ({ v }: { v: number }) => (
   <div className="font-semibold tabular-nums"><span className="sm:hidden">{pkrShort(v)}</span><span className="hidden sm:inline"><CountUp value={v} format={pkr} /></span></div>
 );
+
+/** Named parties: who owes us and whom we owe — the figures above, person by person (tap to open the account). */
+function DuesDetail({ dues }: { dues: { receivable: any[]; payable: any[]; receivable_total: number; payable_total: number } }) {
+  const [open, setOpen] = useState(false);
+  const [all, setAll] = useState<"rec" | "pay" | null>(null);
+  const List = ({ rows, tone, which }: { rows: any[]; tone: string; which: "rec" | "pay" }) => {
+    const show = all === which ? rows : rows.slice(0, 6);
+    return (
+      <ul className="divide-y divide-slate-100 text-sm">
+        {show.map((d) => (
+          <li key={`${d.kind}-${d.id}`} className="flex items-center justify-between gap-2 py-1">
+            <Link to={d.to} className="min-w-0 truncate hover:underline">{d.name}<span className="ml-1 text-[11px] text-slate-400">{KIND[d.kind] ?? d.kind}</span></Link>
+            <span className={`shrink-0 tabular-nums font-medium ${tone}`}>{pkr(d.amount)}</span>
+          </li>
+        ))}
+        {rows.length > 6 && all !== which && <li className="py-1"><button className="text-xs text-brand-700 hover:underline" onClick={() => setAll(which)}>+ {rows.length - 6} aur dekhein</button></li>}
+        {!rows.length && <li className="py-1 text-xs text-slate-400">koi nahi</li>}
+      </ul>
+    );
+  };
+  return (
+    <div className="mt-2 border-t border-slate-100 pt-2">
+      <button className="flex w-full items-center justify-between text-sm font-medium text-brand-700" onClick={() => setOpen(!open)}>
+        <span>Kis ko kitna · <Ur>کس کو کتنا</Ur> <span className="text-xs font-normal text-slate-500">{dues.receivable.length} lena · {dues.payable.length} dena</span></span>
+        <ChevronDown size={16} className={`transition ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && (
+        <div className="mt-2 grid gap-3 sm:grid-cols-2">
+          <div><div className="mb-1 text-xs font-semibold uppercase tracking-wide text-emerald-700">Lena · {pkr(dues.receivable_total)}</div><List rows={dues.receivable} tone="text-emerald-700" which="rec" /></div>
+          <div><div className="mb-1 text-xs font-semibold uppercase tracking-wide text-rose-700">Dena · {pkr(dues.payable_total)}</div><List rows={dues.payable} tone="text-rose-700" which="pay" /></div>
+        </div>
+      )}
+    </div>
+  );
+}
+const KIND: Record<string, string> = { khata: "khata", wholesale: "wholesale", carriage: "thekedar", staff: "staff", supplier: "supplier", khata_advance: "khata", wholesale_advance: "wholesale", carriage_advance: "thekedar", supplier_advance: "supplier" };
+
+/** Expenses by category: today / 7 days / this month / any dates — "Tea & food par aaj itna, hafte me itna". */
+function ExpenseBreakdown() {
+  const today = pkDay(new Date().toISOString());
+  const shift = (d: number) => pkDay(new Date(Date.now() - d * 86_400_000).toISOString());
+  const [mode, setMode] = useState<"today" | "week" | "month" | "custom">("today");
+  const [from, setFrom] = useState(shift(29)); const [to, setTo] = useState(today);
+  const range = mode === "today" ? { from: today, to: today } : mode === "week" ? { from: shift(6), to: today } : mode === "month" ? { from: today.slice(0, 7) + "-01", to: today } : { from, to };
+  const { data } = useApi<any>(`/expenses/breakdown?from=${range.from}&to=${range.to}`);
+  const chip = (k: typeof mode, label: string) => <button key={k} onClick={() => setMode(k)} className={`rounded-full px-3 py-1 text-xs font-medium ring-1 transition ${mode === k ? "bg-brand-600 text-white ring-brand-600" : "bg-white text-slate-600 ring-slate-300"}`}>{label}</button>;
+  return (
+    <div className="card p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="flex items-center gap-2 font-semibold"><Receipt size={17} /> Kharcha kis cheez par · <Ur>خرچہ کس چیز پر</Ur></h2>
+        <div className="flex flex-wrap items-center gap-1.5">{chip("today", "Aaj")}{chip("week", "7 din")}{chip("month", "Is mahina")}{chip("custom", "Tareekh chunein")}</div>
+      </div>
+      {mode === "custom" && <div className="mt-2 flex flex-wrap items-center gap-2 text-sm"><input type="date" className="input w-auto" value={from} max={to} onChange={(e) => setFrom(e.target.value)} /><span>se</span><input type="date" className="input w-auto" value={to} min={from} onChange={(e) => setTo(e.target.value)} /><span>tak</span></div>}
+      {!data ? <div className="skel mt-3 h-24" /> : (
+        <>
+          <div className="mt-2 flex flex-wrap items-baseline gap-x-4 gap-y-1">
+            <span className="text-2xl font-bold tabular-nums text-rose-700"><CountUp value={data.total} format={pkr} /></span>
+            <span className="text-xs text-slate-500">{data.days} din · {pkr(data.per_day)}/din{data.pending.n ? ` · ${data.pending.n} approval me (${pkr(data.pending.amount)})` : ""}</span>
+          </div>
+          <ul className="mt-2 divide-y divide-slate-100 text-sm">
+            {data.by_category.map((c: any) => (
+              <li key={c.category} className="py-1.5">
+                <div className="flex items-center justify-between gap-2"><span className="min-w-0 truncate">{c.category} <span className="text-[11px] text-slate-400">{c.n} entries</span></span><span className="shrink-0 tabular-nums font-medium">{pkr(c.total)} <span className="text-[11px] font-normal text-slate-400">{c.pct}%</span></span></div>
+                <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full bg-rose-400 transition-all" style={{ width: `${c.pct}%` }} /></div>
+              </li>
+            ))}
+            {!data.by_category.length && <li className="py-2 text-xs text-slate-400">Is muddat me koi kharcha nahi</li>}
+          </ul>
+          <Link to="/expenses" className="mt-1 inline-block py-1 text-xs font-medium text-brand-700 hover:underline">Sab kharche, approvals, budget → </Link>
+        </>
+      )}
+    </div>
+  );
+}

@@ -13,7 +13,7 @@ export const salesHistory = Router();
 const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const q = z.object({
   from: day.optional(), to: day.optional(), station_id: z.coerce.number().int().optional(), payment_method: z.string().max(30).optional(),
-  product: z.string().max(20).optional(), customer_id: z.coerce.number().int().optional(), q: z.string().trim().max(80).optional(),
+  product: z.string().max(20).optional(), customer_id: z.coerce.number().int().optional(), shift_id: z.coerce.number().int().optional(), q: z.string().trim().max(80).optional(),
   limit: z.coerce.number().int().min(1).max(1000).default(200),
 });
 
@@ -28,6 +28,7 @@ salesHistory.get("/sales/history", requirePerm("sales.view"), h((req) => {
   if (f.payment_method) { where.push("s.payment_method=?"); P.push(f.payment_method); }
   if (f.product) { where.push("s.product=?"); P.push(f.product); }
   if (f.customer_id) { where.push("s.customer_id=?"); P.push(f.customer_id); }
+  if (f.shift_id) { where.push("s.shift_id=?"); P.push(f.shift_id); where.splice(1, 2); P.splice(1, 2); } // a shift's own sales, whatever their date
   // a salesman only sees what he sold
   if (req.user!.role === "salesman") { where.push("sh.attendant=?"); P.push(req.user!.name); }
   if (f.q) for (const w of f.q.split(/\s+/).filter(Boolean)) {

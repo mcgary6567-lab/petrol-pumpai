@@ -139,7 +139,7 @@ export function renderBill(token: string): string | null {
   } else {
     const s = wholesaleStatement(p.t, p.id, from, to);
     who = s.client; opening = s.opening_balance; closing = s.closing_balance; title = "Wholesale statement";
-    rows = s.lines.map((l: any) => `<tr${l.voided ? " class=void" : ""}><td>${dts(l.txn_date)}</td><td>${esc(l.vehicle_no)}</td><td>${esc(l.ref)}</td><td>${esc(l.type)}${l.product ? ` — ${esc(PRODUCTS[l.product])}` : ""}${l.voided ? " (void)" : ""}</td>` +
+    rows = s.lines.filter((l: any) => !l.voided).map((l: any) => `<tr><td>${dts(l.txn_date)}</td><td>${esc(l.vehicle_no)}</td><td>${esc(l.ref)}</td><td>${esc(l.type)}${l.product ? ` — ${esc(PRODUCTS[l.product])}` : ""}${l.voided ? " (void)" : ""}</td>` +
       `<td class=r>${l.litres ? n2(l.litres) : ""}</td><td class=r>${l.rate ? n2(l.rate) : ""}</td><td class=r>${l.debit ? m2(l.debit) : ""}</td><td class=r>${l.credit ? m2(l.credit) : ""}</td><td class=r>${m2(l.balance)}</td></tr>`).join("");
     totals = `<div>Supplied: <b>${n2(s.summary.by_product.reduce((a: number, x: any) => a + x.supplied_l, 0))} L</b> · Billed <b>Rs ${m2(s.summary.billed)}</b> · Received <b>Rs ${m2(s.summary.received)}</b></div>`;
   }

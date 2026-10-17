@@ -17,6 +17,14 @@ export const DEFAULT_CATEGORIES: [string, number | null][] = [
   ["Office & stationery", null], ["Tea & food", null], ["Security", null], ["Other", null],
 ];
 
+/** A category typed by the user (POS / expense form): created once (case-insensitive), re-activated if it was switched off. */
+export function ensureCategory(tenantId: number, name: string) {
+  const n = name.trim().replace(/\s+/g, " ");
+  const hit = get("SELECT id, name, active FROM expense_categories WHERE tenant_id=? AND lower(name)=lower(?)", tenantId, n);
+  if (hit) { if (!hit.active) run("UPDATE expense_categories SET active=1 WHERE id=?", hit.id); return hit.name as string; }
+  run("INSERT INTO expense_categories (tenant_id,name,monthly_budget) VALUES (?,?,NULL)", tenantId, n);
+  return n;
+}
 export function ensureCategories(tenantId: number) {
   if (get("SELECT id FROM expense_categories WHERE tenant_id=? LIMIT 1", tenantId)) return;
   for (const [name, budget] of DEFAULT_CATEGORIES) run("INSERT INTO expense_categories (tenant_id,name,monthly_budget) VALUES (?,?,?)", tenantId, name, budget);
@@ -154,7 +162,7 @@ expenses.get("/expenses.csv", requirePerm("expenses.view"), (req, res, next) => 
 
 /* ---------------- Create / edit / approve ---------------- */
 export const expenseBody = z.object({
-  category: z.string().min(2), amount: z.number().positive(), paid_to: z.string().optional().nullable(),
+  category: z.string().trim().min(2).max(60), new_category: z.boolean().optional(), amount: z.number().positive(), paid_to: z.string().optional().nullable(),
   method: z.enum(["cash", "bank", "jazzcash", "easypaisa", "raast", "cheque", "card"]).default("cash"),
   note: z.string().optional().nullable(), receipt_ref: z.string().optional().nullable(),
   station_id: z.number().nullable().optional(), expense_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
@@ -166,6 +174,7 @@ expenses.post("/expenses", requireAny("expenses.create", "cash.pay"), h((req) =>
 /** Book an expense (approved at once up to the approval limit, else sent to the owner). Also used by the cashier desk. */
 export async function createExpense(req: Request, b: z.infer<typeof expenseBody>) {
   const t = tid(req);
+  if (b.new_category) b.category = ensureCategory(t, b.category);
   if (!get("SELECT id FROM expense_categories WHERE tenant_id=? AND name=? AND active=1", t, b.category)) throw new AppError(400, "Unknown category");
   if (b.station_id && !get("SELECT id FROM stations WHERE id=? AND tenant_id=?", b.station_id, t)) throw new AppError(400, "Station not found");
   const autoApprove = can(req.user, "expenses.approve") || b.amount <= approvalLimit(t);
@@ -235,3 +244,16 @@ registerDecider("expense", async (t, id, approve, by) => { const e = decideExpen
 
 expenses.post("/expenses/:id/:decision(approve|reject)", requirePerm("expenses.approve"), h((req) =>
   decideExpense(tid(req), Number(req.params.id), req.params.decision === "approve", req.user!.name)));
+
+/** Spend per category for any range (today / 7 days / month / custom) — the owner's "kis cheez par kitna" card. */
+expenses.get("/expenses/breakdown", requirePerm("expenses.view"), h((req) => {
+  const t = tid(req);
+  const f = parse(z.object({ from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() }), req.query);
+  const to = f.to ?? pkDate(), from = f.from ?? to;
+  const rows = all(`SELECT category, ROUND(SUM(amount),2) total, COUNT(*) n, MAX(expense_date) last FROM expenses WHERE tenant_id=? AND status='approved' AND expense_date >= ? AND expense_date <= ? GROUP BY category ORDER BY total DESC`, t, from, to);
+  const total = round2(rows.reduce((a, r) => a + (r.total as number), 0));
+  const pending = get("SELECT COUNT(*) n, COALESCE(SUM(amount),0) s FROM expenses WHERE tenant_id=? AND status='pending' AND expense_date >= ? AND expense_date <= ?", t, from, to)!;
+  const days = Math.max(1, Math.round((Date.parse(to) - Date.parse(from)) / 86_400_000) + 1);
+  return { from, to, days, total, per_day: round2(total / days), pending: { n: pending.n, amount: round2(pending.s as number) },
+    by_category: rows.map((r) => ({ ...r, pct: total ? Math.round(((r.total as number) / total) * 100) : 0 })) };
+}));

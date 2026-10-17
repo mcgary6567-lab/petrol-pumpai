@@ -12,6 +12,11 @@ import { bankAccounts } from "./banks.js";
 import { balances, buildReport } from "./reports.js";
 import { profitAndLoss } from "./analysis.js";
 import { cashierDayBook, onlineToday, cashWithSalesmen } from "./cashier.js";
+import { clientDue } from "./wholesale.js";
+import { thekedarDue } from "./carriage.js";
+import { supplierOwed } from "./suppliers.js";
+import { bypassOwed } from "./bypass.js";
+import { staffBalance } from "./staff.js";
 
 export const owner = Router();
 
@@ -49,6 +54,7 @@ owner.get("/owner/overview", requirePerm("reports.view"), h((req) => {
     pending_expenses: b.payables.pending_expenses.amount,
   };
   const sum = (o: Record<string, number>) => round2(Object.values(o).reduce((a, v) => a + v, 0));
+  const dues = partyDues(t);
 
   // ---- today ----
   const r = buildReport(t, dayStart, nowIso).summary;
@@ -94,6 +100,7 @@ owner.get("/owner/overview", requirePerm("reports.view"), h((req) => {
     as_of: nowIso, money,
     owed_to_us: { ...owedToUs, total: sum(owedToUs) },
     we_owe: { ...weOwe, total: sum(weOwe), cheques_issued: { n: chqOut.n, amount: round2(chqOut.v) } },
+    dues,
     net_position: round2(money.total + sum(owedToUs) - sum(weOwe)),
     today: today_, activity, online,
     month: { month: pl.month, income: pl.income.total, gross_profit: pl.gross_profit, expenses: pl.expenses.total, net_profit: pl.net_profit, margin_pct: pl.margin_pct },
@@ -139,3 +146,35 @@ owner.get("/owner/pulse", requirePerm("reports.view"), h((req) => {
     money_now: { office_cash: cash.cash_in_hand, with_salesmen: ws.total, banks: banks.total, total: round2(cash.cash_in_hand + ws.total + banks.total) },
   };
 }));
+
+/** Every party with a balance, named: who owes us (khata, wholesale, thekedar, staff advance) and whom we owe (suppliers, bypass depots, advances held). */
+export function partyDues(t: number) {
+  type D = { kind: string; id: number; name: string; amount: number; to: string };
+  const rec: D[] = [], pay: D[] = [];
+  for (const c of all("SELECT id, name, balance FROM customers WHERE tenant_id=? AND ABS(balance) > 0.5", t)) {
+    if (c.balance > 0) rec.push({ kind: "khata", id: c.id, name: c.name, amount: round2(c.balance), to: `/customers/${c.id}` });
+    else pay.push({ kind: "khata_advance", id: c.id, name: `${c.name} (advance)`, amount: round2(-c.balance), to: `/customers/${c.id}` });
+  }
+  for (const w of all("SELECT id, name FROM wholesale_clients WHERE tenant_id=? AND active=1", t)) {
+    const d = clientDue(w.id);
+    if (d > 0.5) rec.push({ kind: "wholesale", id: w.id, name: w.name, amount: round2(d), to: `/wholesale/${w.id}` });
+    else if (d < -0.5) pay.push({ kind: "wholesale_advance", id: w.id, name: `${w.name} (advance)`, amount: round2(-d), to: `/wholesale/${w.id}` });
+  }
+  for (const k of all("SELECT id, name FROM thekedars WHERE tenant_id=? AND active=1", t)) {
+    const d = thekedarDue(k.id);
+    if (d > 0.5) rec.push({ kind: "carriage", id: k.id, name: `${k.name} (kiraya)`, amount: round2(d), to: `/carriage/${k.id}` });
+    else if (d < -0.5) pay.push({ kind: "carriage_advance", id: k.id, name: `${k.name} (advance)`, amount: round2(-d), to: `/carriage/${k.id}` });
+  }
+  for (const u of all("SELECT DISTINCT u.id, u.name FROM staff_ledger l JOIN users u ON u.id=l.user_id WHERE l.tenant_id=?", t)) {
+    const b = staffBalance(u.id);
+    if (b > 0.5) rec.push({ kind: "staff", id: u.id, name: `${u.name} (advance)`, amount: round2(b), to: "/staff" });
+  }
+  for (const s of all("SELECT id, name, company FROM suppliers WHERE tenant_id=? AND active=1", t)) {
+    const o = supplierOwed(s.id) + bypassOwed(s.id);
+    if (o > 0.5) pay.push({ kind: "supplier", id: s.id, name: [s.company, s.name].filter(Boolean).join(" — "), amount: round2(o), to: "/suppliers" });
+    else if (o < -0.5) rec.push({ kind: "supplier_advance", id: s.id, name: `${[s.company, s.name].filter(Boolean).join(" — ")} (advance)`, amount: round2(-o), to: "/suppliers" });
+  }
+  rec.sort((a, b) => b.amount - a.amount); pay.sort((a, b) => b.amount - a.amount);
+  const tot = (x: D[]) => round2(x.reduce((a, d) => a + d.amount, 0));
+  return { receivable: rec, payable: pay, receivable_total: tot(rec), payable_total: tot(pay) };
+}

@@ -198,7 +198,7 @@ function Statement({ data, canVoid, canEdit, onChanged }: { data: any; canVoid: 
     <ul className="divide-y divide-slate-100">
       <li className="flex justify-between px-4 py-2 text-sm text-slate-500"><span>Opening</span><b className="tabular-nums">{pkr(data.opening_balance)}</b></li>
       {lines.map((r) => (
-        <li key={`${r.type}-${r.id}`} className={`flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 text-sm ${r.voided ? "opacity-40 line-through" : ""} ${r.type === "fuel_note" ? "bg-slate-50/60" : ""}`}>
+        <li key={`${r.type}-${r.id}`} className={`flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 text-sm ${r.voided ? "opacity-40 line-through print:hidden" : ""} ${r.type === "fuel_note" ? "bg-slate-50/60" : ""}`}>
           <div className="min-w-0 flex-1">
             <div className="font-medium">{label(r)}</div>
             <div className="flex flex-wrap items-center gap-1 text-xs text-slate-400">{dt(r.txn_date)}{r.note && r.type !== "adjustment" ? ` · ${r.note}` : ""}<ProofThumbs ids={r.proof_ids} onChanged={onChanged} /></div>

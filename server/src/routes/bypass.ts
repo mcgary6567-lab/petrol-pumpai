@@ -188,7 +188,8 @@ bypass.post("/bypass/deliveries", requirePerm("wholesale.manage"), h((req) => {
   const soldCost = round2(get("SELECT COALESCE(SUM(cost_amount),0) v FROM bypass_drops WHERE delivery_id=? AND tank_id IS NULL", out.id)!.v as number);
   const billed = round2(priced.reduce((a, d) => a + d.amount, 0));
   const toTankL = round2(tankRows.reduce((a, r) => a + r.litres, 0));
-  return { id: out.id, billed, bought: purCost, sold_cost: soldCost, cost: soldCost, margin: round2(billed - soldCost), to_tank_litres: toTankL, drops: out.drops, stock: bypassStock(t), delivery: get("SELECT * FROM bypass_deliveries WHERE id=?", out.id) };
+  // margin null = the cost of what was dropped is not known (never show the whole sale as profit)
+  return { id: out.id, billed, bought: purCost, sold_cost: soldCost, cost: soldCost, margin: soldCost > 0 || billed === 0 ? round2(billed - soldCost) : null, to_tank_litres: toTankL, drops: out.drops, stock: bypassStock(t), delivery: get("SELECT * FROM bypass_deliveries WHERE id=?", out.id) };
 }));
 
 /* ================= Leftover bypass fuel unloaded into our own tank ================= */
@@ -322,7 +323,7 @@ bypass.get("/bypass/deliveries", h((req) => {
       (SELECT COALESCE(SUM(w.amount),0) FROM bypass_drops bd JOIN wholesale_txns w ON w.id=bd.wtx_id WHERE bd.delivery_id=d.id AND bd.voided=0 AND w.voided=0) billed
      FROM bypass_deliveries d WHERE ${where.join(" AND ")} ORDER BY d.txn_date DESC, d.id DESC LIMIT ?`, ...args, qp.limit)
     // munafa = client ne jo diya (billed) − us delivery me bike maal ki cost (COGS); stock hold ho to sirf delivered hissa counts
-    .map((d) => ({ ...d, margin: round2((d.billed as number) - (d.sold_cost as number)) }));
+    .map((d) => ({ ...d, margin: (d.sold_cost as number) > 0 || !(d.billed as number) ? round2((d.billed as number) - (d.sold_cost as number)) : null }));
 }));
 
 /**

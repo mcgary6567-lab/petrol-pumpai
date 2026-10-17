@@ -11,6 +11,7 @@ import { useAuth } from "../App";
 import { OpeningBalanceField, type AdvanceReceipt } from "../components/OpeningBalanceField";
 import { WholesaleDashboard } from "../components/WholesaleDashboard";
 import { ProofPhotos, ProofThumbs } from "../components/Capture";
+import { EditWholesaleTxn } from "./Corrections";
 import { AccountPicker } from "../components/BankParts";
 import { PortalCard } from "../components/PortalCard";
 import { FleetPicker, FleetTab, TripForm, TripSheet, TripsTab, fleetBody } from "../components/WholesaleFleet";
@@ -334,6 +335,7 @@ function ClientDetail({ id }: { id: string }) {
   const [range, setRange] = useState({ from: "", to: "" });
   const qs = new URLSearchParams(Object.entries(range).filter(([, v]) => v)).toString();
   const stmt = useApi<any>(`/wholesale/clients/${id}/statement${qs ? `?${qs}` : ""}`);
+  const [editRow, setEditRow] = useState<any>(null); // CEO: fix a supply / payment in place (reverse + re-post everywhere)
   const [params, setParams] = useSearchParams();
   const [action, setAction] = useState<null | "supply" | "return" | "payment" | "adjustment" | "rates" | "edit" | "order" | "promise" | "cheque">(() => (params.get("do") as any) || null);
   // supplying a booked order (from the order book) fills the form and closes the order
@@ -448,7 +450,8 @@ function ClientDetail({ id }: { id: string }) {
         {stmt.data ? (
           <>
             <div className="flex justify-between bg-slate-50 px-4 py-2 text-sm"><span>Opening balance{stmt.data.opening_balance < -0.5 ? " (advance)" : ""}</span><span className="font-medium tabular-nums">{pkr(Math.abs(stmt.data.opening_balance))}</span></div>
-            <LedgerTable rows={stmt.data.lines} running tools onVoid={(can("wholesale.void") || can("wholesale.manage")) ? async (row) => {
+            {editRow && <EditWholesaleTxn x={{ ...editRow, client: c.name }} url={`/corrections/wholesale-txn/${editRow.id}/edit`} onClose={() => setEditRow(null)} onDone={refresh} />}
+            <LedgerTable rows={stmt.data.lines} running tools onEdit={can("entries.edit") ? (row) => setEditRow(row) : undefined} onVoid={(can("wholesale.void") || can("wholesale.manage")) ? async (row) => {
               if (row.type === "fuel_note") {
                 if (confirm(`Void this fuel payment of ${pkr(row.amount)}? Any bank movement will be reversed.`)) { await api(`/carriage/fuel-payments/${String(row.id).replace("bfp", "")}/void`, { body: {} }).catch((e) => alert(e.message)); refresh(); }
                 return;
@@ -473,7 +476,7 @@ function ClientDetail({ id }: { id: string }) {
   );
 }
 
-function LedgerTable({ rows: allRows, running, showClient, tools, onVoid }: { rows: any[]; running?: boolean; showClient?: boolean; tools?: boolean; onVoid?: (row: any) => void }) {
+function LedgerTable({ rows: allRows, running, showClient, tools, onVoid, onEdit }: { rows: any[]; running?: boolean; showClient?: boolean; tools?: boolean; onVoid?: (row: any) => void; onEdit?: (row: any) => void }) {
   const [q, setQ] = useState("");
   const [type, setType] = useState("");
   const typeChips = [{ k: "", label: "All", n: allRows.length }, ...["supply", "return", "payment", "adjustment", "carriage"].map((k) => ({ k, label: TYPE[k].label, n: allRows.filter((r) => r.type === k).length })).filter((c) => c.n > 0)];
@@ -496,7 +499,7 @@ function LedgerTable({ rows: allRows, running, showClient, tools, onVoid }: { ro
       {rows.map((r) => {
         const { debit, credit } = amounts(r);
         return (
-          <li key={r.id} className={`flex gap-3 px-4 py-2.5 ${r.voided ? "text-slate-400 line-through" : ""}`}>
+          <li key={r.id} className={`flex gap-3 px-4 py-2.5 ${r.voided ? "text-slate-400 line-through print:hidden" : ""}`}>
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-500"><Badge tone={TYPE[r.type].tone}>{TYPE[r.type].label}</Badge>{r.voided ? <Badge tone="red">VOID</Badge> : null}{dt(r.txn_date)}</div>
               {showClient && <Link to={`/wholesale/${r.client_id}`} className="flex min-h-9 items-center font-medium hover:underline">{r.client_name}</Link>}
@@ -508,6 +511,7 @@ function LedgerTable({ rows: allRows, running, showClient, tools, onVoid }: { ro
               {debit ? <div className="font-semibold">{pkr(debit)}</div> : null}
               {credit ? <div className="font-semibold text-emerald-700">−{pkr(credit)}</div> : null}
               {running && <div className="text-xs text-slate-500">bal {pkr(r.balance)}</div>}
+              {onEdit && !r.voided && r.type !== "fuel_note" && <button className="-mr-2 inline-flex h-9 w-9 items-center justify-center text-slate-400 hover:text-brand-700" title="Edit entry (CEO)" aria-label="Edit entry" onClick={() => onEdit(r)}><Pencil size={14} /></button>}
               {onVoid && !r.voided && <button className="-mr-2 inline-flex h-9 w-9 items-center justify-center text-slate-400 hover:text-red-600" title="Void entry" aria-label="Void entry" onClick={() => onVoid(r)}><Ban size={14} /></button>}
             </div>
           </li>
@@ -525,7 +529,7 @@ function LedgerTable({ rows: allRows, running, showClient, tools, onVoid }: { ro
             const debit = r.type === "fuel_note" ? 0 : running ? r.debit : r.type === "supply" || r.type === "carriage" || (r.type === "adjustment" && r.amount > 0) ? Math.abs(r.amount) : 0;
             const credit = r.type === "fuel_note" ? 0 : running ? r.credit : debit ? 0 : Math.abs(r.amount);
             return (
-              <tr key={r.id} className={r.voided ? "text-slate-400 line-through" : ""}>
+              <tr key={r.id} className={r.voided ? "text-slate-400 line-through print:hidden" : ""}>
                 <td className="td text-xs"><span className="print:hidden">{dt(r.txn_date)}</span><span className="hidden whitespace-nowrap print:inline">{d(r.txn_date)}</span></td>
                 {showClient && <td className="td text-sm"><Link to={`/wholesale/${r.client_id}`} className="hover:underline">{r.client_name}</Link></td>}
                 <td className="td"><Badge tone={TYPE[r.type].tone}>{TYPE[r.type].label}</Badge> {r.voided ? <Badge tone="red">VOID</Badge> : null}</td>
@@ -540,7 +544,7 @@ function LedgerTable({ rows: allRows, running, showClient, tools, onVoid }: { ro
                 <td className="td whitespace-nowrap text-right tabular-nums">{debit ? pkr(debit) : ""}</td>
                 <td className="td whitespace-nowrap text-right tabular-nums text-emerald-700">{credit ? pkr(credit) : ""}</td>
                 {running && <td className="td whitespace-nowrap text-right font-medium tabular-nums">{pkr(r.balance)}</td>}
-                <td className="td print:hidden">{onVoid && !r.voided && <button className="text-slate-400 hover:text-red-600" title="Void entry" onClick={() => onVoid(r)}><Ban size={14} /></button>}</td>
+                <td className="td print:hidden"><span className="flex gap-2">{onEdit && !r.voided && r.type !== "fuel_note" && <button className="text-slate-400 hover:text-brand-700" title="Edit entry (CEO)" onClick={() => onEdit(r)}><Pencil size={14} /></button>}{onVoid && !r.voided && <button className="text-slate-400 hover:text-red-600" title="Void entry" onClick={() => onVoid(r)}><Ban size={14} /></button>}</span></td>
               </tr>
             );
           })}

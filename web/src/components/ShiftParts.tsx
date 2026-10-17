@@ -1,10 +1,12 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { AlertTriangle, CheckCircle2, Printer, Trash2 } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Printer, Trash2, Pencil } from "lucide-react";
 import { api, useApi } from "../lib/api";
 import { Field, Loading, Modal, useAction } from "./ui";
 import { WhatsAppDoc } from "./WhatsAppDoc";
 import { PhotoButton, ProofThumbs, PhotoThumb } from "./Capture";
 import { PRODUCTS, ago, dt, num, pkr } from "../lib/format";
+import { useAuth } from "../App";
+import { EditSale } from "../pages/Corrections";
 
 const Ur = ({ children }: { children: ReactNode }) => <span lang="ur" dir="rtl" className="font-urdu">{children}</span>;
 
@@ -119,6 +121,7 @@ export function ShiftExpenses({ shiftId, expenses, onChange, preset }: { shiftId
   const cats = useApi<string[]>("/shifts/expense-categories");
   const [open, setOpen] = useState(false);
   const [f, setF] = useState({ category: "Tea & food", amount: "", note: "", photo_id: null as number | null });
+  const [custom, setCustom] = useState(""); // "apni likhein": a category not in the list — created once for this pump, then it is in the list
   // said by voice on the POS ("chai ka kharcha 300"): open the form already filled
   useEffect(() => { if (preset) { setF((x) => ({ ...x, category: preset.category, amount: preset.amount ? String(preset.amount) : "", note: preset.note ?? "" })); setOpen(true); } }, [preset?.key]);
   const { busy, run } = useAction();
@@ -143,8 +146,8 @@ export function ShiftExpenses({ shiftId, expenses, onChange, preset }: { shiftId
       <Modal open={open} onClose={() => setOpen(false)} title="Expense paid from shift cash · شفٹ کے نقد سے خرچہ">
         <form className="space-y-3" onSubmit={async (e) => {
           e.preventDefault();
-          if (await run(() => api(`/shifts/${shiftId}/expenses`, { body: { category: f.category, amount: Number(f.amount), note: f.note || null, photo_id: f.photo_id } }), (r: any) => r.expense.status === "pending" ? "Saved — waiting for manager approval" : "Expense saved")) {
-            setOpen(false); setF({ ...f, amount: "", note: "", photo_id: null }); onChange();
+          if (await run(() => api(`/shifts/${shiftId}/expenses`, { body: { category: custom.trim().length >= 2 ? custom.trim() : f.category, new_category: custom.trim().length >= 2, amount: Number(f.amount), note: f.note || null, photo_id: f.photo_id } }), (r: any) => r.expense.status === "pending" ? "Saved — waiting for manager approval" : "Expense saved")) {
+            setOpen(false); setF({ ...f, amount: "", note: "", photo_id: null }); setCustom(""); cats.reload(); onChange();
           }
         }}>
           <div className="flex items-center gap-2 rounded-lg bg-sky-50 p-2 text-sm">
@@ -162,6 +165,8 @@ export function ShiftExpenses({ shiftId, expenses, onChange, preset }: { shiftId
             ))}
           </div>
           <Field label="Other category · دوسری قسم"><select className="input" value={f.category} onChange={(e) => setF({ ...f, category: e.target.value })}>{(cats.data ?? []).map((c) => <option key={c}>{c}</option>)}</select></Field>
+          <Field label="Ya apni category likhein · اپنی قسم لکھیں"><input className="input" placeholder="e.g. Pani ki bottle, Photocopy, Rickshaw" value={custom} onChange={(e) => setCustom(e.target.value)} maxLength={60} /></Field>
+          {custom.trim().length >= 2 && <p className="-mt-2 text-xs text-amber-700">"{custom.trim()}" nayi category ban jayegi aur agli dafa list me milegi.</p>}
           <Field label="Amount (Rs) · رقم"><input className="input py-3 text-2xl" type="number" inputMode="numeric" min={1} required value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} /></Field>
           <Field label="What for? · کس لیے"><input className="input" placeholder="e.g. chai, generator diesel 5 L" value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} /></Field>
           <div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={() => setOpen(false)}>Cancel · منسوخ</button><button className="btn-primary" disabled={busy}>Save · محفوظ کریں</button></div>
@@ -183,6 +188,7 @@ export function ShiftReport({ id, onClose }: { id: number; onClose: () => void }
   return (
     <Modal open onClose={onClose} title={`Shift report #${id}`} wide>
       {!r ? <Loading /> : <ReportBody r={r} />}
+      {r && <ShiftSales shiftId={id} />}
       <div className="mt-4 flex flex-wrap justify-end gap-2 print:hidden"><WhatsAppDoc kind="shift" id={id} /><button className="btn-secondary" onClick={() => window.print()}><Printer size={15} /> Print</button><button className="btn-primary" onClick={onClose}>Done</button></div>
     </Modal>
   );
@@ -341,6 +347,40 @@ function ReportBody({ r }: { r: any }) {
           {s.expenses.map((e: any) => <Row key={e.id} k={<>{e.category}{e.note ? <span className="text-xs text-slate-500"> · {e.note}</span> : null}{e.status === "pending" ? <span className="text-xs text-amber-600"> (awaiting approval)</span> : null}</>} v={pkr(e.amount)} />)}
         </div>
       )}
+    </div>
+  );
+}
+
+/** Every sale of the shift (CEO / manager): the CEO can fix one in place — khata, cash, stock and the shift's cash all follow. */
+function ShiftSales({ shiftId }: { shiftId: number }) {
+  const { can } = useAuth();
+  const { data, reload } = useApi<any>(can("shifts.view_all") ? `/sales/history?shift_id=${shiftId}&limit=1000` : null);
+  const [edit, setEdit] = useState<any>(null);
+  if (!data) return null;
+  const rows: any[] = data.rows ?? data.sales ?? data;
+  if (!rows.length) return null;
+  return (
+    <div className="mt-4 print:hidden">
+      <h3 className="mb-1 font-semibold">Sales in this shift · <span lang="ur" dir="rtl" className="font-urdu">اس شفٹ کی سیلز</span> <span className="text-xs font-normal text-slate-500">{rows.length} entries</span></h3>
+      <div className="max-h-72 overflow-auto rounded-lg border border-slate-200">
+        <table className="w-full text-sm">
+          <thead className="sticky top-0 bg-slate-50 text-left text-xs text-slate-500"><tr><th className="px-2 py-1">Time</th><th className="px-2 py-1">Fuel</th><th className="px-2 py-1 text-right">Litres</th><th className="px-2 py-1 text-right">Rs</th><th className="px-2 py-1">How</th><th className="px-2 py-1">Customer / vehicle</th>{can("entries.edit") && <th className="px-2 py-1" />}</tr></thead>
+          <tbody>
+            {rows.map((s: any) => (
+              <tr key={s.id} className="border-t border-slate-100">
+                <td className="whitespace-nowrap px-2 py-1 text-xs text-slate-500">{dt(s.created_at)}</td>
+                <td className="px-2 py-1">{PRODUCTS[s.product] ?? s.product}</td>
+                <td className="px-2 py-1 text-right tabular-nums">{num(s.litres, 2)}</td>
+                <td className="px-2 py-1 text-right font-medium tabular-nums">{pkr(s.amount)}</td>
+                <td className="px-2 py-1 text-xs">{s.payment_method}</td>
+                <td className="px-2 py-1 text-xs text-slate-600">{[s.customer_name, s.vehicle_no, s.slip_no && `slip ${s.slip_no}`].filter(Boolean).join(" · ")}</td>
+                {can("entries.edit") && <td className="px-2 py-1"><button className="text-slate-400 hover:text-brand-700" title="Edit sale (CEO)" onClick={() => setEdit(s)}><Pencil size={14} /></button></td>}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {edit && <EditSale sale={edit} onClose={() => setEdit(null)} onDone={reload} />}
     </div>
   );
 }
