@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Plus, Search, Truck, Wallet, Undo2, SlidersHorizontal, Download, Printer, Ban, ArrowLeft, Pencil, Send, Receipt } from "lucide-react";
 import { ImportExport } from "../components/ImportExport";
+import { PrintListButton } from "../components/PrintList";
 
 import { api, linkToken, useApi } from "../lib/api";
 import { Badge, Empty, ErrorBox, Field, ListTools, Loading, Modal, PageHeader, PhoneInput, Stat, useAction, useListFilter } from "../components/ui";
@@ -202,6 +203,16 @@ function ClientsTable({ onAdd }: { onAdd: () => void }) {
           {can("wholesale.rates") && <button className="btn-secondary" onClick={() => setCompare(true)}><SlidersHorizontal size={15} /> Is mahine vs pichla</button>}
           {can("wholesale.rates") && <button className="btn-secondary" onClick={() => setHistory(true)}><SlidersHorizontal size={15} /> Rate history</button>}
           {can("wholesale.rates") && <button className="btn-secondary" onClick={() => setBulk(true)}><SlidersHorizontal size={15} /> Sab ka rate badlo</button>}
+          <PrintListButton title="Wholesale clients · کلائنٹس" subtitle={[q && `search "${q}"`, chips.find((x) => x.k === chip && x.k)?.label].filter(Boolean).join(" · ") || "All clients"} rows={clients}
+            columns={[
+              { label: "Client", v: (c: any) => c.name, sub: (c: any) => [c.business_name, c.phone && phone(c.phone), c.city].filter(Boolean).join(" · ") },
+              { label: "Rates (Rs/L)", v: (c: any) => Object.entries(c.rate_card ?? {}).map(([p, r]: any) => `${PRODUCTS[p] ?? p}: ${r.rate?.toFixed(2) ?? "—"}${r.mode === "discount" ? ` (${r.label})` : ""}`).join(", ") || "No rate set" },
+              { label: "This month (L)", r: true, v: (c: any) => num(c.month_l), total: (rs: any[]) => num(rs.reduce((a, c) => a + Number(c.month_l ?? 0), 0)) },
+              { label: "Due / Advance", r: true, v: (c: any) => c.due < -0.5 ? `Adv. ${pkr(-c.due)}` : pkr(c.due), total: (rs: any[]) => `Due ${pkr(rs.reduce((a, c) => a + Math.max(0, c.due ?? 0), 0))} · Adv. ${pkr(rs.reduce((a, c) => a + Math.max(0, -(c.due ?? 0)), 0))}` },
+              { label: "Limit", r: true, v: (c: any) => c.credit_limit ? pkr(c.credit_limit) : "No limit" },
+              { label: "Last supply", v: (c: any) => ago(c.last_supply) },
+              { label: "Last payment", v: (c: any) => ago(c.last_payment) },
+            ]} />
           <ImportExport kind="wholesale" canImport={can("wholesale.manage")} onDone={list.reload} />
           {can("wholesale.manage") && <button className="btn-primary" onClick={onAdd}><Plus size={16} /> Add client</button>}
         </div>

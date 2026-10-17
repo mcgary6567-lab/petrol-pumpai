@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { Plus, MessageCircle, Wallet, BellRing, Car, Pencil } from "lucide-react";
 import { ImportExport } from "../components/ImportExport";
+import { PrintListButton } from "../components/PrintList";
 
 import { api, useApi } from "../lib/api";
 import { Badge, CnicInput, Empty, ErrorBox, Field, ListTools, Loading, Modal, PageHeader, PhoneInput, Stat, statusTone, useAction, useListFilter } from "../components/ui";
@@ -46,7 +47,16 @@ export default function Customers() {
   return (
     <div>
       <PageHeader title="Customers" subtitle="AI-segmented CRM with churn & credit-risk scores"
-        actions={<div className="flex flex-wrap gap-2"><ImportExport kind="customers" canImport={can("customers.create")} onDone={list.reload} /><button className="btn-primary" onClick={() => setAdding(true)}><Plus size={16} /> {can("credit.set_limit") ? "Add customer / khata" : "Add customer"}</button></div>} />
+        actions={<div className="flex flex-wrap gap-2"><PrintListButton title="Customers & khata · کھاتہ" subtitle={[q && `search "${q}"`, seg, chips.find((x) => x.k === chip && x.k)?.label, showArchived && "incl. archived"].filter(Boolean).join(" · ") || "All customers"} rows={rows}
+            columns={[
+              { label: "Customer", v: (c: any) => c.name, sub: (c: any) => [phone(c.phone), c.type !== "retail" ? c.type : "", c.vehicle_no].filter(Boolean).join(" · ") },
+              { label: "Segment", v: (c: any) => c.segment },
+              { label: "30-day spend", r: true, v: (c: any) => pkr(c.spend_30d ?? 0), total: (rs: any[]) => pkr(rs.reduce((a, c) => a + Number(c.spend_30d ?? 0), 0)) },
+              { label: "Khata / Advance", r: true, v: (c: any) => c.balance > 0.5 ? pkr(c.balance) : c.balance < -0.5 ? `Adv. ${pkr(-c.balance)}` : "—", total: (rs: any[]) => `Khata ${pkr(rs.reduce((a, c) => a + Math.max(0, c.balance ?? 0), 0))} · Adv. ${pkr(rs.reduce((a, c) => a + Math.max(0, -(c.balance ?? 0)), 0))}` },
+              { label: "Limit", r: true, v: (c: any) => c.credit_limit > 0 ? pkr(c.credit_limit) : "—" },
+              { label: "Points", r: true, v: (c: any) => num(c.loyalty_points) },
+              { label: "Last visit", v: (c: any) => ago(c.last_visit_at) },
+            ]} /><ImportExport kind="customers" canImport={can("customers.create")} onDone={list.reload} /><button className="btn-primary" onClick={() => setAdding(true)}><Plus size={16} /> {can("credit.set_limit") ? "Add customer / khata" : "Add customer"}</button></div>} />
       <div className="card">
         <div className="border-b border-slate-200 p-3 pb-1">
           <ListTools q={q} onQ={setQ} placeholder="Name, phone or vehicle plate · نام، فون یا گاڑی" chips={chips} chip={chip} onChip={setChip} shown={rows.length} total={list.data?.length}

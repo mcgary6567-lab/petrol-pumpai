@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Plus, Printer, Wallet, Building2, Pencil, Download } from "lucide-react";
 import { ImportExport } from "../components/ImportExport";
+import { PrintListButton } from "../components/PrintList";
 
 import { VoucherSlip } from "./Cashier";
 import { api, linkToken, useApi } from "../lib/api";
@@ -39,6 +40,14 @@ export default function Suppliers() {
     <div className="space-y-5">
       <PageHeader title="Suppliers & depots" subtitle="Har depot ke andar company aur banda — order aur payment sahi aadmi ko. Tanker deliveries bhi yahan khud-ba-khud aati hain."
         actions={<div className="flex flex-wrap gap-2">
+          <PrintListButton title="Suppliers & depots · سپلائرز" subtitle={q ? `search "${q}"` : "All suppliers"} rows={groups.flatMap((g) => g.rows)}
+            columns={[
+              { label: "Supplier", v: (s: any) => label(s), sub: (s: any) => [s.phone && phone(s.phone), s.city].filter(Boolean).join(" · ") },
+              { label: "Depot", v: (s: any) => s.depot_name ?? "—", sub: (s: any) => [s.depot_address, s.depot_city].filter(Boolean).join(", ") },
+              { label: "This month (L)", r: true, v: (s: any) => num(s.month_l), total: (rs: any[]) => num(rs.reduce((a, s) => a + Number(s.month_l ?? 0), 0)) },
+              { label: "Last purchase", v: (s: any) => ago(s.last_purchase) },
+              { label: "We owe", r: true, v: (s: any) => pkr(s.owed), total: (rs: any[]) => pkr(rs.reduce((a, s) => a + Math.max(0, s.owed ?? 0), 0)) },
+            ]} />
           <ImportExport kind="suppliers" onDone={reload} />
           <button className="btn-secondary" onClick={() => setAddDepot(true)}><Building2 size={16} /> Add depot</button>
           <button className="btn-primary" onClick={() => setAdding(true)}><Plus size={16} /> Add contact</button>

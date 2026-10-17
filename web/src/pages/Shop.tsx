@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Plus, PackagePlus, ClipboardCheck, Pencil, Undo2 } from "lucide-react";
 import { ImportExport } from "../components/ImportExport";
+import { PrintListButton } from "../components/PrintList";
 
 import { api, useApi } from "../lib/api";
 import { useAuth } from "../App";
@@ -44,6 +45,17 @@ export default function Shop() {
       <PageHeader title="Shop & lubricants" subtitle="Engine oil, filters, tuck shop — sold from the POS, stock kept automatically"
         actions={<>
           <select className="input w-auto" value={sid} onChange={(e) => setStation(Number(e.target.value))}>{stations.data.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select>
+          <PrintListButton title="Shop stock list · شاپ اسٹاک" subtitle={[stations.data.find((x) => x.id === sid)?.name, q && `search "${q}"`, cat === "low" ? "Low stock" : cat && (CATS[cat] ?? cat)].filter(Boolean).join(" · ")} rows={shown}
+            columns={[
+              { label: "Item", v: (i: any) => i.name, sub: (i: any) => [i.brand, i.sku].filter(Boolean).join(" · ") },
+              { label: "Category", v: (i: any) => CATS[i.category] ?? i.category },
+              { label: "Barcode", v: (i: any) => i.barcode ?? "—" },
+              { label: "Cost", r: true, v: (i: any) => pkr(i.cost) },
+              { label: "Price", r: true, v: (i: any) => pkr(i.price) },
+              { label: "Margin", r: true, v: (i: any) => pkr(i.price - i.cost) },
+              { label: "Stock", r: true, v: (i: any) => `${num(i.stock)} ${i.unit ?? ""}`.trim(), sub: (i: any) => i.reorder_level > 0 && i.stock <= i.reorder_level ? "LOW — reorder" : "" },
+              { label: "Stock value (cost)", r: true, v: (i: any) => pkr(i.stock * i.cost), total: (rs: any[]) => pkr(rs.reduce((a, i) => a + Number(i.stock ?? 0) * Number(i.cost ?? 0), 0)) },
+            ]} />
           {can("stock.manage") && <ImportExport kind="shop" onDone={reload} />}
           <button className="btn-primary" onClick={() => setForm({ kind: "item" })}><Plus size={15} /> Add item</button>
         </>} />
