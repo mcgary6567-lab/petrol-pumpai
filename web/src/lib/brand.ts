@@ -20,11 +20,18 @@ const listeners = new Set<(b: Branding) => void>();
 const PUMP_KEY = "pumpai_pump";
 /** The pump slug this browser came in with (/p/<slug>) — remembered so the pump's own sign-in page comes back next time too. */
 export const getPumpSlug = () => { try { const q = new URLSearchParams(location.search).get("pump"); if (q) { localStorage.setItem(PUMP_KEY, q.toLowerCase()); return q.toLowerCase(); } return localStorage.getItem(PUMP_KEY); } catch { return null; } };
-export const setPumpSlug = (s: string | null) => { try { s ? localStorage.setItem(PUMP_KEY, s.toLowerCase()) : localStorage.removeItem(PUMP_KEY); } catch { /* private mode */ } };
+export const setPumpSlug = (s: string | null) => { try { s ? localStorage.setItem(PUMP_KEY, s.toLowerCase()) : localStorage.removeItem(PUMP_KEY); } catch { /* private mode */ } applyPumpManifest(s); };
+/** Point the install-app manifest at this pump, so "Install app" offers THIS pump's name, logo and sign-in link (never another pump's). */
+export function applyPumpManifest(slug: string | null, name?: string) {
+  const link = document.querySelector('link[rel="manifest"]');
+  if (link) link.setAttribute("href", slug ? `/manifest.webmanifest?pump=${encodeURIComponent(slug)}` : "/manifest.webmanifest");
+  if (name) document.querySelector('meta[name="apple-mobile-web-app-title"]')?.setAttribute("content", name.slice(0, 20));
+}
 export async function loadBranding(pump?: string | null): Promise<Branding> {
   const slug = pump === undefined ? getPumpSlug() : pump;
   const b: Branding = await fetch(`/api/branding${slug ? `?pump=${encodeURIComponent(slug)}` : ""}`).then((r) => r.json());
   if (slug && !b.pump) setPumpSlug(null); // link no longer valid: forget it
+  if (b.pump) applyPumpManifest(b.pump.slug, b.pump.name);
   cache = b;
   applyBrand(b.color);
   if (b.name) document.title = b.setup_needed ? "Petrol PumpAI — setup" : b.name === "Petrol PumpAI" ? "Petrol PumpAI" : `${b.name} · Petrol PumpAI`;

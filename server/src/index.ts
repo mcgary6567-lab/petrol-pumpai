@@ -126,9 +126,13 @@ app.get("/branding/logo", (req, res) => {
   res.end(Buffer.from(p.data as Uint8Array));
 });
 // install-as-app manifest with this pump's own name and logo
-app.get("/manifest.webmanifest", (_req, res) => {
-  const t = get("SELECT * FROM tenants ORDER BY id LIMIT 1");
+app.get("/manifest.webmanifest", (req, res) => {
+  // ?pump=<slug> → that pump's own app (name, logo, colour, opens on its own sign-in link); SaaS without a slug stays generic,
+  // the single-pump install uses its one pump
+  const slug = String(req.query.pump ?? "").trim().toLowerCase();
+  const t = slug ? get("SELECT * FROM tenants WHERE slug=?", slug) : config.saas ? null : get("SELECT * FROM tenants ORDER BY id LIMIT 1");
   const logo = t && getSetting(t.id, "logo_photo_id");
+  const home = t?.slug ? `/p/${t.slug}` : "/";
   const color = (t && getSetting(t.id, "brand_color")) || "#064e3b";
   // PNG icons (192 + 512 + maskable) make the app installable on every Android/Chrome; the pump's own logo is added first when set
   const pngIcons = [
@@ -137,11 +141,11 @@ app.get("/manifest.webmanifest", (_req, res) => {
     { src: "/icon-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
   ];
   res.type("application/manifest+json").send(JSON.stringify({
-    name: t?.name ? `${t.name} — PumpAI` : "PumpAI", short_name: t?.name?.slice(0, 12) ?? "PumpAI",
-    description: "Petrol pump sales, khata, stock and accounts — works offline.",
-    start_url: "/", scope: "/", display: "standalone", orientation: "portrait",
+    id: home, name: t?.name ? `${t.name}` : "Petrol PumpAI", short_name: t?.name?.slice(0, 12) ?? "PumpAI",
+    description: t?.name ? `${t.name} — AI Pump Management System` : "AI Pump Management System — sales, khata, stock and accounts, works offline.",
+    start_url: home, scope: "/", display: "standalone", orientation: "portrait",
     background_color: "#ffffff", theme_color: color,
-    icons: logo ? [{ src: "/branding/logo", sizes: "512x512", type: "image/jpeg", purpose: "any" }, ...pngIcons] : pngIcons,
+    icons: logo ? [{ src: `/branding/logo?v=${logo}`, sizes: "512x512", type: "image/jpeg", purpose: "any" }, ...pngIcons] : pngIcons,
   }));
 });
 app.post("/api/auth/login", h(async (req) => {

@@ -62,7 +62,7 @@ import Margins from "./pages/Margins";
 import ProfitExplainer from "./pages/ProfitExplainer";
 import Roster from "./pages/Roster";
 import Kiosk from "./pages/Kiosk";
-import { loadBranding, applyBrand, setPumpSlug } from "./lib/brand";
+import { loadBranding, applyBrand, setPumpSlug, applyPumpManifest } from "./lib/brand";
 import { useParams } from "react-router-dom";
 
 /** A pump's own sign-in link (/p/<slug>): remember the pump, then show its sign-in page. */
@@ -87,10 +87,11 @@ export const ROLE_LABEL: Record<string, string> = { admin: "Admin (CEO)", manage
 const AuthCtx = createContext<Auth>(null as unknown as Auth);
 export const useAuth = () => useContext(AuthCtx);
 /** After sign-in the whole app wears the pump's own brand: colour + tab title (the logo/name come from `tenant` in Layout). */
-function brandFor(t: { name?: string; color?: string | null } | null) {
+function brandFor(t: { name?: string; color?: string | null; slug?: string | null } | null) {
   if (!t) return;
   if (t.color) applyBrand(t.color);
   if (t.name) document.title = `${t.name} · Petrol PumpAI`;
+  if (t.slug) { setPumpSlug(t.slug); applyPumpManifest(t.slug, t.name); } // the signed-in pump becomes this device's pump
 }
 
 function AuthProvider({ children }: { children: ReactNode }) {

@@ -3,6 +3,12 @@ import ReactDOM from "react-dom/client";
 import App from "./App";
 import "./index.css";
 
+// the pump this browser belongs to (its /p/<slug> link, or the last sign-in): the install-app manifest must be that pump's from the first paint
+try {
+  const q = new URLSearchParams(location.search).get("pump") || localStorage.getItem("pumpai_pump");
+  if (q) document.querySelector('link[rel="manifest"]')?.setAttribute("href", `/manifest.webmanifest?pump=${encodeURIComponent(q.toLowerCase())}`);
+} catch { /* private mode */ }
+
 // Theme: apply the saved choice before first paint (default: light). Dark mode is opt-in from the menu.
 try { if (localStorage.getItem("pumpai.theme") === "dark") document.documentElement.classList.add("dark"); } catch { /* private mode */ }
 
