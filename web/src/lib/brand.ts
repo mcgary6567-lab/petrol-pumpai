@@ -21,7 +21,7 @@ export async function loadBranding(): Promise<Branding> {
   const b: Branding = await fetch("/api/branding").then((r) => r.json());
   cache = b;
   applyBrand(b.color);
-  if (b.name) document.title = b.setup_needed ? "Petrol PumpAI — setup" : `${b.name} · Petrol PumpAI`;
+  if (b.name) document.title = b.setup_needed ? "Petrol PumpAI — setup" : b.name === "Petrol PumpAI" ? "Petrol PumpAI" : `${b.name} · Petrol PumpAI`;
   listeners.forEach((f) => f(b));
   return b;
 }

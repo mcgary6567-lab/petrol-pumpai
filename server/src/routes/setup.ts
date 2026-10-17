@@ -48,7 +48,8 @@ function saveLogo(t: number, image: string) {
 }
 /** <img> for the HTML pages we send to customers (bill, receipt, portal, board). */
 export function logoTag(t: number, style = "height:44px;max-width:160px;object-fit:contain") {
-  return getSetting(t, "logo_photo_id") ? `<img src="${config.publicUrl}/branding/logo" alt="" style="${style}">` : "";
+  const id = getSetting(t, "logo_photo_id");
+  return id ? `<img src="${config.publicUrl}/branding/logo?v=${id}" alt="" style="${style}">` : "";
 }
 /** The logo as a JPEG (for the PDF slip), when the logo is a JPEG. */
 export function logoJpeg(t: number): Buffer | null {
@@ -58,9 +59,11 @@ export function logoJpeg(t: number): Buffer | null {
 }
 
 setupPublic.get("/branding", h(() => {
-  const t = firstTenant();
+  // SaaS: the public pages (sign-in, sign-up) carry the platform's own brand — a pump's name/logo/colour is applied after sign-in from /me
+  const t = config.saas ? null : firstTenant();
+  const first = firstTenant();
   return {
-    setup_needed: !t, saas: config.saas, version: APP_VERSION, vendor: config.vendor,
+    setup_needed: !first, saas: config.saas, version: APP_VERSION, vendor: config.vendor,
     // the demo pump (sample logins shown on the sign-in page); never true on a real installation
     demo: Boolean(get("SELECT id FROM users WHERE email='admin@pumpai.pk' AND password_hash IS NOT NULL")),
     name: t?.name ?? "Petrol PumpAI", color: t ? getSetting(t.id, "brand_color") || null : null,

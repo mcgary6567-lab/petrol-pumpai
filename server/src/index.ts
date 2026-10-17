@@ -113,10 +113,12 @@ app.get("/api/health", (_req, res) => {
 app.use("/api", setupPublic); // setup wizard + branding (no login)
 app.use("/api", saasPublic); // SaaS mode: public sign-up + platform owner panel (no login)
 // business logo (login page, receipts, bills, TV board, app icon)
-app.get("/branding/logo", (_req, res) => {
-  const t = get("SELECT id FROM tenants ORDER BY id LIMIT 1");
-  const id = t ? Number(getSetting(t.id, "logo_photo_id")) : 0;
-  const p = id ? get("SELECT mime, data FROM photos WHERE id=?", id) : null;
+app.get("/branding/logo", (req, res) => {
+  // ?v=<photo id> → that pump's logo (SaaS: every pump has its own); no id → the first pump's (single-pump install)
+  const v = Number(req.query.v) || 0;
+  const t = v ? null : get("SELECT id FROM tenants ORDER BY id LIMIT 1");
+  const id = v || (t ? Number(getSetting(t.id, "logo_photo_id")) : 0);
+  const p = id ? get("SELECT mime, data FROM photos WHERE id=? AND kind='logo'", id) : null;
   if (!p) return res.status(404).end();
   res.setHeader("content-type", p.mime);
   res.setHeader("cache-control", "public, max-age=3600");
@@ -241,7 +243,9 @@ api.use(saasAuthed); // the pump owner's own account: status + activate by code
 api.use(auditTrail); // every change is written to the audit log
 api.get("/me", h((req) => ({
   user: { ...req.user, station_name: req.user!.station_id ? get("SELECT name FROM stations WHERE id=?", req.user!.station_id)?.name : null },
-  tenant: get("SELECT id, name FROM tenants WHERE id=?", req.user!.tenant_id),
+  // the signed-in pump's own identity: name, brand colour and logo (SaaS: never another pump's)
+  tenant: { ...get("SELECT id, name FROM tenants WHERE id=?", req.user!.tenant_id)!, color: getSetting(req.user!.tenant_id, "brand_color") || null,
+    logo_url: getSetting(req.user!.tenant_id, "logo_photo_id") ? `/branding/logo?v=${getSetting(req.user!.tenant_id, "logo_photo_id")}` : null },
   permissions: permissionsOf(req.user!.role, req.user!.tenant_id),
   // paid add-on modules this pump has (Wholesale & carriage is off by default)
   modules: modulesOf(req.user!.tenant_id),

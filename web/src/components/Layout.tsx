@@ -328,10 +328,10 @@ export default function Layout() {
   const sidebar = (
     <nav className="flex h-full flex-col bg-brand-900 text-emerald-50">
       <div className="flex items-center gap-2 px-5 py-5">
-        {brand?.logo_url ? <img src={brand.logo_url} alt="" className="h-9 w-9 rounded-lg bg-white object-contain p-0.5" /> : <span className="text-2xl">⛽</span>}
+        {(tenant?.logo_url ?? brand?.logo_url) ? <img src={tenant?.logo_url ?? brand?.logo_url ?? ""} alt="" className="h-10 w-10 shrink-0 rounded-lg bg-white object-contain p-0.5" /> : <span className="text-2xl">⛽</span>}
         <div className="min-w-0 flex-1">
-          <div className="font-semibold leading-tight">Petrol PumpAI</div>
-          <div className="text-xs text-emerald-200/80 truncate max-w-[9rem]">{tenant?.name}</div>
+          <div className="truncate font-semibold leading-tight" title={tenant?.name}>{tenant?.name ?? "Petrol PumpAI"}</div>
+          <div className="truncate text-[11px] text-emerald-200/70">Petrol PumpAI</div>
         </div>
         <div className="hidden lg:block"><NotificationBell dark /></div>
       </div>
@@ -413,7 +413,7 @@ export default function Layout() {
       <div className="flex-1 lg:pl-64 min-w-0 print:pl-0">
         <header className="sticky top-0 z-30 flex items-center gap-3 border-b border-slate-200 bg-white/90 px-4 py-3 backdrop-blur lg:hidden print:hidden">
           <button onClick={() => setOpen(!open)} aria-label="Menu">{open ? <X /> : <Menu />}</button>
-          <span className="flex-1 font-semibold">⛽ Petrol PumpAI</span>
+          <span className="flex min-w-0 flex-1 items-center gap-2 font-semibold">{(tenant?.logo_url ?? brand?.logo_url) ? <img src={tenant?.logo_url ?? brand?.logo_url ?? ""} alt="" className="h-7 w-7 shrink-0 rounded-md bg-white object-contain" /> : <span>⛽</span>}<span className="truncate">{tenant?.name ?? "Petrol PumpAI"}</span></span>
           <button onClick={() => { setCmd(true); setCq(""); setCi(0); }} aria-label="Jump to…" className="text-slate-500"><Search size={20} /></button>
           <button onClick={toggleTheme} aria-label="Theme" className="text-slate-500">{dark ? <Sun size={20} /> : <Moon size={20} />}</button>
           <NotificationBell />

@@ -62,7 +62,7 @@ import Margins from "./pages/Margins";
 import ProfitExplainer from "./pages/ProfitExplainer";
 import Roster from "./pages/Roster";
 import Kiosk from "./pages/Kiosk";
-import { loadBranding } from "./lib/brand";
+import { loadBranding, applyBrand } from "./lib/brand";
 import Activate from "./pages/Activate";
 import Platform from "./pages/Platform";
 
@@ -72,12 +72,18 @@ type User = { id: number; name: string; email: string; role: "admin" | "manager"
 type Account = { saas: boolean; locked?: boolean; status?: string; days_left?: number };
 type Modules = { wholesale: boolean };
 type Auth = {
-  user: User | null; tenant: { id: number; name: string } | null; permissions: string[]; account: Account; modules: Modules;
+  user: User | null; tenant: { id: number; name: string; color?: string | null; logo_url?: string | null } | null; permissions: string[]; account: Account; modules: Modules;
   can: (perm: string) => boolean; login: (token: string) => Promise<void>; logout: () => void; refresh: () => Promise<void>;
 };
 export const ROLE_LABEL: Record<string, string> = { admin: "Admin (CEO)", manager: "Manager", salesman: "Salesman", wholesale: "Wholesale Officer", cashier: "Cashier", staff: "Staff (no login)" };
 const AuthCtx = createContext<Auth>(null as unknown as Auth);
 export const useAuth = () => useContext(AuthCtx);
+/** After sign-in the whole app wears the pump's own brand: colour + tab title (the logo/name come from `tenant` in Layout). */
+function brandFor(t: { name?: string; color?: string | null } | null) {
+  if (!t) return;
+  if (t.color) applyBrand(t.color);
+  if (t.name) document.title = `${t.name} · Petrol PumpAI`;
+}
 
 function AuthProvider({ children }: { children: ReactNode }) {
   const empty = { user: null, tenant: null, permissions: [] as string[], account: { saas: false } as Account, modules: { wholesale: false } as Modules, ready: true };
@@ -89,6 +95,7 @@ function AuthProvider({ children }: { children: ReactNode }) {
       setMediaToken(me.media_token);
       loadLookups().catch(() => {}); // admin-managed lists for every dropdown
       loadProducts().catch(() => {}); // admin-managed fuel products
+      brandFor(me.tenant);
       setState({ user: me.user, tenant: me.tenant, permissions: me.permissions, account: me.account ?? { saas: false }, modules: me.modules ?? { wholesale: false }, ready: true });
     } catch {
       setState(empty);
