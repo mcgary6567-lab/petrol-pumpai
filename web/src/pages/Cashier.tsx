@@ -8,6 +8,7 @@ import {
 import { api, linkToken, useApi } from "../lib/api";
 import { Badge, Empty, ErrorBox, Field, ListTools, Loading, Modal, PageHeader, useAction, useListFilter, useNewRows } from "../components/ui";
 import { WhatsAppDoc } from "../components/WhatsAppDoc";
+import { PaymentApprovals } from "../components/PaymentApprovals";
 import { ago, dt, num, phone, pkr, pkrShort } from "../lib/format";
 import { toWords } from "../lib/words";
 import { ProofPhotos, ProofThumbs } from "../components/Capture";
@@ -54,7 +55,7 @@ export default function Cashier() {
           </button>
         ))}
       </div>
-      {tab === "desk" && <Desk key={key} go={go} onSlip={setSlip} />}
+      {tab === "desk" && <><PaymentApprovals /><Desk key={key} go={go} onSlip={setSlip} /></>}
       {tab === "receive" && <MoneyForm key={`in-${params.toString()}-${key}`} dir="in" preset={Object.fromEntries(params)} onDone={done} />}
       {tab === "pay" && <MoneyForm key={`out-${params.toString()}-${key}`} dir="out" preset={Object.fromEntries(params)} onDone={done} />}
       {tab === "cheques" && <Cheques go={go} />}
@@ -409,7 +410,8 @@ function MoneyForm({ dir, preset, onDone }: { dir: "in" | "out"; preset: Record<
       cheque: cheque ? { bank: ourBank ?? f.bank, cheque_no: f.cheque_no, cheque_date: f.cheque_date } : null,
       notes: isCash(f.method) ? Object.fromEntries(Object.entries(notes).filter(([, n]) => Number(n) > 0).map(([k, n]) => [k, Number(n)])) : undefined,
     };
-    const r = await run(() => api(`/cashier/${dir === "in" ? "receive" : "pay"}`, { body }), (x: any) => `${x.voucher.no} saved · محفوظ`);
+    const r = await run(() => api(`/cashier/${dir === "in" ? "receive" : "pay"}`, { body }), (x: any) => x.pending ? x.message : `${x.voucher.no} saved · محفوظ`);
+    if (r?.pending) { alert(r.message); return; }
     if (r) onDone({ ...r, party_type: type, party, cheque: body.cheque, account: picks.data?.accounts?.find((a: any) => a.id === account)?.name ?? null });
   };
 

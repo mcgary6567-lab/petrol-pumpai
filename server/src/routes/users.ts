@@ -2,7 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
 import { all, get, run, now } from "../db.js";
-import { h, parse, tid, requirePerm, ROLES, PERMISSIONS, permissionMatrix, forgetRoleOverrides, revokeSessions, unlinkDevices, type Permission } from "../auth.js";
+import { h, parse, tid, requirePerm, ROLES, PERMISSIONS, permissionMatrix, forgetRoleOverrides, revokeSessions, revokeSession, unlinkDevices, type Permission } from "../auth.js";
 import crypto from "node:crypto";
 import { AppError, normalizePhone, audit } from "../services.js";
 
@@ -100,6 +100,31 @@ users.post("/users/:id/sign-out", h((req) => {
   revokeSessions(u.id);
   return { ok: true };
 }));
+/** A readable device name from the browser's user-agent string. */
+function deviceLabel(ua: string | null): string {
+  if (!ua) return "Unknown device";
+  const os = /Android/i.test(ua) ? "Android" : /iPhone|iPad/i.test(ua) ? "iPhone / iPad" : /Windows/i.test(ua) ? "Windows" : /Mac OS/i.test(ua) ? "Mac" : /Linux/i.test(ua) ? "Linux" : "";
+  const br = /Edg\//.test(ua) ? "Edge" : /OPR\//.test(ua) ? "Opera" : /SamsungBrowser/.test(ua) ? "Samsung Internet" : /Chrome\//.test(ua) ? "Chrome" : /Safari\//.test(ua) ? "Safari" : /Firefox\//.test(ua) ? "Firefox" : "";
+  const app = /wv\)|; wv/.test(ua) ? " (app)" : "";
+  return [br, os].filter(Boolean).join(" · ") + app || "Unknown device";
+}
+/** Every signed-in device on this pump (live sessions of the last 7 days), newest activity first — for the owner. */
+users.get("/security/sessions", requirePerm("users.manage"), h((req) => {
+  const since = new Date(Date.now() - 7 * 86400_000).toISOString();
+  const sid = (() => { try { const tok = String(req.headers.authorization ?? "").replace(/^Bearer /, ""); return JSON.parse(Buffer.from(tok.split(".")[1] ?? "", "base64url").toString()).sid as string | undefined; } catch { return undefined; } })();
+  const rows = all(`SELECT s.id, s.sid, s.user_id, u.name, u.role, s.user_agent, s.ip, s.how, s.created_at, s.last_seen_at FROM sessions s JOIN users u ON u.id=s.user_id
+    WHERE s.tenant_id=? AND s.revoked_at IS NULL AND s.created_at > ? ORDER BY s.last_seen_at DESC`, tid(req), since);
+  return { sessions: rows.map((r) => ({ id: r.id, user_id: r.user_id, name: r.name, role: r.role, device: deviceLabel(r.user_agent), ip: r.ip, how: r.how, created_at: r.created_at, last_seen_at: r.last_seen_at, current: !!sid && r.sid === sid })) };
+}));
+/** Sign one device out (its token is refused from its next request). */
+users.delete("/security/sessions/:id", requirePerm("users.manage"), h((req) => {
+  const s = get("SELECT s.*, u.name FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.id=? AND s.tenant_id=?", Number(req.params.id), tid(req));
+  if (!s) throw new AppError(404, "Session not found");
+  revokeSession(tid(req), s.id, req.user!.name);
+  audit(tid(req), req.user!, "session_revoke", `user:${s.user_id}`, { session: s.id, device: deviceLabel(s.user_agent), ip: s.ip, name: s.name });
+  return { ok: true };
+}));
+
 /** Unlink every shared tablet (PIN sign-in): each one needs an owner / manager sign-in again. */
 users.post("/security/unlink-devices", requirePerm("users.manage"), h((req) => {
   unlinkDevices(tid(req));
@@ -122,6 +147,7 @@ users.delete("/users/:id", h((req) => {
   const u = ownUser(tid(req), Number(req.params.id));
   if (u.id === req.user!.id) throw new AppError(400, "You cannot delete your own account");
   if (u.role === "admin" && u.active && activeAdmins(tid(req)) <= 1) throw new AppError(400, "There must always be at least one active admin");
+  run("DELETE FROM sessions WHERE user_id=?", u.id); // their device rows go with them
   run("DELETE FROM users WHERE id=?", u.id);
   return { ok: true };
 }));

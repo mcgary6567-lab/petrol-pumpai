@@ -1,5 +1,5 @@
 /** Supplier accounts (payables): fuel purchases from depots and our payments to them. */
-import { Router } from "express";
+import { Router, type Request } from "express";
 import { z } from "zod";
 import { recordWithholding, taxSettings } from "./tax.js";
 import { all, get, run, now, tx } from "../db.js";
@@ -9,6 +9,7 @@ import { h, parse, tid, can, requirePerm } from "../auth.js";
 import { AppError, assertNoDuplicateParty, normalizePhone, round2 } from "../services.js";
 import { announce } from "../notifications.js";
 import { bypassOwed } from "./bypass.js";
+import { gateBigPayment, registerPayExecutor } from "./payRequests.js";
 
 export const suppliers = Router();
 // the cashier may pay a supplier (cash.pay) without seeing the rest of the supplier accounts
@@ -165,12 +166,20 @@ suppliers.get("/suppliers/:id/statement.csv", (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-suppliers.post("/suppliers/:id/payment", h((req) => {
+const supplierPayBody = z.object({ amount: z.number().positive(), method: z.string().min(2), ref: z.string().optional().nullable(), note: z.string().optional().nullable(),
+  txn_date: z.string().regex(/^\d{4}-\d{2}-\d{2}/).optional(),
+  /** income tax withheld from this payment (paid to FBR instead of the supplier) */
+  withholding: z.number().min(0).optional(), wht_section: z.string().max(30).optional().nullable(), photo_ids: proofPhotos, account_id: accountIdField });
+suppliers.post("/suppliers/:id/payment", h(async (req) => {
   const s = own(tid(req), Number(req.params.id));
-  const b = parse(z.object({ amount: z.number().positive(), method: z.string().min(2), ref: z.string().optional().nullable(), note: z.string().optional().nullable(),
-    txn_date: z.string().regex(/^\d{4}-\d{2}-\d{2}/).optional(),
-    /** income tax withheld from this payment (paid to FBR instead of the supplier) */
-    withholding: z.number().min(0).optional(), wht_section: z.string().max(30).optional().nullable(), photo_ids: proofPhotos, account_id: accountIdField }), req.body);
+  const b = parse(supplierPayBody, req.body);
+  const held = await gateBigPayment(req, "supplier_payment", { supplier_id: s.id, ...b }, b.amount + (b.withholding ?? 0), `Supplier payment to ${s.name} · ${b.method}${b.ref ? ` · ${b.ref}` : ""}`);
+  if (held) return held;
+  return supplierPayment(req, s.id, b);
+}));
+registerPayExecutor("supplier_payment", (req, body) => { const { supplier_id, ...rest } = body; return supplierPayment(req, Number(supplier_id), parse(supplierPayBody, rest)); });
+function supplierPayment(req: Request, supplierId: number, b: z.infer<typeof supplierPayBody>) {
+  const s = own(tid(req), supplierId);
   const ts = b.txn_date ? new Date(b.txn_date).toISOString() : now();
   const t = tid(req);
   if (isCheque(b.method)) requireProof(t, b.photo_ids, "cheque");
@@ -198,7 +207,7 @@ suppliers.post("/suppliers/:id/payment", h((req) => {
   // the payment as saved, for the voucher printed straight after
   const acc = accountId ? get("SELECT * FROM bank_accounts WHERE id=?", accountId) : null;
   return { owed: supplierOwed(s.id), payment: { ...get("SELECT * FROM supplier_txns WHERE id=?", pid), account_name: acc ? accountName(acc) : null, withholding: b.withholding ?? 0 } };
-}));
+}
 
 suppliers.post("/suppliers/:id/adjustment", h((req) => {
   const s = own(tid(req), Number(req.params.id));

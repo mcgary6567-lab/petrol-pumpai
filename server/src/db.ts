@@ -853,6 +853,17 @@ function addCashierRole() {
   db.exec(`PRAGMA foreign_keys = OFF; BEGIN; ${fresh}; INSERT INTO users_new SELECT * FROM users; DROP TABLE users; ALTER TABLE users_new RENAME TO users; ${indexes.map((x) => x + ";").join(" ")} COMMIT; PRAGMA foreign_keys = ON;`);
 }
 
+/** Signed-in devices: one row per session token; revoking a row signs that device out at its next request. */
+db.exec(`CREATE TABLE IF NOT EXISTS sessions (
+  id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, user_id INTEGER NOT NULL REFERENCES users(id), sid TEXT NOT NULL UNIQUE,
+  user_agent TEXT, ip TEXT, how TEXT, created_at TEXT NOT NULL, last_seen_at TEXT NOT NULL, revoked_at TEXT, revoked_by TEXT)`);
+db.exec("CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id, revoked_at)");
+/** Payments above the owner's limit made by staff: held here until the owner approves, then booked exactly as entered. */
+db.exec(`CREATE TABLE IF NOT EXISTS payment_requests (
+  id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, route TEXT NOT NULL, body TEXT NOT NULL, amount REAL NOT NULL, summary TEXT NOT NULL,
+  requested_by INTEGER NOT NULL REFERENCES users(id), requested_name TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending',
+  result TEXT, error TEXT, decided_by TEXT, decided_at TEXT, created_at TEXT NOT NULL)`);
+
 /** Add a column to an existing table if it is missing (for databases created by older versions). */
 function addColumn(table: string, column: string, type: string) {
   const cols = all<{ name: string }>(`PRAGMA table_info(${table})`).map((c) => c.name);

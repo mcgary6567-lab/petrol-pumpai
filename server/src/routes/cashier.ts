@@ -13,6 +13,7 @@ import { all, get, run, tx, now, pkDate, pkStart, pkEnd, pkDayStart, type Row } 
 import { h, parse, tid, requirePerm, can } from "../auth.js";
 import { AppError, round2, pkr, createAlert, khataEntry, audit } from "../services.js";
 import { closeApproval } from "./approvals.js";
+import { gateBigPayment, registerPayExecutor } from "./payRequests.js";
 import { sendDirect, sendWhatsApp } from "../whatsapp/cloud.js";
 import { linkPhotos, proofPhotos, proofCol, requireProof, isCheque } from "./capture.js";
 import { bankAccountFor, accountName, bankAccounts, accountIdField, posMap, POS_DIGITAL, DEPOT_PAY, notDepot, cardFees } from "./banks.js";
@@ -204,7 +205,17 @@ async function doReceive(req: Request, b: z.infer<typeof receiveBody>) {
 }
 
 /* ---------------- pay ---------------- */
-cashier.post("/cashier/pay", requirePerm("cash.pay"), h(async (req) => doPay(req, parse(payBody, req.body))));
+cashier.post("/cashier/pay", requirePerm("cash.pay"), h(async (req) => {
+  const b = parse(payBody, req.body);
+  // expenses have their own approval limit (createExpense); every other payout above the pump's limit waits for the owner
+  if (b.party_type !== "expense") {
+    const p = b.party_type === "other" ? null : party(tid(req), b.party_type, b.party_id);
+    const held = await gateBigPayment(req, "cashier_pay", b, b.amount, `${b.party_type === "staff" ? "Staff advance" : b.party_type === "supplier" ? "Supplier payment" : "Payment"} to ${p?.name ?? b.party_name ?? "—"} · ${b.method}${b.note ? ` · ${b.note}` : ""}`);
+    if (held) return held;
+  }
+  return doPay(req, b);
+}));
+registerPayExecutor("cashier_pay", (req, body) => doPay(req, parse(payBody, body)));
 
 /** Post a payment: the party's own ledger / expense / bank row (src) + the voucher. `skipCashCheck` for a re-route whose old cash
  *  is about to be reversed in the same request. */

@@ -62,6 +62,7 @@ import { books } from "./routes/books.js";
 import { corrections } from "./routes/corrections.js";
 import { fullEdit } from "./routes/fullEdit.js";
 import { parties } from "./routes/parties.js";
+import { payRequests } from "./routes/payRequests.js";
 import { opening } from "./routes/opening.js";
 import { golive } from "./routes/golive.js";
 import { io } from "./routes/io.js";
@@ -210,16 +211,16 @@ app.post("/api/auth/login", h(async (req) => {
     try { await sendToPhone(u.phone, `PumpAI login code: ${code}\n10 minute mein expire ho jayega. Agar aap ne login nahi kiya to apna password badlein.`); } catch { /* shown on screen fallback below */ }
     return { twofa: true, user_id: u.id, phone_hint: masked };
   }
-  return issueSession(u);
+  return issueSession(u, "password", { ua: req.headers["user-agent"], ip: req.ip });
 }));
 app.post("/api/auth/verify-2fa", h((req) => {
   const b = parse(z.object({ user_id: z.number().int(), code: z.string().regex(/^\d{6}$/, "Enter the 6-digit code") }), req.body);
-  return verify2fa(b.user_id, b.code);
+  return verify2fa(b.user_id, b.code, { ua: req.headers["user-agent"], ip: req.ip });
 }));
 app.get("/api/auth/pin-users", h((req) => pinUsers(req.headers["x-device"] as string | undefined)));
 app.post("/api/auth/pin", h((req) => {
   const b = parse(z.object({ user_id: z.number(), pin: z.string().regex(/^\d{4}$/, "PIN is 4 digits") }), req.body);
-  return pinLogin(req.headers["x-device"] as string | undefined, b.user_id, b.pin);
+  return pinLogin(req.headers["x-device"] as string | undefined, b.user_id, b.pin, { ua: req.headers["user-agent"], ip: req.ip });
 }));
 // signed monthly bill / statement link sent on WhatsApp (no login needed)
 app.get("/bill/:token", (req, res) => {
@@ -319,7 +320,7 @@ api.post("/me/password", rateLimit("pw-change", 10, 10 * 60_000), h((req) => {
   if (!bcrypt.compareSync(b.old_password, u.password_hash)) throw new AppError(400, "The current password is not correct");
   run("UPDATE users SET password_hash=? WHERE id=?", bcrypt.hashSync(b.new_password, 10), u.id);
   revokeSessions(u.id);
-  return { token: signToken(req.user!) };
+  return { token: signToken(req.user!, { ua: req.headers["user-agent"], ip: req.ip, how: "password change" }) };
 }));
 api.use(operations);
 api.use(crm);
@@ -370,6 +371,7 @@ api.use(books);
 api.use(corrections);
 api.use(fullEdit);
 api.use(parties);
+api.use(payRequests);
 api.use(opening);
 api.use(golive);
 api.use(io);

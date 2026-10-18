@@ -4,6 +4,7 @@ import { api, useApi } from "../lib/api";
 import { Badge, Empty, Field, Loading, Modal, PageHeader, PhoneInput, SearchBar, matchQuery, useAction, useToast } from "../components/ui";
 import { useAuth, ROLE_LABEL } from "../App";
 import { ago } from "../lib/format";
+import { Sessions } from "../components/Sessions";
 
 const ROLE_INFO: Record<string, { icon: any; tone: string; text: string }> = {
   admin: { icon: ShieldCheck, tone: "violet", text: "CEO / owner. Full system access: users, settings, credit limits, all stations and reports." },
@@ -146,6 +147,7 @@ export default function Users() {
         <div className="min-w-0 flex-1 text-sm"><b>Shared tablets (PIN sign-in)</b><span className="block text-slate-500">A tablet is linked when the owner or a manager signs in on it once. Lost a tablet or changed staff? Unlink them all — each needs an owner / manager sign-in again.</span></div>
         <button className="btn-secondary min-h-9" disabled={busy} onClick={() => { if (confirm("Unlink every tablet? Staff will need an owner / manager sign-in on each tablet again.")) run(() => api("/security/unlink-devices", { body: {} }), "All tablets unlinked"); }}>Unlink all tablets</button>
       </div>
+      <Sessions />
       <RoleMatrix data={data} onChanged={reload} />
 
       {pinFor && <ResetPin user={pinFor} onClose={() => { setPinFor(null); reload(); }} />}

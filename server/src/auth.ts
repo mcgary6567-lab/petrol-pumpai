@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction, RequestHandler } from "express";
 import jwt from "jsonwebtoken";
+import crypto from "node:crypto";
 import bcrypt from "bcryptjs";
 import { z, ZodError } from "zod";
 import { config } from "./config.js";
@@ -133,9 +134,26 @@ declare global {
   namespace Express { interface Request { user?: AuthUser } }
 }
 
-export function signToken(u: AuthUser) {
+export type SessionMeta = { ua?: string | null; ip?: string | null; how?: string };
+/** A signed 7-day session. Each token carries a session id, so the owner can see every signed-in device and sign one out. */
+export function signToken(u: AuthUser, meta: SessionMeta = {}) {
   const tv = get("SELECT token_version v FROM users WHERE id=?", u.id)?.v ?? 0;
-  return jwt.sign({ sub: u.id, tv }, config.jwtSecret, { expiresIn: "7d" });
+  const sid = crypto.randomUUID();
+  const ts = new Date().toISOString();
+  run("INSERT INTO sessions (tenant_id,user_id,sid,user_agent,ip,how,created_at,last_seen_at) VALUES (?,?,?,?,?,?,?,?)", u.tenant_id, u.id, sid, (meta.ua ?? "").slice(0, 300) || null, meta.ip ?? null, meta.how ?? null, ts, ts);
+  return jwt.sign({ sub: u.id, tv, sid }, config.jwtSecret, { expiresIn: "7d" });
+}
+/** Sign one device out: its token is refused from the next request on. */
+export function revokeSession(tenantId: number, sessionId: number, by: string) {
+  return run("UPDATE sessions SET revoked_at=?, revoked_by=? WHERE id=? AND tenant_id=? AND revoked_at IS NULL", new Date().toISOString(), by, sessionId, tenantId).changes;
+}
+const seenAt = new Map<string, number>();
+function touchSession(sid: string): boolean {
+  const s = get("SELECT id, revoked_at FROM sessions WHERE sid=?", sid);
+  if (!s || s.revoked_at) return false;
+  const last = seenAt.get(sid) ?? 0;
+  if (Date.now() - last > 60_000) { seenAt.set(sid, Date.now()); run("UPDATE sessions SET last_seen_at=? WHERE id=?", new Date().toISOString(), s.id); }
+  return true;
 }
 /** A short-lived, read-only token for links the browser opens by itself (photos, downloads, the live feed). */
 export function mediaToken(userId: number) {
@@ -143,7 +161,7 @@ export function mediaToken(userId: number) {
   return jwt.sign({ sub: userId, tv, media: 1 }, config.jwtSecret, { expiresIn: "12h" });
 }
 /** Sign this person out everywhere (password / PIN change, disabled, "sign out all"). */
-export const revokeSessions = (userId: number) => run("UPDATE users SET token_version = token_version + 1 WHERE id=?", userId);
+export const revokeSessions = (userId: number) => { run("UPDATE sessions SET revoked_at=COALESCE(revoked_at,?), revoked_by=COALESCE(revoked_by,'sign out all') WHERE user_id=? AND revoked_at IS NULL", new Date().toISOString(), userId); return run("UPDATE users SET token_version = token_version + 1 WHERE id=?", userId); };
 
 /** A device token links a pump tablet to the business so staff can sign in by tapping their name + PIN. */
 // linked tablets carry the pump's device "epoch": the owner can unlink every tablet at once by moving it on
@@ -177,7 +195,7 @@ function auditLogin(u: { id: number; tenant_id: number; name: string }, ok: bool
     u.tenant_id, u.id, u.name, `login:${ok ? `Signed in (${how})` : `Wrong ${how}`}`, how, new Date().toISOString());
 }
 
-export function pinLogin(device: string | undefined, userId: number, pin: string) {
+export function pinLogin(device: string | undefined, userId: number, pin: string, meta: SessionMeta = {}) {
   const u = get("SELECT * FROM users WHERE id=? AND tenant_id=?", userId, deviceTenant(device));
   if (!u || !u.pin_hash || !pinAllowed(u)) throw new AppError(401, "PIN login is not set up for this person");
   if (!u.active) throw new AppError(403, "This account is disabled. Contact your admin.");
@@ -193,7 +211,7 @@ export function pinLogin(device: string | undefined, userId: number, pin: string
   run("UPDATE users SET pin_fails=0, pin_locked_until=NULL WHERE id=?", u.id);
   auditLogin(u, true, "PIN");
   const user: AuthUser = { id: u.id, tenant_id: u.tenant_id, name: u.name, email: u.email, role: u.role, station_id: u.station_id };
-  return { token: signToken(user), user, permissions: permissionsOf(user.role, user.tenant_id), modules: modulesOf(user.tenant_id) };
+  return { token: signToken(user, { ...meta, how: "PIN" }), user, permissions: permissionsOf(user.role, user.tenant_id), modules: modulesOf(user.tenant_id) };
 }
 
 const PW_TRIES = 8, PW_LOCK_MIN = 15;
@@ -228,15 +246,15 @@ export function authenticate(login: string, password: string, tenantScope?: numb
   return u;
 }
 /** Issue a signed session for an already-authenticated user row. */
-export function issueSession(u: Row, how = "password") {
+export function issueSession(u: Row, how = "password", meta: SessionMeta = {}) {
   auditLogin(u, true, how);
   const user: AuthUser = { id: u.id, tenant_id: u.tenant_id, name: u.name, email: u.email, role: u.role, station_id: u.station_id };
   // only the owner / a manager links a shared tablet for PIN sign-in
   const links = ["admin", "manager"].includes(u.role);
-  return { token: signToken(user), user, permissions: permissionsOf(user.role, user.tenant_id), modules: modulesOf(user.tenant_id), ...(links ? { device_token: deviceToken(u.tenant_id) } : {}) };
+  return { token: signToken(user, { ...meta, how }), user, permissions: permissionsOf(user.role, user.tenant_id), modules: modulesOf(user.tenant_id), ...(links ? { device_token: deviceToken(u.tenant_id) } : {}) };
 }
-export function login(email: string, password: string) {
-  return issueSession(authenticate(email, password));
+export function login(email: string, password: string, meta: SessionMeta = {}) {
+  return issueSession(authenticate(email, password), "password", meta);
 }
 
 /** Two-factor login for the owner: is it switched on and usable (admin with a phone)? */
@@ -251,7 +269,7 @@ export function create2fa(userId: number): string {
   return code;
 }
 /** Verify a login OTP and issue the session. Throws on wrong / expired / too many tries. */
-export function verify2fa(userId: number, code: string) {
+export function verify2fa(userId: number, code: string, meta: SessionMeta = {}) {
   const u = get("SELECT * FROM users WHERE id=? AND active=1", userId);
   const o = get("SELECT * FROM login_otps WHERE user_id=?", userId);
   if (!u || !o) throw new AppError(401, "Sign in again");
@@ -262,7 +280,7 @@ export function verify2fa(userId: number, code: string) {
     throw new AppError(401, `Wrong code (${OTP_TRIES - o.attempts - 1} tries left)`);
   }
   run("DELETE FROM login_otps WHERE user_id=?", userId);
-  return issueSession(u, "password + code");
+  return issueSession(u, "password + code", meta);
 }
 
 export function requireAuth(req: Request, _res: Response, next: NextFunction) {
@@ -271,7 +289,7 @@ export function requireAuth(req: Request, _res: Response, next: NextFunction) {
   const token = inUrl ? (req.query.token as string | undefined) : h!.slice(7);
   if (!token) return next(new AppError(401, "Not signed in"));
   try {
-    const p = jwt.verify(token, config.jwtSecret) as unknown as { sub: number; tv?: number; media?: number };
+    const p = jwt.verify(token, config.jwtSecret) as unknown as { sub: number; tv?: number; media?: number; sid?: string };
     if (typeof p.sub !== "number") return next(new AppError(401, "Not signed in"));
     // a token in a link (photo, download, live feed) must be a short read-only media token, never a full session
     if (inUrl && (!p.media || req.method !== "GET")) return next(new AppError(401, "Not signed in"));
@@ -279,6 +297,8 @@ export function requireAuth(req: Request, _res: Response, next: NextFunction) {
     const u = get("SELECT id, tenant_id, name, email, role, station_id, active, token_version FROM users WHERE id=?", p.sub);
     if (!u || !u.active) return next(new AppError(401, "User not found or disabled"));
     if ((p.tv ?? 0) !== (u.token_version ?? 0)) return next(new AppError(401, "Signed out — please sign in again"));
+    // a device the owner signed out (tokens from before this feature carry no sid and keep working until they expire)
+    if (p.sid && !touchSession(p.sid)) return next(new AppError(401, "Is device ko sign out kar diya gaya — dobara sign in karein"));
     delete u.active; delete u.token_version;
     req.user = u as AuthUser;
     next();
