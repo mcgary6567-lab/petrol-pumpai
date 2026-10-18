@@ -208,8 +208,8 @@ function ClientsTable({ onAdd }: { onAdd: () => void }) {
               { label: "Client", v: (c: any) => c.name, sub: (c: any) => [c.business_name, c.phone && phone(c.phone), c.city].filter(Boolean).join(" · ") },
               { label: "Rates (Rs/L)", v: (c: any) => Object.entries(c.rate_card ?? {}).map(([p, r]: any) => `${PRODUCTS[p] ?? p}: ${r.rate?.toFixed(2) ?? "—"}${r.mode === "discount" ? ` (${r.label})` : ""}`).join(", ") || "No rate set" },
               { label: "This month (L)", r: true, v: (c: any) => num(c.month_l), total: (rs: any[]) => num(rs.reduce((a, c) => a + Number(c.month_l ?? 0), 0)) },
-              { label: "Due / Advance", r: true, v: (c: any) => c.due < -0.5 ? `Adv. ${pkr(-c.due)}` : pkr(c.due), total: (rs: any[]) => `Due ${pkr(rs.reduce((a, c) => a + Math.max(0, c.due ?? 0), 0))} · Adv. ${pkr(rs.reduce((a, c) => a + Math.max(0, -(c.due ?? 0)), 0))}` },
-              { label: "Limit", r: true, v: (c: any) => c.credit_limit ? pkr(c.credit_limit) : "No limit" },
+              { label: "Due · بقایا", r: true, v: (c: any) => c.due > 0.5 ? pkr(c.due) : "—", total: (rs: any[]) => pkr(rs.reduce((a, c) => a + Math.max(0, c.due ?? 0), 0)) },
+              { label: "Advance · ایڈوانس", r: true, v: (c: any) => c.due < -0.5 ? pkr(-c.due) : "—", total: (rs: any[]) => pkr(rs.reduce((a, c) => a + Math.max(0, -(c.due ?? 0)), 0)) },
               { label: "Last supply", v: (c: any) => ago(c.last_supply) },
               { label: "Last payment", v: (c: any) => ago(c.last_payment) },
             ]} />
