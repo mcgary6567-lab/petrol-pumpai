@@ -103,3 +103,36 @@ test("delete pump: exact name required; backup made; every row of that pump gone
   ok(await call("", "POST", "/api/signup", signup("Pump A again", "new-ceo-a@test.pk")), "email free again");
   assert.ok(!ok(await call(p, "GET", "/api/platform/tenants"), "tenants").tenants.some((t: any) => t.id === A.id));
 });
+
+test("plans: lifetime never expires; monthly / yearly end after paid_until (pump locked); back to trial; overview sums the fleet", async () => {
+  const p = ok(await call("", "POST", "/api/platform/login", { email: "owner@petrolpumpai.pk", password: "platform-pass-123" }), "platform login").token;
+  const a = ok(await call("", "POST", "/api/signup", signup("Plan Pump A", "ceo-plan-a@test.pk")), "signup A");
+  const bb = ok(await call("", "POST", "/api/signup", signup("Plan Pump B", "ceo-plan-b@test.pk")), "signup B");
+  const tidA = db.get("SELECT tenant_id FROM users WHERE email='ceo-plan-a@test.pk'").tenant_id, tidB = db.get("SELECT tenant_id FROM users WHERE email='ceo-plan-b@test.pk'").tenant_id;
+  // lifetime
+  const life = ok(await call(p, "POST", `/api/platform/tenants/${tidA}/plan`, { plan: "lifetime", note: "paid cash" }), "lifetime");
+  assert.equal(life.tenant.status, "active"); assert.equal(life.tenant.plan, "lifetime"); assert.equal(life.tenant.paid_until, null); assert.equal(life.state.locked, false); assert.equal(life.state.lifetime, true);
+  assert.equal((await call(a.token, "GET", "/api/me")).status, 200, "lifetime pump works");
+  // monthly: default a month from today
+  const mo = ok(await call(p, "POST", `/api/platform/tenants/${tidB}/plan`, { plan: "monthly" }), "monthly");
+  assert.equal(mo.tenant.plan, "monthly"); assert.ok(mo.tenant.paid_until > new Date().toISOString().slice(0, 10), "paid_until in the future");
+  assert.equal(mo.state.locked, false);
+  // expired yearly → locked
+  ok(await call(p, "POST", `/api/platform/tenants/${tidB}/plan`, { plan: "yearly", paid_until: "2020-01-31" }), "expired yearly");
+  const meB = await call(bb.token, "GET", "/api/customers");
+  assert.equal(meB.status, 402, `expired plan locks the pump: ${JSON.stringify(meB.data)}`);
+  // extend → open again
+  const ext = ok(await call(p, "POST", `/api/platform/tenants/${tidB}/plan`, { plan: "yearly" }), "extend");
+  assert.equal(ext.state.locked, false); assert.ok(ext.tenant.paid_until > new Date().toISOString().slice(0, 10));
+  // back to trial
+  const tr = ok(await call(p, "POST", `/api/platform/tenants/${tidB}/plan`, { plan: "trial" }), "trial");
+  assert.equal(tr.tenant.status, "trial"); assert.equal(tr.tenant.plan, null);
+  assert.ok(db.get("SELECT id FROM audit_log WHERE action='platform_plan' AND tenant_id=?", tidA), "audited");
+  // overview
+  const ov = ok(await call(p, "GET", "/api/platform/overview"), "overview");
+  assert.ok(ov.kpis.pumps >= 2); assert.ok(ov.kpis.lifetime >= 1); assert.equal(ov.months.length, 6);
+  const rowA = ov.tenants.find((t: any) => t.id === tidA);
+  assert.equal(rowA.lifetime, true); assert.equal(rowA.locked, false); assert.ok(rowA.users >= 1); assert.ok(rowA.stations >= 1);
+  assert.ok(typeof ov.kpis.sales_30d === "number" && typeof ov.kpis.db_bytes === "number");
+  assert.equal((await call("", "GET", "/api/platform/overview")).status, 401, "platform login required");
+});

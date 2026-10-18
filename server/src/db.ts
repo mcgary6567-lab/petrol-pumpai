@@ -749,7 +749,8 @@ export function migrate() {
   addColumn("tenants", "trial_ends_at", "TEXT");
   addColumn("tenants", "activated_at", "TEXT");
   addColumn("tenants", "activated_by", "TEXT");
-  addColumn("tenants", "plan", "TEXT");
+  addColumn("tenants", "plan", "TEXT"); // lifetime | yearly | monthly | null (unlimited, pre-plans)
+  addColumn("tenants", "paid_until", "TEXT"); // for yearly / monthly: access ends after this day (lifetime / null = never)
   addColumn("tenants", "note", "TEXT");
   // each pump's own sign-in link: /p/<slug> (SaaS); existing pumps get one from their name on first start after this update
   addColumn("tenants", "slug", "TEXT");

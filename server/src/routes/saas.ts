@@ -20,7 +20,8 @@ import { all, get, run, now, setSetting, tx, db } from "../db.js";
 import { h, parse, tid, forgetModules } from "../auth.js";
 import { AppError, audit, normalizePhone } from "../services.js";
 import { setupBody, provisionTenant } from "./setup.js";
-import { mountBackupRoutes, makeBackup } from "./system.js";
+import { mountBackupRoutes, makeBackup, listBackups } from "./system.js";
+import fs from "node:fs";
 
 export const saasPublic = Router();  // no login (sign-up, platform login + panel)
 export const saasAuthed = Router();  // after requireAuth (the pump owner's own account)
@@ -29,12 +30,17 @@ const trialEnd = () => new Date(Date.now() + config.trialDays * 86_400_000).toIS
 
 /** A pump's lifecycle state: locked when the trial has run out or it was suspended. */
 export function tenantState(t: number) {
-  const row = get("SELECT status, trial_ends_at FROM tenants WHERE id=?", t);
+  const row = get("SELECT status, trial_ends_at, plan, paid_until FROM tenants WHERE id=?", t);
   const status = (row?.status as string) ?? "active";
   const ends = (row?.trial_ends_at as string) ?? null;
-  const expired = status === "trial" && ends != null && Date.parse(ends) < Date.now();
-  const daysLeft = ends ? Math.max(0, Math.ceil((Date.parse(ends) - Date.now()) / 86_400_000)) : 0;
-  return { status, trial_ends_at: ends, days_left: daysLeft, locked: status === "suspended" || expired };
+  const plan = (row?.plan as string | null) ?? null;
+  const paidUntil = (row?.paid_until as string | null) ?? null;
+  const trialExpired = status === "trial" && ends != null && Date.parse(ends) < Date.now();
+  // a monthly / yearly plan ends after its paid-until day (lifetime and pre-plan pumps never expire)
+  const planExpired = status === "active" && plan !== "lifetime" && paidUntil != null && Date.parse(paidUntil) + 86_400_000 < Date.now();
+  const until = status === "trial" ? ends : paidUntil;
+  const daysLeft = until ? Math.max(0, Math.ceil((Date.parse(until) - Date.now()) / 86_400_000)) : 0;
+  return { status, trial_ends_at: ends, plan, paid_until: paidUntil, days_left: daysLeft, lifetime: plan === "lifetime", locked: status === "suspended" || trialExpired || planExpired, plan_expired: planExpired };
 }
 
 /* ================= Public sign-up ================= */
@@ -108,7 +114,7 @@ saasPublic.post("/platform/login", h((req) => {
 const platform = Router();
 platform.use(requirePlatform);
 platform.get("/tenants", h(() =>
-  ({ tenants: all(`SELECT t.id, t.name, t.slug, t.owner_name, t.owner_phone, t.status, t.trial_ends_at, t.activated_at, t.plan, t.created_at,
+  ({ tenants: all(`SELECT t.id, t.name, t.slug, t.owner_name, t.owner_phone, t.status, t.trial_ends_at, t.activated_at, t.plan, t.paid_until, t.note, t.created_at,
        (SELECT COUNT(*) FROM users u WHERE u.tenant_id=t.id) users,
        (SELECT email FROM users u WHERE u.tenant_id=t.id AND u.role='admin' ORDER BY u.id LIMIT 1) admin_email,
        (SELECT value FROM settings s WHERE s.tenant_id=t.id AND s.key='module_wholesale')='1' module_wholesale
@@ -215,6 +221,76 @@ platform.post("/test-pump", h(async (req) => {
   // call back into this very server on whichever port it is actually listening (tests use a random one)
   return runTestPump(`http://127.0.0.1:${req.socket.localPort ?? config.port}`, { publicUrl: config.publicUrl });
 }));
+/** Give a pump its plan: lifetime (never expires), yearly / monthly (access till paid_until), or back to trial. */
+platform.post("/tenants/:id/plan", h((req) => {
+  const id = Number(req.params.id);
+  const b = parse(z.object({ plan: z.enum(["lifetime", "yearly", "monthly", "trial"]), paid_until: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(), note: z.string().max(200).optional().nullable() }), req.body);
+  const t = get("SELECT * FROM tenants WHERE id=?", id);
+  if (!t) throw new AppError(404, "Pump nahi mila");
+  const by = `platform:${(req as Request & { padmin?: { email: string } }).padmin?.email ?? ""}`;
+  if (b.plan === "trial") {
+    run("UPDATE tenants SET status='trial', plan=NULL, paid_until=NULL, trial_ends_at=?, note=COALESCE(?, note) WHERE id=?", trialEnd(), b.note ?? null, id);
+  } else {
+    let until: string | null = null;
+    if (b.plan !== "lifetime") {
+      // default: a month / a year from today (or from the current paid-until when extending a plan still running)
+      const base = t.paid_until && Date.parse(t.paid_until) > Date.now() ? new Date(t.paid_until) : new Date();
+      if (b.paid_until) until = b.paid_until;
+      else { const d = new Date(base); if (b.plan === "monthly") d.setMonth(d.getMonth() + 1); else d.setFullYear(d.getFullYear() + 1); until = d.toISOString().slice(0, 10); }
+    }
+    run("UPDATE tenants SET status='active', plan=?, paid_until=?, activated_at=COALESCE(activated_at, ?), activated_by=?, note=COALESCE(?, note) WHERE id=?", b.plan, until, now(), by, b.note ?? null, id);
+  }
+  audit(id, { id: 0, name: by }, "platform_plan", `tenant:${id}`, { plan: b.plan, paid_until: b.paid_until ?? null, was: { status: t.status, plan: t.plan, paid_until: t.paid_until } });
+  return { ok: true, tenant: get("SELECT id, name, status, plan, paid_until, trial_ends_at FROM tenants WHERE id=?", id), state: tenantState(id) };
+}));
+
+/** The platform dashboard: fleet-wide numbers, what needs attention, sign-ups by month, and every pump with its activity. */
+platform.get("/overview", h(() => {
+  const todayPk = new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 10);
+  const todayUtc = new Date(`${todayPk}T00:00:00+05:00`).toISOString();
+  const d30 = new Date(Date.now() - 30 * 86_400_000).toISOString();
+  const d3 = new Date(Date.now() - 3 * 86_400_000).toISOString();
+  const tenants = all(`SELECT t.id, t.name, t.slug, t.owner_name, t.owner_phone, t.status, t.trial_ends_at, t.activated_at, t.plan, t.paid_until, t.note, t.created_at,
+       (SELECT COUNT(*) FROM users u WHERE u.tenant_id=t.id AND u.active=1) users,
+       (SELECT COUNT(*) FROM stations s WHERE s.tenant_id=t.id) stations,
+       (SELECT email FROM users u WHERE u.tenant_id=t.id AND u.role='admin' ORDER BY u.id LIMIT 1) admin_email,
+       (SELECT value FROM settings s WHERE s.tenant_id=t.id AND s.key='module_wholesale')='1' module_wholesale,
+       (SELECT MAX(created_at) FROM audit_log a WHERE a.tenant_id=t.id) last_activity,
+       (SELECT COALESCE(SUM(sa.amount),0) FROM sales sa JOIN stations s ON s.id=sa.station_id WHERE s.tenant_id=t.id AND sa.created_at>=?) sales_30d,
+       (SELECT COALESCE(SUM(sa.amount),0) FROM sales sa JOIN stations s ON s.id=sa.station_id WHERE s.tenant_id=t.id AND sa.created_at>=?) sales_today,
+       (SELECT COALESCE(SUM(sa.litres),0) FROM sales sa JOIN stations s ON s.id=sa.station_id WHERE s.tenant_id=t.id AND sa.created_at>=?) litres_today,
+       (SELECT COUNT(*) FROM sessions se WHERE se.tenant_id=t.id AND se.revoked_at IS NULL AND se.last_seen_at>=?) online
+     FROM tenants t ORDER BY t.id DESC`, d30, todayUtc, todayUtc, new Date(Date.now() - 15 * 60_000).toISOString())
+    .map((r) => ({ ...r, module_wholesale: Boolean(r.module_wholesale), pump_url: r.slug ? `${config.publicUrl}/p/${r.slug}` : null, ...pick(tenantState(r.id), ["days_left", "locked", "lifetime", "plan_expired"]) }));
+  const byStatus = (s: string) => tenants.filter((t) => t.status === s).length;
+  const attention: { kind: string; tenant_id: number; name: string; text: string }[] = [];
+  for (const t of tenants) {
+    if (t.status === "trial" && t.days_left <= 3) attention.push({ kind: t.locked ? "trial_over" : "trial_ending", tenant_id: t.id, name: t.name, text: t.locked ? "Trial khatam — pump locked hai" : `Trial ${t.days_left} din me khatam` });
+    if (t.plan_expired) attention.push({ kind: "plan_expired", tenant_id: t.id, name: t.name, text: `${t.plan} plan ${t.paid_until} ko khatam — pump locked` });
+    else if (t.status === "active" && t.paid_until && !t.lifetime && t.days_left <= 7) attention.push({ kind: "plan_ending", tenant_id: t.id, name: t.name, text: `${t.plan} plan ${t.days_left} din me khatam (${t.paid_until})` });
+    if (t.status === "active" && t.last_activity && t.last_activity < d3 && !/^test-pump/.test(t.slug ?? "")) attention.push({ kind: "silent", tenant_id: t.id, name: t.name, text: `3+ din se koi activity nahi` });
+  }
+  const months: { month: string; signups: number }[] = [];
+  for (let i = 5; i >= 0; i--) { const d = new Date(); d.setUTCDate(1); d.setUTCMonth(d.getUTCMonth() - i); const m = d.toISOString().slice(0, 7); months.push({ month: m, signups: tenants.filter((t) => String(t.created_at).startsWith(m)).length }); }
+  const backups = listBackups();
+  let dbBytes = 0; try { dbBytes = fs.statSync(config.dbPath).size; } catch { /* in-memory / missing */ }
+  return {
+    now: now(),
+    kpis: {
+      pumps: tenants.length, active: byStatus("active"), trial: byStatus("trial"), suspended: byStatus("suspended"),
+      lifetime: tenants.filter((t) => t.lifetime).length, locked: tenants.filter((t) => t.locked).length,
+      users: tenants.reduce((a, t) => a + Number(t.users), 0), online: tenants.reduce((a, t) => a + Number(t.online), 0),
+      new_this_month: months[months.length - 1].signups,
+      sales_today: tenants.reduce((a, t) => a + Number(t.sales_today), 0), litres_today: tenants.reduce((a, t) => a + Number(t.litres_today), 0),
+      sales_30d: tenants.reduce((a, t) => a + Number(t.sales_30d), 0),
+      db_bytes: dbBytes, backups: backups.length, last_backup: backups[0]?.name ?? null,
+    },
+    attention, months, tenants,
+    codes_unused: get("SELECT COUNT(*) n FROM activation_codes WHERE used_by_tenant IS NULL")!.n,
+  };
+}));
+const pick = <T extends Record<string, unknown>>(o: T, keys: (keyof T)[]) => Object.fromEntries(keys.map((k) => [k, o[k]]));
+
 platform.post("/tenants/:id/:action", h((req) => {
   const id = Number(req.params.id), action = req.params.action;
   if (!get("SELECT id FROM tenants WHERE id=?", id)) throw new AppError(404, "Pump nahi mila");
