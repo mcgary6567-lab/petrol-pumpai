@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { FullEditEntry } from "../components/FullEdit";
 import { PrintFooter, PrintHeader } from "../components/Letterhead";
 import { Link, useSearchParams } from "react-router-dom";
 import {
@@ -245,6 +246,11 @@ function Desk({ go, onSlip }: { go: (k: string, extra?: Record<string, string>) 
 const PendingBadge = () => <Badge tone="amber">Approval pending · منظوری باقی</Badge>;
 
 function EditVoucher({ v, onClose, onDone }: { v: any; onClose: () => void; onDone: () => void }) {
+  // a voucher that mirrors a party row (khata / wholesale / supplier payment) gets the full editor: party, tareekh, amount, method
+  if (/^(khata|wtx|stx):/.test(String(v.src ?? ""))) return <FullEditEntry kind="voucher" id={v.id} onClose={onClose} onDone={onDone} />;
+  return <EditVoucherBasic v={v} onClose={onClose} onDone={onDone} />;
+}
+function EditVoucherBasic({ v, onClose, onDone }: { v: any; onClose: () => void; onDone: () => void }) {
   const [f, setF] = useState({ amount: String(v.amount ?? ""), method: v.method ?? "Cash", category: v.category ?? "", note: v.note ?? "", reason: "" });
   const [account, setAccount] = useState<number | null>(v.account_id ?? null);
   // re-route: wrong type (received/paid) or wrong party — the entry is re-posted on the right one, same voucher number

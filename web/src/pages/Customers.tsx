@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { Plus, MessageCircle, Wallet, BellRing, Car, Pencil, Trash2 } from "lucide-react";
-import { EditKhata, VoidWithReason } from "./Corrections";
+import { VoidWithReason } from "./Corrections";
+import { FullEditEntry } from "../components/FullEdit";
 import { ImportExport } from "../components/ImportExport";
 import { PrintListButton } from "../components/PrintList";
 
@@ -270,7 +271,7 @@ function CustomerDetail({ id, onClose, onChanged }: { id: string; onClose: () =>
                 </tbody></table>
                 {!ledger.length && <Empty>{c.ledger.length ? "Is filter me koi entry nahi" : "No khata entries"}</Empty>}
               </div>
-              {editLine && <EditKhata entry={editLine} onClose={() => setEditLine(null)} onDone={() => { setEditLine(null); refresh(); }} />}
+              {editLine && <FullEditEntry kind="khata" id={editLine.id} onClose={() => setEditLine(null)} onDone={() => { setEditLine(null); refresh(); }} />}
               {voidLine && <VoidWithReason title={`Void khata entry — ${c.name}`} what={`${voidLine.type === "credit" ? "Payment" : "Charge"} · ${pkr(voidLine.amount)} · ${d(voidLine.created_at)}${voidLine.note ? ` · ${voidLine.note}` : ""}`}
                 url={`/corrections/khata/${voidLine.id}/void`} onClose={() => setVoidLine(null)} onDone={() => { setVoidLine(null); refresh(); }} />}
             </section>

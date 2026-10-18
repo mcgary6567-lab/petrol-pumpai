@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { FullEditEntry } from "../components/FullEdit";
 import { useSearchParams } from "react-router-dom";
 import { api, useApi } from "../lib/api";
 import { useAuth } from "../App";
@@ -145,7 +146,7 @@ function SupplierVoid() {
       title: `${x.type === "payment" ? "Payment" : x.type === "purchase" ? "Purchase" : "Adjustment"} · ${pkr(x.amount)}`,
       sub: [x.supplier, x.method, x.product, x.ref].filter(Boolean).join(" · ") })}
     label={(x) => `Supplier ${x.type} void: ${x.supplier} — ${pkr(x.amount)}`}
-    edit={(x, base, onClose, onDone) => <EditSupplierTxn x={x} url={`${base}/${x.id}/edit`} onClose={onClose} onDone={onDone} />} />;
+    edit={(x, _base, onClose, onDone) => <FullEditEntry kind="supplier" id={x.id} onClose={onClose} onDone={onDone} />} />;
 }
 
 /** Edit a direct supplier payment/purchase/adjustment amount (purchase: litres×rate), ref & note. Payable + bank follow. */
@@ -187,7 +188,7 @@ function WholesaleVoid() {
       title: `${x.type} · ${x.litres ? `${num(x.litres, 2)}L · ` : ""}${pkr(x.amount)}`,
       sub: [x.client, x.product, x.method, x.ref].filter(Boolean).join(" · ") })}
     label={(x) => `Wholesale ${x.type} void: ${x.client} — ${pkr(x.amount)}`}
-    edit={(x, base, onClose, onDone) => <EditWholesaleTxn x={x} url={`${base}/${x.id}/edit`} onClose={onClose} onDone={onDone} />} />;
+    edit={(x, _base, onClose, onDone) => <FullEditEntry kind="wholesale" id={x.id} onClose={onClose} onDone={onDone} />} />;
 }
 
 /** Edit a direct wholesale supply (litres/rate) or payment (amount/method). Tank stock + client due follow. */
@@ -411,7 +412,7 @@ function KhataVoid() {
           )}
         </>
       )}
-      {edit && <EditKhata entry={edit} onClose={() => setEdit(null)} onDone={reload} />}
+      {edit && <FullEditEntry kind="khata" id={edit.id} onClose={() => setEdit(null)} onDone={reload} />}
       {!q.trim() && !cust && <div className="mt-6 flex flex-col items-center gap-1 text-slate-400"><Undo2 size={22} /><span className="text-sm">Customer chunein, phir galat charge ya payment void karein.</span></div>}
     </div>
   );

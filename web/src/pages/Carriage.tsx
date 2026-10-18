@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { FullEditEntry } from "../components/FullEdit";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { Plus, Search, Truck, Send, ArrowLeft, Ban, Pencil, HandCoins, Download, Printer } from "lucide-react";
 import { ImportExport } from "../components/ImportExport";
@@ -211,13 +212,13 @@ function Statement({ data, canVoid, canEdit, onChanged }: { data: any; canVoid: 
           <div className="w-24 text-right tabular-nums text-rose-600">{r.debit ? pkr(r.debit) : ""}</div>
           <div className="w-24 text-right tabular-nums text-emerald-600">{r.credit ? pkr(r.credit) : ""}</div>
           <div className="w-28 text-right font-semibold tabular-nums">{r.type === "fuel_note" ? "" : pkr(r.balance)}</div>
-          {canEdit && !r.voided && (r.type === "payment" || r.type === "adjustment") && !String(r.ref ?? "").startsWith("oth-disc:") &&
-            <button className="text-xs text-emerald-700 hover:underline disabled:opacity-40" disabled={busy} onClick={() => setEdit(r)} title="Edit"><Pencil size={14} /></button>}
+          {canEdit && !r.voided && r.type !== "fuel_note" && !String(r.ref ?? "").startsWith("oth-") &&
+            <button className="text-xs text-emerald-700 hover:underline disabled:opacity-40" disabled={busy} onClick={() => setEdit(r)} title="Edit (CEO) — party, tareekh, amount, method"><Pencil size={14} /></button>}
           {canVoid && !r.voided && <button className="text-xs text-rose-600 hover:underline disabled:opacity-40" disabled={busy} onClick={() => voidIt(r)} title="Void"><Ban size={14} /></button>}
         </li>
       ))}
       <li className="flex justify-between border-t-2 px-4 py-2 font-bold"><span>Closing (baqaya)</span><b className="tabular-nums">{pkr(data.closing_balance)}</b></li>
-      {edit && <EditCarriageTxn r={edit} onClose={() => setEdit(null)} onDone={onChanged} />}
+      {edit && <FullEditEntry kind="carriage" id={edit.id} onClose={() => setEdit(null)} onDone={onChanged} />}
     </ul>
     </>
   );

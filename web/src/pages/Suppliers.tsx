@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useAuth } from "../App";
-import { EditSupplierTxn } from "./Corrections";
+import { FullEditEntry } from "../components/FullEdit";
 import { Plus, Printer, Wallet, Building2, Pencil, Download, Trash2 } from "lucide-react";
 import { ImportExport } from "../components/ImportExport";
 import { PrintListButton } from "../components/PrintList";
@@ -309,7 +309,7 @@ function SupplierDetail({ id, onClose, onChanged, depots, onDepots }: { id: numb
             {!s.lines.length && <Empty>No entries</Empty>}
             {allLines.length > 0 && !lines.length && lineFiltered && <Empty>Kuch nahi mila · کچھ نہیں ملا</Empty>}
           </div>
-          {editLine && <EditSupplierTxn x={{ ...editLine, supplier: label(s) }} url={`/corrections/supplier-txn/${editLine.id}/edit`} onClose={() => setEditLine(null)} onDone={() => { setEditLine(null); reload(); onChanged(); }} />}
+          {editLine && <FullEditEntry kind="supplier" id={editLine.id} onClose={() => setEditLine(null)} onDone={() => { setEditLine(null); reload(); onChanged(); }} />}
           {voidLine && <VoidLine t={voidLine} supplier={label(s)} onClose={() => setVoidLine(null)} onDone={() => { setVoidLine(null); reload(); onChanged(); }} />}
         </div>
       )}

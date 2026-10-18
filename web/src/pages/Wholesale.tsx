@@ -12,7 +12,7 @@ import { useAuth } from "../App";
 import { OpeningBalanceField, type AdvanceReceipt } from "../components/OpeningBalanceField";
 import { WholesaleDashboard } from "../components/WholesaleDashboard";
 import { ProofPhotos, ProofThumbs } from "../components/Capture";
-import { EditWholesaleTxn } from "./Corrections";
+import { FullEditEntry } from "../components/FullEdit";
 import { AccountPicker } from "../components/BankParts";
 import { PortalCard } from "../components/PortalCard";
 import { FleetPicker, FleetTab, TripForm, TripSheet, TripsTab, fleetBody } from "../components/WholesaleFleet";
@@ -461,7 +461,7 @@ function ClientDetail({ id }: { id: string }) {
         {stmt.data ? (
           <>
             <div className="flex justify-between bg-slate-50 px-4 py-2 text-sm"><span>Opening balance{stmt.data.opening_balance < -0.5 ? " (advance)" : ""}</span><span className="font-medium tabular-nums">{pkr(Math.abs(stmt.data.opening_balance))}</span></div>
-            {editRow && <EditWholesaleTxn x={{ ...editRow, client: c.name }} url={`/corrections/wholesale-txn/${editRow.id}/edit`} onClose={() => setEditRow(null)} onDone={refresh} />}
+            {editRow && <FullEditEntry kind="wholesale" id={editRow.id} onClose={() => setEditRow(null)} onDone={refresh} />}
             <LedgerTable rows={stmt.data.lines} running tools onEdit={can("entries.edit") ? (row) => setEditRow(row) : undefined} onVoid={(can("wholesale.void") || can("wholesale.manage")) ? async (row) => {
               if (row.type === "fuel_note") {
                 if (confirm(`Void this fuel payment of ${pkr(row.amount)}? Any bank movement will be reversed.`)) { await api(`/carriage/fuel-payments/${String(row.id).replace("bfp", "")}/void`, { body: {} }).catch((e) => alert(e.message)); refresh(); }
