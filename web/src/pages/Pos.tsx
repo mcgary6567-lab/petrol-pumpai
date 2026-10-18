@@ -226,7 +226,7 @@ export default function Pos() {
     } finally { setSaving(false); }
     reset();
   };
-  useEffect(() => { if (!done || (done.discount_kind === "direct" && !done.discount_ref && !done.training)) return; const id = setTimeout(() => setDone(null), 6000); return () => clearTimeout(id); }, [done]);
+  // the "Sale saved" screen stays until the salesman closes it (print / WhatsApp / QR need time) — no auto-dismiss
   /** Direct discount: the reference (who / why) typed on the "saved" screen — online to the server, offline into the queued sale. */
   const saveRef = async () => {
     const ref = refText.trim();
@@ -596,6 +596,10 @@ export default function Pos() {
               </div>
             )}
             <div className="mt-6 flex justify-center gap-3">
+              <button onClick={(e) => { e.stopPropagation(); if (done.discount_kind === "direct" && !done.discount_ref && !done.training) return; setDone(null); }}
+                disabled={done.discount_kind === "direct" && !done.discount_ref && !done.training}
+                className="flex items-center gap-2 rounded-xl bg-white px-8 py-4 text-xl font-bold text-emerald-700 shadow active:scale-95 disabled:opacity-50">
+                <Check size={24} /> Done · agli sale · <Ur>اگلی سیل</Ur></button>
               {!done.training && <button onClick={(e) => { e.stopPropagation(); undo(done); }} className="flex items-center gap-2 rounded-xl bg-white/20 px-6 py-4 text-xl font-bold ring-2 ring-white active:scale-95">
                 <Undo2 size={24} /> Undo · <Ur>واپس</Ur>
               </button>}
