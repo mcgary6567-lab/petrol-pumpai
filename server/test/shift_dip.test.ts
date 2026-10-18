@@ -41,6 +41,7 @@ test("opening + closing dip reconcile against the meter; variance flagged, tank 
   const open = ok(await call("salesman", "POST", "/api/shifts/open", { station_id: noz.station_id, readings: { [noz.nozzle_id]: noz.totalizer }, dips: [{ tank_id: noz.tank_id, measured_l: 5000 }] }), "open shift with opening dip");
   const shid = open.id;
   assert.equal(db.get("SELECT measured_l FROM shift_dips WHERE shift_id=? AND phase='open'", shid).measured_l, 5000, "opening dip stored");
+  near(db.get("SELECT current_l FROM tanks WHERE id=?", noz.tank_id).current_l, 5000, "tank book stock = opening dip");
 
   // meter will show 100 L pumped; record 100 L cash so nothing extra is booked at close
   ok(await call("salesman", "POST", "/api/sales", { station_id: noz.station_id, product: "PMG", litres: 100, payment_method: "cash" }), "100 L cash sale");
@@ -99,4 +100,27 @@ test("dip stick in cm: /shifts/dip-litres converts via the tank chart for a sale
   // a tank with no chart answers has_chart=false instead of erroring
   const bare = db.get("SELECT t.id FROM tanks t JOIN stations s ON s.id=t.station_id WHERE s.tenant_id=1 AND t.id<>? AND t.dip_chart_id IS NULL AND NOT EXISTS (SELECT 1 FROM tank_charts c WHERE c.tank_id=t.id) LIMIT 1", noz.tank_id) as any;
   if (bare) { const r = ok(await call("salesman", "GET", `/api/shifts/dip-litres?tank_id=${bare.id}&cm=50`), "no chart"); assert.equal(r.has_chart, false); assert.equal(r.litres, null); }
+});
+
+test("opening dip is the tank's real stock: book stock replaced, stock register row written with the variance against the old book", async () => {
+  const noz = db.get("SELECT n.id nozzle_id, n.tank_id, n.station_id, n.totalizer, t.capacity_l FROM nozzles n JOIN tanks t ON t.id=n.tank_id JOIN stations s ON s.id=n.station_id WHERE s.tenant_id=1 AND n.active=1 AND t.product='HSD' ORDER BY n.id LIMIT 1") as any;
+  assert.ok(noz, "an HSD nozzle");
+  for (const sh of db.all("SELECT id FROM shifts WHERE station_id=? AND status='open'", noz.station_id) as any[]) db.run("UPDATE shifts SET status='closed', closed_at=? WHERE id=?", new Date().toISOString(), sh.id);
+  db.run("UPDATE tanks SET current_l = 0 WHERE id=?", noz.tank_id); // a tank the system thinks is empty (e.g. go-live without a stock entry)
+  const before = db.get("SELECT COUNT(*) n FROM dip_readings WHERE tank_id=?", noz.tank_id).n;
+
+  // more than the tank holds is refused, nothing written
+  const tooMuch = await call("salesman", "POST", "/api/shifts/open", { station_id: noz.station_id, readings: { [noz.nozzle_id]: noz.totalizer }, dips: [{ tank_id: noz.tank_id, measured_l: noz.capacity_l * 2 }] });
+  assert.equal(tooMuch.status, 400);
+  assert.equal(db.get("SELECT COUNT(*) n FROM shifts WHERE station_id=? AND status='open'", noz.station_id).n, 0, "no shift opened on a refused dip");
+
+  const open = ok(await call("salesman", "POST", "/api/shifts/open", { station_id: noz.station_id, readings: { [noz.nozzle_id]: noz.totalizer }, dips: [{ tank_id: noz.tank_id, measured_l: 6200 }] }), "open with 6,200 L diesel dip");
+  near(db.get("SELECT current_l FROM tanks WHERE id=?", noz.tank_id).current_l, 6200, "diesel tank now shows the opening dip");
+  const reg = db.get("SELECT measured_l, book_l FROM dip_readings WHERE tank_id=? ORDER BY id DESC LIMIT 1", noz.tank_id);
+  assert.equal(db.get("SELECT COUNT(*) n FROM dip_readings WHERE tank_id=?", noz.tank_id).n, before + 1, "one stock-register dip row");
+  near(reg.measured_l, 6200); near(reg.book_l, 0, "variance recorded against the old book stock");
+  // the stations list (what every screen shows) carries it too
+  const tank = (ok(await call("admin", "GET", "/api/stations"), "stations") as any[]).flatMap((s) => s.tanks).find((t) => t.id === noz.tank_id);
+  near(tank.current_l, 6200, "stations API");
+  ok(await call("salesman", "POST", `/api/shifts/${open.id}/close`, { readings: { [noz.nozzle_id]: noz.totalizer }, cash_actual: 0 }), "close");
 });

@@ -21,7 +21,8 @@ const Ur = ({ children }: { children: React.ReactNode }) => <span className="fon
  * never into profit.
  */
 export default function OpeningBalances() {
-  const [tab, setTab] = useState<Tab>("khata");
+  // ?tab=stock etc. lets the go-live checklist land on the right section
+  const [tab, setTab] = useState<Tab>(() => { const q = new URLSearchParams(window.location.search).get("tab") as Tab | null; return q && TABS.some((x) => x.k === q) ? q : "khata"; });
   const { data, reload } = useApi<any>("/opening");
   if (!data) return <Loading />;
   return (

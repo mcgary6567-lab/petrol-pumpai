@@ -722,9 +722,25 @@ operations.post("/shifts/open", requirePerm("shifts.manage"), h(async (req) => {
     const r = b.readings?.[String(n.id)];
     if (r !== undefined && r < n.totalizer) throw new AppError(400, `Nozzle ${n.label}: reading ${r} is below the last closing reading ${n.totalizer}. Meters cannot go back — please check.`);
   }
+  // opening dip per tank (optional) — the salesman's physical stock at shift start. Checked before anything is written so a
+  // bad dip leaves no half-opened shift; like every dip it is the tank's real stock (stock register row, book stock replaced,
+  // variance against the old book kept) and is held on the shift for the wet-stock reconciliation at close.
+  const dipRows = (b.dips ?? []).map((d) => {
+    const tk = get("SELECT t.* FROM tanks t WHERE t.id=? AND t.station_id=?", d.tank_id, stationId);
+    if (!tk) throw new AppError(400, "Dip tank is not on this station");
+    const litres = round2(d.measured_cm !== undefined ? litresFromCm(d.tank_id, d.measured_cm) : d.measured_l!);
+    if (litres > tk.capacity_l * 1.001) throw new AppError(400, `${tk.name}: dip ${Math.round(litres).toLocaleString("en-IN")} L is more than the tank's capacity (${Math.round(tk.capacity_l).toLocaleString("en-IN")} L)`);
+    return { tank: tk, litres, cm: d.measured_cm ?? null };
+  });
   const gaps: { label: string; product: string; litres: number }[] = [];
   const shift = tx(() => {
     const { id } = run("INSERT INTO shifts (station_id,attendant,opened_at,status) VALUES (?,?,?, 'open')", stationId, attendant, now());
+    for (const { tank: tk, litres, cm } of dipRows) {
+      const stamp = now();
+      run("INSERT INTO shift_dips (shift_id,tank_id,phase,measured_l,measured_cm,created_at) VALUES (?,?,?,?,?,?)", id, tk.id, "open", litres, cm, stamp);
+      run("INSERT INTO dip_readings (tank_id,measured_l,measured_cm,temperature,corrected_l,book_l,variance_pct,created_at) VALUES (?,?,?,?,?,?,?,?)", tk.id, litres, cm, null, null, tk.current_l, tk.current_l ? round2(((litres - tk.current_l) / tk.current_l) * 100) : 0, stamp);
+      run("UPDATE tanks SET current_l=? WHERE id=?", litres, tk.id);
+    }
     for (const n of chosen) {
       const opening = b.readings?.[String(n.id)] ?? n.totalizer;
       const gap = round2(opening - n.totalizer);
@@ -742,13 +758,6 @@ operations.post("/shifts/open", requirePerm("shifts.manage"), h(async (req) => {
     const body = `${gaps.map((g) => `${g.label} (${PRODUCTS[g.product]}): ${g.litres} L`).join(", ")} moved on the meter between shifts and were not billed. Started by ${attendant} at ${st.name}.`;
     const a = createAlert(tid(req), { station_id: stationId, type: "handover_gap", severity: "critical", title: `⚠️ Meter gap at shift handover — ${round2(gaps.reduce((x, g) => x + g.litres, 0))} L`, body, dedupe_key: `gap-${shift.id}` });
     if (a) await notify(tid(req), staff(tid(req), ["admin", "manager"]), { type: "handover_gap", data: { shift_id: shift.id }, title: a.title, body });
-  }
-  // opening dip per tank (optional) — the salesman's physical stock at shift start, for wet-stock reconciliation at close
-  for (const d of b.dips ?? []) {
-    const tk = get("SELECT t.id, t.station_id FROM tanks t WHERE t.id=? AND t.station_id=?", d.tank_id, stationId);
-    if (!tk) throw new AppError(400, "Dip tank is not on this station");
-    const litres = d.measured_cm !== undefined ? litresFromCm(d.tank_id, d.measured_cm) : d.measured_l!;
-    run("INSERT INTO shift_dips (shift_id,tank_id,phase,measured_l,measured_cm,created_at) VALUES (?,?,?,?,?,?)", shift.id, d.tank_id, "open", round2(litres), d.measured_cm ?? null, now());
   }
   linkPhotos(tid(req), b.photo_ids, `shift-open:${shift.id}`);
   // attendance is NOT marked by opening a shift: it needs the salesman's own live selfie + location
