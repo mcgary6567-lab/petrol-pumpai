@@ -5,6 +5,7 @@ import { VoidWithReason } from "./Corrections";
 import { FullEditEntry } from "../components/FullEdit";
 import { ImportExport } from "../components/ImportExport";
 import { PrintListButton } from "../components/PrintList";
+import { PartyAdmin } from "../components/PartyAdmin";
 
 import { api, useApi } from "../lib/api";
 import { Badge, CnicInput, Empty, ErrorBox, Field, ListTools, Loading, Modal, PageHeader, PhoneInput, Stat, statusTone, useAction, useListFilter } from "../components/ui";
@@ -212,6 +213,7 @@ function CustomerDetail({ id, onClose, onChanged }: { id: string; onClose: () =>
             {phone(c.phone)} · {c.type} · {c.city ?? "—"} {c.segment && <Badge tone={segTone[c.segment]}>{c.segment}</Badge>} {!c.opt_in && <Badge tone="slate">Opted out</Badge>} {!c.active && <Badge tone="slate">Archived</Badge>}
             {can("customers.edit") && <button className="ml-auto min-h-9 px-1 text-xs text-brand-600 hover:underline" onClick={() => setEdit(true)}><Pencil size={12} className="inline" /> Edit</button>}
             {can("customers.edit") && <button className="min-h-9 px-1 text-xs text-slate-500 hover:underline" disabled={busy} onClick={() => confirm(c.active ? `Archive ${c.name}? They leave the POS, lists and campaigns; their history stays. Khata must be settled first.` : `Bring ${c.name} back?`) && run(() => api(`/customers/${c.id}/archive`, { body: { archived: c.active } }), c.active ? "Archived" : "Restored").then(() => { refresh(); onChanged(); })}>{c.active ? "Archive" : "Restore"}</button>}
+            <PartyAdmin kind="customer" id={c.id} name={c.name} backTo="/customers" onDone={onChanged} className="!min-h-9 !px-2 !py-1 !text-xs" />
           </div>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <Stat label={c.balance < -0.5 ? "Advance with us · ایڈوانس" : "Khata balance"} value={pkr(Math.abs(c.balance))} tone={c.balance < -0.5 ? "green" : "slate"} hint={c.balance < -0.5 ? "Customer's cash lying with us — khata sales are cut from it first" : c.credit_limit ? `Limit ${pkr(c.credit_limit)}` : "No credit"} />

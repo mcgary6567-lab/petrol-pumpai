@@ -6,7 +6,7 @@ import { all, get, run, now, tx } from "../db.js";
 import { linkPhotos, proofPhotos, proofCol, requireProof, isCheque } from "./capture.js";
 import { bankAccountFor, accountIdField, chequeToRegister, accountName } from "./banks.js";
 import { h, parse, tid, can, requirePerm } from "../auth.js";
-import { AppError, normalizePhone, round2 } from "../services.js";
+import { AppError, assertNoDuplicateParty, normalizePhone, round2 } from "../services.js";
 import { announce } from "../notifications.js";
 import { bypassOwed } from "./bypass.js";
 
@@ -91,6 +91,7 @@ const checkDepot = (t: number, depotId: number | null | undefined) => {
 
 suppliers.post("/suppliers", h(async (req) => {
   const b = parse(supplierBody, req.body);
+  assertNoDuplicateParty("suppliers", tid(req), b.name, b.phone, "Supplier");
   checkDepot(tid(req), b.depot_id);
   const { id } = run("INSERT INTO suppliers (tenant_id,name,phone,opening_balance,notes,depot_id,company,created_at) VALUES (?,?,?,?,?,?,?,?)",
     tid(req), b.name, b.phone ? normalizePhone(b.phone) : null, b.opening_balance ?? 0, b.notes ?? null, b.depot_id ?? null, b.company ?? null, now());

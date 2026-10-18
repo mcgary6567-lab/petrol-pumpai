@@ -8,6 +8,17 @@ export class AppError extends Error {
   }
 }
 
+/**
+ * Refuse a second party with the same phone or the very same name (trimmed, case-insensitive) as one already on this pump.
+ * Duplicates split a khata across two names; two people who really share a name get a distinguishing word (city, father's name).
+ */
+export function assertNoDuplicateParty(table: "customers" | "wholesale_clients" | "suppliers" | "thekedars", tenantId: number, name: string, phone: string | null | undefined, label: string) {
+  const nm = name.trim().toLowerCase();
+  const ph = phone && phone.trim() ? normalizePhone(phone) : "";
+  const hit = get(`SELECT id, name, phone, active FROM ${table} WHERE tenant_id=? AND (LOWER(TRIM(name))=? ${ph ? "OR REPLACE(REPLACE(COALESCE(phone,''),'+',''),' ','')=?" : ""}) ORDER BY active DESC, id LIMIT 1`, tenantId, nm, ...(ph ? [ph] : []));
+  if (hit) throw new AppError(409, `${label} "${hit.name}"${hit.phone ? ` (${hit.phone})` : ""} pehle se mojood hai${hit.active ? "" : " (archived)"} — usi ko kholein. Agar waqai alag ${label.toLowerCase()} hai to naam me farq rakhein (shehar / walid ka naam).`);
+}
+
 /** Normalise Pakistani mobile numbers to E.164 digits without "+" (e.g. 03001234567 -> 923001234567). */
 export function normalizePhone(raw: string): string {
   let d = String(raw).replace(/\D/g, "");

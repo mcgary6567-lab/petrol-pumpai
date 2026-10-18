@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { Plus, Search, Truck, Wallet, Undo2, SlidersHorizontal, Download, Printer, Ban, ArrowLeft, Pencil, Send, Receipt } from "lucide-react";
 import { ImportExport } from "../components/ImportExport";
 import { PrintListButton } from "../components/PrintList";
+import { PartyAdmin } from "../components/PartyAdmin";
 
 import { api, linkToken, useApi } from "../lib/api";
 import { Badge, Empty, ErrorBox, Field, ListTools, Loading, Modal, PageHeader, PhoneInput, Stat, useAction, useListFilter } from "../components/ui";
@@ -378,6 +379,7 @@ function ClientDetail({ id }: { id: string }) {
             setSending(false);
           }}><Send size={15} /> WhatsApp statement · <Ur>حساب بھیجیں</Ur></button>}
           {can("wholesale.manage") && <button className="btn-secondary" onClick={() => setAction("edit")}><Pencil size={15} /> Edit · <Ur>تبدیل</Ur></button>}
+          <PartyAdmin kind="client" id={c.id} name={c.name} backTo="/wholesale?tab=clients" />
         </div>} />
 
       {/* big, one-tap common actions — saaf aur samajhne me aasan */}

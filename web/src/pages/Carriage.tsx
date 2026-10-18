@@ -4,6 +4,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { Plus, Search, Truck, Send, ArrowLeft, Ban, Pencil, HandCoins, Download, Printer } from "lucide-react";
 import { ImportExport } from "../components/ImportExport";
 import { PrintListButton } from "../components/PrintList";
+import { PartyAdmin } from "../components/PartyAdmin";
 
 import { api, linkToken, useApi } from "../lib/api";
 import { Badge, CnicInput, Empty, ErrorBox, Field, FilterChips, ListTools, Loading, Modal, PageHeader, PhoneInput, useAction, useListFilter } from "../components/ui";
@@ -152,6 +153,7 @@ function ThekedarDetail({ id }: { id: number }) {
           <button className="btn-primary" onClick={() => setAction("carriage")}><Truck size={15} /> Bill kiraya · <Ur>کرایہ</Ur></button>
           <button className="btn-secondary" onClick={() => setAction("payment")}><HandCoins size={15} /> Payment · <Ur>وصولی</Ur></button>
           <button className="btn-secondary" onClick={() => setAction("edit")}>Edit</button>
+          <PartyAdmin kind="thekedar" id={k.id} name={k.name} backTo="/carriage" />
         </div>}
       </div>
 

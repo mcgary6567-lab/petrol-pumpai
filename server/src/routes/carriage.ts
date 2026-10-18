@@ -13,7 +13,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { all, get, run, tx, now, pkDate, getSetting, stampFor } from "../db.js";
 import { h, parse, tid, requirePerm } from "../auth.js";
-import { AppError, createAlert, round2, pkr, audit } from "../services.js";
+import { AppError, assertNoDuplicateParty, createAlert, round2, pkr, audit } from "../services.js";
 import { productSchema } from "../products.js";
 import { PRODUCTS } from "../config.js";
 import { linkPhotos, proofPhotos, proofCol } from "./capture.js";
@@ -129,6 +129,7 @@ carriage.post("/carriage/thekedars", requirePerm("carriage.manage"), h((req) => 
     city: z.string().max(60).optional().nullable(), address: z.string().max(200).optional().nullable(),
     opening_balance: z.number().optional(), notes: z.string().max(300).optional().nullable(),
   }), req.body);
+  assertNoDuplicateParty("thekedars", t, b.name, b.phone, "Thekedar");
   const { id } = run(`INSERT INTO thekedars (tenant_id,name,phone,cnic,city,address,opening_balance,notes,created_at)
     VALUES (?,?,?,?,?,?,?,?,?)`, t, b.name, b.phone ?? null, b.cnic ?? null, b.city ?? null, b.address ?? null, round2(b.opening_balance ?? 0), b.notes ?? null, now());
   return get("SELECT * FROM thekedars WHERE id=?", id);

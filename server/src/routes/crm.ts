@@ -5,7 +5,7 @@ import { all, get, run, tx, now, pkStart, pkEnd, pkDate } from "../db.js";
 import { linkPhotos, proofPhotos, proofCol, requireProof, isCheque } from "./capture.js";
 import { bankAccountFor, accountIdField, chequeToRegister } from "./banks.js";
 import { h, parse, tid, requirePerm, requireAny, can } from "../auth.js";
-import { AppError, khataEntry, normalizePhone, paymentLink, pkr, dueText, recordSale, audit, round2 } from "../services.js";
+import { AppError, assertNoDuplicateParty, khataEntry, normalizePhone, paymentLink, pkr, dueText, recordSale, audit, round2 } from "../services.js";
 import { setKhataOpening } from "./opening.js";
 import { productSchema } from "../products.js";
 import { assertLookup } from "./lookups.js";
@@ -68,6 +68,7 @@ crm.post("/customers", requirePerm("customers.create"), h(async (req) => {
     opening_method: z.string().max(40).optional().nullable(), opening_account_id: accountIdField,
   }), req.body);
   assertLookup(tid(req), "customer_type", b.type);
+  assertNoDuplicateParty("customers", tid(req), b.name, b.phone, "Customer");
   if (b.credit_limit > 0 && !can(req.user, "credit.set_limit")) throw new AppError(403, "Only the admin can give khata credit");
   if (b.opening_balance && !can(req.user, "credit.set_limit")) throw new AppError(403, "Only the admin can set an opening balance");
   const openingAmt = b.opening_balance ? (b.opening_kind === "advance" ? -b.opening_balance : b.opening_balance) : 0;

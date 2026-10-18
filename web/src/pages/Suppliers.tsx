@@ -4,6 +4,7 @@ import { FullEditEntry } from "../components/FullEdit";
 import { Plus, Printer, Wallet, Building2, Pencil, Download, Trash2 } from "lucide-react";
 import { ImportExport } from "../components/ImportExport";
 import { PrintListButton } from "../components/PrintList";
+import { PartyAdmin } from "../components/PartyAdmin";
 
 import { VoucherSlip } from "./Cashier";
 import { api, linkToken, useApi } from "../lib/api";
@@ -256,6 +257,7 @@ function SupplierDetail({ id, onClose, onChanged, depots, onDepots }: { id: numb
             {s.depot_name && <span className="badge gap-1 bg-slate-100 text-slate-700"><Building2 size={12} /> {s.depot_name}{s.depot_address ? ` · ${s.depot_address}` : ""}</span>}
             {s.company && <Badge tone="blue">{s.company}</Badge>}
             <button type="button" className="btn-secondary ml-auto min-h-9 !py-1" onClick={() => setEdit(true)}><Pencil size={14} /> Edit contact</button>
+            <PartyAdmin kind="supplier" id={s.id} name={s.name} backTo="/suppliers" onDone={() => { onChanged(); onClose(); }} className="min-h-9 !py-1" />
           </div>
           <div className="flex flex-wrap items-end gap-3 print:hidden">
             <Stat label="We owe (pump + bypass)" value={pkr(s.total_owed ?? s.owed)} tone="red" hint={Math.abs(s.bypass_owed ?? 0) > 0.5 ? `pump ${pkr(s.owed)} · bypass ${pkr(s.bypass_owed)}` : undefined} />

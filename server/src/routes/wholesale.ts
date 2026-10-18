@@ -8,7 +8,7 @@ import { fuelCostPerL } from "../fuelCost.js";
 import { z } from "zod";
 import { all, get, run, tx, now, pkDayStart, pkDate, pkStart, pkEnd, type Row } from "../db.js";
 import { h, parse, tid, requirePerm, requireAny, can } from "../auth.js";
-import { AppError, createAlert, normalizePhone, round2, pkr, currentPrices, audit } from "../services.js";
+import { AppError, assertNoDuplicateParty, createAlert, normalizePhone, round2, pkr, currentPrices, audit } from "../services.js";
 import { productSchema } from "../products.js";
 import { PRODUCTS } from "../config.js";
 import { announce } from "../notifications.js";
@@ -379,6 +379,7 @@ const signedOpening = (b: { opening_balance?: number; opening_kind?: "due" | "ad
 };
 wholesale.post("/wholesale/clients", requirePerm("wholesale.manage"), h(async (req) => {
   const b = parse(clientBody, req.body);
+  assertNoDuplicateParty("wholesale_clients", tid(req), b.name, b.phone, "Client");
   guardFinancials(req, b); signedOpening(b);
   // today's advance = a payment txn (cash book / bank / ledger follow), not an opening figure
   const liveAdvance = (b.opening_balance ?? 0) < 0 && b.opening_method ? { amount: -b.opening_balance!, method: b.opening_method, account_id: bankAccountFor(tid(req), b.opening_account_id, b.opening_method) } : null;
