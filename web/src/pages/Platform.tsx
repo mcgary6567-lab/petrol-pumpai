@@ -64,6 +64,10 @@ function Panel({ onLogout }: { onLogout: () => void }) {
   const makeCode = async () => { const r = await pfetch("/platform/codes", { count: 1, plan: "lifetime" }).catch((e) => setErr(e.message)); if (r) { setMade(r.codes); load(); } };
   const [resetFor, setResetFor] = useState<any>(null);
   const [deleteFor, setDeleteFor] = useState<any>(null);
+  const [testReport, setTestReport] = useState<any>(null);
+  const [testBusy, setTestBusy] = useState(false);
+  // a fresh pump with every role + one entry of every kind, each with its hand-worked figure — for checking the arithmetic
+  const makeTestPump = async () => { setTestBusy(true); setErr(null); try { setTestReport(await pfetch("/platform/test-pump", {})); load(); } catch (e: any) { setErr(e.message); } finally { setTestBusy(false); } };
 
   if (!tenants) return <div className="p-8 text-center text-slate-500">Loading… {err && <ErrorBox error={err} />}</div>;
   const unused = codes.filter((c) => !c.used_by_tenant);
@@ -79,6 +83,7 @@ function Panel({ onLogout }: { onLogout: () => void }) {
         <button className="btn-primary" onClick={makeCode}>+ Naya activation code</button>
         <span className="text-sm text-slate-500">{unused.length} code unused</span>
         {made.length > 0 && <span className="rounded-lg bg-emerald-50 px-3 py-1 font-mono text-sm text-emerald-800">{made.join(", ")}</span>}
+        <button className="btn-secondary ml-auto" disabled={testBusy} title="Naya test pump: har role ka user, har kism ki ek entry, har hisaab expected vs system" onClick={makeTestPump}>{testBusy ? "Ban raha hai…" : "Test pump banao"}</button>
       </div>
 
       <div className="overflow-x-auto rounded-xl bg-white shadow-sm ring-1 ring-slate-200">
@@ -113,6 +118,7 @@ function Panel({ onLogout }: { onLogout: () => void }) {
       </div>
 
       {resetFor && <AdminResetModal t={resetFor} onClose={() => setResetFor(null)} onDone={() => { setResetFor(null); load(); }} />}
+      {testReport && <TestPumpModal r={testReport} onClose={() => setTestReport(null)} />}
       {deleteFor && <DeletePumpModal t={deleteFor} onClose={() => setDeleteFor(null)} onDone={() => { setDeleteFor(null); load(); }} />}
       {/* whole-database backups: every pump in one file, kept on the volume + Google Drive / Dropbox */}
       <div className="mt-4">
@@ -168,6 +174,42 @@ function AdminResetModal({ t, onClose, onDone }: { t: any; onClose: () => void; 
 }
 
 /** Super admin deletes a pump: a whole-database backup is taken first, then every row of that pump goes. The exact name must be typed. */
+/** The test-pump report: logins for every role and each entry's expected figure next to what the system shows. */
+function TestPumpModal({ r, onClose }: { r: any; onClose: () => void }) {
+  return (
+    <Modal open wide onClose={onClose} title={`Test pump — ${r.pump.name}`}>
+      <div className="space-y-3 text-sm">
+        <div className={`rounded-xl p-3 ${r.summary.failed ? "bg-rose-50 text-rose-900" : "bg-emerald-50 text-emerald-800"}`}>
+          <b>{r.summary.ok}/{r.steps.length} hisaab match</b>{r.summary.failed ? ` · ${r.summary.failed} farq` : " · sab theek"}
+          {r.pump.url && <div className="mt-1 text-xs">Pump link: <a className="font-mono underline" href={r.pump.url} target="_blank" rel="noreferrer">{r.pump.url}</a></div>}
+        </div>
+        <div className="rounded-xl bg-slate-50 p-3">
+          <div className="mb-1 font-semibold">Logins (password sab ka <span className="font-mono">{r.logins[0]?.password}</span>)</div>
+          <table className="w-full text-xs"><tbody>
+            {r.logins.map((l: any) => <tr key={l.email}><td className="py-0.5 pr-2 font-medium">{l.role}</td><td className="font-mono">{l.email}</td><td className="pl-2 font-mono">PIN {l.pin}</td></tr>)}
+          </tbody></table>
+        </div>
+        <div className="max-h-[50vh] overflow-y-auto rounded-xl ring-1 ring-slate-200">
+          <table className="w-full text-xs">
+            <thead className="sticky top-0 bg-white text-left text-slate-500"><tr><th className="p-2">#</th><th className="p-2">Entry</th><th className="p-2">Expected (haath se)</th><th className="p-2">System</th></tr></thead>
+            <tbody>
+              {r.steps.map((s: any) => (
+                <tr key={s.n} className={`border-t border-slate-100 align-top ${s.ok ? "" : "bg-rose-50"}`}>
+                  <td className="p-2">{s.ok ? "✅" : "❌"} {s.n}</td>
+                  <td className="p-2"><div className="font-medium">{s.title}</div><div className="text-slate-500">{s.entry}</div></td>
+                  <td className="p-2">{s.expect}</td>
+                  <td className="p-2 font-mono">{s.actual}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div className="flex justify-end"><button className="btn-primary" onClick={onClose}>Band karein</button></div>
+      </div>
+    </Modal>
+  );
+}
+
 function DeletePumpModal({ t, onClose, onDone }: { t: any; onClose: () => void; onDone: () => void }) {
   const [typed, setTyped] = useState(""); const [err, setErr] = useState(""); const [busy, setBusy] = useState(false); const [done, setDone] = useState<any>(null);
   const ok = typed.trim().toLowerCase() === String(t.name).trim().toLowerCase();

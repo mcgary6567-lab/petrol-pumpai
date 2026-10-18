@@ -209,6 +209,12 @@ platform.delete("/tenants/:id", h((req) => {
   return { ok: true, deleted: { id, name: t.name, slug: t.slug }, backup, rows: Object.values(counts).reduce((a, n) => a + n, 0), tables: counts };
 }));
 
+/** Make a test pump (every role, one entry of every kind, expected vs actual) on this very server — for the owner to check the arithmetic. */
+platform.post("/test-pump", h(async (req) => {
+  const { runTestPump } = await import("../testPump.js");
+  // call back into this very server on whichever port it is actually listening (tests use a random one)
+  return runTestPump(`http://127.0.0.1:${req.socket.localPort ?? config.port}`, { publicUrl: config.publicUrl });
+}));
 platform.post("/tenants/:id/:action", h((req) => {
   const id = Number(req.params.id), action = req.params.action;
   if (!get("SELECT id FROM tenants WHERE id=?", id)) throw new AppError(404, "Pump nahi mila");
