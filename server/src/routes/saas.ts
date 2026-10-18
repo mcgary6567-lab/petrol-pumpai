@@ -16,11 +16,11 @@ import { z } from "zod";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import { config } from "../config.js";
-import { all, get, run, now, setSetting } from "../db.js";
+import { all, get, run, now, setSetting, tx, db } from "../db.js";
 import { h, parse, tid, forgetModules } from "../auth.js";
-import { AppError } from "../services.js";
+import { AppError, audit, normalizePhone } from "../services.js";
 import { setupBody, provisionTenant } from "./setup.js";
-import { mountBackupRoutes } from "./system.js";
+import { mountBackupRoutes, makeBackup } from "./system.js";
 
 export const saasPublic = Router();  // no login (sign-up, platform login + panel)
 export const saasAuthed = Router();  // after requireAuth (the pump owner's own account)
@@ -122,6 +122,93 @@ platform.post("/tenants/:id/module", h((req) => {
   forgetModules(id);
   return { ok: true, module: b.module, on: b.on };
 }));
+/* ---- the pump's CEO logins: see them, reset email / phone / password / PIN (owner lost access, phone changed, left the pump) ---- */
+const PLATFORM_USER = { id: 0, name: "Platform (super admin)" };
+platform.get("/tenants/:id/admins", h((req) => {
+  const id = Number(req.params.id);
+  const t = get("SELECT id, name FROM tenants WHERE id=?", id);
+  if (!t) throw new AppError(404, "Pump nahi mila");
+  return { tenant: t, admins: all("SELECT id, name, email, phone, active, pin_hash IS NOT NULL has_pin, created_at FROM users WHERE tenant_id=? AND role='admin' ORDER BY id", id).map((u) => ({ ...u, has_pin: Boolean(u.has_pin), active: Boolean(u.active) })) };
+}));
+platform.post("/tenants/:id/admin-reset", h((req) => {
+  const id = Number(req.params.id);
+  const b = parse(z.object({
+    user_id: z.number().int().positive(),
+    email: z.string().trim().email().optional(), phone: z.string().trim().min(10).max(16).optional(),
+    password: z.string().min(8, "Password kam az kam 8 harf").max(80).optional(), pin: z.string().regex(/^\d{4}$/, "PIN 4 hindse").optional(),
+    name: z.string().trim().min(2).max(80).optional(),
+  }), req.body);
+  const u = get("SELECT * FROM users WHERE id=? AND tenant_id=? AND role='admin'", b.user_id, id);
+  if (!u) throw new AppError(404, "Is pump ka CEO user nahi mila");
+  if (!b.email && !b.phone && !b.password && !b.pin && !b.name) throw new AppError(400, "Kuch to badlein: email, phone, password ya PIN");
+  const email = b.email?.toLowerCase();
+  if (email && email !== u.email && get("SELECT 1 x FROM users WHERE email=? AND id<>?", email, u.id)) throw new AppError(400, "Ye email kisi aur user par pehle se hai");
+  const phone = b.phone ? normalizePhone(b.phone) : undefined;
+  tx(() => {
+    if (b.name) run("UPDATE users SET name=? WHERE id=?", b.name, u.id);
+    if (email) run("UPDATE users SET email=? WHERE id=?", email, u.id);
+    if (phone) run("UPDATE users SET phone=? WHERE id=?", phone, u.id);
+    if (b.password) run("UPDATE users SET password_hash=?, pw_fails=0, pw_locked_until=NULL WHERE id=?", bcrypt.hashSync(b.password, 10), u.id);
+    if (b.pin) run("UPDATE users SET pin_hash=?, pin_fails=0, pin_locked_until=NULL WHERE id=?", bcrypt.hashSync(b.pin, 10), u.id);
+    // a credential change signs the person out everywhere (token_version is checked on every request); also unlocks the account
+    run("UPDATE users SET active=1, token_version=COALESCE(token_version,0)+1 WHERE id=?", u.id);
+  });
+  audit(id, PLATFORM_USER, "platform_admin_reset", `user:${u.id}`, { name: b.name ?? undefined, email: email ?? undefined, phone: phone ?? undefined, password: Boolean(b.password), pin: Boolean(b.pin) });
+  return { ok: true, user: get("SELECT id, name, email, phone, active, pin_hash IS NOT NULL has_pin FROM users WHERE id=?", u.id) };
+}));
+
+/**
+ * Delete a pump outright: a whole-database backup is taken first (Settings → Backups / platform backups keep it), then every row
+ * of that tenant goes — the 85 tenant_id tables plus the child tables that hang off its stations, tanks, shifts, customers, users,
+ * clients, items and charts. The platform admin must type the pump's exact name. Nothing of another pump is touched.
+ */
+platform.delete("/tenants/:id", h((req) => {
+  const id = Number(req.params.id);
+  const b = parse(z.object({ confirm: z.string().trim().min(1) }), req.body ?? {});
+  const t = get("SELECT * FROM tenants WHERE id=?", id);
+  if (!t) throw new AppError(404, "Pump nahi mila");
+  if (b.confirm.trim().toLowerCase() !== String(t.name).trim().toLowerCase()) throw new AppError(400, `Pump ka naam bilkul waisa likhein: "${t.name}"`);
+  const backup = makeBackup();
+  const counts: Record<string, number> = {};
+  const del = (sql: string, ...args: (string | number)[]) => { const r = run(sql, ...args); const tbl = sql.match(/FROM (\w+)/i)?.[1] ?? sql; if (r.changes) counts[tbl] = (counts[tbl] ?? 0) + Number(r.changes); };
+  tx(() => {
+    // foreign keys are checked at commit, when every row of the pump is already gone (parents go before children otherwise)
+    db.exec("PRAGMA defer_foreign_keys=ON");
+    // child tables without tenant_id, by their owners (owners still exist at this point)
+    const ST = "SELECT id FROM stations WHERE tenant_id=?", TK = `SELECT id FROM tanks WHERE station_id IN (${ST})`, SH = `SELECT id FROM shifts WHERE station_id IN (${ST})`;
+    const CU = "SELECT id FROM customers WHERE tenant_id=?", US = "SELECT id FROM users WHERE tenant_id=?", CL = "SELECT id FROM wholesale_clients WHERE tenant_id=?";
+    del(`DELETE FROM meter_readings WHERE shift_id IN (${SH})`, id);
+    del(`DELETE FROM shift_dips WHERE shift_id IN (${SH})`, id);
+    del(`DELETE FROM sales WHERE station_id IN (${ST})`, id);
+    del(`DELETE FROM vehicles WHERE customer_id IN (${CU})`, id);
+    del(`DELETE FROM khata_ledger WHERE customer_id IN (${CU})`, id);
+    del(`DELETE FROM deliveries WHERE tank_id IN (${TK})`, id);
+    del(`DELETE FROM dip_readings WHERE tank_id IN (${TK})`, id);
+    del(`DELETE FROM tank_charts WHERE tank_id IN (${TK})`, id);
+    del(`DELETE FROM nozzles WHERE station_id IN (${ST})`, id);
+    del(`DELETE FROM tanks WHERE station_id IN (${ST})`, id);
+    del(`DELETE FROM shifts WHERE station_id IN (${ST})`, id);
+    del(`DELETE FROM wholesale_rates WHERE client_id IN (${CL})`, id);
+    del(`DELETE FROM wholesale_rate_history WHERE client_id IN (${CL})`, id);
+    del(`DELETE FROM login_otps WHERE user_id IN (${US})`, id);
+    if (get("SELECT 1 x FROM sqlite_master WHERE name='conversations'")) del("DELETE FROM messages WHERE conversation_id IN (SELECT id FROM conversations WHERE tenant_id=?)", id);
+    del("DELETE FROM dip_chart_rows WHERE chart_id IN (SELECT id FROM dip_charts WHERE tenant_id=?)", id);
+    del("DELETE FROM shop_sale_lines WHERE sale_id IN (SELECT id FROM shop_sales WHERE tenant_id=?)", id);
+    del("DELETE FROM shop_moves WHERE item_id IN (SELECT id FROM shop_items WHERE tenant_id=?)", id);
+    // every table that carries tenant_id (the tenant row itself last)
+    const tables = all("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name<>'tenants'").map((r) => r.name as string);
+    for (const name of tables) {
+      const cols = (db.prepare(`PRAGMA table_info(${name})`).all() as { name: string }[]).map((c) => c.name);
+      if (cols.includes("tenant_id")) del(`DELETE FROM ${name} WHERE tenant_id=?`, id);
+    }
+    run("UPDATE activation_codes SET used_by_tenant=NULL WHERE used_by_tenant=?", id); // the code stays spent-marked by used_at; the pump is gone
+    del("DELETE FROM tenants WHERE id=?", id);
+  });
+  forgetModules(id);
+  console.log(`[platform] pump #${id} "${t.name}" deleted (backup ${backup.name}); rows:`, counts);
+  return { ok: true, deleted: { id, name: t.name, slug: t.slug }, backup, rows: Object.values(counts).reduce((a, n) => a + n, 0), tables: counts };
+}));
+
 platform.post("/tenants/:id/:action", h((req) => {
   const id = Number(req.params.id), action = req.params.action;
   if (!get("SELECT id FROM tenants WHERE id=?", id)) throw new AppError(404, "Pump nahi mila");

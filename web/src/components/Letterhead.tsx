@@ -3,7 +3,7 @@
  * logo, name, phone and place at the top; address, email, website and social pages at the bottom. Shown only on paper / PDF.
  */
 import { useEffect, useState } from "react";
-import { api } from "../lib/api";
+import { api, getToken } from "../lib/api";
 import { SOCIALS, handle } from "../lib/social";
 import { useAuth } from "../App";
 import { phone as fmtPhone } from "../lib/format";
@@ -16,7 +16,8 @@ export function useBusiness() {
   const [b, setB] = useState<any>(cache);
   useEffect(() => {
     listeners.add(setB);
-    if (!cache && !loading) loading = api("/business").then((r) => { cache = r; listeners.forEach((f) => f(r)); }).catch(() => { loading = null; });
+    // only with a pump session: the platform (super admin) page opens modals too, and its token is not a tenant token
+    if (!cache && !loading && getToken()) loading = api("/business").then((r) => { cache = r; listeners.forEach((f) => f(r)); }).catch(() => { loading = null; });
     return () => { listeners.delete(setB); };
   }, []);
   return b;
