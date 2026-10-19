@@ -36,10 +36,23 @@ const STARTER: [string, string, number, number, string?][] = [
   ["Coolant 1L", "coolant", 0, 0, null as any], ["Coolant 4L", "coolant", 0, 0, null as any], ["Battery water 1L", "battery", 0, 0, null as any],
   ["Brake fluid DOT 3", "lubricant", 0, 0, null as any], ["Grease 500g", "lubricant", 0, 0, null as any], ["Mobil tin 1L (mixing)", "lubricant", 0, 0, null as any],
   ["Air freshener", "other", 0, 0, null as any], ["Windscreen washer 1L", "other", 0, 0, null as any], ["Tyre puncture (service)", "service", 0, 0, null as any],
+  // one pump's shop list (Oct 2026) — names kept exactly as the shop uses them
+  ["Dimond Brake Shoe Imported", "other", 0, 400, "Dimond"], ["Dimond Brake Shoe Local", "other", 0, 300, "Dimond"], ["Dimond Chain Kit back", "other", 0, 2200, "Dimond"], ["Dimond Chain kit Front", "other", 0, 1500, "Dimond"],
+  ["Blaze 07", "lubricant", 0, 650, "PSO"], ["Blaze 1 ltr", "lubricant", 0, 850, "PSO"], ["Blaze Xtreme", "lubricant", 0, 1000, "PSO"],
+  ["Carient 5W-30", "lubricant", 0, 5000, "PSO"], ["Carient plus 1 ltr", "lubricant", 0, 1000, "PSO"], ["Carient plus 3 ltr", "lubricant", 0, 3000, "PSO"], ["Carient plus 4 ltr", "lubricant", 0, 4000, "PSO"],
+  ["Costrol 20W40 07", "lubricant", 0, 650, "Castrol"], ["Costrol 20W50 1 Ltr", "lubricant", 0, 1200, "Castrol"], ["Costrol 20W50 3 Ltr", "lubricant", 0, 3000, "Castrol"], ["Costrol 20W50 4 Ltr", "lubricant", 0, 4000, "Castrol"],
+  ["Delo Gold Ultra 15W40 4 Ltr", "lubricant", 0, 6000, "Caltex"], ["Delo Silver 20W/50 4 Ltr", "lubricant", 0, 5200, "Caltex"],
+  ["Deo 3000 4 ltr", "lubricant", 0, 3600, "PSO"], ["Deo 6000 4 ltr", "lubricant", 0, 4000, "PSO"], ["Deo 8000 4 ltr", "lubricant", 0, 4500, "PSO"],
+  ["Diamond Lube 5 Ltr", "lubricant", 0, 3600, null as any], ["Dimond 07", "lubricant", 0, 500, null as any], ["Gear Lube M6", "lubricant", 0, 2500, null as any],
+  ["Havoline 0W20 4Ltr", "lubricant", 0, 10000, "Caltex"], ["Havoline 20W40 07", "lubricant", 0, 850, "Caltex"], ["Havoline 20W40 1Ltr", "lubricant", 0, 1200, "Caltex"], ["Havoline 20W50 3 Ltr", "lubricant", 0, 4500, "Caltex"],
+  ["Havoline Formula 10W30 3 Ltr", "lubricant", 0, 5500, "Caltex"], ["Havoline Motor Oil 4 Ltr", "lubricant", 0, 6000, "Caltex"], ["Havoline Super 1Ltr", "lubricant", 0, 1400, "Caltex"],
+  ["Motar Oil 30/40", "lubricant", 0, 8000, null as any], ["Rimula R2 EXtra 4 ltr", "lubricant", 0, 4500, "Shell"], ["Target 07", "lubricant", 0, 650, null as any],
+  ["Toyota Filter 23390 0LO70", "filter", 0, 2000, "Toyota"], ["Victory HD Plus", "lubricant", 0, 2400, null as any], ["Walvo 08", "lubricant", 0, 650, null as any], ["Walvo Extra 07", "lubricant", 0, 600, null as any],
+  ["Zic X7 3 ltr", "lubricant", 0, 6000, "ZIC"], ["Zic X7 4 ltr", "lubricant", 0, 8000, "ZIC"],
 ];
 export function seedCatalog() {
-  if (get("SELECT 1 FROM catalog_items LIMIT 1")) return;
   const ts = now();
+  // additive: a starter row is inserted only when no row of that name exists (active or removed), so edits and removals stick
   tx(() => { STARTER.forEach(([name, category, cost, price, brand], i) => run("INSERT OR IGNORE INTO catalog_items (name,category,brand,unit,cost,price,sort,source,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)", name, category, brand ?? null, "pc", cost, price, i, "starter", ts, ts)); });
 }
 
