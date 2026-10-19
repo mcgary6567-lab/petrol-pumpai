@@ -6,7 +6,7 @@ import { all, get, run, now, tx } from "../db.js";
 import { linkPhotos, proofPhotos, proofCol, requireProof, isCheque } from "./capture.js";
 import { bankAccountFor, accountIdField, chequeToRegister, accountName } from "./banks.js";
 import { h, parse, tid, can, requirePerm } from "../auth.js";
-import { AppError, assertNoDuplicateParty, normalizePhone, round2 } from "../services.js";
+import { AppError, assertNoDuplicateParty, normalizePhone, round2, partyBalance, partyBalanceAll } from "../services.js";
 import { announce } from "../notifications.js";
 import { bypassOwed, bypassOwedAll } from "./bypass.js";
 import { gateBigPayment, registerPayExecutor } from "./payRequests.js";
@@ -49,22 +49,13 @@ suppliers.patch("/depots/:id", requirePerm("suppliers.manage"), h((req) => {
   return depotOut(tid(req), get("SELECT * FROM depots WHERE id=?", d.id));
 }));
 
-const OWED_SQL = `CASE type WHEN 'purchase' THEN amount WHEN 'payment' THEN -amount ELSE amount END`;
-
 /** What we currently owe this supplier (positive = we owe them). */
 export function supplierOwed(supplierId: number, before?: string): number {
-  const s = get("SELECT opening_balance FROM suppliers WHERE id=?", supplierId)!;
-  const r = get(`SELECT COALESCE(SUM(${OWED_SQL}),0) o FROM supplier_txns WHERE supplier_id=? ${before ? "AND txn_date < ?" : ""}`,
-    ...(before ? [supplierId, before] : [supplierId]))!;
-  return round2(s.opening_balance + r.o);
+  return partyBalance("supplier", supplierId, before);
 }
-
 /** Pump-stock owed for every supplier of a tenant in ONE grouped query (list screens — avoids supplierOwed per row). */
 export function supplierOwedAll(tenantId: number): Map<number, number> {
-  const m = new Map<number, number>();
-  for (const r of all(`SELECT s.id, s.opening_balance + COALESCE((SELECT SUM(${OWED_SQL}) FROM supplier_txns x WHERE x.supplier_id=s.id),0) o
-      FROM suppliers s WHERE s.tenant_id=?`, tenantId)) m.set(r.id as number, round2(Number(r.o)));
-  return m;
+  return partyBalanceAll("supplier", tenantId);
 }
 
 export function recordPurchase(tenantId: number, f: { supplier_id: number; delivery_id?: number | null; trip_id?: number | null; product: string | null; litres: number | null; rate: number | null;

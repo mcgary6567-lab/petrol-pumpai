@@ -8,7 +8,7 @@ import { fuelCostPerL } from "../fuelCost.js";
 import { z } from "zod";
 import { all, get, run, tx, now, pkDayStart, pkDate, pkStart, pkEnd, type Row } from "../db.js";
 import { h, parse, tid, requirePerm, requireAny, can } from "../auth.js";
-import { AppError, assertNoDuplicateParty, createAlert, normalizePhone, round2, pkr, currentPrices, audit } from "../services.js";
+import { AppError, assertNoDuplicateParty, createAlert, normalizePhone, round2, pkr, currentPrices, audit, partyBalance, partyBalanceAll } from "../services.js";
 import { productSchema } from "../products.js";
 import { PRODUCTS } from "../config.js";
 import { announce } from "../notifications.js";
@@ -29,9 +29,6 @@ wholesale.use("/wholesale", requirePerm("wholesale.view"));
 const product = productSchema();
 const dateStr = z.string().regex(/^\d{4}-\d{2}-\d{2}/).optional();
 
-/** Signed effect of a ledger row on the amount the client owes us. */
-const DUE_SQL = `CASE type WHEN 'supply' THEN amount WHEN 'return' THEN -amount WHEN 'payment' THEN -amount ELSE amount END`;
-
 function ownClient(tenantId: number, id: number) {
   const c = get("SELECT * FROM wholesale_clients WHERE id=? AND tenant_id=?", id, tenantId);
   if (!c) throw new AppError(404, "Wholesale client not found");
@@ -39,18 +36,11 @@ function ownClient(tenantId: number, id: number) {
 }
 
 export function clientDue(clientId: number, before?: string): number {
-  const c = get("SELECT opening_balance FROM wholesale_clients WHERE id=?", clientId)!;
-  const r = get(`SELECT COALESCE(SUM(${DUE_SQL}),0) d FROM wholesale_txns WHERE client_id=? AND voided=0 ${before ? "AND txn_date < ?" : ""}`,
-    ...(before ? [clientId, before] : [clientId]))!;
-  return round2(c.opening_balance + r.d);
+  return partyBalance("client", clientId, before);
 }
-
 /** Due for every client of a tenant in ONE grouped query (list / summary screens — avoids clientDue per row). */
 export function clientDueAll(tenantId: number): Map<number, number> {
-  const m = new Map<number, number>();
-  for (const r of all(`SELECT c.id, c.opening_balance + COALESCE((SELECT SUM(${DUE_SQL}) FROM wholesale_txns x WHERE x.client_id=c.id AND x.voided=0),0) d
-      FROM wholesale_clients c WHERE c.tenant_id=?`, tenantId)) m.set(r.id as number, round2(Number(r.d)));
-  return m;
+  return partyBalanceAll("client", tenantId);
 }
 
 /** Carriage / kiraya income from bypass-on-our-ID supplies in a period (whole amount is profit — no fuel cost on our books). */
