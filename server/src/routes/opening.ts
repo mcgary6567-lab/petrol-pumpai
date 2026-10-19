@@ -18,7 +18,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { all, get, run, tx, now, getSetting, setSetting, pkDate, pkStart } from "../db.js";
 import { h, parse, tid, requirePerm } from "../auth.js";
-import { AppError, round2, audit, normalizePhone } from "../services.js";
+import { AppError, round2, audit, normalizePhone, currentPrices } from "../services.js";
 import { bankAccounts } from "./banks.js";
 import { supplierOwed } from "./suppliers.js";
 import { clientDue } from "./wholesale.js";
@@ -174,9 +174,10 @@ opening.post("/opening/staff", requirePerm("opening.manage"), h((req) => {
 /** Per fuel with tanks: litres now, the active opening value (if any) and the last purchase rate as a default. */
 function fuelValues(t: number) {
   const inTanks = litresInTanks(t);
+  const prices = currentPrices(t);
   return Object.keys(inTanks).map((p) => {
     const o = fuelOpening(t, p);
-    return { product: p, name: PRODUCTS[p] ?? p, litres_now: inTanks[p], last_purchase_rate: lastPurchaseRate(t, p),
+    return { product: p, name: PRODUCTS[p] ?? p, litres_now: inTanks[p], last_purchase_rate: lastPurchaseRate(t, p), sale_price: prices[p]?.price ?? null,
       opening: o ? { id: o.id, litres: o.litres, rate: o.rate, amount: o.amount, created_at: o.created_at, created_by: o.created_by } : null };
   });
 }

@@ -69,7 +69,7 @@ export default function ProfitExplainer() {
 
         <Row id="fuelcost" sign="−" label="Cost of fuel sold" ur="ایندھن کی لاگت" amount={p.cost_of_sales.fuel} tone="red" detail={detailTable(<>
           <tr><td colSpan={2} className="pb-1 text-xs text-slate-500">Weighted-average purchase cost × litres bike (120 din ka avg). Jis fuel ka khareed rate nahi, us ki cost = sale (0 margin) mani gayi.</td></tr>
-          {fuels.map((f: any) => line(`${f.name} — ${num(f.litres, 0)} L × Rs ${f.avg_cost.toFixed(2)}${f.cost_assumed ? " (rate nahi — sale rate mana)" : ""}`, pkr(round(f.litres * f.avg_cost))))}
+          {fuels.map((f: any) => line(`${f.name} — ${num(f.litres, 0)} L × Rs ${f.avg_cost.toFixed(2)}${f.cost_assumed ? " (rate nahi — sale rate mana)" : f.avg_cost > f.avg_sale_rate ? ` ⚠ khareed rate sale rate (Rs ${f.avg_sale_rate.toFixed(2)}) se zyada — Opening balances / delivery ka rate check karein` : ""}`, pkr(round(f.litres * f.avg_cost)), f.avg_cost > f.avg_sale_rate && !f.cost_assumed ? "text-rose-700" : ""))}
         </>)} />
 
         {p.cost_of_sales.shop > 0 && <Row id="shopcost" sign="−" label="Cost of shop items" ur="دکان کی لاگت" amount={p.cost_of_sales.shop} tone="red" detail={detailTable(<>

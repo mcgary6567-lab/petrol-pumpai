@@ -245,7 +245,8 @@ function StockTab({ data, reload }: { data: any; reload: () => void }) {
               <li key={f.product} className="grid grid-cols-[1fr_auto_auto] items-center gap-2 py-1.5 text-sm">
                 <div className="min-w-0"><div className="truncate font-medium">{f.name}</div>
                   <div className="text-xs text-slate-500">{num(L, 0)} L in tanks{f.opening ? ` · booked ${num(f.opening.litres, 0)} L @ Rs ${f.opening.rate} = ${pkr(f.opening.amount)}` : f.last_purchase_rate ? ` · last purchase Rs ${f.last_purchase_rate}/L` : " · rate nahi"}
-                    {L <= 0 && Number(rateOf(f)) > 0 ? <span className="ml-1 font-semibold text-rose-700">· pehle upar tank ka litre likhein</span> : null}</div></div>
+                    {L <= 0 && Number(rateOf(f)) > 0 ? <span className="ml-1 font-semibold text-rose-700">· pehle upar tank ka litre likhein</span> : null}
+                    {f.sale_price && Number(rateOf(f)) >= Number(f.sale_price) ? <span className="ml-1 font-semibold text-rose-700">· khareed rate (Rs {Number(rateOf(f))}) sale price (Rs {f.sale_price}) se kam nahi — ghalat lagta hai, check karein</span> : f.sale_price && Number(rateOf(f)) > 0 ? <span className="ml-1 text-emerald-700">· margin Rs {(Number(f.sale_price) - Number(rateOf(f))).toFixed(2)}/L (sale Rs {f.sale_price})</span> : null}</div></div>
                 <div className="relative"><input className="input min-h-10 w-32 pr-10 text-right tabular-nums" type="number" inputMode="decimal" min={0} step="0.01" placeholder="Rs / L" value={rateOf(f)} onChange={(e) => setRates({ ...rates, [f.product]: e.target.value })} aria-label={`${f.name} opening rate`} />
                   <span className="pointer-events-none absolute inset-y-0 right-2 flex items-center text-xs text-slate-400">Rs/L</span></div>
                 <div className="w-28 text-right text-xs tabular-nums text-slate-600">= {pkr((Number(rateOf(f)) || 0) * L)}</div>
