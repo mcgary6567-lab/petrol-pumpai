@@ -220,6 +220,12 @@ function SupplierDetail({ id, onClose, onChanged, depots, onDepots }: { id: numb
   const lines = useListFilter(allLines, { q: lq, from: lrange.from, to: lrange.to, dateKey: "txn_date", keep: (t) => !ltype || (ltype === "pump" ? t.source !== "bypass" : ltype === "bypass" ? t.source === "bypass" : t.type === ltype),
     text: (t) => [t.ref, t.note, t.method, t.product, t.product && PRODUCTS[t.product], t.litres, t.rate, t.debit, t.credit, t.amount].filter((v) => v != null && v !== false && v !== "").join(" ") });
   const lineFiltered = lines.length !== allLines.length;
+  // totals for the entries list: today's payment to this supplier + the shown (filtered) paid / purchased
+  const pkToday = new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 10);
+  const isPkToday = (iso: string) => new Date(Date.parse(iso) + 5 * 3600_000).toISOString().slice(0, 10) === pkToday;
+  const paidToday = allLines.filter((t) => t.type === "payment" && isPkToday(t.txn_date)).reduce((a, t) => a + (t.credit || 0), 0);
+  const paidShown = lines.reduce((a, t) => a + (t.credit || 0), 0);
+  const boughtShown = lines.reduce((a, t) => a + (t.debit || 0), 0);
   // the cashier's two-copy payment voucher, for a payment made from this page
   const voucherOf = (t: any, owedAfter: number | null) => ({
     prepared: true, party_type: "supplier", balance_after: owedAfter, account: t.account_name,
@@ -288,6 +294,10 @@ function SupplierDetail({ id, onClose, onChanged, depots, onDepots }: { id: numb
           </div>
           {allLines.length > 0 && <ListTools q={lq} onQ={setLq} placeholder="Ref / product… · ریفرنس یا پراڈکٹ" chips={typeChips} chip={ltype} onChip={setLtype}
             from={lrange.from} to={lrange.to} onFrom={(v) => setLrange({ ...lrange, from: v })} onTo={(v) => setLrange({ ...lrange, to: v })} shown={lines.length} total={allLines.length} />}
+          {allLines.length > 0 && <div className="mb-2 flex flex-wrap items-center gap-2 text-sm">
+            <span className="rounded-lg bg-emerald-50 px-3 py-1.5 font-semibold text-emerald-800">Aaj di payment · <Ur>آج کی ادائیگی</Ur>: {pkr(paidToday)}</span>
+            <span className="rounded-lg bg-slate-100 px-3 py-1.5 tabular-nums">{lineFiltered ? "Filter mein" : "Kul"} · Paid {pkr(paidShown)}{boughtShown ? ` · Purchased ${pkr(boughtShown)}` : ""}</span>
+          </div>}
           <div className="max-h-96 overflow-auto rounded-lg border border-slate-200 print:hidden">
             <ul className="divide-y divide-slate-100 sm:hidden">
               {lines.map((t: any) => (
