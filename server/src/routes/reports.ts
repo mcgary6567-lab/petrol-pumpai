@@ -142,15 +142,21 @@ export function buildReport(t: number, from: string, to: string) {
   // one cost per litre for the whole app (fuelCost.ts): go-live opening value + purchases of the last 120 days, weighted
   const avgCost: Record<string, number | null> = {};
   for (const p of products) avgCost[p] = fuelCostPerL(t, p, to);
-  // no cost known for a fuel (no opening rate, no purchase yet): cost it at today's pump price = zero margin, and say so.
-  // Never zero cost — that would show the whole sale as profit.
+  // No cost known for a fuel (no opening rate, no purchase yet): assume ZERO margin — its cost of sales is exactly what it
+  // sold for in this period (retail + own-tank wholesale, net of returns). Never zero cost (whole sale would look like
+  // profit) and never "today's pump price × litres" (a price change inside the period would invent a profit or a loss).
+  const ownRevenue: Record<string, number> = {};
+  for (const r of salesByProduct) ownRevenue[r.product] = (ownRevenue[r.product] ?? 0) + Number(r.amount);
+  for (const r of all(`SELECT product, SUM(CASE WHEN type='supply' THEN amount WHEN type='return' THEN -amount ELSE 0 END) a ${W} AND tank_id IS NOT NULL AND type IN ('supply','return') GROUP BY product`, ...P))
+    ownRevenue[r.product] = (ownRevenue[r.product] ?? 0) + Number(r.a ?? 0);
   const pumpPrice = currentPrices(t);
   const costAssumed: string[] = [];
-  const costUsed = (p: string): number | null => {
+  /** Cost per litre to use for a fuel: the known one, else revenue ÷ litres of this period (zero margin) and flagged. */
+  const costUsed = (p: string, soldL: number): number | null => {
     if (avgCost[p] != null) return avgCost[p];
-    const pr = pumpPrice[p]?.price ?? null;
-    if (pr != null && !costAssumed.includes(p)) costAssumed.push(p);
-    return pr;
+    if (!(soldL > 0.001)) return null;
+    if (!costAssumed.includes(p)) costAssumed.push(p);
+    return (ownRevenue[p] ?? 0) / soldL;
   };
   const stock = {
     products: products.map((p) => {
@@ -161,9 +167,11 @@ export function buildReport(t: number, from: string, to: string) {
         retail_sold_l: L.retail, wholesale_out_l: L.wholesale,
         // the dip line takes the rounding of the others, so the printed movement adds up to the closing litre for litre
         dip_adjust_l: L.closing - (L.opening + L.received + L.returns - L.retail - L.wholesale),
-        closing_l: L.closing, net_sold_l: r0(soldL), direct_l: r0(directL[p]), avg_cost: avgCost[p] ? round2(avgCost[p]!) : null,
-        // value the reported (rounded) closing litres, so value_at_cost stays consistent with closing_l shown
-        closing_value: avgCost[p] ? r0(L.closing * avgCost[p]!) : null,
+        closing_l: L.closing, net_sold_l: r0(soldL), direct_l: r0(directL[p]), avg_cost: avgCost[p] ? round2(avgCost[p]!) : null, cost_known: avgCost[p] != null,
+        // value the reported (rounded) closing litres, so value_at_cost stays consistent with closing_l shown;
+        // no cost known → at today's pump price (so the stock is never carried at zero), and the row says which basis
+        closing_value: avgCost[p] ? r0(L.closing * avgCost[p]!) : pumpPrice[p]?.price != null ? r0(L.closing * pumpPrice[p].price) : null,
+        value_basis: avgCost[p] ? "cost" : pumpPrice[p]?.price != null ? "pump_price" : null,
       };
     }),
     tanks: tankOutlook(t).map((x) => ({ station: x.station_name, tank: x.name, product: x.product, capacity_l: x.capacity_l, current_l: r0(x.current_l), fill_pct: x.fill_pct, days_to_empty: x.days_to_empty })),
@@ -212,7 +220,7 @@ export function buildReport(t: number, from: string, to: string) {
   const tankCogs = products.reduce<number>((a, p) => {
     const row = stock.products.find((x) => x.product === p)!;
     if (row.net_sold_l === 0) return a;
-    const c = costUsed(p);
+    const c = costUsed(p, row.net_sold_l);
     if (c == null) { costMissing.push(p); return a; }
     return a + row.net_sold_l * c;
   }, 0);

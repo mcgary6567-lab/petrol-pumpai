@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { ChevronDown } from "lucide-react";
 import { useApi } from "../lib/api";
 import { Loading, PageHeader } from "../components/ui";
@@ -45,8 +46,14 @@ export default function ProfitExplainer() {
       <div className={`mb-4 rounded-2xl p-5 text-white ${p.net_profit >= 0 ? "bg-emerald-700" : "bg-rose-700"}`}>
         <div className="text-sm opacity-90">Is mahine ka net munafa · <Ur>خالص منافع</Ur></div>
         <div className="text-4xl font-extrabold tabular-nums">{pkr(p.net_profit)}</div>
-        <div className="mt-1 text-sm opacity-90">Margin {num(p.margin_pct, 1)}% · {num(p.litres.retail + p.litres.wholesale, 0)} L bika · revenue {pkr(p.income.total)}</div>
+        <div className="mt-1 text-sm opacity-90">Net margin {num(p.margin_pct, 1)}% · gross {num(p.gross_margin_pct ?? 0, 1)}% · {num(p.litres.retail + p.litres.wholesale, 0)} L bika · revenue {pkr(p.income.total)}</div>
       </div>
+      {p.cost_note && (
+        <div className="mb-4 flex flex-wrap items-center gap-3 rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+          <div className="min-w-0 flex-1"><b>Munafa poora nahi dikh raha.</b> {p.cost_note}</div>
+          <Link to="/opening-balances?tab=stock" className="btn-primary min-h-9 shrink-0">Khareed rate likhein</Link>
+        </div>
+      )}
 
       {/* waterfall */}
       <div className="card overflow-hidden">
@@ -61,8 +68,8 @@ export default function ProfitExplainer() {
         </>)} />
 
         <Row id="fuelcost" sign="−" label="Cost of fuel sold" ur="ایندھن کی لاگت" amount={p.cost_of_sales.fuel} tone="red" detail={detailTable(<>
-          <tr><td colSpan={2} className="pb-1 text-xs text-slate-500">Weighted-average purchase cost × litres bike (120 din ka avg).</td></tr>
-          {fuels.map((f: any) => line(`${f.name} — ${num(f.litres, 0)} L × Rs ${f.avg_cost.toFixed(2)}`, pkr(round(f.litres * f.avg_cost))))}
+          <tr><td colSpan={2} className="pb-1 text-xs text-slate-500">Weighted-average purchase cost × litres bike (120 din ka avg). Jis fuel ka khareed rate nahi, us ki cost = sale (0 margin) mani gayi.</td></tr>
+          {fuels.map((f: any) => line(`${f.name} — ${num(f.litres, 0)} L × Rs ${f.avg_cost.toFixed(2)}${f.cost_assumed ? " (rate nahi — sale rate mana)" : ""}`, pkr(round(f.litres * f.avg_cost))))}
         </>)} />
 
         {p.cost_of_sales.shop > 0 && <Row id="shopcost" sign="−" label="Cost of shop items" ur="دکان کی لاگت" amount={p.cost_of_sales.shop} tone="red" detail={detailTable(<>

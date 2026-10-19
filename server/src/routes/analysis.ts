@@ -127,8 +127,9 @@ export function profitAndLoss(t: number, month: string, showPrivate = true) {
   const miscIncome = r0(J.trial_balance.filter((x) => MISC.includes(x.account)).reduce((a, x) => a - x.balance, 0));
   const otherIncome = r0(rentalIncome(t, from, toIso) + carriageIncome(t, from, toIso) + carriageIncomeThekedar(t, from, toIso) + ceoIncome + miscIncome);
   const net = r0(gross + otherIncome - expensesTotal - ceoDiscount);
-  const cost_note = (s as any).cost_assumed_products?.length ? `${(s as any).cost_assumed_products.join(", ")}: khareed rate nahi — pump price par cost mana (0 margin). Opening balances → Tank stock me rate likhein.` : null;
-  return { cost_note,
+  const costAssumed: string[] = (s as any).cost_assumed_products ?? [];
+  const cost_note = costAssumed.length ? `${costAssumed.join(", ")}: khareed rate nahi — is liye cost = sale (0 margin) mana gaya, asal munafa is se zyada hai. Opening balances → Tank stock me khareed rate likhein, ya tanker delivery rate ke saath darj karein.` : null;
+  return { cost_note, cost_assumed: costAssumed,
     month, from, to: toIso, income, cost_of_sales: cost, gross_profit: gross,
     other_income: otherIncome,
     other_income_ceo: ceoIncome,
@@ -138,7 +139,8 @@ export function profitAndLoss(t: number, month: string, showPrivate = true) {
     other_discount_ceo: ceoDiscount,
     expenses: { total: expensesTotal, by_category: byCategory },
     net_profit: net,
-    margin_pct: income.total ? round2((net / income.total) * 100) : 0,
+    margin_pct: income.total ? round2((net / income.total) * 100) : 0, // net margin (net profit ÷ total income)
+    gross_margin_pct: income.total ? round2((gross / income.total) * 100) : 0,
     litres: { retail: r0(s.retail_litres), wholesale: r0(s.wholesale_litres) },
   };
 }
@@ -304,14 +306,15 @@ export function productMargins(t: number, month: string) {
   const to = pkEnd(`${month}-${String(lastDay).padStart(2, "0")}`);
   const sales = all(`SELECT s.product, SUM(s.litres) l, SUM(s.amount) rev FROM sales s JOIN stations st ON st.id=s.station_id
     WHERE st.tenant_id=? AND s.created_at >= ? AND s.created_at < ? GROUP BY s.product`, t, from, to);
-  const prices = currentPrices(t);
   return sales.filter((r) => r.l > 0).map((r) => {
-    // the app-wide cost per litre (go-live opening value + purchases, weighted); no cost known → pump price (zero margin, never a fake profit)
-    const cost = fuelCostPerL(t, r.product, to) ?? prices[r.product]?.price ?? 0;
+    // the app-wide cost per litre (go-live opening value + purchases, weighted); no cost known → this month's own average
+    // sale rate (zero margin: never a fake profit, never a fake loss from a price change), and the row says so
+    const known = fuelCostPerL(t, r.product, to);
     const avgSale = r.rev / r.l;
+    const cost = known ?? avgSale;
     const marginL = round2(avgSale - cost);
     return { product: r.product, name: PRODUCTS[r.product] ?? r.product, litres: round2(r.l), revenue: round2(r.rev),
-      avg_sale_rate: round2(avgSale), avg_cost: round2(cost), margin_per_l: marginL, profit: round2(marginL * r.l) };
+      avg_sale_rate: round2(avgSale), avg_cost: round2(cost), cost_assumed: known == null, margin_per_l: marginL, profit: round2(marginL * r.l) };
   }).sort((a, b) => b.profit - a.profit);
 }
 analysis.get("/analysis/margins", h((req) => {
