@@ -136,6 +136,45 @@ catalogPlatform.post("/catalog/from-backup", h((req) => {
   } finally { try { fs.unlinkSync(tmp); } catch { /* */ } }
 }));
 
+/** Create shop items on a station from catalog rows (stock 0, never a duplicate by name, category head added if missing). */
+export function importCatalogRows(t: number, stationId: number, rows: { id: number; price?: number | null; cost?: number | null }[], by = "catalog") {
+  const cats = new Set(lookupKeys(t, "shop_category"));
+  let added = 0, skipped = 0, noPrice = 0;
+  const made: string[] = [];
+  tx(() => {
+    for (const r of rows) {
+      const c = get("SELECT * FROM catalog_items WHERE id=? AND active=1", r.id);
+      if (!c) continue;
+      const price = Number(r.price ?? c.price) || 0;
+      if (price <= 0) { noPrice++; continue; }
+      if (get("SELECT id FROM shop_items WHERE tenant_id=? AND station_id=? AND lower(name)=lower(?)", t, stationId, c.name)) { skipped++; continue; }
+      if (!cats.has(c.category)) {
+        run("INSERT OR IGNORE INTO lookups (tenant_id,kind,key,label,extra,sort,active) VALUES (?,?,?,?,'{}',99,1)", t, "shop_category", c.category, c.category.charAt(0).toUpperCase() + c.category.slice(1));
+        cats.add(c.category);
+      }
+      run("INSERT INTO shop_items (tenant_id,station_id,sku,barcode,name,category,unit,cost,price,stock,reorder_level,created_at) VALUES (?,?,?,?,?,?,?,?,?,0,0,?)",
+        t, stationId, c.sku ?? null, null, c.name, c.category, c.unit ?? "pc", Number(r.cost ?? c.cost) || 0, price, now());
+      added++; made.push(c.name);
+    }
+  });
+  void by;
+  return { added, skipped, no_price: noPrice, names: made.slice(0, 20) };
+}
+
+/** Super admin pushes the catalog into a pump's shop (every priced item, or one category) — the pump then only enters quantities. */
+catalogPlatform.post("/catalog/to-tenant/:id", h((req) => {
+  const b = parse(z.object({ station_id: z.number().int().optional(), category: z.string().max(40).optional().nullable() }), req.body ?? {});
+  const t = get("SELECT id, name FROM tenants WHERE id=?", Number(req.params.id));
+  if (!t) throw new AppError(404, "Pump nahi mila");
+  const stations = all("SELECT id, name FROM stations WHERE tenant_id=? ORDER BY id", t.id);
+  const st = b.station_id ? stations.find((s) => s.id === b.station_id) : stations[0];
+  if (!st) throw new AppError(400, "Is pump ki koi station nahi");
+  const rows = list().filter((x) => (!b.category || x.category === b.category) && Number(x.price) > 0).map((x) => ({ id: x.id as number }));
+  const r = importCatalogRows(t.id, st.id, rows, "platform");
+  return { ...r, pump: t.name, station: st.name, considered: rows.length, unpriced: list().filter((x) => (!b.category || x.category === b.category) && !(Number(x.price) > 0)).length };
+}));
+catalogPlatform.get("/catalog/stations/:id", h((req) => ({ stations: all("SELECT id, name FROM stations WHERE tenant_id=? ORDER BY id", Number(req.params.id)) })));
+
 /* ================= pump side ================= */
 export const catalogTenant = Router();
 /** The master list with "already in this station's shop" flags. */
@@ -150,24 +189,5 @@ catalogTenant.post("/catalog/import", requirePerm("stock.manage"), h((req) => {
   const b = parse(z.object({ station_id: z.number().int(), rows: z.array(z.object({ id: z.number().int(), price: z.number().min(0).optional(), cost: z.number().min(0).optional() })).min(1).max(1000) }), req.body);
   const t = tid(req);
   if (!get("SELECT id FROM stations WHERE id=? AND tenant_id=?", b.station_id, t)) throw new AppError(400, "Station not found");
-  const cats = new Set(lookupKeys(t, "shop_category"));
-  let added = 0, skipped = 0, noPrice = 0;
-  const made: string[] = [];
-  tx(() => {
-    for (const r of b.rows) {
-      const c = get("SELECT * FROM catalog_items WHERE id=? AND active=1", r.id);
-      if (!c) continue;
-      const price = Number(r.price ?? c.price) || 0;
-      if (price <= 0) { noPrice++; continue; }
-      if (get("SELECT id FROM shop_items WHERE tenant_id=? AND station_id=? AND lower(name)=lower(?)", t, b.station_id, c.name)) { skipped++; continue; }
-      if (!cats.has(c.category)) { // the pump's own category list gets the new head so the item files correctly
-        run("INSERT OR IGNORE INTO lookups (tenant_id,kind,key,label,extra,sort,active) VALUES (?,?,?,?,'{}',99,1)", t, "shop_category", c.category, c.category.charAt(0).toUpperCase() + c.category.slice(1));
-        cats.add(c.category);
-      }
-      run("INSERT INTO shop_items (tenant_id,station_id,sku,barcode,name,category,unit,cost,price,stock,reorder_level,created_at) VALUES (?,?,?,?,?,?,?,?,?,0,0,?)",
-        t, b.station_id, c.sku ?? null, null, c.name, c.category, c.unit ?? "pc", Number(r.cost ?? c.cost) || 0, price, now());
-      added++; made.push(c.name);
-    }
-  });
-  return { added, skipped, no_price: noPrice, names: made.slice(0, 20) };
+  return importCatalogRows(t, b.station_id, b.rows, req.user!.name);
 }));

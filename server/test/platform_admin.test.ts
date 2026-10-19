@@ -196,3 +196,20 @@ test("master shop catalog: seeded starter list; paste, copy from a pump and an o
   assert.equal(again.added, 0); assert.equal(again.skipped, 1, "never duplicated");
   assert.equal((await call(a.token, "GET", "/api/platform/catalog")).status, 401, "pump CEO cannot touch the master list");
 });
+
+test("platform pushes the catalog into a pump's shop: priced items created once at stock 0, category filter works", async () => {
+  const p = ok(await call("", "POST", "/api/platform/login", { email: "owner@petrolpumpai.pk", password: "platform-pass-123" }), "platform login").token;
+  const a = ok(await call("", "POST", "/api/signup", signup("Push Pump", "ceo-push@test.pk")), "signup");
+  const tidP = db.get("SELECT tenant_id FROM users WHERE email='ceo-push@test.pk'").tenant_id;
+  const r1 = ok(await call(p, "POST", `/api/platform/catalog/to-tenant/${tidP}`, { category: "filter" }), "push filters");
+  assert.ok(r1.added >= 15, `filters added: ${JSON.stringify(r1)}`); assert.equal(r1.skipped, 0);
+  const st = ok(await call(a.token, "GET", "/api/stations"), "stations")[0];
+  const items = ok(await call(a.token, "GET", `/api/shop/items?station_id=${st.id}`), "items") as any[];
+  assert.ok(items.every((x) => x.category === "filter" && x.stock === 0), "only filters, stock 0");
+  assert.ok(items.some((x) => x.name === "Guard Filters 206" && x.price > 0), "catalog price carried");
+  const r2 = ok(await call(p, "POST", `/api/platform/catalog/to-tenant/${tidP}`, {}), "push all");
+  assert.equal(r2.skipped, r1.added, "filters not duplicated"); assert.ok(r2.added > 0, "oils and parts added"); assert.ok(r2.unpriced > 0, "unpriced rows reported, not created");
+  const again = ok(await call(a.token, "GET", `/api/shop/items?station_id=${st.id}`), "items2") as any[];
+  assert.equal(new Set(again.map((x) => x.name.toLowerCase())).size, again.length, "no duplicates");
+  assert.ok(again.some((x) => x.name === "Zic X7 4 ltr" && x.price === 8000));
+});

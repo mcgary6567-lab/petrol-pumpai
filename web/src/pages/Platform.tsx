@@ -291,6 +291,7 @@ function CatalogTab({ tenants }: { tenants: any[] }) {
   const [edit, setEdit] = useState<any>(null);
   const [paste, setPaste] = useState(""); const [showPaste, setShowPaste] = useState(false);
   const [fromPump, setFromPump] = useState("");
+  const [pushCat, setPushCat] = useState("");
   const [busy, setBusy] = useState(false);
   const load = useCallback(async () => { try { setItems((await pfetch("/platform/catalog")).items); setErr(null); } catch (e: any) { setErr(e.message); } }, []);
   useEffect(() => { load(); }, [load]);
@@ -313,11 +314,16 @@ function CatalogTab({ tenants }: { tenants: any[] }) {
             <div className="text-xs text-slate-500">Purani app → Settings → Backups → Download; phir yahan upload. Us ke shop items master me aa jate hain (purani app ko kuch nahi hota).</div>
             <label className="btn-secondary mt-2 inline-flex min-h-9 cursor-pointer">{busy ? "…" : "Backup file chunein"}<input type="file" accept=".db,application/octet-stream" className="hidden" disabled={busy} onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadBackup(f); e.target.value = ""; }} /></label>
           </div>
-          <div className="rounded-xl bg-slate-50 p-2.5 text-sm">
-            <div className="font-medium">Kisi pump ke shop items copy karein</div>
-            <div className="text-xs text-slate-500">Jis pump ne apni shop set kar li hai, us ke items (naam, category, price) master me.</div>
-            <div className="mt-2 flex gap-1"><select className="input min-h-9 flex-1" value={fromPump} onChange={(e) => setFromPump(e.target.value)}><option value="">Pump chunein…</option>{tenants.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</select>
-              <button className="btn-secondary min-h-9" disabled={busy || !fromPump} onClick={() => act(() => pfetch(`/platform/catalog/from-tenant/${fromPump}`, {}), (r) => `${r.pump}: ${r.rows} items — ${r.added} naye, ${r.updated} update`)}>Copy</button></div>
+          <div className="rounded-xl border-2 border-emerald-200 bg-emerald-50/40 p-2.5 text-sm">
+            <div className="font-medium">Catalog → pump ki shop me dalein</div>
+            <div className="text-xs text-slate-500">Chune hue pump ki shop me catalog ke sab priced items (ya ek category) ban jate hain, stock 0 se. Jo pehle se hon wo chhor diye jate hain.</div>
+            <div className="mt-2 flex flex-wrap gap-1">
+              <select className="input min-h-9 flex-1" value={fromPump} onChange={(e) => setFromPump(e.target.value)}><option value="">Pump chunein…</option>{tenants.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</select>
+              <select className="input min-h-9 w-32" value={pushCat} onChange={(e) => setPushCat(e.target.value)}><option value="">Sab categories</option>{cats.map((c) => <option key={c} value={c}>{c}</option>)}</select>
+              <button className="btn-primary min-h-9" disabled={busy || !fromPump} onClick={() => { const t = tenants.find((x) => String(x.id) === fromPump); if (!confirm(`Catalog ke ${pushCat ? pushCat : "sab"} priced items "${t?.name}" ki shop me dalein?`)) return; act(() => pfetch(`/platform/catalog/to-tenant/${fromPump}`, { category: pushCat || null }), (r) => `${r.pump} (${r.station}): ${r.added} items shop me gaye${r.skipped ? `, ${r.skipped} pehle se the` : ""}${r.unpriced ? `, ${r.unpriced} bina price (skip)` : ""}`); }}>Shop me dalein →</button>
+            </div>
+            <details className="mt-2 text-xs text-slate-500"><summary className="cursor-pointer">Ulta: pump ki shop ke items master catalog me lana</summary>
+              <button className="btn-secondary mt-1 min-h-8 !py-1 !text-xs" disabled={busy || !fromPump} onClick={() => act(() => pfetch(`/platform/catalog/from-tenant/${fromPump}`, {}), (r) => `${r.pump}: ${r.rows} items — ${r.added} naye, ${r.updated} update`)}>← Pump se master me copy</button></details>
           </div>
           <div className="rounded-xl bg-slate-50 p-2.5 text-sm">
             <div className="font-medium">Excel se paste</div>
