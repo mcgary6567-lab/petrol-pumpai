@@ -23,6 +23,7 @@ import { setupBody, provisionTenant } from "./setup.js";
 import { mountBackupRoutes, makeBackup, listBackups } from "./system.js";
 import fs from "node:fs";
 import { serverStatus, serverLogs, clearServerLogs } from "../serverStatus.js";
+import { catalogPlatform } from "./catalog.js";
 
 export const saasPublic = Router();  // no login (sign-up, platform login + panel)
 export const saasAuthed = Router();  // after requireAuth (the pump owner's own account)
@@ -290,6 +291,7 @@ platform.get("/overview", h(() => {
     codes_unused: get("SELECT COUNT(*) n FROM activation_codes WHERE used_by_tenant IS NULL")!.n,
   };
 }));
+platform.use(catalogPlatform);
 /* ---- Server tab: the machine, volume, traffic, health and error log — no need to open Fly.io ---- */
 platform.get("/server", h(() => serverStatus()));
 platform.get("/server/logs", h((req) => ({ logs: serverLogs(String(req.query.level ?? "all"), Math.min(500, Number(req.query.limit ?? 200))) })));

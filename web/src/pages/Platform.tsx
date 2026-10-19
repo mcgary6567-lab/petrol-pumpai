@@ -73,7 +73,7 @@ function Panel({ onLogout }: { onLogout: () => void }) {
   const [made, setMade] = useState<string[]>([]);
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState<"all" | "active" | "trial" | "suspended" | "lifetime" | "locked" | "attention">("all");
-  const [tab, setTab] = useState<"pumps" | "codes" | "backups" | "server">("pumps");
+  const [tab, setTab] = useState<"pumps" | "codes" | "backups" | "server" | "catalog">("pumps");
   const load = useCallback(async () => {
     try { setOv(await pfetch("/platform/overview")); setCodes((await pfetch("/platform/codes")).codes); setErr(null); }
     catch (e: any) { setErr(e.message); if (/login|401/i.test(e.message)) onLogout(); }
@@ -135,7 +135,7 @@ function Panel({ onLogout }: { onLogout: () => void }) {
           </div>
         </div>
         <div className="mx-auto flex max-w-6xl gap-1 px-3 sm:px-4">
-          {([["pumps", "Pumps"], ["server", "Server"], ["codes", `Codes${unused.length ? ` · ${unused.length}` : ""}`], ["backups", "Backups"]] as const).map(([key, l]) => (
+          {([["pumps", "Pumps"], ["server", "Server"], ["catalog", "Catalog"], ["codes", `Codes${unused.length ? ` · ${unused.length}` : ""}`], ["backups", "Backups"]] as const).map(([key, l]) => (
             <button key={key} onClick={() => setTab(key)} className={`border-b-2 px-3 py-1.5 text-sm ${tab === key ? "border-emerald-400 font-semibold text-white" : "border-transparent text-slate-400"}`}>{l}</button>
           ))}
         </div>
@@ -267,6 +267,7 @@ function Panel({ onLogout }: { onLogout: () => void }) {
         )}
 
         {tab === "server" && <ServerTab />}
+        {tab === "catalog" && <CatalogTab tenants={ov.tenants} />}
 
         {tab === "backups" && (
           <BackupsPanel title="Backups — saare pumps (poora database)" base="/platform/backups" request={(p, i) => pfetch(p, i?.body, i?.method)} downloadUrl={(n) => `/api/platform/backups/${n}?token=${getTok() ?? ""}`} />
@@ -277,6 +278,93 @@ function Panel({ onLogout }: { onLogout: () => void }) {
       {planFor && <PlanModal t={planFor} onClose={() => setPlanFor(null)} onDone={() => { setPlanFor(null); load(); }} />}
       {testReport && <TestPumpModal r={testReport} onClose={() => setTestReport(null)} />}
       {deleteFor && <DeletePumpModal t={deleteFor} onClose={() => setDeleteFor(null)} onDone={() => { setDeleteFor(null); load(); }} />}
+    </div>
+  );
+}
+
+/* ================= Catalog tab: the master shop list every pump can pull from ================= */
+function CatalogTab({ tenants }: { tenants: any[] }) {
+  const [items, setItems] = useState<any[] | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [q, setQ] = useState(""); const [cat, setCat] = useState("");
+  const [edit, setEdit] = useState<any>(null);
+  const [paste, setPaste] = useState(""); const [showPaste, setShowPaste] = useState(false);
+  const [fromPump, setFromPump] = useState("");
+  const [busy, setBusy] = useState(false);
+  const load = useCallback(async () => { try { setItems((await pfetch("/platform/catalog")).items); setErr(null); } catch (e: any) { setErr(e.message); } }, []);
+  useEffect(() => { load(); }, [load]);
+  const act = async (fn: () => Promise<any>, done: (r: any) => string) => { setBusy(true); setErr(null); setMsg(null); try { const r = await fn(); setMsg(done(r)); if (r?.items) setItems(r.items); else load(); } catch (e: any) { setErr(e.message); } finally { setBusy(false); } };
+  const cats = [...new Set((items ?? []).map((x) => x.category))];
+  const shown = (items ?? []).filter((x) => (!cat || x.category === cat) && (!q || `${x.name} ${x.brand ?? ""}`.toLowerCase().includes(q.toLowerCase())));
+  const uploadBackup = async (f: File) => act(async () => {
+    const res = await fetch("/api/platform/catalog/from-backup", { method: "POST", headers: { authorization: `Bearer ${getTok() ?? ""}`, "content-type": "application/octet-stream" }, body: f });
+    const d = await res.json().catch(() => null); if (!res.ok) throw new Error(d?.error || `Error ${res.status}`); return d;
+  }, (r) => `Backup se ${r.rows} items parhe: ${r.added} naye, ${r.updated} update`);
+  return (
+    <div className="space-y-3">
+      {err && <ErrorBox error={err} />}
+      {msg && <div className="rounded-xl bg-emerald-50 p-3 text-sm text-emerald-800">{msg}</div>}
+      <div className="rounded-2xl bg-white p-3 shadow-sm ring-1 ring-slate-200">
+        <div className="font-semibold">Master shop catalog · <span className="text-xs font-normal text-slate-500">filters, oils, brake oil… har pump Shop → "Catalog se items lein" se yahin se uthata hai</span></div>
+        <div className="mt-2 grid gap-2 md:grid-cols-3">
+          <div className="rounded-xl bg-slate-50 p-2.5 text-sm">
+            <div className="font-medium">Purani PumpAI app ka backup (.db)</div>
+            <div className="text-xs text-slate-500">Purani app → Settings → Backups → Download; phir yahan upload. Us ke shop items master me aa jate hain (purani app ko kuch nahi hota).</div>
+            <label className="btn-secondary mt-2 inline-flex min-h-9 cursor-pointer">{busy ? "…" : "Backup file chunein"}<input type="file" accept=".db,application/octet-stream" className="hidden" disabled={busy} onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadBackup(f); e.target.value = ""; }} /></label>
+          </div>
+          <div className="rounded-xl bg-slate-50 p-2.5 text-sm">
+            <div className="font-medium">Kisi pump ke shop items copy karein</div>
+            <div className="text-xs text-slate-500">Jis pump ne apni shop set kar li hai, us ke items (naam, category, price) master me.</div>
+            <div className="mt-2 flex gap-1"><select className="input min-h-9 flex-1" value={fromPump} onChange={(e) => setFromPump(e.target.value)}><option value="">Pump chunein…</option>{tenants.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</select>
+              <button className="btn-secondary min-h-9" disabled={busy || !fromPump} onClick={() => act(() => pfetch(`/platform/catalog/from-tenant/${fromPump}`, {}), (r) => `${r.pump}: ${r.rows} items — ${r.added} naye, ${r.updated} update`)}>Copy</button></div>
+          </div>
+          <div className="rounded-xl bg-slate-50 p-2.5 text-sm">
+            <div className="font-medium">Excel se paste</div>
+            <div className="text-xs text-slate-500">Columns: name, category, cost, price, brand, unit (header row ho to behtar).</div>
+            <button className="btn-secondary mt-2 min-h-9" onClick={() => setShowPaste(!showPaste)}>{showPaste ? "Band karein" : "Paste box kholein"}</button>
+          </div>
+        </div>
+        {showPaste && <div className="mt-2"><textarea className="input min-h-32 w-full font-mono text-xs" placeholder={"name\tcategory\tcost\tprice\tbrand\nShell Helix HX5 4L\tlubricant\t5200\t5800\tShell"} value={paste} onChange={(e) => setPaste(e.target.value)} />
+          <div className="mt-1 flex justify-end"><button className="btn-primary min-h-9" disabled={busy || paste.trim().length < 3} onClick={() => act(() => pfetch("/platform/catalog/bulk", { text: paste }), (r) => `${r.rows} rows — ${r.added} naye, ${r.updated} update`).then(() => setPaste(""))}>Import karein</button></div></div>}
+      </div>
+
+      <div className="rounded-2xl bg-white shadow-sm ring-1 ring-slate-200">
+        <div className="flex flex-col gap-2 p-3 sm:flex-row sm:items-center">
+          <input className="input min-h-10 flex-1" placeholder="Item dhoondein…" value={q} onChange={(e) => setQ(e.target.value)} />
+          <div className="-mx-3 flex gap-1.5 overflow-x-auto px-3 sm:mx-0 sm:px-0">
+            <button onClick={() => setCat("")} className={`shrink-0 rounded-full px-3 py-1 text-xs font-semibold ${!cat ? "bg-slate-900 text-white" : "bg-white text-slate-600 ring-1 ring-slate-200"}`}>Sab · {items?.length ?? 0}</button>
+            {cats.map((c) => <button key={c} onClick={() => setCat(c)} className={`shrink-0 rounded-full px-3 py-1 text-xs font-semibold ${cat === c ? "bg-slate-900 text-white" : "bg-white text-slate-600 ring-1 ring-slate-200"}`}>{c} · {items!.filter((x) => x.category === c).length}</button>)}
+          </div>
+          <button className="btn-primary min-h-10" onClick={() => setEdit({ name: "", category: cat || "other", brand: "", unit: "pc", cost: 0, price: 0 })}>+ Item</button>
+        </div>
+        <ul className="divide-y divide-slate-100">
+          {shown.map((x) => (
+            <li key={x.id} className="flex items-center gap-2 px-3 py-2 text-sm">
+              <div className="min-w-0 flex-1"><div className="truncate font-medium">{x.name}</div><div className="text-[11px] text-slate-500">{[x.category, x.brand, x.unit, x.sku].filter(Boolean).join(" · ")} · {x.source ?? "manual"}</div></div>
+              <div className="text-right tabular-nums"><div className={x.price ? "" : "text-rose-600"}>{x.price ? `Rs ${fmtN(x.price)}` : "price nahi"}</div>{x.cost ? <div className="text-[11px] text-slate-500">cost {fmtN(x.cost)}</div> : null}</div>
+              <button className="rounded-lg border border-slate-200 px-2 py-1 text-xs" onClick={() => setEdit({ ...x })}>Edit</button>
+              <button className="rounded-lg border border-rose-200 px-2 py-1 text-xs text-rose-700" onClick={() => { if (confirm(`${x.name} catalog se hatayein? (pumps ki shops par asar nahi)`)) act(() => pfetch(`/platform/catalog/${x.id}`, undefined, "DELETE"), () => "Hata diya"); }}>✕</button>
+            </li>
+          ))}
+          {items && shown.length === 0 && <li className="p-6 text-center text-sm text-slate-500">Kuch nahi mila</li>}
+        </ul>
+      </div>
+      {edit && (
+        <Modal open onClose={() => setEdit(null)} title={edit.id ? `Edit — ${edit.name}` : "Naya catalog item"}>
+          <div className="grid grid-cols-2 gap-2 text-sm">
+            <div className="col-span-2"><Field label="Naam"><input className="input" value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} /></Field></div>
+            <Field label="Category"><input className="input" list="catcats" value={edit.category} onChange={(e) => setEdit({ ...edit, category: e.target.value })} /><datalist id="catcats">{["lubricant", "filter", "coolant", "tyre", "battery", "tuck", "service", "other", ...cats].filter((v, i, a) => a.indexOf(v) === i).map((c) => <option key={c} value={c} />)}</datalist></Field>
+            <Field label="Brand"><input className="input" value={edit.brand ?? ""} onChange={(e) => setEdit({ ...edit, brand: e.target.value })} /></Field>
+            <Field label="Cost (Rs)"><input className="input" type="number" min={0} value={edit.cost ?? 0} onChange={(e) => setEdit({ ...edit, cost: Number(e.target.value) })} /></Field>
+            <Field label="Price (Rs)"><input className="input" type="number" min={0} value={edit.price ?? 0} onChange={(e) => setEdit({ ...edit, price: Number(e.target.value) })} /></Field>
+            <Field label="Unit"><input className="input" value={edit.unit ?? "pc"} onChange={(e) => setEdit({ ...edit, unit: e.target.value })} /></Field>
+            <Field label="SKU"><input className="input" value={edit.sku ?? ""} onChange={(e) => setEdit({ ...edit, sku: e.target.value })} /></Field>
+          </div>
+          <div className="mt-3 flex justify-end gap-2"><button className="btn-secondary" onClick={() => setEdit(null)}>Cancel</button>
+            <button className="btn-primary" disabled={busy || !edit.name?.trim()} onClick={() => { const body = { name: edit.name.trim(), category: (edit.category || "other").toLowerCase(), brand: edit.brand || null, unit: edit.unit || "pc", cost: Number(edit.cost) || 0, price: Number(edit.price) || 0, sku: edit.sku || null }; act(() => (edit.id ? pfetch(`/platform/catalog/${edit.id}`, body, "PUT") : pfetch("/platform/catalog", body)), () => "Save ho gaya").then(() => setEdit(null)); }}>Save</button></div>
+        </Modal>
+      )}
     </div>
   );
 }

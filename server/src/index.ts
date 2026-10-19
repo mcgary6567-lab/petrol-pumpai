@@ -64,6 +64,7 @@ import { fullEdit } from "./routes/fullEdit.js";
 import { parties } from "./routes/parties.js";
 import { requestMetrics, installProcessLogging } from "./serverStatus.js";
 import { payRequests } from "./routes/payRequests.js";
+import { catalogTenant } from "./routes/catalog.js";
 import { opening } from "./routes/opening.js";
 import { golive } from "./routes/golive.js";
 import { io } from "./routes/io.js";
@@ -102,6 +103,8 @@ installProcessLogging();
 // small bodies for the doors anyone can reach; photos and logos only after sign-in (or in the one-time setup)
 const rawBody = (req: any, _res: unknown, buf: Buffer) => { req.rawBody = buf; };
 app.use(/^\/(api\/auth|webhooks|w\/|k\/)/, express.json({ limit: "256kb", verify: rawBody }));
+// an old PumpAI backup (.db) uploaded whole for the master shop catalog — raw bytes, platform login checked by the route
+app.use("/api/platform/catalog/from-backup", express.raw({ type: () => true, limit: "400mb" }));
 app.use(express.json({ limit: "8mb", verify: rawBody }));
 app.use("/api/auth", rateLimit("auth", 30, 10 * 60_000));
 app.use("/api/setup", rateLimit("setup", 20, 10 * 60_000));
@@ -375,6 +378,7 @@ api.use(corrections);
 api.use(fullEdit);
 api.use(parties);
 api.use(payRequests);
+api.use(catalogTenant);
 api.use(opening);
 api.use(golive);
 api.use(io);

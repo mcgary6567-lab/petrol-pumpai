@@ -156,3 +156,43 @@ test("server tab: status document, request metrics, error log capture and clear"
   ok(await call(p, "POST", "/api/platform/server/logs/clear", {}), "clear");
   assert.equal(ok(await call(p, "GET", "/api/platform/server/logs"), "logs2").logs.length, 0);
 });
+
+test("master shop catalog: seeded starter list; paste, copy from a pump and an old backup .db all upsert; a pump pulls items into its shop once", async () => {
+  const p = ok(await call("", "POST", "/api/platform/login", { email: "owner@petrolpumpai.pk", password: "platform-pass-123" }), "platform login").token;
+  const cat0 = ok(await call(p, "GET", "/api/platform/catalog"), "catalog").items as any[];
+  assert.ok(cat0.some((x) => x.name === "Guard Filters 206" && x.price === 650), "starter Guard filter");
+  assert.equal((await call("", "GET", "/api/platform/catalog")).status, 401);
+  // paste from Excel (header row, tab separated)
+  const pasted = ok(await call(p, "POST", "/api/platform/catalog/bulk", { text: "name\tcategory\tcost\tprice\tbrand\nZIC X5 1L\tlubricant\t1500\t1800\tZIC\nGuard Filters 206\tfilter\t500\t700\tGuard\n" }), "bulk");
+  assert.equal(pasted.added, 1); assert.equal(pasted.updated, 1);
+  assert.equal(pasted.items.find((x: any) => x.name === "Guard Filters 206").price, 700, "price refreshed by paste");
+  // a pump with its own shop items → copied into the master list
+  const a = ok(await call("", "POST", "/api/signup", signup("Catalog Pump", "ceo-cat@test.pk")), "signup");
+  const st = ok(await call(a.token, "GET", "/api/stations"), "stations")[0];
+  ok(await call(a.token, "POST", "/api/shop/items", { station_id: st.id, name: "Local Special Oil 1L", category: "lubricant", cost: 900, price: 1100 }), "own item");
+  const tidA = db.get("SELECT tenant_id FROM users WHERE email='ceo-cat@test.pk'").tenant_id;
+  const fromT = ok(await call(p, "POST", `/api/platform/catalog/from-tenant/${tidA}`, {}), "from tenant");
+  assert.ok(fromT.added >= 1 && fromT.items.some((x: any) => x.name === "Local Special Oil 1L"));
+  // an old PumpAI backup: a copy of this very database works as one
+  const src = db.db as any; src.exec("PRAGMA wal_checkpoint(FULL)");
+  const tmp = path.join(dir, "old-backup.db"); fs.copyFileSync(process.env.DB_PATH!, tmp);
+  const bin = fs.readFileSync(tmp);
+  const up = await fetch(base + "/api/platform/catalog/from-backup", { method: "POST", headers: { authorization: `Bearer ${p}`, "content-type": "application/octet-stream" }, body: bin });
+  const upJ = await up.json() as any;
+  assert.equal(up.status, 200, JSON.stringify(upJ)); assert.ok(upJ.rows >= 1, "shop_items read from the backup");
+  const bad = await fetch(base + "/api/platform/catalog/from-backup", { method: "POST", headers: { authorization: `Bearer ${p}`, "content-type": "application/octet-stream" }, body: Buffer.from("not a database at all, really not") });
+  assert.equal(bad.status, 400);
+  // the pump pulls items from the catalog: once, with its own price where it says so; 0-price rows need a price
+  const view = ok(await call(a.token, "GET", `/api/catalog?station_id=${st.id}`), "catalog view").items as any[];
+  assert.ok(view.find((x) => x.name === "Local Special Oil 1L").in_shop, "own item flagged as already in shop");
+  const g206 = view.find((x) => x.name === "Guard Filters 206"), noPrice = view.find((x) => x.price === 0), zic = view.find((x) => x.name === "ZIC X5 1L"), own = view.find((x) => x.name === "Local Special Oil 1L");
+  const imp = ok(await call(a.token, "POST", "/api/catalog/import", { station_id: st.id, rows: [{ id: g206.id, price: 750 }, { id: noPrice.id }, { id: zic.id }, { id: own.id }] }), "import");
+  assert.equal(imp.added, 2); assert.equal(imp.skipped, 1); assert.equal(imp.no_price, 1);
+  const items = ok(await call(a.token, "GET", `/api/shop/items?station_id=${st.id}`), "shop items") as any[];
+  assert.equal(items.find((x) => x.name === "Guard Filters 206").price, 750, "pump's own price kept");
+  assert.equal(items.find((x) => x.name === "ZIC X5 1L").stock, 0, "stock starts at 0");
+  assert.ok(db.get("SELECT id FROM lookups WHERE tenant_id=? AND kind='shop_category' AND key='filter'", tidA), "category exists on the pump");
+  const again = ok(await call(a.token, "POST", "/api/catalog/import", { station_id: st.id, rows: [{ id: g206.id }] }), "import again");
+  assert.equal(again.added, 0); assert.equal(again.skipped, 1, "never duplicated");
+  assert.equal((await call(a.token, "GET", "/api/platform/catalog")).status, 401, "pump CEO cannot touch the master list");
+});

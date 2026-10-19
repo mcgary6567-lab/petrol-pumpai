@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Plus, PackagePlus, ClipboardCheck, Pencil, Undo2 } from "lucide-react";
 import { ImportExport } from "../components/ImportExport";
 import { PrintListButton } from "../components/PrintList";
+import { CatalogImportButton } from "../components/CatalogImport";
 
 import { api, useApi } from "../lib/api";
 import { useAuth } from "../App";
@@ -56,6 +57,7 @@ export default function Shop() {
               { label: "Stock", r: true, v: (i: any) => `${num(i.stock)} ${i.unit ?? ""}`.trim(), sub: (i: any) => i.reorder_level > 0 && i.stock <= i.reorder_level ? "LOW — reorder" : "" },
               { label: "Stock value (cost)", r: true, v: (i: any) => pkr(i.stock * i.cost), total: (rs: any[]) => pkr(rs.reduce((a, i) => a + Number(i.stock ?? 0) * Number(i.cost ?? 0), 0)) },
             ]} />
+          {can("stock.manage") && sid && <CatalogImportButton stationId={sid} onDone={reload} />}
           {can("stock.manage") && <ImportExport kind="shop" onDone={reload} />}
           <button className="btn-primary" onClick={() => setForm({ kind: "item" })}><Plus size={15} /> Add item</button>
         </>} />
