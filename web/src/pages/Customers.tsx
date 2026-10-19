@@ -8,7 +8,7 @@ import { PrintListButton } from "../components/PrintList";
 import { PartyAdmin } from "../components/PartyAdmin";
 
 import { api, useApi } from "../lib/api";
-import { Badge, CnicInput, Empty, ErrorBox, Field, ListTools, Loading, Modal, PageHeader, PhoneInput, Stat, statusTone, useAction, useListFilter } from "../components/ui";
+import { Badge, CnicInput, Empty, ErrorBox, Field, ListTools, Loading, Modal, PageHeader, Pager, PhoneInput, Stat, statusTone, useAction, useListFilter, usePaged } from "../components/ui";
 import { ago, d, dt, num, phone, pkr } from "../lib/format";
 import { useAuth } from "../App";
 import { OpeningBalanceField, type AdvanceReceipt } from "../components/OpeningBalanceField";
@@ -45,6 +45,7 @@ export default function Customers() {
   const [chip, setChip] = useState("");
   const keep = CHIPS.find((c) => c.k === chip)?.keep;
   const rows = useListFilter(list.data, { keep });
+  const paged = usePaged(rows, 25);
   const chips = CHIPS.map((c) => ({ k: c.k, label: c.label, n: c.k ? (list.data ?? []).filter(c.keep).length : undefined }));
 
   return (
@@ -73,7 +74,7 @@ export default function Customers() {
         {list.error && <div className="p-3"><ErrorBox error={list.error} /></div>}
         {/* phone: one card per customer */}
         <ul className="divide-y divide-slate-100 sm:hidden">
-          {rows.map((c) => (
+          {paged.slice.map((c) => (
             <li key={c.id} className="cursor-pointer px-4 py-3 active:bg-slate-50" onClick={() => nav(`/customers/${c.id}`)}>
               <div className="flex items-start justify-between gap-2">
                 <span className="min-w-0 font-semibold">{TYPE_ICON[c.type] && c.type !== "retail" ? `${TYPE_ICON[c.type]} ` : ""}{c.name}</span>
@@ -103,7 +104,7 @@ export default function Customers() {
               <th className="th hidden text-right lg:table-cell">Points</th><th className="th hidden lg:table-cell">Churn risk</th><th className="th">Credit risk</th><th className="th">Last visit</th>
             </tr></thead>
             <tbody>
-              {rows.map((c) => (
+              {paged.slice.map((c) => (
                 <tr key={c.id} className="cursor-pointer hover:bg-slate-50" onClick={() => nav(`/customers/${c.id}`)}>
                   <td className="td"><div className="font-medium">{TYPE_ICON[c.type] && c.type !== "retail" ? `${TYPE_ICON[c.type]} ` : ""}{c.name}</div><div className="text-xs text-slate-500">{phone(c.phone)} · {c.type}{!c.opt_in && " · opted out"}</div></td>
                   <td className="td">{c.segment && <Badge tone={segTone[c.segment]}>{c.segment}</Badge>}</td>
@@ -120,6 +121,7 @@ export default function Customers() {
           {list.loading && !list.data && <Loading />}
           {list.data && !rows.length && <Empty>No customers found</Empty>}
         </div>
+        <div className="px-4 pb-3"><Pager {...paged} /></div>
       </div>
       {adding && <AccountForm khata={can("credit.set_limit")} onClose={() => setAdding(false)} onSaved={(c) => { setAdding(false); list.reload(); nav(`/customers/${c.id}`); }} />}
       {id && <CustomerDetail id={id} onClose={() => nav("/customers")} onChanged={list.reload} />}

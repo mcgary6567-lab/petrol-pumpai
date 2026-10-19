@@ -7,7 +7,7 @@ import { PrintListButton } from "../components/PrintList";
 import { PartyAdmin } from "../components/PartyAdmin";
 
 import { api, linkToken, useApi } from "../lib/api";
-import { Badge, CnicInput, Empty, ErrorBox, Field, FilterChips, ListTools, Loading, Modal, PageHeader, PhoneInput, useAction, useListFilter } from "../components/ui";
+import { Badge, CnicInput, Empty, ErrorBox, Field, FilterChips, ListTools, Loading, Modal, PageHeader, Pager, PhoneInput, useAction, useListFilter, usePaged } from "../components/ui";
 import { WhatsAppDoc } from "../components/WhatsAppDoc";
 import { PRODUCTS, activeProducts, dt, num, pkr, pkrShort } from "../lib/format";
 import { useAuth } from "../App";
@@ -31,6 +31,7 @@ function ThekedarList() {
   const [add, setAdd] = useState(false);
   const [chip, setChip] = useState("");
   const list = (data ?? []).filter((k) => (!q || k.name.toLowerCase().includes(q.toLowerCase()) || (k.phone ?? "").includes(q)) && (chip !== "due" || Number(k.due ?? 0) > 0.5));
+  const paged = usePaged(list, 25);
   const dueCount = (data ?? []).filter((k) => Number(k.due ?? 0) > 0.5).length;
   return (
     <div className="space-y-4">
@@ -51,7 +52,7 @@ function ThekedarList() {
       {error && <ErrorBox error={error} />}
       {loading ? <Loading /> : !list.length ? <Empty>{(data ?? []).length ? "Kuch nahi mila · کچھ نہیں ملا" : "Koi thekedar nahi. \"New thekedar\" se shuru karein."}</Empty> : (
         <div className="space-y-2">
-          {list.map((k) => (
+          {paged.slice.map((k) => (
             <Link key={k.id} to={`/carriage/${k.id}`} className="card flex items-center justify-between p-4 hover:ring-2 hover:ring-brand-200">
               <div className="min-w-0">
                 <div className="flex items-center gap-2 font-semibold">{k.name}{k.active ? "" : <Badge tone="gray">closed</Badge>}</div>
@@ -63,6 +64,7 @@ function ThekedarList() {
               </div>
             </Link>
           ))}
+          <Pager {...paged} />
         </div>
       )}
       {add && <ThekedarForm onClose={() => setAdd(false)} onSaved={() => { setAdd(false); reload(); }} />}

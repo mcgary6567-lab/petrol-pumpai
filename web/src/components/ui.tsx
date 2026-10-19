@@ -248,6 +248,35 @@ export function ListTools({ q, onQ, placeholder = "Dhoondein… · تلاش", ch
   </>);
 }
 
+/* ---------------- pagination ---------------- */
+/** Client-side pager over an already-filtered array. Returns the current page's slice + controls.
+ * Page resets to 1 whenever the row set shrinks below the current page (e.g. a new search filter). */
+export function usePaged<T>(rows: T[], size = 25) {
+  const [page, setPage] = useState(1);
+  const total = rows.length;
+  const pages = Math.max(1, Math.ceil(total / size));
+  useEffect(() => { if (page > pages) setPage(1); }, [pages, page]);
+  const p = Math.min(page, pages);
+  const start = (p - 1) * size;
+  return { slice: rows.slice(start, start + size), page: p, setPage, pages, total, size, start };
+}
+/** Prev/next pager bar. Renders nothing when everything fits on one page. Hidden in print (the printout lists all). */
+export function Pager({ page, pages, setPage, total, size }: { page: number; pages: number; setPage: (n: number) => void; total: number; size: number }) {
+  if (pages <= 1) return null;
+  const from = (page - 1) * size + 1, to = Math.min(page * size, total);
+  const btn = "btn-secondary min-h-9 !py-1 px-3 disabled:opacity-40";
+  return (
+    <div className="mt-3 flex flex-wrap items-center justify-between gap-2 print:hidden">
+      <span className="text-xs text-slate-500">{from}–{to} / {total}</span>
+      <div className="flex items-center gap-1">
+        <button type="button" className={btn} disabled={page <= 1} onClick={() => setPage(page - 1)}>‹ Pichla</button>
+        <span className="px-2 text-sm tabular-nums">Safha {page} / {pages}</span>
+        <button type="button" className={btn} disabled={page >= pages} onClick={() => setPage(page + 1)}>Agla ›</button>
+      </div>
+    </div>
+  );
+}
+
 /* ---------------- motion helpers ---------------- */
 const reduceMotion = () => typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
 /** Animate a number from its previous value to the new one (≈500 ms, eased). First render shows the value at once; reduced-motion shows it at once. */

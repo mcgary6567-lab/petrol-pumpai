@@ -92,6 +92,12 @@ export default function Suppliers() {
           </ul>
         </div>
       ))}
+      {groups.length > 0 && (
+        <div className="card flex items-center justify-between gap-2 px-4 py-3 font-semibold">
+          <span>Total — we owe all suppliers{q ? " (filtered)" : ""} · <Ur>کل باقی</Ur></span>
+          <span className="tabular-nums text-rose-600">{pkr(shown.reduce((a, s) => a + Math.max(0, s.total_owed ?? s.owed ?? 0), 0))}</span>
+        </div>
+      )}
       {!data.length && <div className="card"><Empty>No suppliers yet. Add a depot, then add the company men inside it.</Empty></div>}
 
       {open && <SupplierDetail id={open} onClose={() => setOpen(null)} onChanged={reload} depots={depots.data ?? []} onDepots={depots.reload} />}

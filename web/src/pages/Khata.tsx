@@ -7,7 +7,7 @@ import { TYPE_ICON } from "./Pos";
 import { BellRing } from "lucide-react";
 import { PrintListButton } from "../components/PrintList";
 import { api, useApi } from "../lib/api";
-import { Empty, ListTools, Loading, PageHeader, Stat, matchQuery, useAction, useNewRows } from "../components/ui";
+import { Empty, ListTools, Loading, PageHeader, Pager, Stat, matchQuery, useAction, useNewRows, usePaged } from "../components/ui";
 import { ago, phone, pkr, pkrShort } from "../lib/format";
 import { useAuth } from "../App";
 
@@ -31,6 +31,7 @@ export default function Khata() {
   };
   const inGroup = (c: any) => !group || (group === "institution" ? INST.includes(c.type) : c.type === group);
   const rows = data.filter((c) => inGroup(c) && (!flag || FLAGS[flag](c)) && matchQuery(q, c.name, c.phone, c.type));
+  const paged = usePaged(rows, 25);
   const total = data.reduce((a, c) => a + Math.max(0, c.balance), 0);
   const nearLimit = data.filter(FLAGS.near).length;
   const onHold = data.filter(FLAGS.hold).length;
@@ -74,7 +75,7 @@ export default function Khata() {
         chips={[{ k: "", label: "All · سب" }, { k: "near", label: "Near limit · حد کے قریب", n: nearLimit }, { k: "hold", label: "On hold · روکا", n: onHold }, { k: "risk", label: "High risk · خطرہ", n: highRisk }]} />
       {/* phone: one card per customer */}
       <ul className="card divide-y divide-slate-100 sm:hidden">
-        {rows.map((c) => {
+        {paged.slice.map((c) => {
           const util = c.credit_limit ? Math.min(100, (c.balance / c.credit_limit) * 100) : 0;
           return (
             <li key={c.id} className={`px-4 py-3 active:bg-slate-50 ${fresh.has(`${c.id}:${Math.round(c.balance)}`) ? "row-new" : ""}`} onClick={() => nav(`/customers/${c.id}`)}>
@@ -98,7 +99,7 @@ export default function Khata() {
         <table className="w-full">
           <thead><tr><th className="th">Customer · <Ur>گاہک</Ur></th><th className="th text-right">Balance · <Ur>بقایا</Ur></th><th className="th text-right">Limit · <Ur>حد</Ur></th><th className="th">Used · <Ur>استعمال</Ur></th><th className="th">Risk · <Ur>خطرہ</Ur></th><th className="th">Last payment · <Ur>آخری ادائیگی</Ur></th><th className="th" /></tr></thead>
           <tbody>
-            {rows.map((c) => {
+            {paged.slice.map((c) => {
               const util = c.credit_limit ? Math.min(100, (c.balance / c.credit_limit) * 100) : 0;
               return (
                 <tr key={c.id} className={`cursor-pointer hover:bg-slate-50 ${fresh.has(`${c.id}:${Math.round(c.balance)}`) ? "row-new" : ""}`} onClick={() => nav(`/customers/${c.id}`)}>
@@ -116,6 +117,7 @@ export default function Khata() {
         </table>
         {!rows.length && <Empty>No credit customers · کوئی کھاتہ نہیں</Empty>}
       </div>
+      <Pager {...paged} />
       {bill && <KhataStatement customerId={bill} onClose={() => setBill(null)} />}
     </div>
   );

@@ -6,7 +6,7 @@ import { PrintListButton } from "../components/PrintList";
 import { PartyAdmin } from "../components/PartyAdmin";
 
 import { api, linkToken, useApi } from "../lib/api";
-import { Badge, Empty, ErrorBox, Field, ListTools, Loading, Modal, PageHeader, PhoneInput, Stat, useAction, useListFilter } from "../components/ui";
+import { Badge, Empty, ErrorBox, Field, ListTools, Loading, Modal, PageHeader, Pager, PhoneInput, Stat, useAction, useListFilter, usePaged } from "../components/ui";
 import { WhatsAppDoc } from "../components/WhatsAppDoc";
 import { PRODUCTS, ago, d, dt, num, phone, pkr, pkrShort, dueLabel } from "../lib/format";
 import { useAuth } from "../App";
@@ -196,6 +196,7 @@ function ClientsTable({ onAdd }: { onAdd: () => void }) {
     { k: "inactive", label: "Inactive · بند", n: allClients.filter(isInactive).length },
   ];
   const clients = useListFilter(allClients, { keep: (c) => chip === "due" ? isDue(c) : chip === "over" ? isOver(c) : chip === "inactive" ? isInactive(c) : true });
+  const paged = usePaged(clients, 25);
   return (
     <div className="card">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 p-3">
@@ -224,7 +225,7 @@ function ClientsTable({ onAdd }: { onAdd: () => void }) {
       {list.error && <div className="p-3"><ErrorBox error={list.error} /></div>}
       <div className="px-3 pt-2"><ListTools q={q} onQ={setQ} placeholder="Search client · کلائنٹ" chips={chips} chip={chip} onChip={setChip} shown={clients.length} total={allClients.length} /></div>
       <ul className="divide-y divide-slate-100 sm:hidden">
-        {clients.map((c) => {
+        {paged.slice.map((c) => {
           const used = c.credit_limit ? Math.min(100, (c.due / c.credit_limit) * 100) : 0;
           return (
             <li key={c.id} className={`cursor-pointer space-y-1.5 p-3 active:bg-slate-50 ${c.active ? "" : "opacity-50"}`} onClick={() => nav(`/wholesale/${c.id}`)}>
@@ -243,7 +244,7 @@ function ClientsTable({ onAdd }: { onAdd: () => void }) {
         <table className="w-full">
           <thead><tr><th className="th">Client</th><th className="th">Rates (per litre)</th><th className="th text-right">This month</th><th className="th text-right">Due</th><th className="th">Limit used</th><th className="th">Last supply</th><th className="th">Last payment</th></tr></thead>
           <tbody>
-            {clients.map((c) => {
+            {paged.slice.map((c) => {
               const used = c.credit_limit ? Math.min(100, (c.due / c.credit_limit) * 100) : 0;
               return (
                 <tr key={c.id} className={`cursor-pointer hover:bg-slate-50 ${c.active ? "" : "opacity-50"}`} onClick={() => nav(`/wholesale/${c.id}`)}>
@@ -262,6 +263,7 @@ function ClientsTable({ onAdd }: { onAdd: () => void }) {
         {list.data && !list.data.length && <Empty>No wholesale clients yet</Empty>}
         {list.data && list.data.length > 0 && !clients.length && <Empty>Is filter mein koi client nahi · کوئی کلائنٹ نہیں</Empty>}
       </div>
+      <div className="px-3 pb-3"><Pager {...paged} /></div>
     </div>
   );
 }
