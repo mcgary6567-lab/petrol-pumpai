@@ -12,9 +12,9 @@ import { Pdf } from "./pdf.js";
 import { brandLines } from "./brandPrint.js";
 import { logoJpeg } from "./routes/setup.js";
 import { khataStatement } from "./routes/crm.js";
-import { statement as wholesaleStatement, clientDue } from "./routes/wholesale.js";
+import { statement as wholesaleStatement, clientDue, clientDueAll } from "./routes/wholesale.js";
 import { statement as carriageStatement } from "./routes/carriage.js";
-import { supplierOwed } from "./routes/suppliers.js";
+import { supplierOwed, supplierOwedAll } from "./routes/suppliers.js";
 import { shiftReport } from "./shifts.js";
 import { PRODUCTS } from "./config.js";
 import { AppError, round2, normalizePhone } from "./services.js";
@@ -259,7 +259,7 @@ function customerListDoc(t: number): Doc {
     caption: `Khata customers — ${rows.length} accounts · total due ${money(due)}${adv > 0.5 ? ` · advance ${money(adv)}` : ""}.` };
 }
 function clientListDoc(t: number): Doc {
-  const rows = all("SELECT id, name, business_name, phone FROM wholesale_clients WHERE tenant_id=? AND active=1 ORDER BY name", t).map((c) => ({ ...c, due: clientDue(c.id as number) }));
+  const rows = ((d) => all("SELECT id, name, business_name, phone FROM wholesale_clients WHERE tenant_id=? AND active=1 ORDER BY name", t).map((c) => ({ ...c, due: d.get(c.id as number) ?? 0 })))(clientDueAll(t));
   const due = round2(rows.reduce((a, c) => a + Math.max(0, c.due), 0));
   const pg = page(t, "Wholesale clients", `${rows.length} clients · as of ${dtOf(now())}`, "");
   table(pg, [{ k: "n", w: 0.6, label: "#", align: "right" }, { k: "name", w: 3.6, label: "Client" }, { k: "biz", w: 2.6, label: "Business" }, { k: "phone", w: 2, label: "Phone" }, { k: "due", w: 2, label: "Due", align: "right" }],
@@ -269,7 +269,7 @@ function clientListDoc(t: number): Doc {
     caption: `Wholesale clients — ${rows.length} · total due ${money(due)}.` };
 }
 function supplierListDoc(t: number): Doc {
-  const rows = all("SELECT id, name, company, phone FROM suppliers WHERE tenant_id=? AND active=1 ORDER BY company, name", t).map((s) => ({ ...s, owed: supplierOwed(s.id as number) }));
+  const rows = ((d) => all("SELECT id, name, company, phone FROM suppliers WHERE tenant_id=? AND active=1 ORDER BY company, name", t).map((s) => ({ ...s, owed: d.get(s.id as number) ?? 0 })))(supplierOwedAll(t));
   const owed = round2(rows.reduce((a, s) => a + Math.max(0, s.owed), 0));
   const pg = page(t, "Suppliers", `${rows.length} suppliers · as of ${dtOf(now())}`, "");
   table(pg, [{ k: "n", w: 0.6, label: "#", align: "right" }, { k: "name", w: 3.6, label: "Supplier" }, { k: "company", w: 3, label: "Company" }, { k: "phone", w: 2, label: "Phone" }, { k: "owed", w: 2, label: "We owe", align: "right" }],

@@ -12,8 +12,8 @@ import { AppError, audit, normalizePhone, round2 } from "../services.js";
 import { PRODUCTS } from "../config.js";
 import { setKhataOpening } from "./opening.js";
 import { saveRates, clientDueAll } from "./wholesale.js";
-import { supplierOwed } from "./suppliers.js";
-import { thekedarDue } from "./carriage.js";
+import { supplierOwed, supplierOwedAll } from "./suppliers.js";
+import { thekedarDue, thekedarDueAll } from "./carriage.js";
 import { ensureLookups } from "./lookups.js";
 
 export const io = Router();
@@ -112,7 +112,7 @@ const KINDS: Record<string, Kind> = {
       { key: "opening_balance", label: "Opening balance (we owe)", num: true, aliases: ["balance", "opening", "owed", "dena"] },
       { key: "notes", label: "Notes", aliases: ["note", "remarks"] },
     ],
-    rows: (t) => all("SELECT id, name, company, phone, notes FROM suppliers WHERE tenant_id=? AND active=1 ORDER BY name", t).map((s) => ({ ...s, opening_balance: round2(supplierOwed(s.id as number)) })),
+    rows: (t) => ((d) => all("SELECT id, name, company, phone, notes FROM suppliers WHERE tenant_id=? AND active=1 ORDER BY name", t).map((s) => ({ ...s, opening_balance: round2(d.get(s.id as number) ?? 0) })))(supplierOwedAll(t)),
     match: (t, r) => (r.phone ? get("SELECT * FROM suppliers WHERE tenant_id=? AND phone=?", t, normalizePhone(String(r.phone))) : undefined) ?? get("SELECT * FROM suppliers WHERE tenant_id=? AND lower(name)=lower(?)", t, String(r.name)),
     insert: (t, r) => run("INSERT INTO suppliers (tenant_id,name,phone,opening_balance,notes,company,created_at) VALUES (?,?,?,?,?,?,?)",
       t, r.name, r.phone ? normalizePhone(String(r.phone)) : null, round2(Number(r.opening_balance ?? 0)), r.notes ?? null, r.company ?? null, now()).id,
@@ -162,7 +162,7 @@ const KINDS: Record<string, Kind> = {
       { key: "opening_balance", label: "Opening balance (owes us)", num: true, aliases: ["balance", "opening", "due", "baqaya"] },
       { key: "notes", label: "Notes", aliases: ["note", "remarks"] },
     ],
-    rows: (t) => all("SELECT id, name, phone, cnic, city, address, notes FROM thekedars WHERE tenant_id=? AND active=1 ORDER BY name", t).map((k) => ({ ...k, opening_balance: round2(thekedarDue(k.id as number)) })),
+    rows: (t) => ((d) => all("SELECT id, name, phone, cnic, city, address, notes FROM thekedars WHERE tenant_id=? AND active=1 ORDER BY name", t).map((k) => ({ ...k, opening_balance: round2(d.get(k.id as number) ?? 0) })))(thekedarDueAll(t)),
     match: (t, r) => (r.phone ? get("SELECT * FROM thekedars WHERE tenant_id=? AND phone=?", t, normalizePhone(String(r.phone))) : undefined) ?? get("SELECT * FROM thekedars WHERE tenant_id=? AND lower(name)=lower(?)", t, String(r.name)),
     insert: (t, r) => run("INSERT INTO thekedars (tenant_id,name,phone,cnic,city,address,opening_balance,notes,created_at) VALUES (?,?,?,?,?,?,?,?,?)",
       t, r.name, r.phone ? normalizePhone(String(r.phone)) : null, r.cnic ?? null, r.city ?? null, r.address ?? null, round2(Number(r.opening_balance ?? 0)), r.notes ?? null, now()).id,

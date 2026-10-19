@@ -21,7 +21,7 @@ import { insertTxn, fleet, priceSupply, clientDue } from "./wholesale.js";
 import { BYPASS_PAY } from "./banks.js";
 import { deliverOrder } from "./wholesaleDesk.js";
 import { profile } from "./setup.js";
-import { supplierOwed } from "./suppliers.js";
+import { supplierOwed, supplierOwedAll } from "./suppliers.js";
 import { SOCIALS } from "../brandPrint.js";
 
 export const bypass = Router();
@@ -67,9 +67,10 @@ export function bypassStockValue(tenantId: number): number { return bypassStock(
 /* ================= Suppliers we lift bypass fuel from ================= */
 bypass.get("/bypass/suppliers", h((req) => {
   const t = tid(req);
+  const byp = bypassOwedAll(t), pump = supplierOwedAll(t);
   return all(`SELECT s.id, s.name, s.phone, s.depot_id, s.company, d.name depot_name FROM suppliers s LEFT JOIN depots d ON d.id=s.depot_id
     WHERE s.tenant_id=? AND COALESCE(s.active,1)=1 ORDER BY COALESCE(d.name,''), s.company, s.name`, t)
-    .map((s) => ({ ...s, bypass_owed: bypassOwed(s.id), pump_owed: supplierOwed(s.id), total_owed: round2(bypassOwed(s.id) + supplierOwed(s.id)) }));
+    .map((s) => { const b = byp.get(s.id) ?? 0, p = pump.get(s.id) ?? 0; return { ...s, bypass_owed: b, pump_owed: p, total_owed: round2(b + p) }; });
 }));
 
 /** Move bypass stock into OUR own tank inside a tx: a tank-side bypass_drop + a stock-register delivery + fill the tank.

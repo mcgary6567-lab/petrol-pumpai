@@ -11,7 +11,7 @@ import { notDepot } from "./banks.js";
 import { h, parse, tid, requirePerm } from "../auth.js";
 import { AppError, round2, currentPrices } from "../services.js";
 import { PRODUCTS } from "../config.js";
-import { clientDue, carriageIncome } from "./wholesale.js";
+import { clientDue, clientDueAll, carriageIncome } from "./wholesale.js";
 import { thekedarDue, carriageIncomeThekedar } from "./carriage.js";
 import { supplierOwed } from "./suppliers.js";
 import { fuelCostPerL } from "../fuelCost.js";
@@ -101,7 +101,7 @@ export function buildReport(t: number, from: string, to: string) {
         ROUND(COALESCE(SUM(CASE WHEN w.type='supply' THEN w.amount WHEN w.type='return' THEN -w.amount END),0)) billed,
         ROUND(COALESCE(SUM(CASE WHEN w.type='payment' THEN w.amount END),0)) received
       FROM wholesale_clients c LEFT JOIN wholesale_txns w ON w.client_id=c.id AND w.voided=0 AND w.txn_date >= ? AND w.txn_date < ?
-      WHERE c.tenant_id=? GROUP BY c.id ORDER BY billed DESC`, from, to, t).map((c) => ({ ...c, due_now: clientDue(c.id) })),
+      WHERE c.tenant_id=? GROUP BY c.id ORDER BY billed DESC`, from, to, t).map(((d) => (c: any) => ({ ...c, due_now: d.get(c.id) ?? 0 }))(clientDueAll(t))),
     by_product: all(`SELECT product, ROUND(SUM(CASE WHEN type='supply' THEN litres ELSE -litres END)) net_l, ROUND(SUM(CASE WHEN type='supply' THEN amount ELSE -amount END)) amount
       ${W} AND type IN ('supply','return') GROUP BY product`, ...P),
   };

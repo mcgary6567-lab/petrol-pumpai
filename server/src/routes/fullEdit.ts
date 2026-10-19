@@ -16,9 +16,9 @@ import { all, get, run, tx, now, pkDate, stampFor, type Row } from "../db.js";
 import { h, parse, tid, requirePerm } from "../auth.js";
 import { AppError, round2, khataEntry, audit } from "../services.js";
 import { bankAccountFor, DEPOT_PAY, BYPASS_PAY } from "./banks.js";
-import { insertTxn, clientDue } from "./wholesale.js";
-import { supplierOwed } from "./suppliers.js";
-import { thekedarDue } from "./carriage.js";
+import { insertTxn, clientDue, clientDueAll } from "./wholesale.js";
+import { supplierOwed, supplierOwedAll } from "./suppliers.js";
+import { thekedarDue, thekedarDueAll } from "./carriage.js";
 import { PRODUCTS } from "../config.js";
 
 export const fullEdit = Router();
@@ -108,9 +108,9 @@ const SRC: Record<Kind, string> = { khata: "khata", wholesale: "wtx", supplier: 
 const partyLabel: Record<Kind, string> = { khata: "Khata customer", wholesale: "Wholesale client", supplier: "Supplier", carriage: "Thekedar", voucher: "" };
 function parties(t: number, kind: Kind) {
   if (kind === "khata") return all("SELECT id, name, phone, balance FROM customers WHERE tenant_id=? AND active=1 ORDER BY name", t).map((c) => ({ id: c.id, name: c.name, sub: c.phone ?? "", balance: round2(c.balance) }));
-  if (kind === "wholesale") return all("SELECT id, name, business_name, phone FROM wholesale_clients WHERE tenant_id=? AND active=1 ORDER BY name", t).map((c) => ({ id: c.id, name: c.name, sub: [c.business_name, c.phone].filter(Boolean).join(" · "), balance: clientDue(c.id) }));
-  if (kind === "supplier") return all("SELECT id, name, company, phone FROM suppliers WHERE tenant_id=? AND COALESCE(active,1)=1 ORDER BY company, name", t).map((s) => ({ id: s.id, name: [s.company, s.name].filter(Boolean).join(" — "), sub: s.phone ?? "", balance: supplierOwed(s.id) }));
-  if (kind === "carriage") return all("SELECT id, name, phone FROM thekedars WHERE tenant_id=? AND active=1 ORDER BY name", t).map((k) => ({ id: k.id, name: k.name, sub: k.phone ?? "", balance: thekedarDue(k.id) }));
+  if (kind === "wholesale") { const d = clientDueAll(t); return all("SELECT id, name, business_name, phone FROM wholesale_clients WHERE tenant_id=? AND active=1 ORDER BY name", t).map((c) => ({ id: c.id, name: c.name, sub: [c.business_name, c.phone].filter(Boolean).join(" · "), balance: d.get(c.id) ?? 0 })); }
+  if (kind === "supplier") { const d = supplierOwedAll(t); return all("SELECT id, name, company, phone FROM suppliers WHERE tenant_id=? AND COALESCE(active,1)=1 ORDER BY company, name", t).map((s) => ({ id: s.id, name: [s.company, s.name].filter(Boolean).join(" — "), sub: s.phone ?? "", balance: d.get(s.id) ?? 0 })); }
+  if (kind === "carriage") { const d = thekedarDueAll(t); return all("SELECT id, name, phone FROM thekedars WHERE tenant_id=? AND active=1 ORDER BY name", t).map((k) => ({ id: k.id, name: k.name, sub: k.phone ?? "", balance: d.get(k.id) ?? 0 })); }
   return [];
 }
 const TYPES: Record<Kind, [string, string][]> = {
