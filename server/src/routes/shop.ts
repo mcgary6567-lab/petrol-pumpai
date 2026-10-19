@@ -20,7 +20,7 @@ export const SHOP_CATEGORIES = ["lubricant", "filter", "coolant", "tyre", "batte
 
 const itemBody = z.object({
   station_id: z.number(), name: z.string().min(2).max(80), category: z.string().max(40).default("other"), // one of Settings → Lists → Shop categories
-  sku: z.string().max(40).optional().nullable(), barcode: z.string().max(40).optional().nullable(), unit: z.string().max(12).default("pc"),
+  sku: z.string().max(40).optional().nullable(), barcode: z.string().max(40).optional().nullable(), unit: z.string().max(12).regex(/[A-Za-z\u0600-\u06FF]/, "Unit me naam likhein (pc / ltr / can) — quantity 'Stock in' se dalein").default("pc"),
   cost: z.number().min(0).default(0), price: z.number().positive(), reorder_level: z.number().min(0).default(0), stock: z.number().min(0).optional(),
 });
 

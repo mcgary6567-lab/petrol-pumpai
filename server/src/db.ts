@@ -843,6 +843,8 @@ export function migrate() {
     }
     run("INSERT INTO settings (tenant_id,key,value) VALUES (0,'mig_module_wholesale','1')");
   }
+  // a quantity typed into an item's Unit box ("10") is not a unit: back to pieces (the stock itself is entered via Stock in)
+  db.exec("UPDATE shop_items SET unit='pc' WHERE TRIM(COALESCE(unit,''))='' OR unit NOT GLOB '*[A-Za-z]*'");
 }
 
 /** Allow the cashier role on databases made before it (the users table keeps every column it has today). */

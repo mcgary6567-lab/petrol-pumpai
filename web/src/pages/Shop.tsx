@@ -186,14 +186,22 @@ function EditShopSale({ sale, onClose, onDone }: { sale: any; onClose: () => voi
 function ItemForm({ item, stationId, onClose, onDone }: { item?: any; stationId: number; onClose: () => void; onDone: () => void }) {
   const cats = useLookups("shop_category");
   const [f, setF] = useState({ name: item?.name ?? "", category: item?.category ?? "lubricant", barcode: item?.barcode ?? "", unit: item?.unit ?? "pc",
-    cost: String(item?.cost ?? ""), price: String(item?.price ?? ""), reorder_level: String(item?.reorder_level ?? "5"), stock: "", active: item ? Boolean(item.active) : true });
+    cost: String(item?.cost ?? ""), price: String(item?.price ?? ""), reorder_level: String(item?.reorder_level ?? "5"), stock: item ? String(item.stock ?? 0) : "", active: item ? Boolean(item.active) : true });
   const { busy, run } = useAction();
+  const UNITS = ["pc", "ltr", "can", "bottle", "pack", "set", "kg", "pair"];
+  const unitKnown = UNITS.includes(f.unit);
   return (
     <Modal open onClose={onClose} title={item ? `Edit ${item.name}` : "Add shop item"}>
       <form className="space-y-3" onSubmit={async (e) => {
         e.preventDefault();
         const body: any = { name: f.name, category: f.category, barcode: f.barcode || null, unit: f.unit, cost: Number(f.cost) || 0, price: Number(f.price), reorder_level: Number(f.reorder_level) || 0 };
-        const r = item ? await run(() => api(`/shop/items/${item.id}`, { method: "PATCH", body: { ...body, active: f.active } }), "Saved")
+        const r = item ? await run(async () => {
+            const saved = await api(`/shop/items/${item.id}`, { method: "PATCH", body: { ...body, active: f.active } });
+            // stock typed on the edit form = a count: the difference is logged as an adjustment
+            const counted = Number(f.stock);
+            if (f.stock !== "" && Math.abs(counted - Number(item.stock ?? 0)) > 0.0001) await api(`/shop/items/${item.id}/adjust`, { body: { counted, reason: "Stock set on edit form" } });
+            return saved;
+          }, "Saved")
           : await run(() => api("/shop/items", { body: { ...body, station_id: stationId, stock: Number(f.stock) || 0 } }), "Item added");
         if (r) onDone();
       }}>
@@ -201,11 +209,17 @@ function ItemForm({ item, stationId, onClose, onDone }: { item?: any; stationId:
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <Field label="Category"><select className="input" value={f.category} onChange={(e) => setF({ ...f, category: e.target.value })}>{cats.list.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}</select></Field>
           <Field label="Barcode"><input className="input font-mono" value={f.barcode} onChange={(e) => setF({ ...f, barcode: e.target.value })} /></Field>
-          <Field label="Unit"><input className="input" value={f.unit} onChange={(e) => setF({ ...f, unit: e.target.value })} placeholder="pc / can / bottle" /></Field>
+          <Field label="Unit (naap, quantity nahi)">
+            <select className="input" value={unitKnown ? f.unit : "__other"} onChange={(e) => setF({ ...f, unit: e.target.value === "__other" ? "" : e.target.value })}>
+              {UNITS.map((u) => <option key={u} value={u}>{u}</option>)}<option value="__other">other…</option>
+            </select>
+            {!unitKnown && <input className="input mt-1" value={f.unit} onChange={(e) => setF({ ...f, unit: e.target.value })} placeholder="e.g. box" />}
+          </Field>
           <Field label="Cost (Rs)"><input className="input" type="number" inputMode="decimal" min={0} step="0.01" value={f.cost} onChange={(e) => setF({ ...f, cost: e.target.value })} /></Field>
           <Field label="Sale price (Rs)"><input className="input" type="number" inputMode="decimal" min={1} step="0.01" required value={f.price} onChange={(e) => setF({ ...f, price: e.target.value })} /></Field>
           <Field label="Alert when stock ≤"><input className="input" type="number" inputMode="decimal" min={0} value={f.reorder_level} onChange={(e) => setF({ ...f, reorder_level: e.target.value })} /></Field>
-          {!item && <Field label="Opening stock"><input className="input" type="number" inputMode="decimal" min={0} value={f.stock} onChange={(e) => setF({ ...f, stock: e.target.value })} /></Field>}
+          <Field label={item ? `Stock abhi (${item.unit ?? "pc"})` : "Opening stock"}><input className="input" type="number" inputMode="decimal" min={0} value={f.stock} onChange={(e) => setF({ ...f, stock: e.target.value })} placeholder="0" />
+            {item && <span className="text-[11px] text-slate-500">Badalne par farq adjustment me likha jayega; khareed ke liye "Stock in" behtar hai (cost aur supplier ke saath).</span>}</Field>
         </div>
         {item && <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={f.active} onChange={(e) => setF({ ...f, active: e.target.checked })} /> Show on the POS</label>}
         <div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={onClose}>Cancel</button><button className="btn-primary" disabled={busy}>Save</button></div>
