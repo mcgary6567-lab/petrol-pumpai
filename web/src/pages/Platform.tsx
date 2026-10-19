@@ -73,7 +73,7 @@ function Panel({ onLogout }: { onLogout: () => void }) {
   const [made, setMade] = useState<string[]>([]);
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState<"all" | "active" | "trial" | "suspended" | "lifetime" | "locked" | "attention">("all");
-  const [tab, setTab] = useState<"pumps" | "codes" | "backups">("pumps");
+  const [tab, setTab] = useState<"pumps" | "codes" | "backups" | "server">("pumps");
   const load = useCallback(async () => {
     try { setOv(await pfetch("/platform/overview")); setCodes((await pfetch("/platform/codes")).codes); setErr(null); }
     catch (e: any) { setErr(e.message); if (/login|401/i.test(e.message)) onLogout(); }
@@ -135,7 +135,7 @@ function Panel({ onLogout }: { onLogout: () => void }) {
           </div>
         </div>
         <div className="mx-auto flex max-w-6xl gap-1 px-3 sm:px-4">
-          {([["pumps", "Pumps"], ["codes", `Codes${unused.length ? ` · ${unused.length}` : ""}`], ["backups", "Backups"]] as const).map(([key, l]) => (
+          {([["pumps", "Pumps"], ["server", "Server"], ["codes", `Codes${unused.length ? ` · ${unused.length}` : ""}`], ["backups", "Backups"]] as const).map(([key, l]) => (
             <button key={key} onClick={() => setTab(key)} className={`border-b-2 px-3 py-1.5 text-sm ${tab === key ? "border-emerald-400 font-semibold text-white" : "border-transparent text-slate-400"}`}>{l}</button>
           ))}
         </div>
@@ -266,6 +266,8 @@ function Panel({ onLogout }: { onLogout: () => void }) {
           </div>
         )}
 
+        {tab === "server" && <ServerTab />}
+
         {tab === "backups" && (
           <BackupsPanel title="Backups — saare pumps (poora database)" base="/platform/backups" request={(p, i) => pfetch(p, i?.body, i?.method)} downloadUrl={(n) => `/api/platform/backups/${n}?token=${getTok() ?? ""}`} />
         )}
@@ -275,6 +277,146 @@ function Panel({ onLogout }: { onLogout: () => void }) {
       {planFor && <PlanModal t={planFor} onClose={() => setPlanFor(null)} onDone={() => { setPlanFor(null); load(); }} />}
       {testReport && <TestPumpModal r={testReport} onClose={() => setTestReport(null)} />}
       {deleteFor && <DeletePumpModal t={deleteFor} onClose={() => setDeleteFor(null)} onDone={() => { setDeleteFor(null); load(); }} />}
+    </div>
+  );
+}
+
+/* ================= Server tab: the Fly machine, volume, traffic, health and error log ================= */
+const gb = (b: number) => `${(b / 1e9).toFixed(2)} GB`;
+const upFor = (s: number) => { const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60); return d ? `${d}d ${h}h` : h ? `${h}h ${m}m` : `${m}m`; };
+function Bar({ pct, tone }: { pct: number; tone?: string }) {
+  const p = Math.max(0, Math.min(100, pct));
+  return <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100"><div className={`h-full rounded-full ${tone ?? (p > 85 ? "bg-rose-500" : p > 65 ? "bg-amber-500" : "bg-emerald-500")}`} style={{ width: `${p}%` }} /></div>;
+}
+function Row({ k, v, mono }: { k: string; v: any; mono?: boolean }) { return <div className="flex justify-between gap-3 py-0.5 text-sm"><span className="text-slate-500">{k}</span><span className={`text-right ${mono ? "font-mono text-xs" : "font-medium"}`}>{v ?? "—"}</span></div>; }
+
+function ServerTab() {
+  const [s, setS] = useState<any>(null);
+  const [logs, setLogs] = useState<any[]>([]);
+  const [level, setLevel] = useState<"all" | "error" | "warn">("all");
+  const [open, setOpen] = useState<number | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const load = useCallback(async () => {
+    try { const [st, lg] = await Promise.all([pfetch("/platform/server"), pfetch(`/platform/server/logs?level=${level}&limit=200`)]); setS(st); setLogs(lg.logs); setErr(null); }
+    catch (e: any) { setErr(e.message); }
+  }, [level]);
+  useEffect(() => { load(); const id = setInterval(load, 30_000); return () => clearInterval(id); }, [load]);
+  if (!s) return <div className="rounded-2xl bg-white p-6 text-center text-slate-500 shadow-sm ring-1 ring-slate-200">Server status la rahe hain… {err && <ErrorBox error={err} />}</div>;
+  const m = s.machine, c = s.cpu, me = s.memory, d = s.disk, r = s.requests;
+  const vol = d.volume;
+  const maxReq = Math.max(1, ...r.per_minute.map((x: any) => x.requests));
+  const Card = ({ title, children, className = "" }: { title: string; children: any; className?: string }) => <div className={`rounded-2xl bg-white p-3 shadow-sm ring-1 ring-slate-200 ${className}`}><div className="mb-2 font-semibold">{title}</div>{children}</div>;
+  return (
+    <div className="space-y-3">
+      {err && <ErrorBox error={err} />}
+      {/* headline */}
+      <div className={`flex flex-wrap items-center gap-3 rounded-2xl p-3 shadow-sm ring-1 ${s.healthy ? "bg-emerald-50 ring-emerald-200" : "bg-rose-50 ring-rose-200"}`}>
+        <div className={`h-3 w-3 rounded-full ${s.healthy ? "bg-emerald-500" : "bg-rose-500"}`} />
+        <div className="min-w-0 flex-1"><div className="font-semibold">{s.healthy ? "Server theek chal raha hai" : "Server par dhyan chahiye"} · {m.app ?? "local"}{m.region ? ` · ${m.region}` : ""}</div>
+          <div className="text-xs text-slate-600">Up {upFor(m.process_uptime_s)} · Node {m.node} · {r.last_5min.requests} requests / 5 min · avg {r.last_5min.avg_ms} ms · updated {agoShort(s.now)}</div></div>
+        <div className="flex gap-1.5">
+          <button className="rounded-lg bg-white px-2.5 py-1.5 text-xs font-semibold ring-1 ring-slate-200" onClick={load}>Refresh</button>
+          {m.app && <a className="rounded-lg bg-white px-2.5 py-1.5 text-xs font-semibold ring-1 ring-slate-200" href={`https://fly.io/apps/${m.app}`} target="_blank" rel="noreferrer">Fly.io ↗</a>}
+        </div>
+      </div>
+
+      {/* health checks */}
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {s.checks.map((ck: any) => (
+          <div key={ck.name} className={`rounded-xl bg-white p-2.5 ring-1 ${ck.ok ? "ring-slate-200" : "ring-rose-300 bg-rose-50"}`}>
+            <div className="flex items-center gap-1.5 text-sm font-semibold"><span className={`h-2 w-2 rounded-full ${ck.ok ? "bg-emerald-500" : "bg-rose-500"}`} />{ck.name}</div>
+            <div className="mt-0.5 text-[11px] leading-snug text-slate-600">{ck.detail}</div>
+          </div>
+        ))}
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        <Card title="CPU · load">
+          <div className="mb-1 flex items-baseline justify-between"><span className="text-2xl font-bold tabular-nums">{c.percent}%</span><span className="text-xs text-slate-500">{c.cores} core</span></div>
+          <Bar pct={c.percent} />
+          <div className="mt-2"><Row k="Load 1 / 5 / 15 min" v={`${c.load_1.toFixed(2)} / ${c.load_5.toFixed(2)} / ${c.load_15.toFixed(2)}`} /><Row k="Event loop lag" v={`${c.event_loop_lag_ms} ms`} /><Row k="CPU" v={c.model} /></div>
+        </Card>
+        <Card title="Memory · RAM">
+          <div className="mb-1 flex items-baseline justify-between"><span className="text-2xl font-bold tabular-nums">{mb(me.used)}</span><span className="text-xs text-slate-500">of {mb(me.total)} ({Math.round((me.used / me.total) * 100)}%)</span></div>
+          <Bar pct={(me.used / me.total) * 100} />
+          <div className="mt-2"><Row k="App process (RSS)" v={mb(me.rss)} /><Row k="Heap used / total" v={`${mb(me.heap_used)} / ${mb(me.heap_total)}`} /><Row k="Free" v={mb(me.free)} /></div>
+        </Card>
+        <Card title="Disk · data volume">
+          {vol ? (<>
+            <div className="mb-1 flex items-baseline justify-between"><span className="text-2xl font-bold tabular-nums">{gb(vol.used)}</span><span className="text-xs text-slate-500">of {gb(vol.total)} ({Math.round((vol.used / vol.total) * 100)}%) · {gb(vol.free)} free</span></div>
+            <Bar pct={(vol.used / vol.total) * 100} />
+          </>) : <div className="text-sm text-slate-500">Volume info nahi mili</div>}
+          <div className="mt-2"><Row k="Mount" v={d.mount} mono /><Row k="Data folder" v={mb(d.data_bytes)} /><Row k="Database" v={`${mb(d.db_bytes)} + WAL ${mb(d.wal_bytes)}`} /><Row k="Backups" v={`${d.backups} files · ${mb(d.backups_bytes)}`} /><Row k="Aakhri backup" v={d.latest_backup ? `${agoShort(d.latest_backup.at)} pehle · ${mb(d.latest_backup.bytes)}` : "—"} /></div>
+        </Card>
+        <Card title="Machine">
+          <Row k="App" v={m.app} /><Row k="Region" v={m.region} /><Row k="Machine ID" v={m.machine_id} mono /><Row k="Image" v={m.image} mono /><Row k="Public IP" v={m.public_ip} mono />
+          <Row k="Node / PID" v={`${m.node} · ${m.pid}`} /><Row k="App up" v={`${upFor(m.process_uptime_s)} (since ${new Date(m.started_at).toLocaleString("en-PK")})`} /><Row k="OS up" v={upFor(m.os_uptime_s)} /><Row k="Platform" v={m.platform} mono /><Row k="Mode · TZ" v={`${m.env} · ${m.timezone}`} />
+        </Card>
+        <Card title="Traffic · last hour">
+          <div className="grid grid-cols-4 gap-1 text-center text-[11px]">
+            <div className="rounded-lg bg-slate-50 p-1.5"><div className="text-base font-bold tabular-nums">{r.last_hour.requests}</div>requests</div>
+            <div className="rounded-lg bg-slate-50 p-1.5"><div className="text-base font-bold tabular-nums">{r.last_hour.avg_ms}</div>avg ms</div>
+            <div className={`rounded-lg p-1.5 ${r.last_hour.s4xx ? "bg-amber-50" : "bg-slate-50"}`}><div className="text-base font-bold tabular-nums">{r.last_hour.s4xx}</div>4xx</div>
+            <div className={`rounded-lg p-1.5 ${r.last_hour.s5xx ? "bg-rose-50" : "bg-slate-50"}`}><div className="text-base font-bold tabular-nums">{r.last_hour.s5xx}</div>5xx</div>
+          </div>
+          <div className="mt-2 flex h-16 items-end gap-px" title="requests per minute (laal = 5xx)">
+            {r.per_minute.map((x: any) => <div key={x.t} className={`flex-1 rounded-t ${x.s5xx ? "bg-rose-500" : "bg-sky-500/80"}`} style={{ height: `${Math.max(2, (x.requests / maxReq) * 60)}px` }} title={`${new Date(x.t).toLocaleTimeString("en-PK", { hour: "2-digit", minute: "2-digit" })}: ${x.requests} req · avg ${x.avg_ms} ms · max ${x.max_ms} ms${x.s5xx ? ` · ${x.s5xx} errors` : ""}`} />)}
+          </div>
+          <div className="mt-1 text-[11px] text-slate-500">Since start: {r.total_since_start.toLocaleString()} requests · avg {r.avg_ms_since_start} ms · {r.last_hour.slow} slow (&gt;1 s) is ghante</div>
+        </Card>
+        <Card title="Database">
+          <Row k="Pumps / users" v={`${s.db.tenants} / ${s.db.users}`} /><Row k="Sales rows" v={Number(s.db.sales).toLocaleString()} /><Row k="Audit rows" v={Number(s.db.audit_rows).toLocaleString()} /><Row k="Live sessions" v={s.db.sessions_live} /><Row k="Journal" v={s.db.journal_mode} /><Row k="Errors 24h / 7d" v={`${s.errors.last_24h} / ${s.errors.last_7d}`} />
+        </Card>
+      </div>
+
+      {/* Fly machines API */}
+      <Card title="Fly.io machines & volumes">
+        {!s.fly.configured ? (
+          <div className="text-sm text-slate-600">Machine state, size aur volume ki tafseel Fly se seedha lene ke liye ek read-only token lagayein (ek baar):
+            <pre className="mt-2 overflow-x-auto rounded-lg bg-slate-900 p-2 text-[11px] text-slate-100">fly tokens create readonly -a {m.app ?? "petrol-pumpai"} --expiry 8760h{"\n"}fly secrets set FLY_API_TOKEN="&lt;token&gt;" -a {m.app ?? "petrol-pumpai"}</pre>
+            <div className="mt-1 text-xs text-slate-500">Baqi sab (CPU, RAM, disk, traffic, errors) bina token ke yahin se aata hai.</div></div>
+        ) : s.fly.error ? <ErrorBox error={`Fly API: ${s.fly.error}`} /> : (
+          <div className="grid gap-2 md:grid-cols-2">
+            {s.fly.machines.map((x: any) => (
+              <div key={x.id} className="rounded-xl bg-slate-50 p-2.5 text-sm">
+                <div className="flex items-center justify-between"><b>{x.name ?? x.id}</b><span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${x.state === "started" ? "bg-emerald-100 text-emerald-700" : "bg-rose-100 text-rose-700"}`}>{x.state}</span></div>
+                <div className="text-xs text-slate-600">{x.region} · {x.cpu_kind} {x.cpus} vCPU · {x.memory_mb} MB · <span className="font-mono">{x.id}</span></div>
+                {x.checks?.length > 0 && <div className="mt-1 text-xs">{x.checks.map((ck: any) => <span key={ck.name} className={`mr-2 ${ck.status === "passing" ? "text-emerald-700" : "text-rose-700"}`}>● {ck.name} {ck.status}</span>)}</div>}
+              </div>
+            ))}
+            {s.fly.volumes.map((v: any) => (
+              <div key={v.id} className="rounded-xl bg-slate-50 p-2.5 text-sm">
+                <div className="flex items-center justify-between"><b>Volume {v.name}</b><span className="text-xs">{v.size_gb} GB · {v.state}</span></div>
+                <div className="text-xs text-slate-600">{v.region} · {v.encrypted ? "encrypted" : "not encrypted"} · <span className="font-mono">{v.id}</span> · attached {v.attached_machine_id ?? "—"}</div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+
+      {/* error log */}
+      <Card title="Error log">
+        <div className="mb-2 flex flex-wrap items-center gap-2">
+          {(["all", "error", "warn"] as const).map((l) => <button key={l} onClick={() => setLevel(l)} className={`rounded-full px-3 py-1 text-xs font-semibold ${level === l ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-600"}`}>{l === "all" ? "Sab" : l === "error" ? "Errors" : "Warnings (slow)"}</button>)}
+          <span className="text-xs text-slate-500">{logs.length} rows (aakhri 1,000 rakhe jate hain; restart par bhi rehte hain)</span>
+          <button className="ml-auto rounded-lg border border-rose-300 px-2 py-1 text-xs font-semibold text-rose-700" disabled={busy || !logs.length} onClick={async () => { if (!confirm("Poora error log saaf karein?")) return; setBusy(true); try { await pfetch("/platform/server/logs/clear", {}); await load(); } finally { setBusy(false); } }}>Clear</button>
+        </div>
+        {logs.length === 0 ? <div className="text-sm text-emerald-700">Koi error nahi 🎉</div> : (
+          <ul className="divide-y divide-slate-100 text-sm">
+            {logs.map((l) => (
+              <li key={l.id} className="py-1.5">
+                <button className="flex w-full flex-wrap items-start gap-2 text-left" onClick={() => setOpen(open === l.id ? null : l.id)}>
+                  <span className={`mt-0.5 shrink-0 rounded px-1.5 text-[10px] font-bold uppercase ${l.level === "error" ? "bg-rose-100 text-rose-700" : "bg-amber-100 text-amber-700"}`}>{l.level}</span>
+                  <span className="min-w-0 flex-1 break-words font-mono text-xs">{l.message}</span>
+                  <span className="shrink-0 text-[11px] text-slate-500">{l.method ? `${l.method} ${l.path}${l.status ? ` → ${l.status}` : ""} · ` : ""}{new Date(l.created_at).toLocaleString("en-PK", { dateStyle: "short", timeStyle: "medium" })}</span>
+                </button>
+                {open === l.id && l.stack && <pre className="mt-1 max-h-60 overflow-auto rounded-lg bg-slate-900 p-2 text-[11px] leading-snug text-slate-100">{l.stack}</pre>}
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
     </div>
   );
 }

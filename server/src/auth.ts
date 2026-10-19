@@ -6,6 +6,9 @@ import { z, ZodError } from "zod";
 import { config } from "./config.js";
 import { all, get, run, getSetting, type Row } from "./db.js";
 import { AppError } from "./services.js";
+/** Set by serverStatus.ts at start-up: records 500s in the platform's error log (late-bound to avoid an import cycle). */
+export let onServerError: ((message: string, extra: { stack?: string | null; method?: string; path?: string; status?: number }) => void) | null = null;
+export const setServerErrorHook = (fn: typeof onServerError) => { onServerError = fn; };
 
 /**
  * Roles:
@@ -345,6 +348,7 @@ export function errorHandler(err: any, _req: Request, res: Response, _next: Next
   if (err?.type === "entity.parse.failed") return res.status(400).json({ error: "The request was not valid JSON" });
   if (err?.type === "entity.too.large") return res.status(413).json({ error: "Too much data in one go (photo too large?)" });
   console.error(err);
+  try { onServerError?.(err?.message ?? String(err), { stack: err?.stack, method: _req.method, path: _req.originalUrl, status: 500 }); } catch { /* never mask the response */ }
   res.status(500).json({ error: "Internal server error" });
 }
 

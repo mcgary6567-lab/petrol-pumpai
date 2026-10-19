@@ -136,3 +136,23 @@ test("plans: lifetime never expires; monthly / yearly end after paid_until (pump
   assert.ok(typeof ov.kpis.sales_30d === "number" && typeof ov.kpis.db_bytes === "number");
   assert.equal((await call("", "GET", "/api/platform/overview")).status, 401, "platform login required");
 });
+
+test("server tab: status document, request metrics, error log capture and clear", async () => {
+  const p = ok(await call("", "POST", "/api/platform/login", { email: "owner@petrolpumpai.pk", password: "platform-pass-123" }), "platform login").token;
+  assert.equal((await call("", "GET", "/api/platform/server")).status, 401);
+  const s = ok(await call(p, "GET", "/api/platform/server"), "server");
+  assert.ok(s.machine.node.startsWith("v")); assert.ok(s.cpu.cores >= 1); assert.ok(s.memory.total > 0);
+  assert.ok(s.disk.db_bytes > 0, "db size"); assert.ok(Array.isArray(s.checks) && s.checks.length >= 6);
+  assert.ok(s.requests.total_since_start > 0, "requests counted"); assert.ok(Array.isArray(s.requests.per_minute));
+  assert.equal(s.fly.configured, false, "no Fly token in tests");
+  assert.ok(s.db.tenants >= 1);
+  // a 500 lands in the error log
+  const { logServerError } = await import("../src/serverStatus.js");
+  logServerError("error", "test boom", { stack: "Error: test boom\n at x", method: "GET", path: "/api/x", status: 500 });
+  const logs = ok(await call(p, "GET", "/api/platform/server/logs?level=error"), "logs").logs;
+  assert.ok(logs.some((l: any) => l.message === "test boom" && l.stack?.includes("at x")));
+  const after = ok(await call(p, "GET", "/api/platform/server"), "server2");
+  assert.ok(after.errors.last_24h >= 1);
+  ok(await call(p, "POST", "/api/platform/server/logs/clear", {}), "clear");
+  assert.equal(ok(await call(p, "GET", "/api/platform/server/logs"), "logs2").logs.length, 0);
+});

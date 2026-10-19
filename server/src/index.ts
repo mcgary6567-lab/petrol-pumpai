@@ -62,6 +62,7 @@ import { books } from "./routes/books.js";
 import { corrections } from "./routes/corrections.js";
 import { fullEdit } from "./routes/fullEdit.js";
 import { parties } from "./routes/parties.js";
+import { requestMetrics, installProcessLogging } from "./serverStatus.js";
 import { payRequests } from "./routes/payRequests.js";
 import { opening } from "./routes/opening.js";
 import { golive } from "./routes/golive.js";
@@ -95,6 +96,8 @@ export const app = express();
 app.disable("x-powered-by");
 app.set("trust proxy", 1); // the real visitor's address comes from nginx / Caddy in front
 app.use(securityHeaders);
+app.use(requestMetrics); // per-minute traffic / latency / errors for the platform's Server tab
+installProcessLogging();
 // the web app is served from the same address, so no cross-site access is needed (the demo on Vercel too)
 // small bodies for the doors anyone can reach; photos and logos only after sign-in (or in the one-time setup)
 const rawBody = (req: any, _res: unknown, buf: Buffer) => { req.rawBody = buf; };
