@@ -3,6 +3,7 @@ import { Plus, Printer, Trash2, Truck, UserRound, Pencil } from "lucide-react";
 import { api, useApi } from "../lib/api";
 import { ProofPhotos, ProofThumbs } from "./Capture";
 import { challanPages, printPages, tripSheetPage } from "./TripPrint";
+import { WhatsAppDoc } from "./WhatsAppDoc";
 import { Badge, CnicInput, Empty, Field, ListTools, Loading, Modal, PhoneInput, useAction } from "./ui";
 import { supplierOpts } from "./SupplierSelect";
 import { BypassDeliveryForm } from "../pages/Bypass";
@@ -357,7 +358,7 @@ export function TripsTab({ onNew }: { onNew?: () => void }) {
   if (!data) return <Loading />;
   return (
     <div className="card">
-      <div className="flex flex-wrap items-center justify-between gap-2 p-4 pb-2"><h2 className="font-semibold">Tanker trips · <span lang="ur" className="font-urdu">ٹینکر ٹرپ</span></h2>{onNew && <button className="btn-primary" onClick={onNew}><Truck size={15} /> New trip · <span lang="ur" className="font-urdu">نیا ٹرپ</span></button>}</div>
+      <div className="flex flex-wrap items-center justify-between gap-2 p-4 pb-2"><h2 className="font-semibold">Tanker trips · <span lang="ur" className="font-urdu">ٹینکر ٹرپ</span></h2><div className="flex flex-wrap gap-2"><WhatsAppDoc kind="trip_list" id={0} from={range.from || undefined} to={range.to || undefined} label="WhatsApp" />{onNew && <button className="btn-primary" onClick={onNew}><Truck size={15} /> New trip · <span lang="ur" className="font-urdu">نیا ٹرپ</span></button>}</div></div>
       <div className="px-4"><ListTools q={q} onQ={setQ} placeholder="Tanker / driver / client… · ٹینکر، ڈرائیور یا کلائنٹ" from={range.from} to={range.to} onFrom={(v) => setRange({ ...range, from: v })} onTo={(v) => setRange({ ...range, to: v })}
         right={filtered ? <button type="button" className="text-xs text-brand-700 hover:underline" onClick={() => { setQ(""); setRange({ from: "", to: "" }); }}>Clear</button> : null} /></div>
       <ul className="divide-y divide-slate-100 sm:hidden">{data.map((t) => (

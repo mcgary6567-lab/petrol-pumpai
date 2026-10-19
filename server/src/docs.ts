@@ -21,7 +21,7 @@ import { AppError, round2, normalizePhone } from "./services.js";
 import { sendDocumentToPhone, sendWhatsApp } from "./whatsapp/cloud.js";
 import { slipUrl } from "./routes/people.js";
 
-export const DOC_KINDS = ["voucher", "khata", "wholesale", "carriage", "supplier", "shift", "receipt", "slip", "customer_list", "client_list", "supplier_list"] as const;
+export const DOC_KINDS = ["voucher", "khata", "wholesale", "carriage", "supplier", "shift", "receipt", "slip", "customer_list", "client_list", "supplier_list", "trip_list"] as const;
 export type DocKind = (typeof DOC_KINDS)[number];
 export type DocOpts = { from?: string; to?: string };
 export type Doc = { title: string; filename: string; pdf?: Buffer; party: { phone: string | null; name: string; customer_id?: number } | null; caption: string; link?: string };
@@ -279,9 +279,27 @@ function supplierListDoc(t: number): Doc {
     caption: `Suppliers — ${rows.length} · total we owe ${money(owed)}.` };
 }
 
+function tripListDoc(t: number, o: DocOpts): Doc {
+  const w = ["tr.tenant_id=?"]; const a: (string | number)[] = [t];
+  if (o.from) { w.push("tr.trip_date >= ?"); a.push(pkStart(o.from)); }
+  if (o.to) { w.push("tr.trip_date < ?"); a.push(pkEnd(o.to)); }
+  const rows = all(`SELECT tr.id, tr.trip_date, tr.vehicle_no, tr.driver_name, tr.product, tr.litres, tr.amount, tr.drops, sp.name supplier_name
+    FROM wholesale_trips tr LEFT JOIN suppliers sp ON sp.id=tr.supplier_id WHERE ${w.join(" AND ")} ORDER BY tr.trip_date DESC, tr.id DESC LIMIT 1000`, ...a);
+  const litres = round2(rows.reduce((x, r) => x + (r.litres || 0), 0));
+  const amount = round2(rows.reduce((x, r) => x + (r.amount || 0), 0));
+  const fuels = (p: string) => (p ?? "").split("+").map((x) => PRODUCTS[x] ?? x).join("+");
+  const pg = page(t, "Tanker trips (wholesale supply)", `${rows.length} trips${o.from || o.to ? ` · ${o.from ?? "…"} → ${o.to ?? "…"}` : ""} · as of ${dtOf(now())}`, "");
+  table(pg, [{ k: "n", w: 0.6, label: "#", align: "right" }, { k: "d", w: 1.7, label: "Date" }, { k: "v", w: 1.9, label: "Tanker" }, { k: "dr", w: 1.9, label: "Driver" }, { k: "p", w: 1.6, label: "Fuel" }, { k: "l", w: 1.3, label: "Litres", align: "right" }, { k: "dp", w: 0.9, label: "Drops", align: "right" }, { k: "a", w: 1.9, label: "Billed", align: "right" }],
+    rows.map((r, i) => ({ n: i + 1, d: dateOf(r.trip_date), v: r.vehicle_no ?? "—", dr: r.driver_name ?? "—", p: fuels(r.product), l: Number(r.litres).toFixed(0), dp: r.drops, a: money(r.amount) }))
+      .concat([{ __bold: true, v: `Total (${rows.length})`, l: Number(litres).toFixed(0), a: money(amount) } as any]));
+  return { title: "Tanker trips", filename: "tanker-trips.pdf", pdf: pg.done("Tanker trips"), party: null,
+    caption: `Tanker trips (wholesale supply) — ${rows.length} trips · ${Number(litres).toFixed(0)} L · billed ${money(amount)}.` };
+}
+
 export function renderDoc(t: number, kind: DocKind, id: number, o: DocOpts = {}): Doc {
   switch (kind) {
     case "customer_list": return customerListDoc(t);
+    case "trip_list": return tripListDoc(t, o);
     case "client_list": return clientListDoc(t);
     case "supplier_list": return supplierListDoc(t);
     case "voucher": return voucherDoc(t, id);

@@ -3,7 +3,7 @@ import { MessageCircle, Download, Check, X, Send } from "lucide-react";
 import { api, linkToken } from "../lib/api";
 import { Modal, useAction } from "./ui";
 
-type Kind = "voucher" | "khata" | "wholesale" | "carriage" | "supplier" | "shift" | "receipt" | "slip" | "customer_list" | "client_list" | "supplier_list";
+type Kind = "voucher" | "khata" | "wholesale" | "carriage" | "supplier" | "shift" | "receipt" | "slip" | "customer_list" | "client_list" | "supplier_list" | "trip_list";
 const Ur = ({ children }: { children: React.ReactNode }) => <span lang="ur" dir="rtl" className="font-urdu">{children}</span>;
 const fmt = (p: string) => (p.startsWith("92") && p.length === 12 ? `0${p.slice(2, 5)} ${p.slice(5)}` : p);
 const ROLE: Record<string, string> = { owner: "Owner", admin: "CEO", manager: "Manager", cashier: "Cashier", salesman: "Salesman", wholesale: "Wholesale" };
