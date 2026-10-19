@@ -11,7 +11,7 @@ import { h, parse, tid, can, type Permission as Perm } from "../auth.js";
 import { AppError, audit, normalizePhone, round2 } from "../services.js";
 import { PRODUCTS } from "../config.js";
 import { setKhataOpening } from "./opening.js";
-import { saveRates, clientDue } from "./wholesale.js";
+import { saveRates, clientDueAll } from "./wholesale.js";
 import { supplierOwed } from "./suppliers.js";
 import { thekedarDue } from "./carriage.js";
 import { ensureLookups } from "./lookups.js";
@@ -81,8 +81,15 @@ const KINDS: Record<string, Kind> = {
       ...productCols(),
       { key: "notes", label: "Notes", aliases: ["note", "remarks"] },
     ],
-    rows: (t) => all("SELECT id, name, business_name, phone, city, address, credit_limit, notes FROM wholesale_clients WHERE tenant_id=? AND active=1 ORDER BY name", t)
-      .map((c) => ({ ...c, opening_balance: round2(clientDue(c.id as number)), ...Object.fromEntries(all("SELECT product, rate FROM wholesale_rates WHERE client_id=?", c.id).map((x) => [`rate_${x.product}`, x.rate])) })),
+    rows: (t) => {
+      const dueMap = clientDueAll(t);
+      const rateMap = new Map<number, Record<string, number>>();
+      for (const x of all("SELECT r.client_id, r.product, r.rate FROM wholesale_rates r JOIN wholesale_clients c ON c.id=r.client_id WHERE c.tenant_id=?", t)) {
+        const o = rateMap.get(x.client_id as number) ?? {}; o[`rate_${x.product}`] = x.rate as number; rateMap.set(x.client_id as number, o);
+      }
+      return all("SELECT id, name, business_name, phone, city, address, credit_limit, notes FROM wholesale_clients WHERE tenant_id=? AND active=1 ORDER BY name", t)
+        .map((c) => ({ ...c, opening_balance: dueMap.get(c.id as number) ?? 0, ...(rateMap.get(c.id as number) ?? {}) }));
+    },
     match: (t, r) => (r.phone ? get("SELECT * FROM wholesale_clients WHERE tenant_id=? AND phone=?", t, normalizePhone(String(r.phone))) : undefined) ?? get("SELECT * FROM wholesale_clients WHERE tenant_id=? AND lower(name)=lower(?)", t, String(r.name)),
     insert: (t, r, by) => {
       const { id } = run("INSERT INTO wholesale_clients (tenant_id,name,business_name,phone,city,address,credit_limit,opening_balance,notes,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",

@@ -45,6 +45,14 @@ export function clientDue(clientId: number, before?: string): number {
   return round2(c.opening_balance + r.d);
 }
 
+/** Due for every client of a tenant in ONE grouped query (list / summary screens — avoids clientDue per row). */
+export function clientDueAll(tenantId: number): Map<number, number> {
+  const m = new Map<number, number>();
+  for (const r of all(`SELECT c.id, c.opening_balance + COALESCE((SELECT SUM(${DUE_SQL}) FROM wholesale_txns x WHERE x.client_id=c.id AND x.voided=0),0) d
+      FROM wholesale_clients c WHERE c.tenant_id=?`, tenantId)) m.set(r.id as number, round2(Number(r.d)));
+  return m;
+}
+
 /** Carriage / kiraya income from bypass-on-our-ID supplies in a period (whole amount is profit — no fuel cost on our books). */
 export function carriageIncome(tenantId: number, fromIso: string, toIso?: string): number {
   const r = get(`SELECT COALESCE(SUM(amount),0) v FROM wholesale_txns WHERE tenant_id=? AND voided=0 AND type='carriage' AND txn_date >= ?${toIso ? " AND txn_date < ?" : ""}`,
@@ -82,25 +90,42 @@ export function wholesaleProfit(tenantId: number, fromIso: string, toIso?: strin
 }
 
 /** Full rate card: each product's mode, discount, today's pump price and the effective rate the client pays now. */
-export function rateCard(clientId: number) {
+type RateRow = { mode: string; discount: number | null; fixed: number | null; rate: number | null; pump: number | null; vs_pump: number | null; cost: number | null; margin: number | null; label: string; updated_at: string; updated_by: string };
+type RateCard = Record<string, RateRow>;
+/** Build one product's rate-card entry from its wholesale_rates row + the tenant's pump price and fuel cost (all pre-fetched). */
+function cardRow(r: Row, pumpRate: number | null, cost: number | null): RateRow {
+  const rate = r.mode === "discount" ? (pumpRate == null ? null : round2(pumpRate - r.discount)) : r.rate;
+  return {
+    mode: r.mode, discount: r.mode === "discount" ? r.discount : null, fixed: r.mode === "fixed" ? r.rate : null,
+    rate, pump: pumpRate, vs_pump: rate != null && pumpRate != null ? round2(pumpRate - rate) : null,
+    cost, margin: rate != null && cost != null ? round2(rate - cost) : null,
+    label: rateLabel(r.mode, r.discount), updated_at: r.updated_at, updated_by: r.updated_by,
+  };
+}
+export function rateCard(clientId: number): RateCard {
   const tenant = get("SELECT tenant_id FROM wholesale_clients WHERE id=?", clientId)!.tenant_id;
   const pump = currentPrices(tenant);
-  return Object.fromEntries(all("SELECT * FROM wholesale_rates WHERE client_id=?", clientId).map((r) => {
-    const pumpRate = pump[r.product]?.price ?? null;
-    const rate = r.mode === "discount" ? (pumpRate == null ? null : round2(pumpRate - r.discount)) : r.rate;
-    const cost = lastCost(tenant, r.product);
-    return [r.product, {
-      mode: r.mode, discount: r.mode === "discount" ? r.discount : null, fixed: r.mode === "fixed" ? r.rate : null,
-      rate, pump: pumpRate, vs_pump: rate != null && pumpRate != null ? round2(pumpRate - rate) : null,
-      cost, margin: rate != null && cost != null ? round2(rate - cost) : null,
-      label: rateLabel(r.mode, r.discount), updated_at: r.updated_at, updated_by: r.updated_by,
-    }];
-  })) as Record<string, { mode: string; discount: number | null; fixed: number | null; rate: number | null; pump: number | null; vs_pump: number | null; cost: number | null; margin: number | null; label: string; updated_at: string; updated_by: string }>;
+  const costMemo = new Map<string, number | null>();
+  const costOf = (p: string) => { if (!costMemo.has(p)) costMemo.set(p, lastCost(tenant, p)); return costMemo.get(p)!; };
+  return Object.fromEntries(all("SELECT * FROM wholesale_rates WHERE client_id=?", clientId).map((r) => [r.product, cardRow(r, pump[r.product]?.price ?? null, costOf(r.product))]));
 }
+/** Every client's rate card for a tenant in one query, with pump prices and fuel costs computed once (list screens — no per-client queries). */
+export function rateCardsFor(tenantId: number): Map<number, RateCard> {
+  const pump = currentPrices(tenantId);
+  const costMemo = new Map<string, number | null>();
+  const costOf = (p: string) => { if (!costMemo.has(p)) costMemo.set(p, lastCost(tenantId, p)); return costMemo.get(p)!; };
+  const m = new Map<number, RateCard>();
+  for (const r of all("SELECT r.* FROM wholesale_rates r JOIN wholesale_clients c ON c.id=r.client_id WHERE c.tenant_id=?", tenantId)) {
+    const card = m.get(r.client_id as number) ?? {}; card[r.product] = cardRow(r, pump[r.product]?.price ?? null, costOf(r.product)); m.set(r.client_id as number, card);
+  }
+  return m;
+}
+const ratesFromCard = (card: RateCard): Record<string, number> =>
+  Object.fromEntries(Object.entries(card).filter(([, r]) => r.rate != null).map(([p, r]) => [p, r.rate!]));
 
 /** Effective rate per product today (pump-linked rates follow the current pump price). */
 function rates(clientId: number): Record<string, number> {
-  return Object.fromEntries(Object.entries(rateCard(clientId)).filter(([, r]) => r.rate != null).map(([p, r]) => [p, r.rate!]));
+  return ratesFromCard(rateCard(clientId));
 }
 
 function summary(clientId: number, from?: string, to?: string) {
@@ -129,11 +154,10 @@ wholesale.get("/wholesale/summary", h((req) => {
   const t = tid(req);
   const month = new Date(pkDate().slice(0, 7) + "-01T00:00:00+05:00").toISOString();
   const today = pkDayStart();
-  const clients = all("SELECT id FROM wholesale_clients WHERE tenant_id=?", t);
-  const dues = clients.map((c) => clientDue(c.id));
+  const dueMap = clientDueAll(t);
   return {
-    total_due: round2(dues.reduce((a, b) => a + b, 0)),
-    clients: clients.length,
+    total_due: round2([...dueMap.values()].reduce((a, b) => a + b, 0)),
+    clients: dueMap.size,
     month: get(
       `SELECT COALESCE(SUM(CASE WHEN type='supply' THEN litres END),0) supplied_l, COALESCE(SUM(CASE WHEN type='supply' THEN amount END),0) billed,
          COALESCE(SUM(CASE WHEN type='payment' THEN amount END),0) received, COALESCE(SUM(CASE WHEN type='return' THEN litres END),0) returned_l
@@ -306,14 +330,22 @@ wholesale.get("/wholesale/dashboard", h((req) => {
 
 /* ---------------- Clients ---------------- */
 wholesale.get("/wholesale/clients", h((req) => {
+  const t = tid(req);
   const q = `%${String(req.query.q ?? "").trim()}%`;
   const month = new Date(pkDate().slice(0, 7) + "-01T00:00:00+05:00").toISOString();
-  return all("SELECT * FROM wholesale_clients WHERE tenant_id=? AND (name LIKE ? OR business_name LIKE ? OR phone LIKE ?) ORDER BY active DESC, name", tid(req), q, q, q)
+  const dueMap = clientDueAll(t);
+  const cardMap = rateCardsFor(t);
+  // one grouped query for this-month litres / last payment / last supply, instead of one per client
+  const meta = new Map<number, { month_l: number; last_payment: string | null; last_supply: string | null }>();
+  for (const r of all(`SELECT x.client_id, COALESCE(SUM(CASE WHEN type='supply' AND txn_date >= ? THEN litres END),0) month_l,
+        MAX(CASE WHEN type='payment' THEN txn_date END) last_payment, MAX(CASE WHEN type='supply' THEN txn_date END) last_supply
+      FROM wholesale_txns x JOIN wholesale_clients c ON c.id=x.client_id WHERE c.tenant_id=? AND x.voided=0 GROUP BY x.client_id`, month, t))
+    meta.set(r.client_id as number, { month_l: Number(r.month_l), last_payment: r.last_payment ?? null, last_supply: r.last_supply ?? null });
+  return all("SELECT * FROM wholesale_clients WHERE tenant_id=? AND (name LIKE ? OR business_name LIKE ? OR phone LIKE ?) ORDER BY active DESC, name", t, q, q, q)
     .map((c) => {
-      const s = get(`SELECT COALESCE(SUM(CASE WHEN type='supply' AND txn_date >= ? THEN litres END),0) month_l,
-          MAX(CASE WHEN type='payment' THEN txn_date END) last_payment, MAX(CASE WHEN type='supply' THEN txn_date END) last_supply
-        FROM wholesale_txns WHERE client_id=? AND voided=0`, month, c.id)!;
-      return { ...c, rates: rates(c.id), rate_card: rateCard(c.id), due: clientDue(c.id), month_l: s.month_l, last_payment: s.last_payment, last_supply: s.last_supply };
+      const m = meta.get(c.id) ?? { month_l: 0, last_payment: null, last_supply: null };
+      const card = cardMap.get(c.id) ?? {};
+      return { ...c, rates: ratesFromCard(card), rate_card: card, due: dueMap.get(c.id) ?? round2(c.opening_balance), month_l: m.month_l, last_payment: m.last_payment, last_supply: m.last_supply };
     });
 }));
 

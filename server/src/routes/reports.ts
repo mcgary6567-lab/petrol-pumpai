@@ -122,14 +122,23 @@ export function buildReport(t: number, from: string, to: string) {
   };
   const current: Record<string, number> = {};
   for (const tk of tanks) current[tk.product] = (current[tk.product] ?? 0) + tk.current_l;
-  const stockAt = (ts: string) => {
-    const m = moves(ts);
-    return Object.fromEntries(Object.keys(current).map((p) => [p,
-      (current[p] ?? 0) - (m.received[p] ?? 0) - (m.returns_in[p] ?? 0) + (m.retail_out[p] ?? 0) + (m.wholesale_out[p] ?? 0) - (m.dip_adjust[p] ?? 0)]));
+  type MoveSet = ReturnType<typeof moves>;
+  // book stock at an instant = current stock minus everything that moved from that instant until now
+  const stockFrom = (m: MoveSet) => Object.fromEntries(Object.keys(current).map((p) => [p,
+    (current[p] ?? 0) - (m.received[p] ?? 0) - (m.returns_in[p] ?? 0) + (m.retail_out[p] ?? 0) + (m.wholesale_out[p] ?? 0) - (m.dip_adjust[p] ?? 0)]));
+  // Only TWO move-sets are read (from→now and to→now) instead of three. The in-period movement is their difference —
+  // [from,now) minus [to,now) is exactly [from,to) — so no third set of GROUP-BY scans is issued.
+  const sinceFrom = moves(from);
+  const sinceTo = moves(to);
+  const sub = (a: Record<string, number>, b: Record<string, number>) =>
+    Object.fromEntries([...new Set([...Object.keys(a), ...Object.keys(b)])].map((p) => [p, (a[p] ?? 0) - (b[p] ?? 0)]));
+  const opening = stockFrom(sinceFrom);
+  const closing = Date.parse(to) >= Date.now() - 60_000 ? current : stockFrom(sinceTo);
+  const inPeriod: MoveSet = {
+    received: sub(sinceFrom.received, sinceTo.received), retail_out: sub(sinceFrom.retail_out, sinceTo.retail_out),
+    wholesale_out: sub(sinceFrom.wholesale_out, sinceTo.wholesale_out), returns_in: sub(sinceFrom.returns_in, sinceTo.returns_in),
+    dip_adjust: sub(sinceFrom.dip_adjust, sinceTo.dip_adjust),
   };
-  const opening = stockAt(from);
-  const closing = Date.parse(to) >= Date.now() - 60_000 ? current : stockAt(to);
-  const inPeriod = moves(from, to);
   const products = Object.keys(PRODUCTS).filter((p) => p in current);
 
   /* ---------- Purchases & cost ---------- */
