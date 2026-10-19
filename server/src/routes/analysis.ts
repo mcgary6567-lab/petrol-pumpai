@@ -101,6 +101,15 @@ export function profitAndLoss(t: number, month: string, showPrivate = true) {
   const income = {
     fuel_retail: r0(s.retail_sales), fuel_wholesale: r0(s.wholesale_net), shop: r0(s.shop_sales), total: r0(s.revenue),
   };
+  // Wholesale's own gross margin, shown as its own line so the owner can see what wholesale earns (it is already
+  // inside gross profit below — this is a breakout, not an extra addition). Cost = wholesale litres × that fuel's avg cost.
+  const whCostOf = (p: string) => (r.stock.products.find((x: any) => x.product === p)?.avg_cost ?? 0) as number;
+  const whCost = r0((r.wholesale.by_product as any[]).reduce((a, w) => a + (Number(w.net_l) || 0) * whCostOf(w.product), 0));
+  const whLitres = r0(s.wholesale_litres);
+  const wholesale_margin = {
+    litres: whLitres, revenue: r0(income.fuel_wholesale), cost: whCost, profit: r0(income.fuel_wholesale - whCost),
+    avg_rate: whLitres ? round2(income.fuel_wholesale / whLitres) : 0, avg_cost: whLitres ? round2(whCost / whLitres) : 0,
+  };
   const cost = { fuel: r0(fuelCost), shop: r0(shopCost), stock_gain_loss: r0(dipLoss), total: r0(fuelCost + shopCost - dipLoss) };
   const gross = r0(income.total - cost.total);
   // Expenses come from the ledger (every "Expense: *" account), so bank card charges (MDR), bank charges and staff
@@ -130,7 +139,7 @@ export function profitAndLoss(t: number, month: string, showPrivate = true) {
   const costAssumed: string[] = (s as any).cost_assumed_products ?? [];
   const cost_note = costAssumed.length ? `${costAssumed.join(", ")}: khareed rate nahi — is liye cost = sale (0 margin) mana gaya, asal munafa is se zyada hai. Opening balances → Tank stock me khareed rate likhein, ya tanker delivery rate ke saath darj karein.` : null;
   return { cost_note, cost_assumed: costAssumed,
-    month, from, to: toIso, income, cost_of_sales: cost, gross_profit: gross,
+    month, from, to: toIso, income, wholesale_margin, cost_of_sales: cost, gross_profit: gross,
     other_income: otherIncome,
     other_income_ceo: ceoIncome,
     other_income_misc: miscIncome,
@@ -306,7 +315,16 @@ export function productMargins(t: number, month: string) {
   const to = pkEnd(`${month}-${String(lastDay).padStart(2, "0")}`);
   const sales = all(`SELECT s.product, SUM(s.litres) l, SUM(s.amount) rev FROM sales s JOIN stations st ON st.id=s.station_id
     WHERE st.tenant_id=? AND s.created_at >= ? AND s.created_at < ? GROUP BY s.product`, t, from, to);
-  return sales.filter((r) => r.l > 0).map((r) => {
+  // Bulk wholesale supplied via the Wholesale page lives in wholesale_txns, not `sales`, so it was missing from the
+  // per-fuel margin. Add it (net of returns). A nozzle-wholesale fill is already a `sales` row and its mirror txn
+  // carries sale_id, so we take only sale_id IS NULL here — no double counting.
+  const wh = all(`SELECT product, SUM(CASE WHEN type='supply' THEN litres ELSE -litres END) l, SUM(CASE WHEN type='supply' THEN amount ELSE -amount END) rev
+    FROM wholesale_txns WHERE tenant_id=? AND voided=0 AND sale_id IS NULL AND type IN ('supply','return') AND product IS NOT NULL AND txn_date >= ? AND txn_date < ? GROUP BY product`, t, from, to);
+  const byP = new Map<string, { l: number; rev: number }>();
+  for (const r of sales) byP.set(r.product, { l: Number(r.l), rev: Number(r.rev) });
+  for (const r of wh) { const e = byP.get(r.product) ?? { l: 0, rev: 0 }; e.l += Number(r.l); e.rev += Number(r.rev); byP.set(r.product, e); }
+  const merged = [...byP.entries()].map(([product, v]) => ({ product, l: round2(v.l), rev: round2(v.rev) }));
+  return merged.filter((r) => r.l > 0).map((r) => {
     // the app-wide cost per litre (go-live opening value + purchases, weighted); no cost known → this month's own average
     // sale rate (zero margin: never a fake profit, never a fake loss from a price change), and the row says so
     const known = fuelCostPerL(t, r.product, to);
