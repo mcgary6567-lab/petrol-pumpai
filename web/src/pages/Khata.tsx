@@ -6,6 +6,7 @@ import { Ur } from "../components/VoiceShell";
 import { TYPE_ICON } from "./Pos";
 import { BellRing } from "lucide-react";
 import { PrintListButton } from "../components/PrintList";
+import { WhatsAppDoc } from "../components/WhatsAppDoc";
 import { api, useApi } from "../lib/api";
 import { Empty, ListTools, Loading, PageHeader, Pager, Stat, matchQuery, useAction, useNewRows, usePaged } from "../components/ui";
 import { ago, phone, pkr, pkrShort } from "../lib/format";
@@ -21,7 +22,6 @@ export default function Khata() {
   const [flag, setFlag] = useState(""); // "" | near | hold | risk — the stat tiles and the chips share it
   const [bill, setBill] = useState<number | null>(null);
   const fresh = useNewRows<any>(data, (c) => `${c.id}:${Math.round(c.balance)}`);
-  if (!data) return <Loading />;
   const INST = ["police", "school", "government", "hospital"];
   // the flags each /khata row carries (no per-row overdue flag — aging has its own card below)
   const FLAGS: Record<string, (c: any) => boolean> = {
@@ -30,8 +30,9 @@ export default function Khata() {
     risk: (c) => c.risk_score >= 60,
   };
   const inGroup = (c: any) => !group || (group === "institution" ? INST.includes(c.type) : c.type === group);
-  const rows = data.filter((c) => inGroup(c) && (!flag || FLAGS[flag](c)) && matchQuery(q, c.name, c.phone, c.type));
+  const rows = (data ?? []).filter((c) => inGroup(c) && (!flag || FLAGS[flag](c)) && matchQuery(q, c.name, c.phone, c.type));
   const paged = usePaged(rows, 25);
+  if (!data) return <Loading />;
   const total = data.reduce((a, c) => a + Math.max(0, c.balance), 0);
   const nearLimit = data.filter(FLAGS.near).length;
   const onHold = data.filter(FLAGS.hold).length;
@@ -52,6 +53,7 @@ export default function Khata() {
               { label: "Advance · ایڈوانس", r: true, v: (c: any) => c.balance < -0.5 ? pkr(-c.balance) : "—", total: (rs: any[]) => pkr(rs.reduce((a, c) => a + Math.max(0, -(c.balance ?? 0)), 0)) },
               { label: "Last payment", v: (c: any) => ago(c.last_payment) === "—" ? "never" : ago(c.last_payment) },
             ]} />
+          <WhatsAppDoc kind="customer_list" id={0} label="WhatsApp" />
           <button className="btn-secondary" disabled={busy} onClick={() => run(() => api("/automations/khata_reminders/run", { body: {} }), (r: any) => r.result).then(reload)}><BellRing size={15} /> Send reminders now · <Ur>ابھی یاد دہانی بھیجیں</Ur></button>
         </div>} />
       <div className="mb-4"><KhataVoice onDone={reload} /></div>

@@ -215,6 +215,7 @@ function ClientsTable({ onAdd }: { onAdd: () => void }) {
               { label: "Last supply", v: (c: any) => ago(c.last_supply) },
               { label: "Last payment", v: (c: any) => ago(c.last_payment) },
             ]} />
+          <WhatsAppDoc kind="client_list" id={0} label="WhatsApp" />
           <ImportExport kind="wholesale" canImport={can("wholesale.manage")} onDone={list.reload} />
           {can("wholesale.manage") && <button className="btn-primary" onClick={onAdd}><Plus size={16} /> Add client</button>}
         </div>

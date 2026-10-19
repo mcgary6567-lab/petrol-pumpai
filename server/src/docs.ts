@@ -12,7 +12,7 @@ import { Pdf } from "./pdf.js";
 import { brandLines } from "./brandPrint.js";
 import { logoJpeg } from "./routes/setup.js";
 import { khataStatement } from "./routes/crm.js";
-import { statement as wholesaleStatement } from "./routes/wholesale.js";
+import { statement as wholesaleStatement, clientDue } from "./routes/wholesale.js";
 import { statement as carriageStatement } from "./routes/carriage.js";
 import { supplierOwed } from "./routes/suppliers.js";
 import { shiftReport } from "./shifts.js";
@@ -21,7 +21,7 @@ import { AppError, round2, normalizePhone } from "./services.js";
 import { sendDocumentToPhone, sendWhatsApp } from "./whatsapp/cloud.js";
 import { slipUrl } from "./routes/people.js";
 
-export const DOC_KINDS = ["voucher", "khata", "wholesale", "carriage", "supplier", "shift", "receipt", "slip"] as const;
+export const DOC_KINDS = ["voucher", "khata", "wholesale", "carriage", "supplier", "shift", "receipt", "slip", "customer_list", "client_list", "supplier_list"] as const;
 export type DocKind = (typeof DOC_KINDS)[number];
 export type DocOpts = { from?: string; to?: string };
 export type Doc = { title: string; filename: string; pdf?: Buffer; party: { phone: string | null; name: string; customer_id?: number } | null; caption: string; link?: string };
@@ -246,8 +246,44 @@ function slipDoc(t: number, id: number): Doc {
   return { title: `Salary slip ${s.month} — ${s.name}`, filename: `salary-slip-${s.month}.pdf`, link: slipUrl(t, s.id), party: { phone: s.phone, name: s.name }, caption: `${s.name}: salary slip for ${s.month}.` };
 }
 
+/* ---------------- Whole-list PDFs (the same list the Print button shows, as a PDF for WhatsApp) ---------------- */
+function customerListDoc(t: number): Doc {
+  const rows = all("SELECT name, phone, type, balance FROM customers WHERE tenant_id=? AND active=1 AND (balance<>0 OR credit_limit>0) ORDER BY balance DESC, name", t);
+  const due = round2(rows.reduce((a, c) => a + Math.max(0, c.balance), 0));
+  const adv = round2(rows.reduce((a, c) => a + Math.max(0, -c.balance), 0));
+  const pg = page(t, "Khata customers", `${rows.length} khaata · as of ${dtOf(now())}`, "");
+  table(pg, [{ k: "n", w: 0.6, label: "#", align: "right" }, { k: "name", w: 3.8, label: "Customer" }, { k: "phone", w: 2.2, label: "Phone" }, { k: "type", w: 1.8, label: "Type" }, { k: "due", w: 2, label: "Due", align: "right" }],
+    rows.map((c, i) => ({ n: i + 1, name: c.name, phone: c.phone ?? "—", type: c.type, due: c.balance > 0.5 ? money(c.balance) : c.balance < -0.5 ? `Adv ${money(-c.balance)}` : "—" }))
+      .concat([{ __bold: true, name: `Total (${rows.length})`, due: money(due) } as any]));
+  return { title: "Khata customers", filename: "khata-customers.pdf", pdf: pg.done("Khata customers"), party: null,
+    caption: `Khata customers — ${rows.length} accounts · total due ${money(due)}${adv > 0.5 ? ` · advance ${money(adv)}` : ""}.` };
+}
+function clientListDoc(t: number): Doc {
+  const rows = all("SELECT id, name, business_name, phone FROM wholesale_clients WHERE tenant_id=? AND active=1 ORDER BY name", t).map((c) => ({ ...c, due: clientDue(c.id as number) }));
+  const due = round2(rows.reduce((a, c) => a + Math.max(0, c.due), 0));
+  const pg = page(t, "Wholesale clients", `${rows.length} clients · as of ${dtOf(now())}`, "");
+  table(pg, [{ k: "n", w: 0.6, label: "#", align: "right" }, { k: "name", w: 3.6, label: "Client" }, { k: "biz", w: 2.6, label: "Business" }, { k: "phone", w: 2, label: "Phone" }, { k: "due", w: 2, label: "Due", align: "right" }],
+    rows.map((c, i) => ({ n: i + 1, name: c.name, biz: c.business_name ?? "—", phone: c.phone ?? "—", due: c.due > 0.5 ? money(c.due) : c.due < -0.5 ? `Adv ${money(-c.due)}` : "—" }))
+      .concat([{ __bold: true, name: `Total (${rows.length})`, due: money(due) } as any]));
+  return { title: "Wholesale clients", filename: "wholesale-clients.pdf", pdf: pg.done("Wholesale clients"), party: null,
+    caption: `Wholesale clients — ${rows.length} · total due ${money(due)}.` };
+}
+function supplierListDoc(t: number): Doc {
+  const rows = all("SELECT id, name, company, phone FROM suppliers WHERE tenant_id=? AND active=1 ORDER BY company, name", t).map((s) => ({ ...s, owed: supplierOwed(s.id as number) }));
+  const owed = round2(rows.reduce((a, s) => a + Math.max(0, s.owed), 0));
+  const pg = page(t, "Suppliers", `${rows.length} suppliers · as of ${dtOf(now())}`, "");
+  table(pg, [{ k: "n", w: 0.6, label: "#", align: "right" }, { k: "name", w: 3.6, label: "Supplier" }, { k: "company", w: 3, label: "Company" }, { k: "phone", w: 2, label: "Phone" }, { k: "owed", w: 2, label: "We owe", align: "right" }],
+    rows.map((s, i) => ({ n: i + 1, name: s.name, company: s.company ?? "—", phone: s.phone ?? "—", owed: s.owed > 0.5 ? money(s.owed) : s.owed < -0.5 ? `Adv ${money(-s.owed)}` : "—" }))
+      .concat([{ __bold: true, name: `Total (${rows.length})`, owed: money(owed) } as any]));
+  return { title: "Suppliers", filename: "suppliers.pdf", pdf: pg.done("Suppliers"), party: null,
+    caption: `Suppliers — ${rows.length} · total we owe ${money(owed)}.` };
+}
+
 export function renderDoc(t: number, kind: DocKind, id: number, o: DocOpts = {}): Doc {
   switch (kind) {
+    case "customer_list": return customerListDoc(t);
+    case "client_list": return clientListDoc(t);
+    case "supplier_list": return supplierListDoc(t);
     case "voucher": return voucherDoc(t, id);
     case "khata": return khataDoc(t, id, o);
     case "wholesale": return wholesaleDoc(t, id, o);

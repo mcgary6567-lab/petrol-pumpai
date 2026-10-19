@@ -5,6 +5,7 @@ import { VoidWithReason } from "./Corrections";
 import { FullEditEntry } from "../components/FullEdit";
 import { ImportExport } from "../components/ImportExport";
 import { PrintListButton } from "../components/PrintList";
+import { WhatsAppDoc } from "../components/WhatsAppDoc";
 import { PartyAdmin } from "../components/PartyAdmin";
 
 import { api, useApi } from "../lib/api";
@@ -60,7 +61,7 @@ export default function Customers() {
               { label: "Advance · ایڈوانس", r: true, v: (c: any) => c.balance < -0.5 ? pkr(-c.balance) : "—", total: (rs: any[]) => pkr(rs.reduce((a, c) => a + Math.max(0, -(c.balance ?? 0)), 0)) },
               { label: "Points", r: true, v: (c: any) => num(c.loyalty_points) },
               { label: "Last visit", v: (c: any) => ago(c.last_visit_at) },
-            ]} /><ImportExport kind="customers" canImport={can("customers.create")} onDone={list.reload} /><button className="btn-primary" onClick={() => setAdding(true)}><Plus size={16} /> {can("credit.set_limit") ? "Add customer / khata" : "Add customer"}</button></div>} />
+            ]} /><WhatsAppDoc kind="customer_list" id={0} label="WhatsApp" /><ImportExport kind="customers" canImport={can("customers.create")} onDone={list.reload} /><button className="btn-primary" onClick={() => setAdding(true)}><Plus size={16} /> {can("credit.set_limit") ? "Add customer / khata" : "Add customer"}</button></div>} />
       <div className="card">
         <div className="border-b border-slate-200 p-3 pb-1">
           <ListTools q={q} onQ={setQ} placeholder="Name, phone or vehicle plate · نام، فون یا گاڑی" chips={chips} chip={chip} onChip={setChip} shown={rows.length} total={list.data?.length}

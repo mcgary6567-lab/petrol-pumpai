@@ -52,6 +52,7 @@ export default function Suppliers() {
               { label: "Last purchase", v: (s: any) => ago(s.last_purchase) },
               { label: "We owe", r: true, v: (s: any) => pkr(s.owed), total: (rs: any[]) => pkr(rs.reduce((a, s) => a + Math.max(0, s.owed ?? 0), 0)) },
             ]} />
+          <WhatsAppDoc kind="supplier_list" id={0} label="WhatsApp" />
           <ImportExport kind="suppliers" onDone={reload} />
           <button className="btn-secondary" onClick={() => setAddDepot(true)}><Building2 size={16} /> Add depot</button>
           <button className="btn-primary" onClick={() => setAdding(true)}><Plus size={16} /> Add contact</button>
