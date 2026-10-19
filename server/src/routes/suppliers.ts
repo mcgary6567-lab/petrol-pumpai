@@ -8,7 +8,7 @@ import { bankAccountFor, accountIdField, chequeToRegister, accountName } from ".
 import { h, parse, tid, can, requirePerm } from "../auth.js";
 import { AppError, assertNoDuplicateParty, normalizePhone, round2 } from "../services.js";
 import { announce } from "../notifications.js";
-import { bypassOwed } from "./bypass.js";
+import { bypassOwed, bypassOwedAll } from "./bypass.js";
 import { gateBigPayment, registerPayExecutor } from "./payRequests.js";
 
 export const suppliers = Router();
@@ -59,6 +59,14 @@ export function supplierOwed(supplierId: number, before?: string): number {
   return round2(s.opening_balance + r.o);
 }
 
+/** Pump-stock owed for every supplier of a tenant in ONE grouped query (list screens — avoids supplierOwed per row). */
+export function supplierOwedAll(tenantId: number): Map<number, number> {
+  const m = new Map<number, number>();
+  for (const r of all(`SELECT s.id, s.opening_balance + COALESCE((SELECT SUM(${OWED_SQL}) FROM supplier_txns x WHERE x.supplier_id=s.id),0) o
+      FROM suppliers s WHERE s.tenant_id=?`, tenantId)) m.set(r.id as number, round2(Number(r.o)));
+  return m;
+}
+
 export function recordPurchase(tenantId: number, f: { supplier_id: number; delivery_id?: number | null; trip_id?: number | null; product: string | null; litres: number | null; rate: number | null;
   amount?: number; ref?: string | null; note?: string | null; by: string; at?: string }) {
   run(`INSERT INTO supplier_txns (tenant_id,supplier_id,type,delivery_id,trip_id,product,litres,rate,amount,ref,note,created_by,txn_date,created_at)
@@ -73,13 +81,24 @@ function own(tenantId: number, id: number) {
   return s;
 }
 
-suppliers.get("/suppliers", h((req) => all(`SELECT s.*, d.name depot_name, d.address depot_address, d.city depot_city
-    FROM suppliers s LEFT JOIN depots d ON d.id=s.depot_id WHERE s.tenant_id=? ORDER BY s.active DESC, COALESCE(d.name,''), s.company, s.name`, tid(req)).map((s) => ({
-  ...s, owed: supplierOwed(s.id), bypass_owed: bypassOwed(s.id), total_owed: round2(supplierOwed(s.id) + bypassOwed(s.id)),
-  ...get(`SELECT MAX(CASE WHEN type='purchase' THEN txn_date END) last_purchase, MAX(CASE WHEN type='payment' THEN txn_date END) last_payment,
-      COALESCE(SUM(CASE WHEN type='purchase' AND txn_date >= ? THEN litres END),0) month_l FROM supplier_txns WHERE supplier_id=?`,
-    new Date().toISOString().slice(0, 7) + "-01", s.id)!,
-}))));
+suppliers.get("/suppliers", h((req) => {
+  const t = tid(req);
+  const owedMap = supplierOwedAll(t), bypassMap = bypassOwedAll(t);
+  const monthStart = new Date().toISOString().slice(0, 7) + "-01";
+  // one grouped query for last purchase / last payment / this-month litres, instead of one per supplier
+  const meta = new Map<number, { last_purchase: string | null; last_payment: string | null; month_l: number }>();
+  for (const r of all(`SELECT x.supplier_id,
+      MAX(CASE WHEN type='purchase' THEN txn_date END) last_purchase, MAX(CASE WHEN type='payment' THEN txn_date END) last_payment,
+      COALESCE(SUM(CASE WHEN type='purchase' AND txn_date >= ? THEN litres END),0) month_l
+    FROM supplier_txns x JOIN suppliers s ON s.id=x.supplier_id WHERE s.tenant_id=? GROUP BY x.supplier_id`, monthStart, t))
+    meta.set(r.supplier_id as number, { last_purchase: r.last_purchase ?? null, last_payment: r.last_payment ?? null, month_l: Number(r.month_l) });
+  return all(`SELECT s.*, d.name depot_name, d.address depot_address, d.city depot_city
+    FROM suppliers s LEFT JOIN depots d ON d.id=s.depot_id WHERE s.tenant_id=? ORDER BY s.active DESC, COALESCE(d.name,''), s.company, s.name`, t).map((s) => {
+    const owed = owedMap.get(s.id) ?? round2(s.opening_balance), bypass = bypassMap.get(s.id) ?? 0;
+    const m = meta.get(s.id) ?? { last_purchase: null, last_payment: null, month_l: 0 };
+    return { ...s, owed, bypass_owed: bypass, total_owed: round2(owed + bypass), last_purchase: m.last_purchase, last_payment: m.last_payment, month_l: m.month_l };
+  });
+}));
 
 const supplierBody = z.object({
   name: z.string().min(2).max(80), phone: z.string().optional().nullable(), opening_balance: z.number().optional(),

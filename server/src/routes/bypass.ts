@@ -37,6 +37,14 @@ export function bypassOwed(supplierId: number, before?: string): number {
     ...(before ? [supplierId, before] : [supplierId]))!.v as number;
   return round2(pur - pay);
 }
+/** Bypass owed for every supplier of a tenant in two grouped queries (for list screens — avoids calling bypassOwed per row). */
+export function bypassOwedAll(tenantId: number): Map<number, number> {
+  const m = new Map<number, number>();
+  for (const r of all("SELECT supplier_id, COALESCE(SUM(amount),0) v FROM bypass_purchases WHERE tenant_id=? AND voided=0 GROUP BY supplier_id", tenantId)) m.set(r.supplier_id as number, Number(r.v));
+  for (const r of all("SELECT supplier_id, COALESCE(SUM(amount),0) v FROM bypass_supplier_payments WHERE tenant_id=? AND voided=0 GROUP BY supplier_id", tenantId)) m.set(r.supplier_id as number, (m.get(r.supplier_id as number) ?? 0) - Number(r.v));
+  for (const [k, v] of m) m.set(k, round2(v));
+  return m;
+}
 /** Total bypass fuel cost DELIVERED in a period (its share of the stock) — counted against the bypass sales for profit. */
 export function bypassCost(tenantId: number, fromIso: string, toIso?: string): number {
   const r = get(`SELECT COALESCE(SUM(cost_amount),0) v FROM bypass_drops WHERE tenant_id=? AND voided=0 AND tank_id IS NULL AND txn_date >= ?${toIso ? " AND txn_date < ?" : ""}`,

@@ -23,14 +23,34 @@ export function closeDb() {
 export type Row = any;
 type Params = SQLInputValue[] | [Record<string, SQLInputValue>];
 
+// Prepared-statement cache: node:sqlite recompiles the SQL on every db.prepare(), which is the bulk of the cost on
+// hot list endpoints that issue the same query many times. Statements are keyed by the exact SQL text (the app only
+// ever binds parameters, never interpolates values), so a cache hit reuses the compiled plan. DDL in migrations runs
+// through db.exec(), never here, so the cache can never hold a statement for a dropped / altered table.
+const stmtCache = new Map<string, ReturnType<typeof db.prepare>>();
+function prep(sql: string) {
+  let s = stmtCache.get(sql);
+  if (!s) { s = db.prepare(sql); stmtCache.set(sql, s); }
+  return s;
+}
+/** Testing / diagnostics: distinct statements cached, and a query counter so a test can assert list endpoints stay O(1) in queries. */
+export const _stmtCacheSize = () => stmtCache.size;
+export function _clearStmtCache() { stmtCache.clear(); }
+let queryCount = 0;
+export const _queryCount = () => queryCount;
+export const _resetQueryCount = () => { queryCount = 0; };
+
 export function all<T = Row>(sql: string, ...params: Params): T[] {
-  return db.prepare(sql).all(...(params as SQLInputValue[])) as T[];
+  queryCount++;
+  return prep(sql).all(...(params as SQLInputValue[])) as T[];
 }
 export function get<T = Row>(sql: string, ...params: Params): T | undefined {
-  return db.prepare(sql).get(...(params as SQLInputValue[])) as T | undefined;
+  queryCount++;
+  return prep(sql).get(...(params as SQLInputValue[])) as T | undefined;
 }
 export function run(sql: string, ...params: Params) {
-  const r = db.prepare(sql).run(...(params as SQLInputValue[]));
+  queryCount++;
+  const r = prep(sql).run(...(params as SQLInputValue[]));
   return { id: Number(r.lastInsertRowid), changes: Number(r.changes) };
 }
 let txDepth = 0;
