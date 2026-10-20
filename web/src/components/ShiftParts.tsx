@@ -342,7 +342,10 @@ function ReportBody({ r }: { r: any }) {
       {r.fuels?.length > 0 && (
         <div>
           <h3 className="mb-1 text-sm font-semibold">Each fuel: meter → khata → online → cash · <Ur>ہر فیول کا حساب</Ur></h3>
-          <div className="grid gap-2 sm:grid-cols-2">{r.fuels.filter((f: any) => f.meter_l > 0 || f.cash > 0 || f.khata_l > 0 || f.wholesale_l > 0).map((f: any) => (
+          <div className="grid gap-2 sm:grid-cols-2">{r.fuels.filter((f: any) => f.meter_l > 0 || f.cash > 0 || f.khata_l > 0 || f.wholesale_l > 0).map((f: any) => {
+            // flag when khata+wholesale+online+coupon(+cash) billed more litres than the meter actually ran
+            const over = Math.round((f.test_l + f.khata_l + f.wholesale_l + f.other_l + f.digital_l + f.cash_l - f.meter_l) * 100) / 100;
+            return (
             <div key={f.product} className="rounded-lg bg-slate-50 p-2.5 text-sm">
               <div className="flex justify-between font-semibold"><span>{PRODUCTS[f.product]}</span><span className="tabular-nums">{num(f.meter_l, 2)} L</span></div>
               {f.test_l > 0 && <FuelLine k="− Put back in tank" l={f.test_l} />}
@@ -351,8 +354,10 @@ function ReportBody({ r }: { r: any }) {
               {f.digital_l > 0 && <FuelLine k="− Online" l={f.digital_l} v={f.digital} />}
               {f.other_l > 0 && <FuelLine k="− Coupon / wallet" l={f.other_l} v={f.other} />}
               <div className="mt-1 flex justify-between border-t border-slate-200 pt-1 font-semibold"><span>= Cash<span className="block text-xs font-normal text-slate-500">{num(f.cash_l, 2)} L{f.rate ? ` × ${f.rate}` : ""}</span></span><span className="tabular-nums">{pkr(f.cash)}</span></div>
+              {over > 0.5 && <div className="mt-2 flex gap-1.5 rounded bg-red-50 p-1.5 text-xs text-red-700"><AlertTriangle size={13} className="mt-0.5 shrink-0" /><span>Khata + Wholesale + Online meter se <b className="tabular-nums">{num(over, 2)} L</b> zyada billed</span></div>}
             </div>
-          ))}</div>
+            );
+          })}</div>
         </div>
       )}
 

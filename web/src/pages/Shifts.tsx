@@ -364,7 +364,11 @@ function CloseShift({ id, onClose, onClosed }: { id: number; onClose: () => void
             : perr ? <p className="mt-3 flex gap-2 rounded-xl bg-red-50 p-3 text-sm text-red-700"><AlertTriangle size={16} className="mt-0.5 shrink-0" />{perr}</p>
             : !preview ? <div className="mt-3"><Loading /></div> : (
               <div className="mt-3 space-y-2">
-                {preview.fuels.filter((f: any) => f.meter_l > 0).map((f: any) => (
+                {preview.fuels.filter((f: any) => f.meter_l > 0).map((f: any) => {
+                  // every litre must come from the meter: if khata+wholesale+online+coupon (+ any cash) add up to
+                  // MORE than the meter ran, the readings or a slip are wrong — flag it instead of hiding it in Cash 0
+                  const over = Math.round((f.test_l + f.khata_l + f.wholesale_l + f.other_l + f.digital_l + f.cash_l - f.meter_l) * 100) / 100;
+                  return (
                   <div key={f.product} className="rounded-xl bg-slate-50 p-3 text-sm">
                     <div className="mb-1 font-semibold">{PRODUCTS[f.product]}</div>
                     <Row k="Meter · میٹر" v={`${num(f.meter_l, 2)} L`} />
@@ -374,8 +378,10 @@ function CloseShift({ id, onClose, onClosed }: { id: number; onClose: () => void
                     {f.digital_l > 0 && <Row k="− Online · آن لائن" v={`${num(f.digital_l, 2)} L (${rs(f.digital)})`} />}
                     {f.other_l > 0 && <Row k="− Coupon / wallet / points" v={`${num(f.other_l, 2)} L`} />}
                     <div className="mt-1 flex justify-between border-t border-slate-200 pt-1 font-semibold"><span>= Cash · <Ur>نقد</Ur><span className="block text-xs font-normal text-slate-500">{num(f.cash_l, 2)} L × {f.rate}</span></span><span className="tabular-nums">{rs(f.cash)}</span></div>
+                    {over > 0.5 && <div className="mt-2 flex gap-2 rounded-lg bg-red-50 p-2 text-xs text-red-700"><AlertTriangle size={14} className="mt-0.5 shrink-0" /><span>Khata + Wholesale + Online meter se <b className="tabular-nums">{num(over, 2)} L</b> zyada — closing meter reading ya slip ki litres check karein · <Ur>میٹر سے زیادہ بل ہوا</Ur></span></div>}
                   </div>
-                ))}
+                  );
+                })}
                 <div className="rounded-xl bg-slate-800 p-3 text-white">
                   <Row k="Cash sales (fuel + shop)" v={rs(preview.summary.cash_sales)} />
                   {preview.summary.direct_discount > 0 && <div className="flex justify-between gap-3 text-xs text-white/70"><span>Direct discounts given ({preview.summary.direct_discount_n}) — already taken off · <Ur>رعایت</Ur></span><span className="tabular-nums">{rs(preview.summary.direct_discount)}</span></div>}
