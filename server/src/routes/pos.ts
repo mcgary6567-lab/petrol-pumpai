@@ -101,7 +101,7 @@ pos.get("/pos/today", h((req) => {
     recent: shift ? all(`SELECT s.id, s.product, s.litres, s.rate, s.amount, s.discount, s.discount_kind, s.discount_ref, s.payment_method, s.vehicle_no, s.slip_no, s.photo_id, s.created_at, s.created_by, c.name customer_name, b.bank bank_name, wc.name wholesale_name
       FROM sales s LEFT JOIN customers c ON c.id=s.customer_id LEFT JOIN bank_accounts b ON b.id=s.account_id
       LEFT JOIN wholesale_txns wt ON wt.sale_id=s.id AND wt.type='supply' AND wt.voided=0 LEFT JOIN wholesale_clients wc ON wc.id=wt.client_id
-      WHERE s.shift_id=? ORDER BY s.id DESC LIMIT 12`, shift.id) : [],
+      WHERE s.shift_id=? ORDER BY s.id DESC LIMIT 30`, shift.id) : [],
   };
 }));
 

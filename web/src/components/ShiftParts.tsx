@@ -189,6 +189,9 @@ export function ShiftExpenses({ shiftId, stationId, expenses, onChange, preset }
   useEffect(() => { if (preset) { setF((x) => ({ ...x, category: preset.category, amount: preset.amount ? String(preset.amount) : "", note: preset.note ?? "" })); setOpen(true); } }, [preset?.key]);
   const { busy, run } = useAction();
   const total = expenses.reduce((a, e) => a + e.amount, 0);
+  const [page, setPage] = useState(0);
+  const pages = Math.ceil(expenses.length / 5);
+  useEffect(() => { if (page > 0 && page >= pages) setPage(Math.max(0, pages - 1)); }, [pages, page]);
   return (
     <div>
       <div className="mb-2 flex items-center justify-between">
@@ -196,7 +199,7 @@ export function ShiftExpenses({ shiftId, stationId, expenses, onChange, preset }
         <button className="rounded-lg bg-amber-500 px-3 py-1.5 text-sm font-semibold text-white" onClick={() => setOpen(true)}>+ Add</button>
       </div>
       <ul className="space-y-1 text-sm">
-        {expenses.map((e) => (
+        {expenses.slice(page * 5, page * 5 + 5).map((e) => (
           <li key={e.id} className="flex items-center gap-2">
             <span className="flex-1">{e.category}{e.note ? <span className="text-xs text-slate-500"> · {e.note}</span> : null}{e.status === "pending" && <span className="ml-1 text-xs text-amber-600">(awaiting approval)</span>}</span>
             <span className="tabular-nums">{pkr(e.amount)}</span>
@@ -206,6 +209,13 @@ export function ShiftExpenses({ shiftId, stationId, expenses, onChange, preset }
         {!expenses.length && <li className="text-slate-500">None</li>}
         {expenses.length > 0 && <li className="flex justify-between border-t border-slate-200 pt-1 font-semibold"><span>Total</span><span className="tabular-nums">{pkr(total)}</span></li>}
       </ul>
+      {pages > 1 && (
+        <div className="mt-2 flex items-center justify-between gap-2 text-sm">
+          <button disabled={page === 0} onClick={() => setPage((p) => Math.max(0, p - 1))} className="rounded-lg bg-slate-100 px-3 py-1.5 font-semibold text-slate-700 disabled:opacity-40">← Pichla</button>
+          <span className="text-xs text-slate-500">{page + 1} / {pages}</span>
+          <button disabled={page >= pages - 1} onClick={() => setPage((p) => Math.min(pages - 1, p + 1))} className="rounded-lg bg-slate-100 px-3 py-1.5 font-semibold text-slate-700 disabled:opacity-40">Agla →</button>
+        </div>
+      )}
       <Modal open={open} onClose={() => setOpen(false)} title="Expense paid from shift cash · شفٹ کے نقد سے خرچہ">
         <form className="space-y-3" onSubmit={async (e) => {
           e.preventDefault();

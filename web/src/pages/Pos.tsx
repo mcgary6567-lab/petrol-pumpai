@@ -701,6 +701,7 @@ function ShiftPanel({ d, reload, onUndo, myId, expPreset }: { d: any; reload: ()
   const [, tick] = useState(0);
   const [confirm, setConfirm] = useState<number | null>(null);
   const [showAll, setShowAll] = useState(false);
+  const [salePage, setSalePage] = useState(0);
   const toast = useToast();
   const undoable = (r: any) => r.created_by === myId && Date.now() + skew - Date.parse(r.created_at) < (d.undo_seconds ?? 120) * 1000;
   useEffect(() => {
@@ -738,7 +739,7 @@ function ShiftPanel({ d, reload, onUndo, myId, expPreset }: { d: any; reload: ()
           {d.shift && <button onClick={() => setShowAll(true)} className="rounded-lg bg-slate-100 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-200">All today · <Ur>آج کی ساری</Ur></button>}
         </div>
         <ul className="divide-y divide-slate-100">
-          {d.recent.map((r: any) => (
+          {d.recent.slice(salePage * 5, salePage * 5 + 5).map((r: any) => (
             <li key={r.id} className="flex items-center gap-2 py-2 text-sm">
               <span className="h-3 w-3 shrink-0 rounded-full" style={{ background: fuelOf(r.product).color }} />
               <span className="flex-1"><b>{num(r.litres, 2)} L</b> {fuelOf(r.product).en}<span className="block text-xs text-slate-500">{new Date(r.created_at).toLocaleTimeString("en-PK", { hour: "2-digit", minute: "2-digit" })} · {r.payment_method === "khata" ? `📒 ${r.customer_name}${r.slip_no ? ` · ${r.slip_no}` : ""}` : r.wholesale_name ? `${r.payment_method} · ${r.wholesale_name}` : r.bank_name ? `${r.payment_method} · ${r.bank_name}` : r.payment_method}{r.discount_kind === "direct" ? <span className="text-rose-600"> · −Rs {num(r.discount, 0)} {r.discount_ref ? `(${r.discount_ref})` : "(no ref)"}</span> : null}</span></span>
@@ -755,6 +756,13 @@ function ShiftPanel({ d, reload, onUndo, myId, expPreset }: { d: any; reload: ()
           ))}
           {!d.recent.length && <li className="py-4 text-center text-sm text-slate-500">No sales yet</li>}
         </ul>
+        {d.recent.length > 5 && (
+          <div className="mt-2 flex items-center justify-between gap-2 text-sm">
+            <button disabled={salePage === 0} onClick={() => setSalePage((p) => Math.max(0, p - 1))} className="rounded-lg bg-slate-100 px-3 py-1.5 font-semibold text-slate-700 disabled:opacity-40">← Pichla</button>
+            <span className="text-xs text-slate-500">{salePage + 1} / {Math.ceil(d.recent.length / 5)}</span>
+            <button disabled={salePage >= Math.ceil(d.recent.length / 5) - 1} onClick={() => setSalePage((p) => Math.min(Math.ceil(d.recent.length / 5) - 1, p + 1))} className="rounded-lg bg-slate-100 px-3 py-1.5 font-semibold text-slate-700 disabled:opacity-40">Agla →</button>
+          </div>
+        )}
       </div>
       {showAll && <AllEntries stationId={d.station?.id} onClose={() => setShowAll(false)} onChange={reload} />}
     </aside>
