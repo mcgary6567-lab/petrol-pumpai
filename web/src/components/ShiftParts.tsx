@@ -393,6 +393,7 @@ function ReportBody({ r }: { r: any }) {
         <div>
           <h3 className="mb-1 text-sm font-semibold">Where the money went</h3>
           <Row k="📒 Khata (credit)" v={pkr(s.khata)} />
+          {s.wholesale > 0 && <Row k="🚛 Wholesale" v={pkr(s.wholesale)} />}
           {s.by_payment.filter((p: any) => ["easypaisa", "jazzcash", "card", "raast"].includes(p.method)).map((p: any) => <Row key={p.method} k={<span className="capitalize">📱 {p.method}</span>} v={pkr(p.amount)} />)}
           <Row k="💵 Cash sales" v={pkr(s.cash_sales)} />
           <Row k="− Expenses paid from cash" v={pkr(s.expenses_total)} c="text-red-700" />

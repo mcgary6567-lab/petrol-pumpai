@@ -688,6 +688,7 @@ function ShiftPanel({ d, reload, onUndo, myId, expPreset }: { d: any; reload: ()
         <div className="mt-2 space-y-1 text-sm">
           <div className="flex justify-between"><span className="text-slate-300">💵 Cash · <Ur>نقد</Ur></span><span className="tabular-nums">{pkr(s?.cash_sales ?? 0)}</span></div>
           <div className="flex justify-between"><span className="text-slate-300">📒 Khata · <Ur>کھاتہ</Ur></span><span className="tabular-nums">{pkr(s?.khata ?? 0)}</span></div>
+          {s?.wholesale > 0 && <div className="flex justify-between"><span className="text-slate-300">🚛 Wholesale · <Ur>ہول سیل</Ur></span><span className="tabular-nums">{pkr(s.wholesale)}</span></div>}
           <div className="flex justify-between"><span className="text-slate-300">📱 Digital · <Ur>آن لائن</Ur></span><span className="tabular-nums">{pkr(s?.digital ?? 0)}</span></div>
           {s?.shop?.total > 0 && <div className="flex justify-between"><span className="text-slate-300">🛒 Shop (cash {pkr(s.shop.cash)})</span><span className="tabular-nums">{pkr(s.shop.total)}</span></div>}
           {s?.points > 0 && <div className="flex justify-between"><span className="text-slate-300">🎁 Paid with points</span><span className="tabular-nums">{pkr(s.points)}</span></div>}
