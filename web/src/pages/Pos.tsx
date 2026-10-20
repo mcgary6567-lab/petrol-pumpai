@@ -44,8 +44,10 @@ function usePay(): PayOpt[] {
   const list = money.map((m: LookupEntry) => ({ key: m.key, en: m.label, ur: PAY_STYLE[m.key]?.ur ?? m.label, icon: PAY_STYLE[m.key]?.icon ?? CreditCard, cls: PAY_STYLE[m.key]?.cls ?? "bg-slate-600", emoji: m.extra.icon as string | undefined }));
   return [...list, ...SPECIAL_PAY];
 }
-/** true for a method whose money lands in a bank (card / digital brand), so the bank name is shown. */
-const isBankPay = (m: string) => !["cash", "khata", "loyalty", "coupon", "wallet"].includes(m);
+/** true for a method whose money lands in a bank (card / digital brand), so the bank name is shown.
+ * wholesale is never a bank method here: a wholesale fill settles on the client's own chosen method
+ * (udhaar / cash / cheque / card), so picking the client must not pop the "which bank POS?" chooser. */
+const isBankPay = (m: string) => !["cash", "khata", "loyalty", "coupon", "wallet", "wholesale"].includes(m);
 /** Payment options switched off on this pump's POS (points and coupons are not used). */
 const OFF_PAY: string[] = ["loyalty", "coupon"];
 /** Paid before (coupon / wallet / points): needs internet to check, cannot be kept offline. */
