@@ -171,6 +171,8 @@ crm.post("/customers/:id/khata", requireAny("khata.manage", "cash.receive"), h(a
     if (!/^cash$/i.test(method.trim()) && !accountId) throw new AppError(400, `${method}: bank / wallet account chunein`);
     const updated = khataEntry(c.id, "debit", b.amount, `refund:${method}`, b.note ?? "Advance returned", accountId);
     if (b.photo_ids?.length) linkPhotos(tid(req), b.photo_ids, `khata:${get("SELECT MAX(id) id FROM khata_ledger WHERE customer_id=?", c.id)!.id}`);
+    if (b.notify && c.phone)
+      await sendWhatsApp(tid(req), updated, `💸 ${updated.name}, aap ka advance ${pkr(b.amount)} wapas kar diya gaya (${method}). Naya khata balance: ${dueText(updated.balance)}.`, "system", { kind: "refund_receipt" }).catch(() => undefined);
     return updated;
   }
   if (b.type === "credit" && isCheque(b.method)) requireProof(tid(req), b.photo_ids, "cheque");

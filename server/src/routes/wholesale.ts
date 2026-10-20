@@ -956,7 +956,7 @@ wholesale.post("/wholesale/clients/:id/refund", requirePerm("wholesale.manage"),
   if (isCheque(b.method)) throw new AppError(400, "Advance cash ya bank/online se wapas karein (cheque se nahi)");
   const accountId = bankAccountFor(tid(req), b.account_id, b.method);
   if (!/^cash$/i.test(b.method.trim()) && !accountId) throw new AppError(400, `${b.method}: bank / wallet account chunein`);
-  return insertTxn(req, c.id, { amount: b.amount, method: b.method, account_id: accountId, ref: "refund:", note: b.note ?? "Advance returned", txn_date: b.txn_date, photo_ids: b.photo_ids, type: "adjustment", silent: true });
+  return insertTxn(req, c.id, { amount: b.amount, method: b.method, account_id: accountId, ref: "refund:", note: b.note ?? "Advance returned", txn_date: b.txn_date, photo_ids: b.photo_ids, type: "adjustment" });
 }));
 
 /** Cancel a wrong entry: it stays in the ledger marked VOID and any stock movement is reversed. */

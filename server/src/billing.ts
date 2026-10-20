@@ -62,9 +62,11 @@ export async function wholesaleReceipt(tenantId: number, clientId: number, txn: 
     payment: `✅ Payment received: ${pkr(txn.amount)}${txn.method ? ` (${txn.method})` : ""}${txn.ref ? ` · ref ${txn.ref}` : ""}`,
     return: `↩️ Fuel return: ${txn.litres} L ${PRODUCTS[txn.product]} = ${pkr(txn.amount)} credited`,
   };
-  if (!head[txn.type]) return;
-  await sendDirect(tenantId, c, `wholesale_${txn.type}`, `wtxn:${txn.id}`,
-    `${c.name}\n${head[txn.type]}\n${due < -0.5 ? `Advance baqi: ${pkr(-due)}` : `Balance due now: ${pkr(due)}`}\n— ${get("SELECT name FROM tenants WHERE id=?", tenantId)!.name}`);
+  const isRefund = txn.type === "adjustment" && String(txn.ref ?? "").startsWith("refund:");
+  const line = isRefund ? `💸 Advance wapas: ${pkr(txn.amount)}${txn.method ? ` (${txn.method})` : ""} aap ko return kiya gaya` : head[txn.type];
+  if (!line) return;
+  await sendDirect(tenantId, c, `wholesale_${isRefund ? "refund" : txn.type}`, `wtxn:${txn.id}`,
+    `${c.name}\n${line}\n${due < -0.5 ? `Advance baqi: ${pkr(-due)}` : `Balance due now: ${pkr(due)}`}\n— ${get("SELECT name FROM tenants WHERE id=?", tenantId)!.name}`);
 }
 
 export async function wholesaleRateMessage(tenantId: number, clientId: number, lines: string[]) {
