@@ -370,6 +370,7 @@ function CloseShift({ id, onClose, onClosed }: { id: number; onClose: () => void
                     <Row k="Meter · میٹر" v={`${num(f.meter_l, 2)} L`} />
                     {f.test_l > 0 && <Row k="− Test / back to tank" v={`${num(f.test_l, 2)} L`} />}
                     {f.khata_l > 0 && <Row k="− Khata · کھاتہ" v={`${num(f.khata_l, 2)} L`} />}
+                    {f.wholesale_l > 0 && <Row k="− Wholesale · ہول سیل" v={`${num(f.wholesale_l, 2)} L (${rs(f.wholesale)})`} />}
                     {f.digital_l > 0 && <Row k="− Online · آن لائن" v={`${num(f.digital_l, 2)} L (${rs(f.digital)})`} />}
                     {f.other_l > 0 && <Row k="− Coupon / wallet / points" v={`${num(f.other_l, 2)} L`} />}
                     <div className="mt-1 flex justify-between border-t border-slate-200 pt-1 font-semibold"><span>= Cash · <Ur>نقد</Ur><span className="block text-xs font-normal text-slate-500">{num(f.cash_l, 2)} L × {f.rate}</span></span><span className="tabular-nums">{rs(f.cash)}</span></div>

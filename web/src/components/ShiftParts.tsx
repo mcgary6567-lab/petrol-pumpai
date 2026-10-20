@@ -342,11 +342,12 @@ function ReportBody({ r }: { r: any }) {
       {r.fuels?.length > 0 && (
         <div>
           <h3 className="mb-1 text-sm font-semibold">Each fuel: meter → khata → online → cash · <Ur>ہر فیول کا حساب</Ur></h3>
-          <div className="grid gap-2 sm:grid-cols-2">{r.fuels.filter((f: any) => f.meter_l > 0 || f.cash > 0 || f.khata_l > 0).map((f: any) => (
+          <div className="grid gap-2 sm:grid-cols-2">{r.fuels.filter((f: any) => f.meter_l > 0 || f.cash > 0 || f.khata_l > 0 || f.wholesale_l > 0).map((f: any) => (
             <div key={f.product} className="rounded-lg bg-slate-50 p-2.5 text-sm">
               <div className="flex justify-between font-semibold"><span>{PRODUCTS[f.product]}</span><span className="tabular-nums">{num(f.meter_l, 2)} L</span></div>
               {f.test_l > 0 && <FuelLine k="− Put back in tank" l={f.test_l} />}
               {f.khata_l > 0 && <FuelLine k="− Khata" l={f.khata_l} v={f.khata} />}
+              {f.wholesale_l > 0 && <FuelLine k="− Wholesale" l={f.wholesale_l} v={f.wholesale} />}
               {f.digital_l > 0 && <FuelLine k="− Online" l={f.digital_l} v={f.digital} />}
               {f.other_l > 0 && <FuelLine k="− Coupon / wallet" l={f.other_l} v={f.other} />}
               <div className="mt-1 flex justify-between border-t border-slate-200 pt-1 font-semibold"><span>= Cash<span className="block text-xs font-normal text-slate-500">{num(f.cash_l, 2)} L{f.rate ? ` × ${f.rate}` : ""}</span></span><span className="tabular-nums">{pkr(f.cash)}</span></div>
