@@ -44,11 +44,19 @@ export const statusTone = (s: string) =>
   ({ pending: "amber", confirmed: "blue", dispatched: "violet", delivered: "green", cancelled: "slate", open: "amber", in_progress: "blue", resolved: "green", sent: "green", draft: "slate", sending: "blue", closed: "slate" } as Record<string, string>)[s] ?? "slate";
 
 export function Modal({ open, onClose, title, children, wide }: { open: boolean; onClose: () => void; title: string; children: ReactNode; wide?: boolean }) {
+  // Escape closes the modal; a backdrop click does NOT — so half-filled form data is never lost by an accidental
+  // click outside. The ✕ button and each form's Cancel remain the deliberate way to close.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
   if (!open) return null;
   // portal to <body> so a modal opened from the sidebar (or any positioned parent) sits above the whole page
   return createPortal(
-    <div className="fixed inset-0 z-50 flex animate-fade-in items-start justify-center overflow-y-auto bg-slate-900/40 p-4 pt-16 backdrop-blur-[1px]" onMouseDown={onClose} role="dialog" aria-modal="true" aria-label={title}>
-      <div className={`card w-full ${wide ? "max-w-3xl" : "max-w-lg"} animate-slide-up p-5 shadow-xl`} onMouseDown={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex animate-fade-in items-start justify-center overflow-y-auto bg-slate-900/40 p-4 pt-16 backdrop-blur-[1px]" role="dialog" aria-modal="true" aria-label={title}>
+      <div className={`card w-full ${wide ? "max-w-3xl" : "max-w-lg"} animate-slide-up p-5 shadow-xl`}>
         <PrintHeader />
         <div className="modal-title mb-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold">{title}</h2>
