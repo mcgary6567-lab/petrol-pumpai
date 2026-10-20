@@ -42,6 +42,10 @@ const specialSide = (ref: string | null | undefined) =>
 const otherKind = (ref: string | null | undefined): "inc" | "exp" | "disc" | "pty" | null =>
   !ref ? null : ref.startsWith("oth-inc:") ? "inc" : ref.startsWith("oth-exp:") ? "exp" : ref.startsWith("oth-disc:") ? "disc" : ref.startsWith("oth-pty:") ? "pty" : null;
 const isOtherDisc = (ref: string | null | undefined) => otherKind(ref) === "disc";
+/** An advance refund: cash/bank returned to a khata customer / wholesale client who overpaid (ref "refund:" — for khata the
+ *  method follows the colon). The party's balance moves back toward zero and the money actually leaves cash/bank; for a
+ *  supplier it is the mirror — our overpayment comes back IN. Booked below in each party's section. */
+const isRefund = (ref: string | null | undefined) => String(ref ?? "").startsWith("refund:");
 /** CEO income/expense posted ON a party's own khata ("oth-pty:<entry>"): the cash/bank row is booked against that party's
  *  receivable (the party's own ledger row is skipped — it only moves the balance). Not private: it is on the party's statement. */
 const isToParty = (ref: string | null | undefined) => otherKind(ref) === "pty";
@@ -151,6 +155,7 @@ export function journal(t: number, fromDay: string, toDay: string, showPrivate =
       const narr = od ? (showPrivate ? `Discount given — ${r.name}${r.note ? ` (${r.note})` : ""}` : "Owner's drawings") : `Khata payment — ${r.name}${r.note ? ` (${r.note})` : ""}`;
       add(day(r.created_at), od ? "Journal" : "Receipt", narr, [dr(dside, r.amount), cr("Khata receivable", r.amount)]);
     }
+    else if (isRefund(r.ref)) add(day(r.created_at), "Payment", `Advance returned — ${r.name}${r.note ? ` (${r.note})` : ""}`, [dr("Khata receivable", r.amount), cr(via(String(r.ref).slice("refund:".length), r.account_id), r.amount)]);
     else add(day(r.created_at), "Journal", `Khata charge — ${r.name}${r.note ? ` (${r.note})` : ""}`, [dr("Khata receivable", r.amount), cr("Other income", r.amount)]);
   }
   // wholesale
@@ -169,7 +174,8 @@ export function journal(t: number, fromDay: string, toDay: string, showPrivate =
       const narr = od ? (showPrivate ? `Discount given — ${r.name}` : "Owner's drawings") : `Wholesale payment — ${r.name}${r.ref ? ` (${r.ref})` : ""}`;
       add(d, od ? "Journal" : "Receipt", narr, [dr(dside, r.amount), cr("Wholesale receivable", r.amount)]);
     }
-    if (r.type === "adjustment") add(d, "Journal", `Wholesale adjustment — ${r.name}${r.note ? ` (${r.note})` : ""}`, [dr("Wholesale receivable", r.amount), cr("Other income", r.amount)]);
+    if (r.type === "adjustment" && isRefund(r.ref)) add(d, "Payment", `Advance returned — ${r.name}${r.note ? ` (${r.note})` : ""}`, [dr("Wholesale receivable", r.amount), cr(via(r.method, r.account_id), r.amount)]);
+    else if (r.type === "adjustment") add(d, "Journal", `Wholesale adjustment — ${r.name}${r.note ? ` (${r.note})` : ""}`, [dr("Wholesale receivable", r.amount), cr("Other income", r.amount)]);
     // bypass on our depot ID: only the kiraya is ours — the client owes us the carriage, booked as income (no fuel on our books)
     if (r.type === "carriage") add(d, "Journal", `Carriage / kiraya — ${r.name}${r.litres ? ` ${r.litres} L ${PRODUCTS[r.product] ?? r.product ?? ""}` : ""}${r.ref ? ` (inv ${r.ref})` : ""}`, [dr("Wholesale receivable", r.amount), cr("Carriage income", r.amount)]);
   }
@@ -209,7 +215,8 @@ export function journal(t: number, fromDay: string, toDay: string, showPrivate =
     else if (r.type === "purchase") add(d, "Purchase", `Fuel purchase — ${r.name} ${r.litres} L ${PRODUCTS[r.product] ?? ""} @ ${r.rate}${r.ref ? ` (${r.ref})` : ""}`, [dr("Fuel purchases", r.amount), cr(pay, r.amount)]);
     if (r.type === "payment" && r.method === DEPOT_PAY) continue; // booked with the client's payment above
     if (r.type === "payment") add(d, "Payment", `${r.method === "WHT" ? "Income tax withheld" : "Paid"} — ${r.name}${r.ref ? ` (${r.ref})` : ""}`, [dr(pay, r.amount), cr(r.method === "WHT" ? "Withholding tax payable" : via(r.method, r.account_id), r.amount)]);
-    if (r.type === "adjustment") add(d, "Journal", `Supplier adjustment — ${r.name}${r.note ? ` (${r.note})` : ""}`, [dr(r.amount < 0 ? pay : "Supplier adjustments", Math.abs(r.amount)), cr(r.amount < 0 ? "Shortage claims recovered" : pay, Math.abs(r.amount))]);
+    if (r.type === "adjustment" && isRefund(r.ref)) add(d, "Receipt", `Overpayment refund — ${r.name}${r.note ? ` (${r.note})` : ""}`, [dr(via(r.method, r.account_id), r.amount), cr(pay, r.amount)]);
+    else if (r.type === "adjustment") add(d, "Journal", `Supplier adjustment — ${r.name}${r.note ? ` (${r.note})` : ""}`, [dr(r.amount < 0 ? pay : "Supplier adjustments", Math.abs(r.amount)), cr(r.amount < 0 ? "Shortage claims recovered" : pay, Math.abs(r.amount))]);
   }
   // expenses
   for (const r of all(`SELECT * FROM expenses WHERE tenant_id=? AND (status='approved' OR (status='pending' AND shift_id IS NOT NULL)) AND created_at >= ? AND created_at < ?`, ...P))

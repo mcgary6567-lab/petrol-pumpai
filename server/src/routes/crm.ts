@@ -158,11 +158,21 @@ crm.delete("/customers/:id/vehicles/:vid", requirePerm("customers.edit"), h((req
 /* ---------------- Khata ---------------- */
 crm.post("/customers/:id/khata", requireAny("khata.manage", "cash.receive"), h(async (req) => {
   const c = ownCustomer(tid(req), Number(req.params.id));
-  const b = parse(z.object({ type: z.enum(["debit", "credit"]), amount: z.number().positive(), note: z.string().optional(), method: z.string().optional(), notify: z.boolean().default(true), photo_ids: proofPhotos, account_id: accountIdField,
+  const b = parse(z.object({ type: z.enum(["debit", "credit", "refund"]), amount: z.number().positive(), note: z.string().optional(), method: z.string().optional(), notify: z.boolean().default(true), photo_ids: proofPhotos, account_id: accountIdField,
     cheque_bank: z.string().max(80).optional().nullable(), cheque_no: z.string().max(30).optional().nullable(), cheque_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable() }), req.body);
   if (b.type === "credit" && !b.method) b.method = "Cash"; // a payment with no method is cash — every book reads it the same way
   if (b.type === "debit") b.method = undefined; // a charge moves no cash/bank (the ledger books it as income); cash given to a customer goes through Other entries → party khata
-  if (b.type === "debit" && !can(req.user, "khata.manage")) throw new AppError(403, "The cashier can only receive payments");
+  if (b.type !== "credit" && !can(req.user, "khata.manage")) throw new AppError(403, "The cashier can only receive payments");
+  // returning a customer's advance in cash/bank: a debit that actually pays money out (ref "refund:<method>")
+  if (b.type === "refund") {
+    if (isCheque(b.method)) throw new AppError(400, "Advance cash ya bank/online se wapas karein (cheque se nahi)");
+    const method = b.method || "Cash";
+    const accountId = bankAccountFor(tid(req), b.account_id, method);
+    if (!/^cash$/i.test(method.trim()) && !accountId) throw new AppError(400, `${method}: bank / wallet account chunein`);
+    const updated = khataEntry(c.id, "debit", b.amount, `refund:${method}`, b.note ?? "Advance returned", accountId);
+    if (b.photo_ids?.length) linkPhotos(tid(req), b.photo_ids, `khata:${get("SELECT MAX(id) id FROM khata_ledger WHERE customer_id=?", c.id)!.id}`);
+    return updated;
+  }
   if (b.type === "credit" && isCheque(b.method)) requireProof(tid(req), b.photo_ids, "cheque");
   // a cheque not yet in the bank waits in the cheque register; the khata goes down when it clears
   if (b.type === "credit" && isCheque(b.method) && !b.account_id) {

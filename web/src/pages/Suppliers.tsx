@@ -188,12 +188,41 @@ function SupplierForm({ initial, depots, onClose, onSaved, onDepots }: { initial
   );
 }
 
+/** We overpaid this supplier (they owe us) and now take the money back in cash / bank. Money comes IN; the payable climbs back toward zero. */
+function SupplierRefund({ id, owed, onClose, onDone }: { id: number; owed: number; onClose: () => void; onDone: () => void }) {
+  const over = Math.max(0, -owed);
+  const [f, setF] = useState({ amount: over ? String(Math.round(over)) : "", method: "Cash", note: "" });
+  const [photos, setPhotos] = useState<number[]>([]);
+  const [account, setAccount] = useState<number | null>(null);
+  const { busy, run } = useAction();
+  const isCash = /^cash$/i.test(f.method.trim());
+  return (
+    <Modal open onClose={onClose} title="Overpayment wapas lein · ایڈوانس واپس">
+      <form className="space-y-3" onSubmit={async (e) => {
+        e.preventDefault();
+        if (await run(() => api(`/suppliers/${id}/refund`, { body: { amount: Number(f.amount), method: f.method, note: f.note || null, photo_ids: photos, account_id: isCash ? null : account } }), (r: any) => `Refund mila. Ab ${r.owed < 0 ? `supplier ${pkr(-r.owed)} ka qarzdaar` : `we owe ${pkr(r.owed)}`}`)) onDone();
+      }}>
+        <p className="text-sm text-slate-600">Supplier ke paas hamara: <b>{pkr(over)}</b> (hum ne zyada diya tha)</p>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <Field label="Amount (Rs)"><input className="input" type="number" inputMode="decimal" min={1} required value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} /></Field>
+          <Field label="Method"><select className="input" value={f.method} onChange={(e) => { setF({ ...f, method: e.target.value }); setAccount(null); }}>{["Cash", "Bank transfer", "Online (1LINK)", "Raast", "JazzCash", "Easypaisa"].map((m) => <option key={m}>{m}</option>)}</select></Field>
+        </div>
+        {!isCash && <AccountPicker method={f.method} label="Kis account mein aaya?" value={account} onChange={setAccount} required />}
+        <Field label="Note"><input className="input" value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} /></Field>
+        <ProofPhotos value={photos} onChange={setPhotos} hint="cash receipt / bank slip" />
+        <div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={onClose}>Cancel</button><button className="btn-primary" disabled={busy || !(Number(f.amount) > 0) || (!isCash && !account)}><Wallet size={15} /> Refund record karein</button></div>
+      </form>
+    </Modal>
+  );
+}
+
 function SupplierDetail({ id, onClose, onChanged, depots, onDepots }: { id: number; onClose: () => void; onChanged: () => void; depots: any[]; onDepots: () => void }) {
   const { data: s, reload } = useApi<any>(`/suppliers/${id}`);
   const [pay, setPay] = useState({ amount: "", method: "Bank transfer", ref: "", wht: "" });
   const [photos, setPhotos] = useState<number[]>([]);
   const [account, setAccount] = useState<number | null>(null);
   const [slip, setSlip] = useState<any>(null);
+  const [refund, setRefund] = useState(false);
   const [edit, setEdit] = useState(false);
   const { busy, run } = useAction();
   const { can } = useAuth();
@@ -236,6 +265,7 @@ function SupplierDetail({ id, onClose, onChanged, depots, onDepots }: { id: numb
   return (
     <Modal open onClose={onClose} title={title} wide>
       {slip && <VoucherSlip r={slip} onClose={() => setSlip(null)} />}
+      {refund && <SupplierRefund id={id} owed={Number(s.owed)} onClose={() => setRefund(false)} onDone={() => { setRefund(false); reload(); onChanged(); }} />}
       {edit && s && <SupplierForm initial={s} depots={depots} onClose={() => setEdit(false)} onSaved={() => { setEdit(false); reload(); onChanged(); }} onDepots={onDepots} />}
       {!s ? <Loading /> : (
         <div className="space-y-4">
@@ -277,6 +307,7 @@ function SupplierDetail({ id, onClose, onChanged, depots, onDepots }: { id: numb
             <a className="btn-secondary min-h-10" href={`/api/suppliers/${id}/statement.csv?token=${linkToken()}`}><Download size={15} /> Excel / CSV</a>
             <WhatsAppDoc kind="supplier" id={Number(id)} className="btn-secondary min-h-10" />
             <button type="button" className="btn-secondary min-h-10" onClick={() => window.print()}><Printer size={15} /> Print statement · <Ur>پرنٹ</Ur></button>
+            {Number(s.owed) < -0.5 && <button type="button" className="btn-secondary min-h-10 !text-emerald-700" onClick={() => setRefund(true)}><Wallet size={15} /> Overpayment wapas · <Ur>ایڈوانس واپس</Ur></button>}
             <form className="grid w-full basis-full grid-cols-2 items-end gap-2 sm:flex sm:min-w-0 sm:flex-1 sm:basis-auto sm:flex-wrap" onSubmit={async (e) => {
               e.preventDefault();
               const res: any = await run(() => api(`/suppliers/${id}/payment`, { body: { amount: Number(pay.amount), method: pay.method, ref: pay.ref || null, withholding: Number(pay.wht) || 0, photo_ids: photos, account_id: account } }), (r: any) => r.pending ? r.message : `Payment saved. We now owe ${pkr(r.owed)}`);

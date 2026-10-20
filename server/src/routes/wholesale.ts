@@ -947,6 +947,18 @@ wholesale.post("/wholesale/clients/:id/adjustment", requirePerm("wholesale.rates
   return insertTxn(req, c.id, { ...b, type: "adjustment" });
 }));
 
+/** Return a client's advance (they overpaid — e.g. 400 due but paid a 600 cheque) back in cash / bank. Money actually
+ *  leaves; the client's due moves back up toward zero. Booked as an adjustment with a "refund:" ref so the ledger pays
+ *  out of cash/bank instead of Other income (tally stays 0). */
+wholesale.post("/wholesale/clients/:id/refund", requirePerm("wholesale.manage"), h((req) => {
+  const c = ownClient(tid(req), Number(req.params.id));
+  const b = parse(z.object({ amount: z.number().positive(), method: z.string().min(2), note: z.string().optional().nullable(), txn_date: dateStr, photo_ids: proofPhotos, account_id: accountIdField }), req.body);
+  if (isCheque(b.method)) throw new AppError(400, "Advance cash ya bank/online se wapas karein (cheque se nahi)");
+  const accountId = bankAccountFor(tid(req), b.account_id, b.method);
+  if (!/^cash$/i.test(b.method.trim()) && !accountId) throw new AppError(400, `${b.method}: bank / wallet account chunein`);
+  return insertTxn(req, c.id, { amount: b.amount, method: b.method, account_id: accountId, ref: "refund:", note: b.note ?? "Advance returned", txn_date: b.txn_date, photo_ids: b.photo_ids, type: "adjustment", silent: true });
+}));
+
 /** Cancel a wrong entry: it stays in the ledger marked VOID and any stock movement is reversed. */
 wholesale.post("/wholesale/txns/:id/void", requirePerm("wholesale.void"), h((req) => {
   const b = parse(z.object({ reason: z.string().min(3, "Give a reason") }), req.body);

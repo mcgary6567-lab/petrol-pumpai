@@ -352,7 +352,7 @@ function ClientDetail({ id }: { id: string }) {
   const stmt = useApi<any>(`/wholesale/clients/${id}/statement${qs ? `?${qs}` : ""}`);
   const [editRow, setEditRow] = useState<any>(null); // CEO: fix a supply / payment in place (reverse + re-post everywhere)
   const [params, setParams] = useSearchParams();
-  const [action, setAction] = useState<null | "supply" | "return" | "payment" | "adjustment" | "rates" | "edit" | "order" | "promise" | "cheque">(() => (params.get("do") as any) || null);
+  const [action, setAction] = useState<null | "supply" | "return" | "payment" | "refund" | "adjustment" | "rates" | "edit" | "order" | "promise" | "cheque">(() => (params.get("do") as any) || null);
   // supplying a booked order (from the order book) fills the form and closes the order
   const [orderId, setOrderId] = useState<number | null>(() => Number(params.get("order")) || null);
   const [deskKey, setDeskKey] = useState(0);
@@ -375,6 +375,7 @@ function ClientDetail({ id }: { id: string }) {
         actions={<div className="flex flex-wrap gap-2 print:hidden">
           {/* primary actions are the big tiles below; here only the occasional ones */}
           {can("wholesale.manage") && <button className="btn-secondary" onClick={() => setAction("return")}><Undo2 size={15} /> Fuel return · <Ur>واپسی</Ur></button>}
+          {can("wholesale.manage") && s.due < -0.5 && <button className="btn-secondary !text-emerald-700" onClick={() => setAction("refund")}><Wallet size={15} /> Advance wapas · <Ur>ایڈوانس واپس</Ur></button>}
           {can("wholesale.rates") && <button className="btn-secondary" onClick={() => setAction("adjustment")}><SlidersHorizontal size={15} /> Adjustment · <Ur>ایڈجسٹمنٹ</Ur></button>}
           {can("wholesale.manage") && c.phone && <button className="btn-secondary" disabled={sending} onClick={async () => {
             setSending(true);
@@ -485,6 +486,7 @@ function ClientDetail({ id }: { id: string }) {
       {action === "promise" && <PromiseForm client={c} onClose={() => setAction(null)} onDone={() => { setAction(null); refresh(); }} />}
       {action === "cheque" && <ChequeForm client={c} onClose={() => setAction(null)} onDone={() => { setAction(null); refresh(); }} />}
       {action === "payment" && <PaymentEntry client={c} onClose={() => setAction(null)} onDone={() => { setAction(null); refresh(); }} />}
+      {action === "refund" && <RefundEntry client={c} onClose={() => setAction(null)} onDone={() => { setAction(null); refresh(); }} />}
       {action === "adjustment" && <AdjustmentEntry client={c} onClose={() => setAction(null)} onDone={() => { setAction(null); refresh(); }} />}
       {action === "rates" && <RatesEditor client={c} onClose={() => setAction(null)} onDone={() => { setAction(null); refresh(); }} />}
       {action === "edit" && <ClientForm initial={c} onClose={() => setAction(null)} onSaved={() => { setAction(null); refresh(); }} />}
@@ -682,6 +684,36 @@ function FuelEntry({ kind, client, orderId, onClose, onDone }: { kind: "supply" 
         {can("wholesale.rates") && client.credit_limit > 0 && <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={f.override_limit} onChange={(e) => setF({ ...f, override_limit: e.target.checked })} /> Credit limit cross ho to bhi allow karein (admin)</label>}
         <div className="flex justify-between gap-2"><button type="button" className="btn-secondary" onClick={() => setStep(2)}>← Peeche</button><button type="button" className="btn-primary" disabled={busy} onClick={doSubmit}><Truck size={15} /> Supply save karein · محفوظ</button></div>
       </div>}
+    </Modal>
+  );
+}
+
+/** Client overpaid (advance lies with us) and now takes it back in cash / bank. Money goes out; the due climbs back toward zero. */
+function RefundEntry({ client, onClose, onDone }: { client: any; onClose: () => void; onDone: () => void }) {
+  const advance = Math.max(0, -Number(client.summary.due || 0));
+  const [f, setF] = useState({ amount: advance ? String(Math.round(advance)) : "", method: "Cash", note: "", txn_date: new Date().toISOString().slice(0, 10) });
+  const [photos, setPhotos] = useState<number[]>([]);
+  const [account, setAccount] = useState<number | null>(null);
+  const { busy, run } = useAction();
+  const isCash = /^cash$/i.test(f.method.trim());
+  return (
+    <Modal open onClose={onClose} title={`Advance wapas — ${client.name} · ایڈوانس واپس`}>
+      <form className="space-y-3" onSubmit={async (e) => {
+        e.preventDefault();
+        if (await run(() => api(`/wholesale/clients/${client.id}/refund`, { body: { amount: Number(f.amount), method: f.method, note: f.note || null, txn_date: f.txn_date, photo_ids: photos, account_id: isCash ? null : account } }), (r: any) => `Advance wapas ho gaya. ${dueLabel(r.due_after)}`)) onDone();
+      }}>
+        <p className="text-sm text-slate-600">Advance with us: <b>{pkr(advance)}</b></p>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <Field label="Amount (Rs) · رقم"><input className="input" type="number" inputMode="decimal" min={1} required value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} /></Field>
+          <Field label="Method · طریقہ"><select className="input" value={f.method} onChange={(e) => { setF({ ...f, method: e.target.value }); setAccount(null); }}>{["Cash", "Bank transfer", "Raast", "JazzCash", "Easypaisa", "Online"].map((m) => <option key={m}>{m}</option>)}</select></Field>
+          <Field label="Date"><input className="input" type="date" value={f.txn_date} onChange={(e) => setF({ ...f, txn_date: e.target.value })} /></Field>
+        </div>
+        {!isCash && <AccountPicker method={f.method} value={account} onChange={setAccount} required label="Account" />}
+        <Field label="Note"><input className="input" value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} /></Field>
+        <ProofPhotos value={photos} onChange={setPhotos} hint="cash receipt / bank slip" />
+        {Number(f.amount) > advance + 0.5 && <p className="text-xs text-amber-600">Advance se zyada de rahe hain — client ab {pkr(Number(f.amount) - advance)} ka qarzdaar ho jayega.</p>}
+        <div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={onClose}>Cancel</button><button className="btn-primary" disabled={busy || !(Number(f.amount) > 0) || (!isCash && !account)}>Wapas karein · محفوظ</button></div>
+      </form>
     </Modal>
   );
 }

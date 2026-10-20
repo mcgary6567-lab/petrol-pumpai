@@ -69,7 +69,7 @@ export function khataEntry(customerId: number, type: "debit" | "credit", amount:
   if (!(amount > 0)) throw new AppError(400, "Amount must be positive");
   return tx(() => {
     run("INSERT INTO khata_ledger (customer_id,type,amount,ref,note,created_at,account_id) VALUES (?,?,?,?,?,?,?)",
-      customerId, type, amount, ref, note, now(), type === "credit" ? accountId : null);
+      customerId, type, amount, ref, note, now(), type === "credit" || String(ref ?? "").startsWith("refund:") ? accountId : null);
     run("UPDATE customers SET balance = balance + ? WHERE id=?", type === "debit" ? amount : -amount, customerId);
     // a payment lifts an overdue hold
     if (type === "credit") run("UPDATE customers SET khata_blocked=0 WHERE id=?", customerId);

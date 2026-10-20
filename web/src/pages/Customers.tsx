@@ -182,7 +182,7 @@ function CustomerDetail({ id, onClose, onChanged }: { id: string; onClose: () =>
   const { can } = useAuth();
   const { data: c, reload, error } = useApi<any>(`/customers/${id}`);
   const { busy, run } = useAction();
-  const [pay, setPay] = useState<"credit" | "debit" | null>(null);
+  const [pay, setPay] = useState<"credit" | "debit" | "refund" | null>(null);
   const [amount, setAmount] = useState("");
   const [photos, setPhotos] = useState<number[]>([]);
   const [method, setMethod] = useState("Cash");
@@ -228,6 +228,7 @@ function CustomerDetail({ id, onClose, onChanged }: { id: string; onClose: () =>
             {c.conversation && can("whatsapp.inbox") && <Link className="btn-secondary" to={`/inbox/${c.conversation.id}`}><MessageCircle size={15} /> Open chat</Link>}
             {can("khata.manage") && <button className="btn-secondary flex-col !gap-0 text-center sm:flex-row sm:!gap-1.5" onClick={() => setPay("credit")}><Wallet size={15} /> Receive payment<span className="hidden sm:inline"> · </span><Ur className="block text-xs sm:inline sm:text-sm">رقم وصول</Ur></button>}
             {can("khata.manage") && <button className="btn-secondary flex-col !gap-0 text-center sm:flex-row sm:!gap-1.5" onClick={() => setPay("debit")}>+ Add charge<span className="hidden sm:inline"> · </span><Ur className="block text-xs sm:inline sm:text-sm">کھاتے میں لکھیں</Ur></button>}
+            {can("khata.manage") && c.balance < -0.5 && <button className="btn-secondary flex-col !gap-0 text-center !text-emerald-700 sm:flex-row sm:!gap-1.5" onClick={() => { setPay("refund"); setAmount(String(Math.round(-c.balance))); setMethod("Cash"); }}><Wallet size={15} /> Advance wapas<span className="hidden sm:inline"> · </span><Ur className="block text-xs sm:inline sm:text-sm">ایڈوانس واپس</Ur></button>}
             {can("khata.manage") && (c.credit_limit > 0 || c.balance) ? <button className="btn-secondary flex-col !gap-0 text-center sm:flex-row sm:!gap-1.5" onClick={() => setBill(true)}>📄 Bill / statement<span className="hidden sm:inline"> · </span><Ur className="block text-xs sm:inline sm:text-sm">بل</Ur></button> : null}
             {c.balance > 0 && can("khata.manage") && <button className="btn-secondary flex-col !gap-0 text-center sm:flex-row sm:!gap-1.5" disabled={busy} onClick={() => run(() => api(`/customers/${c.id}/remind`, { body: {} }), "Reminder with payment link sent on WhatsApp").then(refresh)}><BellRing size={15} /> Send reminder<span className="hidden sm:inline"> · </span><Ur className="block text-xs sm:inline sm:text-sm">یاد دہانی</Ur></button>}
           </div>
@@ -235,14 +236,17 @@ function CustomerDetail({ id, onClose, onChanged }: { id: string; onClose: () =>
           {pay && (
             <form className="flex flex-wrap items-end gap-2 rounded-lg bg-slate-50 p-3" onSubmit={async (e) => {
               e.preventDefault();
-              const r = await run(() => api(`/customers/${c.id}/khata`, { body: { type: pay, amount: Number(amount), method, note: pay === "credit" ? "Payment received" : "Manual charge", photo_ids: photos, account_id: pay === "credit" ? account : null } }), pay === "credit" ? "Payment recorded & receipt sent on WhatsApp" : "Charge added");
+              const isCash = /^cash$/i.test(method.trim());
+              const r = await run(() => api(`/customers/${c.id}/khata`, { body: { type: pay, amount: Number(amount), method, note: pay === "credit" ? "Payment received" : pay === "refund" ? "Advance returned" : "Manual charge", photo_ids: photos, account_id: pay === "credit" ? account : pay === "refund" ? (isCash ? null : account) : null } }), pay === "credit" ? "Payment recorded & receipt sent on WhatsApp" : pay === "refund" ? "Advance wapas ho gaya" : "Charge added");
               if (r) { setPay(null); setAmount(""); setPhotos([]); refresh(); }
             }}>
-              <Field label={pay === "credit" ? "Payment amount · رقم وصول" : "Charge amount · کھاتے میں رقم"}><input className="input w-40" type="number" inputMode="decimal" min={1} required value={amount} onChange={(e) => setAmount(e.target.value)} /></Field>
+              <Field label={pay === "credit" ? "Payment amount · رقم وصول" : pay === "refund" ? "Wapas amount · واپس رقم" : "Charge amount · کھاتے میں رقم"}><input className="input w-40" type="number" inputMode="decimal" min={1} required value={amount} onChange={(e) => setAmount(e.target.value)} /></Field>
               {pay === "credit" && <Field label="Method · طریقہ"><select className="input w-40" value={method} onChange={(e) => setMethod(e.target.value)}>{["Cash", "JazzCash", "Easypaisa", "Raast", "Bank transfer", "Cheque"].map((m) => <option key={m}>{m}</option>)}</select></Field>}
+              {pay === "refund" && <Field label="Method · طریقہ"><select className="input w-40" value={method} onChange={(e) => { setMethod(e.target.value); setAccount(null); }}>{["Cash", "JazzCash", "Easypaisa", "Raast", "Bank transfer", "Online"].map((m) => <option key={m}>{m}</option>)}</select></Field>}
               {pay === "debit" && <span className="text-xs text-slate-500">Charge sirf khate me likhta hai (cash nahi hilta). Cash dena ho to Other entries → party khata.</span>}
-              {pay === "credit" && <div className="w-full"><AccountPicker method={method} value={account} onChange={setAccount} /></div>}
-              <div className="w-full"><ProofPhotos value={photos} onChange={setPhotos} required={pay === "credit" && method === "Cheque"} hint={pay === "credit" ? "cheque, receipt, payment screenshot" : "bill / slip for the charge"} /></div>
+              {pay === "refund" && <span className="w-full text-xs text-slate-500">Customer ka advance ({pkr(Math.max(0, -c.balance))}) cash/bank se wapas — cash book se niklega.</span>}
+              {(pay === "credit" || (pay === "refund" && !/^cash$/i.test(method.trim()))) && <div className="w-full"><AccountPicker method={method} value={account} onChange={setAccount} /></div>}
+              <div className="w-full"><ProofPhotos value={photos} onChange={setPhotos} required={pay === "credit" && method === "Cheque"} hint={pay === "refund" ? "cash receipt / bank slip" : pay === "credit" ? "cheque, receipt, payment screenshot" : "bill / slip for the charge"} /></div>
               <button className="btn-primary" disabled={busy || (pay === "credit" && method === "Cheque" && !photos.length)}>Save · محفوظ کریں</button><button type="button" className="btn-secondary" onClick={() => setPay(null)}>Cancel · منسوخ</button>
             </form>
           )}

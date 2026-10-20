@@ -52,6 +52,8 @@ export function cashFlows(t: number, since: string, until: string) {
     other_cash: one("SELECT COALESCE(SUM(amount),0) v FROM cashier_vouchers WHERE tenant_id=? AND direction='in' AND party_type='other' AND LOWER(method)='cash' AND voided=0 AND created_at > ? AND created_at <= ?", ...P),
     // advances paid back in cash, and advances / loan instalments kept back out of a cash salary (the salary below is booked in full)
     staff_repaid: one(`SELECT COALESCE(SUM(amount),0) v FROM staff_ledger WHERE tenant_id=? AND ((type='repayment' AND ${cashSql("method")}) OR (type='deduction' AND month IS NOT NULL)) AND created_at > ? AND created_at <= ?`, ...P),
+    // a supplier we overpaid hands the extra back in cash (adjustment ref 'refund:')
+    supplier_refunds: one(`SELECT COALESCE(SUM(amount),0) v FROM supplier_txns WHERE tenant_id=? AND type='adjustment' AND COALESCE(ref,'')='refund:' AND account_id IS NULL AND ${cashSql("method")} AND created_at > ? AND created_at <= ?`, ...P),
   };
   const outs = {
     bank_deposits: one("SELECT COALESCE(SUM(amount),0) v FROM bank_deposits WHERE tenant_id=? AND created_at > ? AND created_at <= ?", ...P),
@@ -60,6 +62,9 @@ export function cashFlows(t: number, since: string, until: string) {
     bypass_supplier_payments: one(`SELECT COALESCE(SUM(amount),0) v FROM bypass_supplier_payments WHERE tenant_id=? AND mode IN ('we_pay','through_us') AND voided=0 AND account_id IS NULL AND ${cashSql("method")} AND created_at > ? AND created_at <= ?`, ...P),
     other_cash: one("SELECT COALESCE(SUM(amount),0) v FROM cashier_vouchers WHERE tenant_id=? AND direction='out' AND party_type='other' AND LOWER(method)='cash' AND voided=0 AND created_at > ? AND created_at <= ?", ...P),
     staff_advances: one(`SELECT COALESCE(SUM(amount),0) v FROM staff_ledger WHERE tenant_id=? AND (type='advance' OR (type='bonus' AND month IS NULL)) AND ${cashSql("method")} AND COALESCE(ref,'')<>'open:' AND created_at > ? AND created_at <= ?`, ...P), // go-live opening advances moved no cash
+    // an overpaying customer / wholesale client takes their advance back in cash (ref 'refund:'; khata keeps the method after the colon)
+    khata_refunds: one(`SELECT COALESCE(SUM(amount),0) v FROM khata_ledger k JOIN customers c ON c.id=k.customer_id WHERE c.tenant_id=? AND k.type='debit' AND LOWER(TRIM(COALESCE(k.ref,'')))='refund:cash' AND k.account_id IS NULL AND k.created_at > ? AND k.created_at <= ?`, ...P),
+    wholesale_refunds: one(`SELECT COALESCE(SUM(amount),0) v FROM wholesale_txns WHERE tenant_id=? AND type='adjustment' AND COALESCE(ref,'')='refund:' AND voided=0 AND account_id IS NULL AND ${cashSql("method")} AND created_at > ? AND created_at <= ?`, ...P),
   };
   const sum = (o: Record<string, number>) => round2(Object.values(o).reduce((a, b) => a + b, 0));
   return { ins, outs, total_in: sum(ins), total_out: sum(outs) };

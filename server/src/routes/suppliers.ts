@@ -226,3 +226,19 @@ suppliers.post("/suppliers/:id/adjustment", h((req) => {
     tid(req), s.id, "adjustment", b.amount, b.note, req.user!.name, now(), now());
   return { owed: supplierOwed(s.id) };
 }));
+
+/** We overpaid this supplier (they owe us — negative payable) and now take that money back in cash / bank. Money comes
+ *  IN and the payable moves back up toward zero. Booked as an adjustment with a "refund:" ref (tally stays 0). */
+suppliers.post("/suppliers/:id/refund", requirePerm("suppliers.manage"), h((req) => {
+  const t = tid(req);
+  const s = own(t, Number(req.params.id));
+  const b = parse(z.object({ amount: z.number().positive(), method: z.string().min(2), note: z.string().optional().nullable(), txn_date: z.string().regex(/^\d{4}-\d{2}-\d{2}/).optional(), photo_ids: proofPhotos, account_id: accountIdField }), req.body);
+  if (isCheque(b.method)) throw new AppError(400, "Cash ya bank/online se refund lein (cheque se nahi)");
+  const accountId = bankAccountFor(t, b.account_id, b.method);
+  if (!/^cash$/i.test(b.method.trim()) && !accountId) throw new AppError(400, `${b.method}: bank / wallet account chunein`);
+  const ts = b.txn_date ? new Date(b.txn_date).toISOString() : now();
+  const id = run("INSERT INTO supplier_txns (tenant_id,supplier_id,type,amount,method,ref,note,created_by,txn_date,created_at,account_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+    t, s.id, "adjustment", b.amount, b.method, "refund:", b.note ?? "Overpayment refund", req.user!.name, ts, now(), accountId).id;
+  linkPhotos(t, b.photo_ids, `stx:${id}`);
+  return { owed: supplierOwed(s.id), refund: get("SELECT * FROM supplier_txns WHERE id=?", id) };
+}));
