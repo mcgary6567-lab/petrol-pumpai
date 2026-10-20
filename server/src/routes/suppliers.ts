@@ -6,10 +6,11 @@ import { all, get, run, now, tx } from "../db.js";
 import { linkPhotos, proofPhotos, proofCol, requireProof, isCheque } from "./capture.js";
 import { bankAccountFor, accountIdField, chequeToRegister, accountName } from "./banks.js";
 import { h, parse, tid, can, requirePerm } from "../auth.js";
-import { AppError, assertNoDuplicateParty, normalizePhone, round2, partyBalance, partyBalanceAll } from "../services.js";
+import { AppError, assertNoDuplicateParty, normalizePhone, round2, pkr, partyBalance, partyBalanceAll } from "../services.js";
 import { announce } from "../notifications.js";
 import { bypassOwed, bypassOwedAll } from "./bypass.js";
 import { gateBigPayment, registerPayExecutor } from "./payRequests.js";
+import { sendDirect } from "../whatsapp/cloud.js";
 
 export const suppliers = Router();
 // the cashier may pay a supplier (cash.pay) without seeing the rest of the supplier accounts
@@ -240,5 +241,9 @@ suppliers.post("/suppliers/:id/refund", requirePerm("suppliers.manage"), h((req)
   const id = run("INSERT INTO supplier_txns (tenant_id,supplier_id,type,amount,method,ref,note,created_by,txn_date,created_at,account_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
     t, s.id, "adjustment", b.amount, b.method, "refund:", b.note ?? "Overpayment refund", req.user!.name, ts, now(), accountId).id;
   linkPhotos(t, b.photo_ids, `stx:${id}`);
-  return { owed: supplierOwed(s.id), refund: get("SELECT * FROM supplier_txns WHERE id=?", id) };
+  const owed = supplierOwed(s.id);
+  // WhatsApp confirmation to the supplier that we received our overpayment back (best-effort)
+  if (s.phone) setImmediate(() => sendDirect(t, { phone: s.phone, name: s.name }, "supplier_refund", `stx:${id}`,
+    `${s.name}\n💸 Overpayment wapas: ${pkr(b.amount)} (${b.method}) hum ko wapas mil gaya.\n${owed > 0.5 ? `Ab humara aap par: ${pkr(owed)}` : owed < -0.5 ? `Ab aap par baqi: ${pkr(-owed)}` : "Hisaab barabar."}\n— ${get("SELECT name FROM tenants WHERE id=?", t)!.name}`).catch(() => undefined));
+  return { owed, refund: get("SELECT * FROM supplier_txns WHERE id=?", id) };
 }));
