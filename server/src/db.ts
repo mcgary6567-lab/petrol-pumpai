@@ -517,6 +517,12 @@ export function migrate() {
   addColumn("fuel_coupons", "voided_at", "TEXT"); addColumn("fuel_coupons", "void_refund", "INTEGER NOT NULL DEFAULT 0"); // when cancelled, and whether money went back
   // shop stock-in money leg: how the goods were paid (cash | bank | supplier | none) and the money row it made (voucher:/bank:/stx:)
   addColumn("shop_moves", "paid_by", "TEXT"); addColumn("shop_moves", "src", "TEXT"); addColumn("shop_moves", "amount", "REAL");
+  // one supplier invoice covering several shop/lubricant items at once (the items' stock is still set per line in shop_moves)
+  db.exec(`CREATE TABLE IF NOT EXISTS shop_invoices (
+    id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, supplier_id INTEGER NOT NULL, ref TEXT, total REAL NOT NULL DEFAULT 0,
+    note TEXT, txn_date TEXT NOT NULL, created_by TEXT, created_at TEXT NOT NULL)`);
+  db.exec("CREATE INDEX IF NOT EXISTS idx_shop_inv_sup ON shop_invoices(supplier_id)");
+  addColumn("shop_moves", "invoice_id", "INTEGER"); // which shop_invoices row this purchase line belongs to (NULL for single stock-in)
   // search paths the global search / list filters hit on a big pump
   for (const ix of [
     "CREATE INDEX IF NOT EXISTS idx_customers_name ON customers(tenant_id, name)", "CREATE INDEX IF NOT EXISTS idx_customers_phone ON customers(tenant_id, phone)",

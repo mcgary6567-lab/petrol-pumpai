@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Plus, PackagePlus, ClipboardCheck, Pencil, Undo2 } from "lucide-react";
+import { Plus, PackagePlus, ClipboardCheck, Pencil, Undo2, ReceiptText, Trash2 } from "lucide-react";
 import { ImportExport } from "../components/ImportExport";
 import { PrintListButton } from "../components/PrintList";
 import { CatalogImportButton } from "../components/CatalogImport";
@@ -31,6 +31,7 @@ export default function Shop() {
   const methods = useLookups("payment_method");
   const { can } = useAuth();
   const [form, setForm] = useState<null | { kind: "item" | "in" | "count" | "moves"; item?: any }>(null);
+  const [invoice, setInvoice] = useState(false);
   const [editSale, setEditSale] = useState<any>(null);
   const [q, setQ] = useState("");
   const [cat, setCat] = useState(""); // item list: category chip or "low" (stock at / under the alert level) — client-side
@@ -59,6 +60,7 @@ export default function Shop() {
             ]} />
           {can("stock.manage") && sid && <CatalogImportButton stationId={sid} onDone={reload} />}
           {can("stock.manage") && <ImportExport kind="shop" onDone={reload} />}
+          {can("stock.manage") && <button className="btn-secondary" onClick={() => setInvoice(true)}><ReceiptText size={15} /> Supplier invoice</button>}
           <button className="btn-primary" onClick={() => setForm({ kind: "item" })}><Plus size={15} /> Add item</button>
         </>} />
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -144,6 +146,7 @@ export default function Shop() {
       {form?.kind === "item" && <ItemForm item={form.item} stationId={sid!} onClose={() => setForm(null)} onDone={() => { setForm(null); reload(); }} />}
       {(form?.kind === "in" || form?.kind === "count") && <StockForm kind={form.kind} item={form.item} onClose={() => setForm(null)} onDone={() => { setForm(null); reload(); }} />}
       {form?.kind === "moves" && <Moves item={form.item} onClose={() => setForm(null)} />}
+      {invoice && <InvoiceForm items={items.data} onClose={() => setInvoice(false)} onDone={() => { setInvoice(false); reload(); }} />}
     </div>
   );
 }
@@ -272,6 +275,105 @@ function StockForm({ kind, item, onClose, onDone }: { kind: "in" | "count"; item
         </div> : <Field label="Reason"><select className="input" value={f.reason} onChange={(e) => setF({ ...f, reason: e.target.value })}>{["Stock count", "Damaged", "Expired", "Used in service", "Other"].map((x) => <option key={x}>{x}</option>)}</select></Field>}
         <div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={onClose}>Cancel</button><button className="btn-primary" disabled={busy}>Save</button></div>
       </form>
+    </Modal>
+  );
+}
+
+/** One supplier bill that brings in several items at once (multi-oil / filters etc.). Each line sets that
+ *  item's stock; the whole bill is one debit on the supplier's khata. Payment is optional (udhaar by default). */
+function InvoiceForm({ items, onClose, onDone }: { items: any[]; onClose: () => void; onDone: () => void }) {
+  const suppliers = useApi<any[]>("/suppliers");
+  const [supplierId, setSupplierId] = useState("");
+  const [ref, setRef] = useState("");
+  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [note, setNote] = useState("");
+  const [billPhotos, setBillPhotos] = useState<number[]>([]);
+  const [lines, setLines] = useState<{ item_id: string; qty: string; cost: string }[]>([{ item_id: "", qty: "", cost: "" }]);
+  // optional payment on the same bill
+  const [pay, setPay] = useState(false);
+  const [payMode, setPayMode] = useState<"cash" | "bank" | "cheque">("cash");
+  const [payMethod, setPayMethod] = useState("Bank transfer");
+  const [payAccount, setPayAccount] = useState<number | null>(null);
+  const [payAmount, setPayAmount] = useState("");
+  const [payRef, setPayRef] = useState("");
+  const [payPhotos, setPayPhotos] = useState<number[]>([]);
+  const { busy, run } = useAction();
+
+  const setLine = (idx: number, patch: Partial<{ item_id: string; qty: string; cost: string }>) =>
+    setLines((ls) => ls.map((l, i) => (i === idx ? { ...l, ...patch } : l)));
+  const onPickItem = (idx: number, itemId: string) => {
+    const it = items.find((x) => String(x.id) === itemId);
+    setLine(idx, { item_id: itemId, cost: lines[idx].cost || (it ? String(it.cost ?? "") : "") });
+  };
+  const valid = lines.filter((l) => l.item_id && Number(l.qty) > 0);
+  const total = Math.round(valid.reduce((a, l) => a + (Number(l.qty) || 0) * (Number(l.cost) || 0), 0));
+  const method = payMode === "cash" ? "cash" : payMode === "cheque" ? "Cheque" : payMethod;
+
+  const submit = async () => {
+    const payment = pay && Number(payAmount) > 0
+      ? { amount: Number(payAmount), method, ref: payRef || null, account_id: payMode === "cash" ? null : payAccount, photo_ids: payMode === "cheque" ? payPhotos : [] }
+      : undefined;
+    const r = await run(() => api("/shop/invoice", { body: {
+      supplier_id: Number(supplierId), ref: ref || null, txn_date: date, note: note || null, photo_ids: billPhotos,
+      lines: valid.map((l) => ({ item_id: Number(l.item_id), qty: Number(l.qty), cost: Number(l.cost) || 0 })), payment,
+    } }), "Invoice saved — supplier khata updated");
+    if (r) onDone();
+  };
+
+  return (
+    <Modal open onClose={onClose} title="Supplier invoice — maal received" wide>
+      <div className="space-y-3">
+        <div className="grid gap-3 sm:grid-cols-3">
+          <Field label="Supplier"><select className="input" value={supplierId} onChange={(e) => setSupplierId(e.target.value)} required>
+            <option value="">— supplier chunein —</option>{(suppliers.data ?? []).map((s: any) => <option key={s.id} value={s.id}>{s.name}{s.company ? ` · ${s.company}` : ""}</option>)}
+          </select></Field>
+          <Field label="Invoice / bill no."><input className="input" value={ref} onChange={(e) => setRef(e.target.value)} placeholder="optional" /></Field>
+          <Field label="Date"><input className="input" type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
+        </div>
+
+        <div className="space-y-2">
+          <span className="label">Items — jo is bill par aaye</span>
+          {lines.map((l, idx) => (
+            <div key={idx} className="grid grid-cols-[1fr_auto_auto_auto] items-end gap-2">
+              <select className="input" value={l.item_id} onChange={(e) => onPickItem(idx, e.target.value)}>
+                <option value="">— item —</option>{items.map((it) => <option key={it.id} value={it.id}>{it.name}{it.unit ? ` (${it.unit})` : ""}</option>)}
+              </select>
+              <input className="input w-20" type="number" inputMode="decimal" min={0} step="any" placeholder="Qty" value={l.qty} onChange={(e) => setLine(idx, { qty: e.target.value })} />
+              <input className="input w-24" type="number" inputMode="decimal" min={0} step="0.01" placeholder="Cost/unit" value={l.cost} onChange={(e) => setLine(idx, { cost: e.target.value })} />
+              <button type="button" className="flex h-10 w-9 items-center justify-center rounded-lg bg-slate-100 text-slate-500 hover:bg-rose-100 hover:text-rose-600 disabled:opacity-40" disabled={lines.length === 1} onClick={() => setLines((ls) => ls.filter((_, i) => i !== idx))} aria-label="Remove line"><Trash2 size={15} /></button>
+            </div>
+          ))}
+          <button type="button" className="btn-secondary !py-1 text-xs" onClick={() => setLines((ls) => [...ls, { item_id: "", qty: "", cost: "" }])}><Plus size={13} /> Aur item</button>
+        </div>
+
+        <div className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 dark:bg-slate-800/60">
+          <span className="text-sm text-slate-600">Invoice total (supplier khata par debit)</span>
+          <b className="tabular-nums text-lg">{pkr(total)}</b>
+        </div>
+
+        <Field label="Note (optional)"><input className="input" value={note} onChange={(e) => setNote(e.target.value)} /></Field>
+        <ProofPhotos value={billPhotos} onChange={setBillPhotos} hint="supplier bill / delivery slip" />
+
+        <label className="flex items-center gap-2 text-sm font-medium"><input type="checkbox" checked={pay} onChange={(e) => setPay(e.target.checked)} /> Abhi payment di? (nahi to poora udhaar rahega)</label>
+        {pay && <div className="space-y-2 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+          <div className="flex flex-wrap gap-1.5">
+            {([["cash", "Cash · نقد"], ["bank", "Bank / wallet · بینک"], ["cheque", "Cheque · چیک"]] as const).map(([k, l]) => (
+              <button type="button" key={k} onClick={() => { setPayMode(k); setPayAccount(null); }} className={`rounded-full px-3 py-1 text-xs font-semibold ${payMode === k ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-600"}`}>{l}</button>
+            ))}
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <Field label="Payment amount (Rs)"><input className="input" type="number" inputMode="decimal" min={0} step="0.01" value={payAmount} onChange={(e) => setPayAmount(e.target.value)} placeholder={String(total)} /></Field>
+            {payMode === "bank" && <Field label="Mode"><select className="input" value={payMethod} onChange={(e) => { setPayMethod(e.target.value); setPayAccount(null); }}>{["Bank transfer", "Raast", "JazzCash", "Easypaisa", "Card"].map((m) => <option key={m}>{m}</option>)}</select></Field>}
+            {payMode === "cheque" && <Field label="Cheque no."><input className="input" value={payRef} onChange={(e) => setPayRef(e.target.value)} /></Field>}
+            {payMode !== "cash" && <AccountPicker method={payMode === "cheque" ? "Cheque" : payMethod} value={payAccount} onChange={setPayAccount} required label={payMode === "cheque" ? "Cheque bank" : "Account"} />}
+          </div>
+          {payMode === "cheque" && <ProofPhotos value={payPhotos} onChange={setPayPhotos} hint="cheque photo" />}
+          <p className="text-[11px] text-slate-500">Baqi raqam supplier ke khate me udhaar rahegi; method aur ref khata me nazar aayenge.</p>
+        </div>}
+
+        <div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={onClose}>Cancel</button>
+          <button className="btn-primary" disabled={busy || !supplierId || valid.length === 0 || total <= 0} onClick={submit}>Save invoice</button></div>
+      </div>
     </Modal>
   );
 }

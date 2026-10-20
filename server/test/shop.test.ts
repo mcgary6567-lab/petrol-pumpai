@@ -137,3 +137,31 @@ test("shop stock-in books the money side: cash → cash book down, supplier → 
   await tallyBooks("after no-money stock-in");
   assert.equal(ok(await call("admin", "GET", "/api/books/check"), "books").ok, true);
 });
+
+test("shop invoice: one supplier bill, many items — stock per line, one khata debit, optional payment credit, books tally", async () => {
+  const { tallyBooks } = await import("./helpers/tally.js");
+  const items = ok(await call("manager", "GET", "/api/shop/items?station_id=1"), "items");
+  const a = items[0], b = items[1];
+  const stockA0 = Number(a.stock), stockB0 = Number(b.stock);
+  const sup = ok(await call("admin", "GET", "/api/suppliers"), "sup")[0];
+  const owed0 = sup.owed;
+
+  // udhaar invoice (no payment): two lines, one khata debit = total
+  const inv1 = ok(await call("manager", "POST", "/api/shop/invoice", { supplier_id: sup.id, ref: "INV-T1",
+    lines: [{ item_id: a.id, qty: 5, cost: 100 }, { item_id: b.id, qty: 3, cost: 200 }] }), "invoice udhaar");
+  assert.equal(inv1.invoice.total, 1100, "invoice total = 5×100 + 3×200");
+  const after1 = ok(await call("manager", "GET", "/api/shop/items?station_id=1"), "items2");
+  near(Number(after1.find((i: any) => i.id === a.id).stock), stockA0 + 5, "item A stock +5");
+  near(Number(after1.find((i: any) => i.id === b.id).stock), stockB0 + 3, "item B stock +3");
+  near(ok(await call("admin", "GET", "/api/suppliers"), "sup2").find((s: any) => s.id === sup.id).owed, owed0 + 1100, "payable up by invoice total");
+  await tallyBooks("after udhaar shop invoice");
+
+  // invoice with a partial cash payment: payable up by (total − payment)
+  const owed1 = ok(await call("admin", "GET", "/api/suppliers"), "sup3").find((s: any) => s.id === sup.id).owed;
+  const inv2 = ok(await call("manager", "POST", "/api/shop/invoice", { supplier_id: sup.id, ref: "INV-T2",
+    lines: [{ item_id: a.id, qty: 2, cost: 150 }], payment: { amount: 200, method: "cash" } }), "invoice + cash pay");
+  assert.equal(inv2.invoice.total, 300, "second invoice total = 2×150");
+  near(ok(await call("admin", "GET", "/api/suppliers"), "sup4").find((s: any) => s.id === sup.id).owed, owed1 + 300 - 200, "payable up by net of payment");
+  await tallyBooks("after shop invoice with payment");
+  assert.equal(ok(await call("admin", "GET", "/api/books/check"), "books").ok, true);
+});

@@ -14,6 +14,7 @@ import { otherMoney, bankAccountFor, accountIdField } from "./banks.js";
 import { notify, staff } from "../notifications.js";
 import { shiftSummary } from "../shifts.js";
 import { receiptUrl } from "../billing.js";
+import { supplierPayment, supplierPayBody } from "./suppliers.js";
 
 export const shop = Router();
 export const SHOP_CATEGORIES = ["lubricant", "filter", "coolant", "tyre", "battery", "tuck", "service", "other"] as const;
@@ -90,6 +91,54 @@ shop.post("/shop/items/:id/stock-in", requirePerm("stock.manage"), h((req) => {
     if (src) run("UPDATE shop_moves SET src=? WHERE id=?", src, mid);
   });
   return get("SELECT * FROM shop_items WHERE id=?", i.id);
+}));
+
+/** Receive ONE supplier invoice that covers several shop/lubricant items at once (multi-oil etc.).
+ *  Each line sets that item's stock + weighted-average cost (same as a per-item stock-in); the whole
+ *  invoice is booked as ONE supplier purchase on the supplier's khata (ref "shopbuy:inv:<id>" so the
+ *  ledger books dr Shop stock / cr payable just like a single stock-in — no double counting, tally 0 farq).
+ *  Payment is OPTIONAL: if given, the same supplier-payment path runs (cash / bank / cheque / withholding),
+ *  so the khata shows the purchase (debit) and the payment (credit) with its method. */
+const invoiceBody = z.object({
+  supplier_id: z.number().int().positive(),
+  ref: z.string().max(40).optional().nullable(),
+  txn_date: z.string().regex(/^\d{4}-\d{2}-\d{2}/).optional(),
+  note: z.string().max(200).optional().nullable(),
+  photo_ids: proofPhotos, // the supplier's bill photo
+  lines: z.array(z.object({ item_id: z.number().int().positive(), qty: z.number().positive(), cost: z.number().min(0) })).min(1, "Kam az kam ek item daalein"),
+  payment: supplierPayBody.optional(), // leave out for pure udhaar; include to pay part/full now
+});
+shop.post("/shop/invoice", requirePerm("stock.manage"), h(async (req) => {
+  const t = tid(req);
+  const b = parse(invoiceBody, req.body);
+  const sup = get("SELECT * FROM suppliers WHERE id=? AND tenant_id=? AND COALESCE(active,1)=1", b.supplier_id, t);
+  if (!sup) throw new AppError(400, "Supplier chunein jis ke khate par maal aaya");
+  const items = b.lines.map((l) => ({ l, i: ownItem(t, l.item_id) }));
+  const ts = b.txn_date ? new Date(b.txn_date).toISOString() : now();
+  let invId = 0;
+  tx(() => {
+    invId = run("INSERT INTO shop_invoices (tenant_id,supplier_id,ref,total,note,txn_date,created_by,created_at) VALUES (?,?,?,?,?,?,?,?)",
+      t, sup.id, b.ref ?? null, 0, b.note ?? null, ts, req.user!.name, now()).id;
+    let total = 0;
+    for (const { l, i } of items) {
+      const unitCost = l.cost;
+      const amount = round2(l.qty * unitCost);
+      total = round2(total + amount);
+      const avg = Math.max(0, i.stock) + l.qty > 0 ? round2((Math.max(0, i.stock) * i.cost + l.qty * unitCost) / (Math.max(0, i.stock) + l.qty)) : unitCost;
+      run("UPDATE shop_items SET stock = stock + ?, cost=? WHERE id=?", l.qty, avg, i.id);
+      run("INSERT INTO shop_moves (item_id,type,qty,cost,ref,note,created_by,created_at,paid_by,amount,invoice_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        i.id, "purchase", l.qty, unitCost, b.ref ?? null, `Invoice: ${sup.name}`, req.user!.name, now(), "supplier", amount, invId);
+    }
+    run("UPDATE shop_invoices SET total=? WHERE id=?", total, invId);
+    // one khata debit for the whole bill (ledger: dr Shop stock / cr payable)
+    const stx = run("INSERT INTO supplier_txns (tenant_id,supplier_id,type,amount,ref,note,created_by,txn_date,created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+      t, sup.id, "purchase", total, `shopbuy:inv:${invId}`, `Shop invoice${b.ref ? ` ${b.ref}` : ""} — ${items.length} item${items.length > 1 ? "s" : ""}`, req.user!.name, ts, now()).id;
+    linkPhotos(t, b.photo_ids, `stx:${stx}`);
+  });
+  // optional payment on the same invoice — full supplier-payment path (cheque / WHT / bank handled there)
+  let payment = null;
+  if (b.payment) payment = supplierPayment(req, sup.id, { ...b.payment, ref: b.payment.ref ?? b.ref ?? null, note: b.payment.note ?? `Shop invoice${b.ref ? ` ${b.ref}` : ""}` });
+  return { invoice: get("SELECT * FROM shop_invoices WHERE id=?", invId), items: items.map(({ i }) => get("SELECT * FROM shop_items WHERE id=?", i.id)), payment };
 }));
 
 /** Stock count / damage / expiry: set the real quantity; the difference is logged. */
