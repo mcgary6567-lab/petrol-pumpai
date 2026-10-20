@@ -209,7 +209,7 @@ function khataCashBackWatch(t: number, sale: Row, by: string) {
   const c = sale.customer_id ? get("SELECT name FROM customers WHERE id=?", sale.customer_id) : null;
   const slipL = round2((sale.litres ?? 0) + (sale.cash_back_litres ?? 0));
   const title = `Khata baqi-cash: ${pkr(sale.cash_back)} — ${c?.name ?? "khata"}`;
-  const body = `${by} ne ${c?.name ?? "khata customer"} ko di: parchi ${round2(slipL)}L ${sale.product}, nozzle se ${round2(sale.litres)}L, baqi ${round2(sale.cash_back_litres)}L ka cash ${pkr(sale.cash_back)} bag se. Vehicle ${sale.vehicle_no ?? "—"}${sale.slip_no ? ` · slip ${sale.slip_no}` : ""}.`;
+  const body = `${by} ne ${c?.name ?? "khata customer"} ko di: parchi ${round2(slipL)}L ${sale.product}, nozzle se ${round2(sale.litres)}L, baqi ${round2(sale.cash_back_litres)}L — cash ${pkr(sale.cash_back)} bag se, Khareed (munafa) ${pkr(sale.khareed ?? 0)}. Vehicle ${sale.vehicle_no ?? "—"}${sale.slip_no ? ` · slip ${sale.slip_no}` : ""}.`;
   createAlert(t, { station_id: sale.station_id, type: "khata_cashback", severity: "warning", title, body });
   // best-effort WhatsApp to the owner (if a number is set) — never blocks or fails the sale
   const owner = get("SELECT owner_phone FROM tenants WHERE id=?", t);

@@ -49,24 +49,33 @@ test("khata slip cash-back: full slip on khata, only pumped litres on the meter,
   const live = ok(await call("salesman", "GET", `/api/shifts/${shiftId}/live`), "live");
   const rate = live.prices.HSD as number;
 
-  // parchi 50 L: 40 L pumped, 10 L (= 10×rate) handed back as cash
-  const cashBack = Math.round(10 * rate);
+  // parchi 50 L: 40 L pumped, 10 L baqi billed at rate (= 10×rate), but only PART handed as cash — the rest is Khareed
+  const baqiValue = Math.round(10 * rate);
+  const cashBack = baqiValue - 500;         // driver takes Rs 500 less than the baqi value
+  const expectKhareed = baqiValue - cashBack; // = 500
   const sale = ok(await call("salesman", "POST", "/api/sales", {
     station_id: live.shift.station_id, product: "HSD", litres: 40, payment_method: "khata",
     customer_id: cust.id, slip_no: "KB-1", cash_back: cashBack, cash_back_litres: 10,
   }), "khata cash-back sale");
-  assert.equal(sale.cash_back, cashBack, "cash_back stored");
+  assert.equal(sale.cash_back, cashBack, "cash_back (cash di) stored");
   assert.equal(sale.cash_back_litres, 10, "cash_back_litres stored");
+  near(sale.khareed, expectKhareed, "khareed = baqi value − cash di");
   near(sale.amount, 40 * rate, "fuel amount = pumped litres only");
   near(sale.litres, 40, "sale litres = pumped (meter/stock)");
 
-  // khata billed the whole slip: 40 L fuel + 10 L cash = 50×rate
+  // khata billed the whole slip: 40 L fuel + 10 L baqi value = 50×rate (regardless of the cash actually handed)
   const balAfter = db.get("SELECT balance FROM customers WHERE id=?", cust.id)!.balance as number;
-  near(balAfter - balBefore, 50 * rate, "khata debited the whole 50 L slip");
+  near(balAfter - balBefore, 50 * rate, "khata debited the whole 50 L slip (fuel + baqi value)");
   // one khata_ledger line carries it, amount = 50×rate
   const kl = db.get("SELECT amount, litres, note FROM khata_ledger WHERE ref=?", `SALE-${sale.id}`)!;
   near(kl.amount, 50 * rate, "one khata line = 50×rate");
   near(kl.litres, 50, "slip litres on the khata line");
+  // the Khareed profit lands in the ledger as income
+  const { journal } = await import("../src/routes/ledger.js");
+  const J = journal(t, "2000-01-01", new Date(Date.now() + 29 * 3600_000).toISOString().slice(0, 10));
+  const khareedAcc = J.trial_balance.find((x: any) => x.account === "Khareed");
+  assert.ok(khareedAcc, "Khareed income account exists in the ledger");
+  near(-(khareedAcc!.balance as number), expectKhareed, "Khareed income = profit");
 
   // only 40 L left the tank (the cash-back is not fuel)
   const tankAfter = db.get("SELECT COALESCE(SUM(current_l),0) v FROM tanks t JOIN stations s ON s.id=t.station_id WHERE s.tenant_id=? AND t.product='HSD'", t)!.v as number;
@@ -74,7 +83,8 @@ test("khata slip cash-back: full slip on khata, only pumped litres on the meter,
 
   // shift bag: cash-back shows as a cash-out and the expected cash drops by it
   const live2 = ok(await call("salesman", "GET", `/api/shifts/${shiftId}/live`), "live2");
-  near(live2.summary.khata_cashback, cashBack, "shift khata_cashback bucket");
+  near(live2.summary.khata_cashback, cashBack, "shift khata_cashback bucket = cash handed");
+  near(live2.summary.khareed, expectKhareed, "shift khareed (munafa) bucket");
   // per-fuel breakdown: khata litres are the PUMPED 40, so no false over-bill (khata_l + cash_l ≤ meter)
   const hsd = live2.fuels?.find?.((f: any) => f.product === "HSD");
   if (hsd) near(hsd.khata_l, 40, "khata litres on the meter = pumped only");

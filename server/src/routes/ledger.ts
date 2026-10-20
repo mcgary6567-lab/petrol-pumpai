@@ -91,12 +91,14 @@ export function journal(t: number, fromDay: string, toDay: string, showPrivate =
     add(d, "Sales", `Fuel sales ${d} (${Math.round(rows.reduce((a, r) => a + r.l, 0)).toLocaleString()} L)`,
       [...rows.map((r) => dr(sold(r.m, d), r.a)), ...(disc > 0 ? [dr("Discount given — khata", disc)] : []), ...(ddir > 0 ? [dr("Discount given — direct", ddir)] : []), cr("Fuel sales", split.value), cr("Output sales tax", split.tax)]);
   }
-  // khata slip "baqi cash": the driver's parchi was for more litres than the nozzle gave and he took the rest as cash
-  // from the bag. The fuel voucher above already billed the pumped litres; this books the extra cash leg — the company
-  // owes it (khata receivable up) and the pump paid it out of cash (cash down). No fuel revenue, no stock moves here.
-  for (const r of all(`SELECT date(datetime(s.created_at,'+5 hours')) d, SUM(s.cash_back) a FROM sales s JOIN stations st ON st.id=s.station_id
-    WHERE st.tenant_id=? AND s.created_at >= ? AND s.created_at < ? AND s.payment_method='khata' AND COALESCE(s.cash_back,0) > 0 GROUP BY d`, ...P))
-    add(r.d, "Journal", `Khata slip cash-back ${r.d} — driver ko bag se cash`, [dr("Khata receivable", round2(r.a)), cr(CASH, round2(r.a))]);
+  // khata slip "baqi cash": the driver's parchi was for more litres than the nozzle gave and the rest was dealt in cash.
+  // The fuel voucher above billed the pumped litres; this books the baqi leg — the company owes the baqi litres' full
+  // value (khata receivable up by cash + khareed), the pump handed over the cash (cash down), and the gap is profit
+  // "Khareed" (income). No stock moves here.
+  for (const r of all(`SELECT date(datetime(s.created_at,'+5 hours')) d, SUM(s.cash_back) cb, SUM(s.khareed) kh FROM sales s JOIN stations st ON st.id=s.station_id
+    WHERE st.tenant_id=? AND s.created_at >= ? AND s.created_at < ? AND s.payment_method='khata' AND (COALESCE(s.cash_back,0) > 0 OR COALESCE(s.khareed,0) > 0) GROUP BY d`, ...P))
+    add(r.d, "Journal", `Khata slip baqi-cash ${r.d} — driver ko cash + Khareed`,
+      [dr("Khata receivable", round2(r.cb + r.kh)), cr(CASH, round2(r.cb)), ...(round2(r.kh) ? [cr("Khareed", round2(r.kh))] : [])]);
   // khata "card pending": on the fill day the fuel is sold into an asset (not yet billed) at the meter rate; when the
   // card is brought in it is billed to the khata at that day's rate, and the rate difference lands on the clear day.
   const UNBILLED = "Unbilled fuel (card pending)";

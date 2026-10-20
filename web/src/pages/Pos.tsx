@@ -462,19 +462,27 @@ export default function Pos() {
                     onChange={(e) => { const on = e.target.checked; setKhata({ ...khata, cashOn: on, ...(on ? {} : { cashBackLitres: 0, cashBack: 0 }) }); }} />
                   Parchi se kam tel · baqi cash · <Ur>باقی کیش</Ur>
                 </label>
-                {khata.cashOn && (
+                {khata.cashOn && (() => {
+                  const baqiVal = Math.round((khata.cashBackLitres || 0) * (rate || 0));
+                  const khareed = Math.max(0, baqiVal - (khata.cashBack || 0));
+                  return (
                   <div className="mt-2 grid grid-cols-2 gap-2">
                     <label className="block"><span className="text-xs text-slate-600">Baqi litres (cash)</span>
-                      <input className="input min-h-10" type="number" min={0} step="0.01" inputMode="decimal" value={khata.cashBackLitres ?? ""} placeholder="e.g. 10"
-                        onChange={(e) => { const l = Math.max(0, Number(e.target.value) || 0); setKhata({ ...khata, cashBackLitres: l, cashBack: rate > 0 ? Math.round(l * rate) : (khata.cashBack ?? 0) }); }} /></label>
+                      <input className="input min-h-10" type="number" min={0} step="0.01" inputMode="decimal" value={khata.cashBackLitres ?? ""} placeholder="e.g. 70"
+                        onChange={(e) => setKhata({ ...khata, cashBackLitres: Math.max(0, Number(e.target.value) || 0) })} /></label>
+                    <label className="block"><span className="text-xs text-slate-600">Baqi value (auto · {rate || 0}/L)</span>
+                      <input className="input min-h-10 bg-slate-100 font-semibold" readOnly value={baqiVal ? pkr(baqiVal) : ""} placeholder="—" /></label>
                     <label className="block"><span className="text-xs text-slate-600">Cash di (Rs)</span>
-                      <input className="input min-h-10" type="number" min={0} step="1" inputMode="numeric" value={khata.cashBack ?? ""} placeholder="auto"
+                      <input className="input min-h-10" type="number" min={0} step="1" inputMode="numeric" value={khata.cashBack ?? ""} placeholder="e.g. 18000"
                         onChange={(e) => setKhata({ ...khata, cashBack: Math.max(0, Number(e.target.value) || 0) })} /></label>
+                    <label className="block"><span className="text-xs text-emerald-700">Khareed (munafa · auto)</span>
+                      <input className="input min-h-10 bg-emerald-50 font-semibold text-emerald-800" readOnly value={khareed ? pkr(khareed) : "Rs 0"} /></label>
                     <p className="col-span-2 text-xs text-slate-600">
-                      Parchi <b>{num((litres || 0) + (khata.cashBackLitres || 0), 2)} L</b> = nozzle <b>{num(litres || 0, 2)} L</b> tel + <b>{num(khata.cashBackLitres || 0, 2)} L</b> ({pkr(khata.cashBack || 0)}) cash. Khata par poora bill, cash bag se. CEO ko notification jayegi.
+                      Parchi <b>{num((litres || 0) + (khata.cashBackLitres || 0), 2)} L</b> = nozzle <b>{num(litres || 0, 2)} L</b> tel + baqi <b>{num(khata.cashBackLitres || 0, 2)} L</b>. Khata par poora bill ({pkr((Math.round((litres||0)*(rate||0))) + baqiVal)}), cash bag se <b>{pkr(khata.cashBack || 0)}</b>, Khareed munafa <b>{pkr(khareed)}</b>. CEO ko notification jayegi.
                     </p>
                   </div>
-                )}
+                  );
+                })()}
               </div>
             )}
             {pay === "khata" && usual && (
@@ -718,6 +726,7 @@ function ShiftPanel({ d, reload, onUndo, myId, expPreset }: { d: any; reload: ()
           {s?.points > 0 && <div className="flex justify-between"><span className="text-slate-300">🎁 Paid with points</span><span className="tabular-nums">{pkr(s.points)}</span></div>}
           {s?.prepaid > 0 && <div className="flex justify-between"><span className="text-slate-300">🎟️ Coupons / wallet</span><span className="tabular-nums">{pkr(s.prepaid)}</span></div>}
           {s?.khata_cashback > 0 && <div className="flex justify-between text-red-300"><span>− Khata baqi-cash · <Ur>باقی کیش</Ur></span><span className="tabular-nums">{pkr(s.khata_cashback)}</span></div>}
+          {s?.khareed > 0 && <div className="flex justify-between text-emerald-300"><span>🟢 Khareed (munafa)</span><span className="tabular-nums">{pkr(s.khareed)}</span></div>}
           <div className="flex justify-between text-red-300"><span>− Expenses · <Ur>خرچہ</Ur></span><span className="tabular-nums">{pkr(s?.expenses_total ?? 0)}</span></div>
         </div>
       </div>

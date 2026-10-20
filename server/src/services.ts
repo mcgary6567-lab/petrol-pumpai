@@ -118,9 +118,10 @@ export interface SaleInput {
   /** payment_method 'wholesale': the fuel went out of the nozzle to a wholesale client at their rate.
    * The litres/stock/meter are this sales row; the money (receivable/revenue/payment) is a wholesale_txns supply the /sales route adds. */
   wholesale_client_id?: number | null;
-  /** khata slip "baqi cash": the parchi is for more litres than the nozzle gave, and the driver takes the rest as cash
-   * from the bag. cash_back = those rupees (billed to the khata on top of the fuel, paid out of cash); cash_back_litres
-   * = their litre-equivalent (for the slip line). Only for a khata fill (not pending). */
+  /** khata slip "baqi cash": the parchi is for more litres than the nozzle gave, and the rest is dealt in cash.
+   * cash_back_litres = those "baqi" litres (billed to the khata at the nozzle rate); cash_back = the cash actually handed
+   * to the driver (out of the bag), which may be less than those litres' value. The pump's profit on the deal
+   * (baqi litres × rate − cash handed) is booked as "Khareed" income. Only for a khata fill (not pending). */
   cash_back?: number;
   cash_back_litres?: number;
 }
@@ -182,23 +183,28 @@ export function recordSale(tenantId: number, s: SaleInput): Row {
   const pending = Boolean(s.pending);
   if (pending && s.payment_method !== "khata") throw new AppError(400, "Card-pending holds are only for khata accounts");
   if (pending && discount > 0) throw new AppError(400, "Give the discount when the card is cleared, not on a pending hold");
-  // khata slip "baqi cash": the parchi bills more litres than the nozzle gave; the rest is handed to the driver as cash.
-  // The fuel (litres/amount) stays physical here; cashBack is extra rupees billed to the khata and paid out of the bag.
-  const cashBack = round2(s.cash_back ?? 0);
-  const cashBackLitres = round2(s.cash_back_litres ?? 0);
-  if (cashBack < 0 || cashBackLitres < 0) throw new AppError(400, "Cash-back cannot be negative");
+  // khata slip "baqi cash": the parchi bills more litres than the nozzle gave; the "baqi" litres are dealt in cash.
+  // The fuel (litres/amount) stays physical here. The baqi litres are billed to the khata at the nozzle rate
+  // (baqiValue); the driver is handed cashBack rupees (≤ baqiValue) out of the bag; the gap is the pump's profit "Khareed".
+  const cashBack = round2(s.cash_back ?? 0);          // cash actually handed to the driver (out of the bag)
+  const cashBackLitres = round2(s.cash_back_litres ?? 0); // "baqi" litres, billed to the khata at the nozzle rate
+  if (cashBack < 0 || cashBackLitres < 0) throw new AppError(400, "Baqi-cash cannot be negative");
+  const baqiValue = round2(cashBackLitres * rate);    // value of the baqi litres at the nozzle rate (billed to the khata)
+  const khareed = round2(baqiValue - cashBack);       // pump's profit: billed value minus the cash handed over
   if (cashBack > 0 || cashBackLitres > 0) {
     if (s.payment_method !== "khata") throw new AppError(400, "Baqi-cash sirf khata fill par hota hai");
-    if (pending) throw new AppError(400, "Card-pending hold par baqi-cash nahi (card clear hone par);");
+    if (pending) throw new AppError(400, "Card-pending hold par baqi-cash nahi (card clear hone par)");
+    if (!(cashBackLitres > 0)) throw new AppError(400, "Baqi litres daalein");
+    if (khareed < -0.005) throw new AppError(400, `Cash di (${pkr(cashBack)}) baqi ${cashBackLitres}L ki value ${pkr(baqiValue)} se zyada nahi ho sakti`);
   }
   if (s.payment_method === "khata") {
     if (!customer) throw new AppError(400, "Khata sale needs a customer");
     if (customer.khata_blocked) throw new AppError(400, `${customer.name}: khata is on hold because payment is overdue. Ask the manager.`);
     // a card-pending fill locks no rate and raises no debt yet, so the credit limit is only checked when it is cleared
-    // the khata is billed the fuel + the cash handed over, so the limit is checked against both
-    if (!pending && customer.balance + amount + cashBack > customer.credit_limit)
+    // the khata is billed the fuel + the whole baqi (parchi) value, so the limit is checked against both
+    if (!pending && customer.balance + amount + baqiValue > customer.credit_limit)
       throw new AppError(400, customer.balance < -0.5
-        ? `Advance khatam: ${pkr(-customer.balance)} advance baqi hai, yeh sale ${pkr(amount + cashBack)} ki hai${customer.credit_limit > 0 ? ` (limit ${pkr(customer.credit_limit)})` : " aur khata limit nahi"}`
+        ? `Advance khatam: ${pkr(-customer.balance)} advance baqi hai, yeh sale ${pkr(amount + baqiValue)} ki hai${customer.credit_limit > 0 ? ` (limit ${pkr(customer.credit_limit)})` : " aur khata limit nahi"}`
         : `Credit limit exceeded: balance ${pkr(customer.balance)}, limit ${pkr(customer.credit_limit)}`);
   }
   if (s.payment_method === "wallet") {
@@ -229,11 +235,11 @@ export function recordSale(tenantId: number, s: SaleInput): Row {
     // a bank account only applies to a card / digital (POS machine) sale — never cash / khata / coupon etc.
     const accountId = s.account_id && digitalMethods(tenantId).includes(s.payment_method) ? s.account_id : null;
     const { id } = run(
-      `INSERT INTO sales (station_id,shift_id,customer_id,nozzle_id,product,litres,rate,amount,discount,payment_method,vehicle_no,slip_no,created_by,client_uid,source,coupon_id,photo_id,at_close,account_id,pending,over_limit,created_at,discount_kind,discount_ref,cash_back,cash_back_litres)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      `INSERT INTO sales (station_id,shift_id,customer_id,nozzle_id,product,litres,rate,amount,discount,payment_method,vehicle_no,slip_no,created_by,client_uid,source,coupon_id,photo_id,at_close,account_id,pending,over_limit,created_at,discount_kind,discount_ref,cash_back,cash_back_litres,khareed)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       s.station_id, s.shift_id ?? null, customer?.id ?? null, s.nozzle_id ?? null, s.product,
       round2(litres), rate, amount, discount, s.payment_method, s.vehicle_no?.toUpperCase() ?? null, s.slip_no ?? null, s.created_by ?? null, s.client_uid ?? null, s.source ?? (s.created_by ? "pos" : null), coupon?.id ?? null, photoId, s.at_close ? 1 : null, accountId, pending ? 1 : 0, s.override_limit ? 1 : 0, ts,
-      discountKind, discountKind === "direct" ? (s.discount_ref?.trim() || null) : null, cashBack, cashBackLitres,
+      discountKind, discountKind === "direct" ? (s.discount_ref?.trim() || null) : null, cashBack, cashBackLitres, khareed,
     );
     if (coupon && run("UPDATE fuel_coupons SET status='used', sale_id=?, used_at=?, used_by=? WHERE id=? AND status='active'", id, ts, String(s.created_by ?? ""), coupon.id).changes !== 1)
       throw new AppError(409, `Coupon ${coupon.code} was just used`);
@@ -254,12 +260,12 @@ export function recordSale(tenantId: number, s: SaleInput): Row {
         ts, points ? -points : Math.floor(amount / 100), customer.id);
       if (points) run("INSERT INTO loyalty_redemptions (tenant_id,customer_id,points,sale_id,created_at) VALUES (?,?,?,?,?)", tenantId, customer.id, points, id, ts);
       if (s.payment_method === "khata") {
-        // the khata is billed the fuel + the cash handed to the driver; the slip litres = pumped + the cash-back litres,
-        // shown as one line (the fuel/meter/stock still used `litres` above, and the cash leg is booked in the ledger)
+        // the khata is billed the fuel + the whole baqi (parchi) value; the slip litres = pumped + the baqi litres,
+        // shown as one line (the fuel/meter/stock still used `litres` above; the cash + Khareed legs are in the ledger)
         const slipLitres = round2(litres + cashBackLitres);
-        const khataAmount = round2(amount + cashBack);
-        const note = cashBack > 0
-          ? `${round2(slipLitres)}L parchi: ${round2(litres)}L tel + ${round2(cashBackLitres)}L (${pkr(cashBack)}) cash${discount > 0 ? ` − ${pkr(discount)} discount` : ""}`
+        const khataAmount = round2(amount + baqiValue);
+        const note = cashBackLitres > 0
+          ? `${round2(slipLitres)}L parchi: ${round2(litres)}L tel + ${round2(cashBackLitres)}L baqi (cash di ${pkr(cashBack)}${khareed > 0 ? `, Khareed ${pkr(khareed)}` : ""})${discount > 0 ? ` − ${pkr(discount)} discount` : ""}`
           : `${round2(litres)}L ${s.product} @ Rs ${rate}${discount > 0 ? ` − ${pkr(discount)} discount` : ""}`;
         const k = run(`INSERT INTO khata_ledger (customer_id,type,amount,ref,note,product,litres,rate,vehicle_no,slip_no,station_id,created_at)
              VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
@@ -413,8 +419,8 @@ export function undoSale(sale: Row) {
       } else run("UPDATE customers SET loyalty_points = MAX(0, loyalty_points - ?) WHERE id=?", Math.floor(sale.amount / 100), sale.customer_id);
       // a still-pending card hold raised no khata debit, so there is nothing to reverse; a cleared one was billed at its clear rate
       if (sale.payment_method === "khata" && !sale.pending) {
-        // the khata was billed the fuel + any slip cash-back, so reverse the whole debit
-        const billed = round2((sale.cleared_at ? round2(sale.litres * sale.clear_rate) : sale.amount) + (sale.cash_back ?? 0));
+        // the khata was billed the fuel + the whole baqi value (= cash handed + Khareed profit), so reverse all of it
+        const billed = round2((sale.cleared_at ? round2(sale.litres * sale.clear_rate) : sale.amount) + (sale.cash_back ?? 0) + (sale.khareed ?? 0));
         run("DELETE FROM khata_ledger WHERE customer_id=? AND ref=?", sale.customer_id, `SALE-${sale.id}`);
         run("UPDATE customers SET balance = balance - ? WHERE id=?", billed, sale.customer_id);
       }
