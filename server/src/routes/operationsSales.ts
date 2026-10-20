@@ -11,7 +11,7 @@ import { resolveCategory } from "./expenses.js";
 import { AppError, recordSale, undoSale, audit, UNDO_SECONDS, currentPrices, createAlert, round2, pkr, rateFmt, correctTo15, priceOf, type SaleInput } from "../services.js";
 import { productSchema } from "../products.js";
 import { moneyMethods, SPECIAL_METHODS } from "./lookups.js";
-import { sendWhatsApp } from "../whatsapp/cloud.js";
+import { sendWhatsApp, sendToPhone } from "../whatsapp/cloud.js";
 import { PRODUCTS } from "../config.js";
 import { recordPurchase } from "./suppliers.js";
 import { followPumpPrice, priceSupply, insertTxn, clientDue } from "./wholesale.js";
@@ -96,6 +96,10 @@ saleRoutes.post("/sales", requirePerm("sales.create"), h((req) => {
     /** a fixed rupee discount: khata (lump-sum on a khata fill) or direct (walk-in on cash / card / online) */
     discount: z.number().min(0).optional(),
     discount_kind: z.enum(["khata", "direct"]).optional(),
+    /** khata slip "baqi cash": the parchi bills more litres than the nozzle gave; the rest is handed to the driver as
+     * cash from the bag. cash_back = those rupees (billed to the khata), cash_back_litres = their litre-equivalent. */
+    cash_back: z.number().min(0).optional(),
+    cash_back_litres: z.number().min(0).optional(),
     /** direct discount: who / why — free text; can also be added right after with POST /sales/:id/discount-ref */
     discount_ref: z.string().trim().max(120).optional().nullable(),
     /** when the sale was made on a tablet without internet; billed at the price in force then */
@@ -190,6 +194,8 @@ saleRoutes.post("/sales", requirePerm("sales.create"), h((req) => {
   const { offline_at: _o, ...sale } = b;
   const saved = recordSale(tid(req), { ...sale, shift_id: shift?.id ?? null, created_by: req.user!.id, ...(at ? { created_at: at } : {}) });
   if (!saved.duplicate && saved.discount_kind === "direct") directDiscountWatch(tid(req), saved);
+  // khata slip "baqi cash": cash left the bag against a khata slip — the CEO is told at once (in-app + WhatsApp)
+  if (!saved.duplicate && (saved.cash_back ?? 0) > 0) khataCashBackWatch(tid(req), saved, req.user!.name);
   if (!saved.duplicate) setImmediate(() => {
     khataFillReceipt(tid(req), saved).catch((e) => console.error("[khata receipt]", e.message));
     walletAfterFill(tid(req), saved).catch((e) => console.error("[wallet]", e.message));
@@ -197,6 +203,18 @@ saleRoutes.post("/sales", requirePerm("sales.create"), h((req) => {
   });
   return { ...saved, receipt_url: receiptUrl(tid(req), "f", saved.id) };
 }));
+
+/** Khata slip cash-back: a salesman handed a khata driver cash from the bag — the CEO must know the moment it happens. */
+function khataCashBackWatch(t: number, sale: Row, by: string) {
+  const c = sale.customer_id ? get("SELECT name FROM customers WHERE id=?", sale.customer_id) : null;
+  const slipL = round2((sale.litres ?? 0) + (sale.cash_back_litres ?? 0));
+  const title = `Khata baqi-cash: ${pkr(sale.cash_back)} — ${c?.name ?? "khata"}`;
+  const body = `${by} ne ${c?.name ?? "khata customer"} ko di: parchi ${round2(slipL)}L ${sale.product}, nozzle se ${round2(sale.litres)}L, baqi ${round2(sale.cash_back_litres)}L ka cash ${pkr(sale.cash_back)} bag se. Vehicle ${sale.vehicle_no ?? "—"}${sale.slip_no ? ` · slip ${sale.slip_no}` : ""}.`;
+  createAlert(t, { station_id: sale.station_id, type: "khata_cashback", severity: "warning", title, body });
+  // best-effort WhatsApp to the owner (if a number is set) — never blocks or fails the sale
+  const owner = get("SELECT owner_phone FROM tenants WHERE id=?", t);
+  if (owner?.owner_phone) setImmediate(() => { sendToPhone(owner.owner_phone, `⚠️ ${title}\n${body}`).catch((e) => console.error("[cashback notify]", e.message)); });
+}
 
 /** Direct discounts given in one shift add up past the owner's alert line → tell the managers once per shift. */
 function directDiscountWatch(t: number, sale: Row) {

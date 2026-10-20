@@ -64,6 +64,9 @@ export function cashFlows(t: number, since: string, until: string) {
     staff_advances: one(`SELECT COALESCE(SUM(amount),0) v FROM staff_ledger WHERE tenant_id=? AND (type='advance' OR (type='bonus' AND month IS NULL)) AND ${cashSql("method")} AND COALESCE(ref,'')<>'open:' AND created_at > ? AND created_at <= ?`, ...P), // go-live opening advances moved no cash
     // an overpaying customer / wholesale client takes their advance back in cash (ref 'refund:'; khata keeps the method after the colon)
     khata_refunds: one(`SELECT COALESCE(SUM(amount),0) v FROM khata_ledger k JOIN customers c ON c.id=k.customer_id WHERE c.tenant_id=? AND k.type='debit' AND LOWER(TRIM(COALESCE(k.ref,'')))='refund:cash' AND k.account_id IS NULL AND k.created_at > ? AND k.created_at <= ?`, ...P),
+    // khata slip "baqi cash" on a counter (no-shift) fill — cash handed to the driver from the office bag. Shift fills
+    // never flow here: their cash-back is already netted into the salesman's handover (shiftSummary cash_expected).
+    khata_cashback: one(`SELECT COALESCE(SUM(s.cash_back),0) v FROM sales s JOIN stations st ON st.id=s.station_id WHERE st.tenant_id=? AND s.shift_id IS NULL AND s.payment_method='khata' AND COALESCE(s.cash_back,0) > 0 AND s.created_at > ? AND s.created_at <= ?`, ...P),
     wholesale_refunds: one(`SELECT COALESCE(SUM(amount),0) v FROM wholesale_txns WHERE tenant_id=? AND type='adjustment' AND COALESCE(ref,'')='refund:' AND voided=0 AND account_id IS NULL AND ${cashSql("method")} AND created_at > ? AND created_at <= ?`, ...P),
   };
   const sum = (o: Record<string, number>) => round2(Object.values(o).reduce((a, b) => a + b, 0));
@@ -93,7 +96,7 @@ backoffice.get("/cash", requireAny("expenses.view", "cash.book"), h((req) => ({
 
 // labels for the cash-book CSV (mirror the web page's IN/OUT rows)
 const CASH_IN: Record<string, string> = { shift_cash: "Cash handed over from shifts", khata_cash: "Khata payments in cash", wholesale_cash: "Wholesale payments in cash", carriage_cash: "Carriage payments in cash", prepaid_cash: "Coupons sold & wallet deposits (cash)", staff_repaid: "Staff advances paid back", bank_withdrawals: "Cash taken out of bank", counter_sales: "Counter cash sales", other_cash: "Other money in (cash counter)" };
-const CASH_OUT: Record<string, string> = { bank_deposits: "Deposited in bank", expenses: "Cash expenses (office)", supplier_payments: "Supplier paid in cash", bypass_supplier_payments: "Bypass supplier paid in cash", staff_advances: "Staff advances / bonus", other_cash: "Other payments (cash counter)" };
+const CASH_OUT: Record<string, string> = { bank_deposits: "Deposited in bank", expenses: "Cash expenses (office)", supplier_payments: "Supplier paid in cash", bypass_supplier_payments: "Bypass supplier paid in cash", staff_advances: "Staff advances / bonus", khata_cashback: "Khata slip cash-back (counter)", other_cash: "Other payments (cash counter)" };
 
 /** The office cash book as a CSV (Excel) download — cash movement since the last count, plus bank deposits. */
 backoffice.get("/cash.csv", requireAny("expenses.view", "cash.book"), (req, res, next) => {

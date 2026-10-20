@@ -45,6 +45,7 @@ export async function khataFillReceipt(tenantId: number, sale: Row) {
     sale.discount > 0
       ? `${PRODUCTS[sale.product]}: ${sale.litres} L × Rs ${sale.rate} = ${pkr(round2(sale.litres * sale.rate))}\nDiscount: − ${pkr(sale.discount)}\nNet: ${pkr(sale.amount)}`
       : `${PRODUCTS[sale.product]}: ${sale.litres} L × Rs ${sale.rate} = ${pkr(sale.amount)}`,
+    sale.cash_back > 0 ? `Parchi ${round2((sale.litres ?? 0) + (sale.cash_back_litres ?? 0))} L: ${sale.litres} L tel + ${round2(sale.cash_back_litres ?? 0)} L (${pkr(sale.cash_back)}) cash` : "",
     [sale.vehicle_no && `Gaari ${sale.vehicle_no}`, sale.slip_no && `Slip ${sale.slip_no}`].filter(Boolean).join(" · "),
     `📒 Khata balance: ${pkr(c.balance)}${c.credit_limit ? ` (limit ${pkr(c.credit_limit)})` : ""}`,
     "Shukriya! 🙏",

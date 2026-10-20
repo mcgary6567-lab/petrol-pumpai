@@ -294,6 +294,11 @@ export function migrate() {
   addColumn("sales", "over_limit", "INTEGER NOT NULL DEFAULT 0");
   addColumn("sales", "discount_kind", "TEXT"); // khata (lump-sum on a khata fill) | direct (walk-in: cash / card / online)
   addColumn("sales", "discount_ref", "TEXT"); // direct discount: who / why (free text, typed right after the sale)
+  // khata slip "baqi cash": a khata driver's parchi is for more litres than the nozzle gave — the rest is handed to him
+  // as cash from the bag. cash_back = those rupees (billed to the khata on top of the fuel); cash_back_litres = their
+  // litre-equivalent (slip litres = litres + cash_back_litres). The fuel/meter/stock stay on `litres` (what was pumped).
+  addColumn("sales", "cash_back", "REAL NOT NULL DEFAULT 0");
+  addColumn("sales", "cash_back_litres", "REAL NOT NULL DEFAULT 0");
   // a wholesale client fuelled straight from the nozzle (payment_method 'wholesale'): the litres/stock/meter live on this
   // sales row, while the money (receivable / revenue / payment) lives on a wholesale_txns supply linked by this id.
   addColumn("sales", "wholesale_client_id", "INTEGER");

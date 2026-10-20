@@ -83,7 +83,7 @@ export default function Pos() {
   const [mode, setMode] = useState<"amount" | "litres">("amount");
   const [entry, setEntry] = useState("");
   const [pay, setPay] = useState<string | null>(null);
-  const [khata, setKhata] = useState<{ account: any; vehicle: string; slip: string; photo_id?: number | null; pending?: boolean; discount?: number } | null>(null);
+  const [khata, setKhata] = useState<{ account: any; vehicle: string; slip: string; photo_id?: number | null; pending?: boolean; discount?: number; cashOn?: boolean; cashBack?: number; cashBackLitres?: number } | null>(null);
   // direct (walk-in) discount on a cash / card / online sale: fixed rupees or Rs per litre; the reference (who / why) is typed right after saving
   const [direct, setDirect] = useState<{ value: number } | null>(null);
   const [pickDirect, setPickDirect] = useState(false);
@@ -206,7 +206,7 @@ export default function Pos() {
       if (isBankPay(ws.settle) && ws.account) body.account_id = ws.account.id;
       if (ws.settle === "cheque") Object.assign(body, { cheque_bank: ws.cheque_bank || null, cheque_date: ws.cheque_date || null, slip_no: ws.slip || null });
     }
-    if (pay === "khata" && khata) Object.assign(body, { customer_id: khata.account.id, vehicle_no: khata.vehicle || null, slip_no: khata.slip || null, photo_id: khata.photo_id ?? null, ...(khata.pending ? { pending: true } : {}), ...(khata.discount && khata.discount > 0 ? { discount: khata.discount } : {}) });
+    if (pay === "khata" && khata) Object.assign(body, { customer_id: khata.account.id, vehicle_no: khata.vehicle || null, slip_no: khata.slip || null, photo_id: khata.photo_id ?? null, ...(khata.pending ? { pending: true } : {}), ...(khata.discount && khata.discount > 0 ? { discount: khata.discount } : {}), ...(!khata.pending && khata.cashOn && (khata.cashBack ?? 0) > 0 ? { cash_back: khata.cashBack, cash_back_litres: khata.cashBackLitres ?? 0 } : {}) });
     if (pay === "loyalty" && pointsCust) body.customer_id = pointsCust.id;
     if (pay === "coupon" && coupon) body.coupon_code = coupon.code;
     if (pay === "wallet" && walletAcct) body.customer_id = walletAcct.id;
@@ -455,6 +455,28 @@ export default function Pos() {
                 <span className="text-sm text-amber-700 underline">Change</span>
               </button>
             )}
+            {pay === "khata" && khata && !khata.pending && (
+              <div className="mt-2 rounded-xl bg-amber-50/60 p-3 text-sm ring-1 ring-amber-200">
+                <label className="flex cursor-pointer items-center gap-2 font-semibold text-amber-900">
+                  <input type="checkbox" className="h-5 w-5 accent-amber-600" checked={Boolean(khata.cashOn)}
+                    onChange={(e) => { const on = e.target.checked; setKhata({ ...khata, cashOn: on, ...(on ? {} : { cashBackLitres: 0, cashBack: 0 }) }); }} />
+                  Parchi se kam tel · baqi cash · <Ur>باقی کیش</Ur>
+                </label>
+                {khata.cashOn && (
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    <label className="block"><span className="text-xs text-slate-600">Baqi litres (cash)</span>
+                      <input className="input min-h-10" type="number" min={0} step="0.01" inputMode="decimal" value={khata.cashBackLitres ?? ""} placeholder="e.g. 10"
+                        onChange={(e) => { const l = Math.max(0, Number(e.target.value) || 0); setKhata({ ...khata, cashBackLitres: l, cashBack: rate > 0 ? Math.round(l * rate) : (khata.cashBack ?? 0) }); }} /></label>
+                    <label className="block"><span className="text-xs text-slate-600">Cash di (Rs)</span>
+                      <input className="input min-h-10" type="number" min={0} step="1" inputMode="numeric" value={khata.cashBack ?? ""} placeholder="auto"
+                        onChange={(e) => setKhata({ ...khata, cashBack: Math.max(0, Number(e.target.value) || 0) })} /></label>
+                    <p className="col-span-2 text-xs text-slate-600">
+                      Parchi <b>{num((litres || 0) + (khata.cashBackLitres || 0), 2)} L</b> = nozzle <b>{num(litres || 0, 2)} L</b> tel + <b>{num(khata.cashBackLitres || 0, 2)} L</b> ({pkr(khata.cashBack || 0)}) cash. Khata par poora bill, cash bag se. CEO ko notification jayegi.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
             {pay === "khata" && usual && (
               <button onClick={() => { setProduct(usual.product); setMode("amount"); setEntry(String(usual.amount)); }}
                 className="mt-2 flex w-full items-center gap-2 rounded-xl bg-sky-50 p-3 text-left text-sm ring-1 ring-sky-200 active:scale-95">
@@ -695,6 +717,7 @@ function ShiftPanel({ d, reload, onUndo, myId, expPreset }: { d: any; reload: ()
           {s?.shop?.total > 0 && <div className="flex justify-between"><span className="text-slate-300">🛒 Shop (cash {pkr(s.shop.cash)})</span><span className="tabular-nums">{pkr(s.shop.total)}</span></div>}
           {s?.points > 0 && <div className="flex justify-between"><span className="text-slate-300">🎁 Paid with points</span><span className="tabular-nums">{pkr(s.points)}</span></div>}
           {s?.prepaid > 0 && <div className="flex justify-between"><span className="text-slate-300">🎟️ Coupons / wallet</span><span className="tabular-nums">{pkr(s.prepaid)}</span></div>}
+          {s?.khata_cashback > 0 && <div className="flex justify-between text-red-300"><span>− Khata baqi-cash · <Ur>باقی کیش</Ur></span><span className="tabular-nums">{pkr(s.khata_cashback)}</span></div>}
           <div className="flex justify-between text-red-300"><span>− Expenses · <Ur>خرچہ</Ur></span><span className="tabular-nums">{pkr(s?.expenses_total ?? 0)}</span></div>
         </div>
       </div>
