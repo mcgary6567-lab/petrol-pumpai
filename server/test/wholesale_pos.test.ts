@@ -77,6 +77,11 @@ test("udhaar: wholesale client fills 50 L HSD at the pump → client khata up, t
   const { tallyBooks } = await import("./helpers/tally.js");
   await tallyBooks("wholesale pos udhaar");
   assert.equal(ok(await call("admin", "GET", "/api/books/check"), "books").ok, true);
+  // Today's entries list shows the wholesale client's name next to "wholesale" (POS modal + recent list)
+  const entries = ok(await call("salesman", "GET", "/api/pos/entries"), "pos entries");
+  const row = entries.entries.find((e: any) => e.id === saleId);
+  assert.equal(row?.payment_method, "wholesale", "entry marked wholesale");
+  assert.equal(row?.wholesale_name, "WS POS Test Traders", "wholesale row carries the client name");
 });
 
 test("pay-now cash: a second fill paid at the pump → supply + payment net to zero on the khata, cash in the books up", async () => {
