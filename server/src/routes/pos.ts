@@ -98,8 +98,10 @@ pos.get("/pos/today", h((req) => {
     direct_discount_max: can(u, "customers.edit") ? null : Number(getSetting(tid(req), "direct_discount_max", "5000")),
     products: [...new Set(all("SELECT product FROM tanks WHERE station_id=?", stationId).map((t) => t.product))],
     shift: shift ? { ...shift, hours_open: (Date.now() - Date.parse(shift.opened_at)) / 3600_000, summary: shiftSummary(shift.id) } : null,
-    recent: shift ? all(`SELECT s.id, s.product, s.litres, s.rate, s.amount, s.discount, s.discount_kind, s.discount_ref, s.payment_method, s.vehicle_no, s.slip_no, s.photo_id, s.created_at, s.created_by, c.name customer_name, b.bank bank_name
-      FROM sales s LEFT JOIN customers c ON c.id=s.customer_id LEFT JOIN bank_accounts b ON b.id=s.account_id WHERE s.shift_id=? ORDER BY s.id DESC LIMIT 12`, shift.id) : [],
+    recent: shift ? all(`SELECT s.id, s.product, s.litres, s.rate, s.amount, s.discount, s.discount_kind, s.discount_ref, s.payment_method, s.vehicle_no, s.slip_no, s.photo_id, s.created_at, s.created_by, c.name customer_name, b.bank bank_name, wc.name wholesale_name
+      FROM sales s LEFT JOIN customers c ON c.id=s.customer_id LEFT JOIN bank_accounts b ON b.id=s.account_id
+      LEFT JOIN wholesale_txns wt ON wt.sale_id=s.id AND wt.type='supply' AND wt.voided=0 LEFT JOIN wholesale_clients wc ON wc.id=wt.client_id
+      WHERE s.shift_id=? ORDER BY s.id DESC LIMIT 12`, shift.id) : [],
   };
 }));
 
@@ -116,8 +118,10 @@ pos.get("/pos/entries", h((req) => {
     : get("SELECT * FROM shifts WHERE station_id=? AND status='open' ORDER BY id DESC LIMIT 1", stationId);
   if (!shift) return { shift: null, entries: [], summary: null };
   const salesman = u.role === "salesman";
-  const entries = all(`SELECT s.id, s.product, s.litres, s.rate, s.amount, s.discount, s.discount_kind, s.discount_ref, s.payment_method, s.customer_id, s.account_id, s.vehicle_no, s.slip_no, s.photo_id, s.pending, s.created_at, s.created_by, s.source, c.name customer_name, b.bank bank_name
-    FROM sales s LEFT JOIN customers c ON c.id=s.customer_id LEFT JOIN bank_accounts b ON b.id=s.account_id WHERE s.shift_id=? ORDER BY s.id DESC`, shift.id).map((s) => {
+  const entries = all(`SELECT s.id, s.product, s.litres, s.rate, s.amount, s.discount, s.discount_kind, s.discount_ref, s.payment_method, s.customer_id, s.account_id, s.vehicle_no, s.slip_no, s.photo_id, s.pending, s.created_at, s.created_by, s.source, c.name customer_name, b.bank bank_name, wc.name wholesale_name
+    FROM sales s LEFT JOIN customers c ON c.id=s.customer_id LEFT JOIN bank_accounts b ON b.id=s.account_id
+    LEFT JOIN wholesale_txns wt ON wt.sale_id=s.id AND wt.type='supply' AND wt.voided=0 LEFT JOIN wholesale_clients wc ON wc.id=wt.client_id
+    WHERE s.shift_id=? ORDER BY s.id DESC`, shift.id).map((s) => {
     const mine = Boolean(s.created_by) && (!salesman || s.created_by === u.id);
     const meterRow = !s.created_by || s.source === "meter";
     const specialMoney = (["coupon", "wallet", "loyalty"] as string[]).includes(s.payment_method) || (s.payment_method === "khata" && s.pending);

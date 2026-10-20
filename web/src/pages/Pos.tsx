@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { Fuel, Delete, Banknote, Smartphone, CreditCard, BookOpen, Check, Search, X, Zap, Undo2, WifiOff, CloudUpload, Gift, ShoppingBasket, Plus, Minus, ScanBarcode, Ticket, Wallet, Camera, Printer, Percent, Truck } from "lucide-react";
 import QRCode from "qrcode";
-import { api, useApi } from "../lib/api";
+import { api, useApi, linkToken } from "../lib/api";
 import { Loading, Modal, useAction, useToast } from "../components/ui";
 import { WhatsAppDoc } from "../components/WhatsAppDoc";
 import { newUid, isOffline, queueSale, dropQueued, patchQueued, dismissFailed, useOfflineQueue, cacheGet, cacheSet } from "../lib/offline";
@@ -706,7 +706,7 @@ function ShiftPanel({ d, reload, onUndo, myId, expPreset }: { d: any; reload: ()
           {d.recent.map((r: any) => (
             <li key={r.id} className="flex items-center gap-2 py-2 text-sm">
               <span className="h-3 w-3 shrink-0 rounded-full" style={{ background: fuelOf(r.product).color }} />
-              <span className="flex-1"><b>{num(r.litres, 2)} L</b> {fuelOf(r.product).en}<span className="block text-xs text-slate-500">{new Date(r.created_at).toLocaleTimeString("en-PK", { hour: "2-digit", minute: "2-digit" })} · {r.payment_method === "khata" ? `📒 ${r.customer_name}${r.slip_no ? ` · ${r.slip_no}` : ""}` : r.bank_name ? `${r.payment_method} · ${r.bank_name}` : r.payment_method}{r.discount_kind === "direct" ? <span className="text-rose-600"> · −Rs {num(r.discount, 0)} {r.discount_ref ? `(${r.discount_ref})` : "(no ref)"}</span> : null}</span></span>
+              <span className="flex-1"><b>{num(r.litres, 2)} L</b> {fuelOf(r.product).en}<span className="block text-xs text-slate-500">{new Date(r.created_at).toLocaleTimeString("en-PK", { hour: "2-digit", minute: "2-digit" })} · {r.payment_method === "khata" ? `📒 ${r.customer_name}${r.slip_no ? ` · ${r.slip_no}` : ""}` : r.wholesale_name ? `${r.payment_method} · ${r.wholesale_name}` : r.bank_name ? `${r.payment_method} · ${r.bank_name}` : r.payment_method}{r.discount_kind === "direct" ? <span className="text-rose-600"> · −Rs {num(r.discount, 0)} {r.discount_ref ? `(${r.discount_ref})` : "(no ref)"}</span> : null}</span></span>
               <span className="font-semibold tabular-nums">{pkr(r.amount)}</span>
               {r.payment_method === "khata" && (r.photo_id
                 ? <PhotoThumb id={r.photo_id} size={8} />
@@ -756,6 +756,10 @@ function AllEntries({ stationId, onClose, onChange }: { stationId?: number; onCl
             <span>Cash in bag <b className="tabular-nums">{pkr(s?.cash_expected ?? 0)}</b></span>
           </div>
           <p className="text-xs text-slate-500">Fix a wrong litres or payment method, or remove an entry, before you close the shift. The totals above update at once · <Ur>شفٹ بند کرنے سے پہلے غلط اندراج ٹھیک کریں یا ہٹا دیں</Ur></p>
+          <div className="flex flex-wrap gap-2 print:hidden">
+            <a className="btn-secondary" href={`/api/docs/shift/${data.shift.id}/pdf?token=${linkToken()}`} target="_blank" rel="noreferrer"><Printer size={15} /> Print · <Ur>پرنٹ</Ur></a>
+            <WhatsAppDoc kind="shift" id={data.shift.id} label="WhatsApp" />
+          </div>
           <ul className="divide-y divide-slate-100 rounded-xl border border-slate-200">
             {data.entries.map((r: any) => (
               <li key={r.id} className="px-3 py-2.5 text-sm">
@@ -788,7 +792,7 @@ function AllEntries({ stationId, onClose, onChange }: { stationId?: number; onCl
                   <div className="flex items-center gap-2">
                     <span className="h-3 w-3 shrink-0 rounded-full" style={{ background: fuelOf(r.product).color }} />
                     <span className="min-w-0 flex-1"><b>{num(r.litres, 2)} L</b> {fuelOf(r.product).en}
-                      <span className="block text-xs text-slate-500">{new Date(r.created_at).toLocaleTimeString("en-PK", { hour: "2-digit", minute: "2-digit" })} · {r.payment_method === "khata" ? `📒 ${r.customer_name}${r.slip_no ? ` · ${r.slip_no}` : ""}` : r.bank_name ? `${r.payment_method} · ${r.bank_name}` : r.payment_method}{r.source === "meter" ? " · meter" : ""}{!r.mine ? " · other salesman" : ""}</span></span>
+                      <span className="block text-xs text-slate-500">{new Date(r.created_at).toLocaleTimeString("en-PK", { hour: "2-digit", minute: "2-digit" })} · {r.payment_method === "khata" ? `📒 ${r.customer_name}${r.slip_no ? ` · ${r.slip_no}` : ""}` : r.wholesale_name ? `${r.payment_method} · ${r.wholesale_name}` : r.bank_name ? `${r.payment_method} · ${r.bank_name}` : r.payment_method}{r.source === "meter" ? " · meter" : ""}{!r.mine ? " · other salesman" : ""}</span></span>
                     <span className="shrink-0 font-semibold tabular-nums">{pkr(r.amount)}</span>
                     {r.can_edit && <button onClick={() => setEdit({ id: r.id, litres: String(r.litres), payment_method: r.payment_method, vehicle_no: r.vehicle_no ?? "", slip_no: r.slip_no ?? "" })} className="shrink-0 rounded-lg bg-slate-100 px-2 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-200">Fix · <Ur>ٹھیک</Ur></button>}
                     {r.can_undo && (confirm === r.id
