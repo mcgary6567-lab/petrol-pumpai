@@ -100,6 +100,10 @@ saleRoutes.post("/sales", requirePerm("sales.create"), h((req) => {
      * cash from the bag. cash_back = those rupees (billed to the khata), cash_back_litres = their litre-equivalent. */
     cash_back: z.number().min(0).optional(),
     cash_back_litres: z.number().min(0).optional(),
+    /** khata parchi settled with shop goods: items_cost = the pump's cost of the lubricants/items handed (shop stock
+     * untouched), part of the baqi value alongside any cash; items_note = what was given. */
+    items_cost: z.number().min(0).optional(),
+    items_note: z.string().trim().max(120).optional().nullable(),
     /** direct discount: who / why — free text; can also be added right after with POST /sales/:id/discount-ref */
     discount_ref: z.string().trim().max(120).optional().nullable(),
     /** when the sale was made on a tablet without internet; billed at the price in force then */
@@ -194,8 +198,8 @@ saleRoutes.post("/sales", requirePerm("sales.create"), h((req) => {
   const { offline_at: _o, ...sale } = b;
   const saved = recordSale(tid(req), { ...sale, shift_id: shift?.id ?? null, created_by: req.user!.id, ...(at ? { created_at: at } : {}) });
   if (!saved.duplicate && saved.discount_kind === "direct") directDiscountWatch(tid(req), saved);
-  // khata slip "baqi cash": cash left the bag against a khata slip — the CEO is told at once (in-app + WhatsApp)
-  if (!saved.duplicate && (saved.cash_back ?? 0) > 0) khataCashBackWatch(tid(req), saved, req.user!.name);
+  // khata slip "baqi cash / saman": cash or shop goods went out against a khata slip — the CEO is told at once (in-app + WhatsApp)
+  if (!saved.duplicate && ((saved.cash_back ?? 0) > 0 || (saved.items_cost ?? 0) > 0)) khataCashBackWatch(tid(req), saved, req.user!.name);
   if (!saved.duplicate) setImmediate(() => {
     khataFillReceipt(tid(req), saved).catch((e) => console.error("[khata receipt]", e.message));
     walletAfterFill(tid(req), saved).catch((e) => console.error("[wallet]", e.message));
@@ -208,8 +212,10 @@ saleRoutes.post("/sales", requirePerm("sales.create"), h((req) => {
 function khataCashBackWatch(t: number, sale: Row, by: string) {
   const c = sale.customer_id ? get("SELECT name FROM customers WHERE id=?", sale.customer_id) : null;
   const slipL = round2((sale.litres ?? 0) + (sale.cash_back_litres ?? 0));
-  const title = `Khata baqi-cash: ${pkr(sale.cash_back)} — ${c?.name ?? "khata"}`;
-  const body = `${by} ne ${c?.name ?? "khata customer"} ko di: parchi ${round2(slipL)}L ${sale.product}, nozzle se ${round2(sale.litres)}L, baqi ${round2(sale.cash_back_litres)}L — cash ${pkr(sale.cash_back)} bag se, Khareed (munafa) ${pkr(sale.khareed ?? 0)}. Vehicle ${sale.vehicle_no ?? "—"}${sale.slip_no ? ` · slip ${sale.slip_no}` : ""}.`;
+  const items = round2(sale.items_cost ?? 0);
+  const gave = [sale.cash_back > 0 ? `cash ${pkr(sale.cash_back)} bag se` : "", items > 0 ? `shop saman ${pkr(items)}${sale.items_note ? ` (${sale.items_note})` : ""} — stock par asar nahi` : ""].filter(Boolean).join(" + ");
+  const title = `Khata baqi-${items > 0 && !(sale.cash_back > 0) ? "saman" : "cash"}: ${pkr((sale.cash_back ?? 0) + items)} — ${c?.name ?? "khata"}`;
+  const body = `${by} ne ${c?.name ?? "khata customer"} ko di: parchi ${round2(slipL)}L ${sale.product}, nozzle se ${round2(sale.litres)}L, baqi ${round2(sale.cash_back_litres)}L — ${gave}, Khareed (munafa) ${pkr(sale.khareed ?? 0)}. Vehicle ${sale.vehicle_no ?? "—"}${sale.slip_no ? ` · slip ${sale.slip_no}` : ""}.`;
   createAlert(t, { station_id: sale.station_id, type: "khata_cashback", severity: "warning", title, body });
   // best-effort WhatsApp to the owner (if a number is set) — never blocks or fails the sale
   const owner = get("SELECT owner_phone FROM tenants WHERE id=?", t);

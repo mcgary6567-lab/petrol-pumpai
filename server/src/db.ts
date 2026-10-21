@@ -301,6 +301,12 @@ export function migrate() {
   addColumn("sales", "cash_back", "REAL NOT NULL DEFAULT 0");
   addColumn("sales", "cash_back_litres", "REAL NOT NULL DEFAULT 0");
   addColumn("sales", "khareed", "REAL NOT NULL DEFAULT 0");
+  // khata slip settled with SHOP GOODS instead of (or beside) cash: against the parchi value the customer is handed
+  // lubricants / shop items as a formality — the shop's stock & sales are NOT touched. items_cost = the pump's cost of
+  // those goods (so khareed = baqi value − cash handed − items cost), items_note = what was given. The goods-cost leg is
+  // booked to a "Shop items given (khata)" ledger account (off the P&L) so only the Khareed margin shows as profit.
+  addColumn("sales", "items_cost", "REAL NOT NULL DEFAULT 0");
+  addColumn("sales", "items_note", "TEXT");
   // a wholesale client fuelled straight from the nozzle (payment_method 'wholesale'): the litres/stock/meter live on this
   // sales row, while the money (receivable / revenue / payment) lives on a wholesale_txns supply linked by this id.
   addColumn("sales", "wholesale_client_id", "INTEGER");

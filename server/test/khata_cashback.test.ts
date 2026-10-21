@@ -136,3 +136,48 @@ test("poora parcha cash: no fuel pumped, whole slip billed to khata as cash, sto
 
   await tallyBooks("after poora parcha cash");
 });
+
+test("khata parchi against shop goods: full slip on khata, shop stock untouched, only the margin is Khareed, books tally", async () => {
+  const t = db.get("SELECT id FROM tenants ORDER BY id LIMIT 1")!.id as number;
+  const cust = db.get("SELECT id, balance FROM customers WHERE tenant_id=? AND credit_limit > 0 ORDER BY credit_limit DESC LIMIT 1", t)!;
+  db.run("UPDATE customers SET credit_limit=100000000 WHERE id=?", cust.id);
+  const balBefore = db.get("SELECT balance FROM customers WHERE id=?", cust.id)!.balance as number;
+  const shopBefore = db.get("SELECT COALESCE(SUM(stock),0) v FROM shop_items WHERE tenant_id=?", t)!.v as number;
+  const tankBefore = db.get("SELECT COALESCE(SUM(current_l),0) v FROM tanks tk JOIN stations s ON s.id=tk.station_id WHERE s.tenant_id=? AND tk.product='HSD'", t)!.v as number;
+  const sh = db.get("SELECT id, station_id FROM shifts WHERE status='open' ORDER BY id DESC LIMIT 1") ?? ok(await call("salesman", "POST", "/api/shifts/open", {}), "open");
+  const live = ok(await call("salesman", "GET", `/api/shifts/${sh.id}/live`), "live");
+  const rate = live.prices.HSD as number;
+
+  // parchi 50 L, nothing pumped: handed shop goods costing Rs 2,000; Khareed = full value − items cost
+  const baqiValue = Math.round(50 * rate);
+  const itemsCost = 2000;
+  const sale = ok(await call("salesman", "POST", "/api/sales", {
+    station_id: live.shift.station_id, product: "HSD", payment_method: "khata", customer_id: cust.id,
+    slip_no: "SG-1", cash_back_litres: 50, items_cost: itemsCost, items_note: "2 L engine oil",
+  }), "parchi against shop goods");
+  near(sale.litres, 0, "no fuel pumped");
+  near(sale.amount, 0, "no fuel revenue");
+  near(sale.items_cost, itemsCost, "items cost stored");
+  near(sale.cash_back, 0, "no cash handed");
+  near(sale.khareed, baqiValue - itemsCost, "khareed = full value − items cost");
+
+  // khata billed the whole parchi value; shop stock & fuel stock both untouched
+  const balAfter = db.get("SELECT balance FROM customers WHERE id=?", cust.id)!.balance as number;
+  near(balAfter - balBefore, baqiValue, "khata debited the whole parchi value");
+  near(db.get("SELECT COALESCE(SUM(stock),0) v FROM shop_items WHERE tenant_id=?", t)!.v as number, shopBefore, "shop stock untouched");
+  near(db.get("SELECT COALESCE(SUM(current_l),0) v FROM tanks tk JOIN stations s ON s.id=tk.station_id WHERE s.tenant_id=? AND tk.product='HSD'", t)!.v as number, tankBefore, "fuel stock untouched");
+
+  // the goods cost sits in its own off-P&L account; only the margin is Khareed income
+  const { journal } = await import("../src/routes/ledger.js");
+  const J = journal(t, "2000-01-01", new Date(Date.now() + 29 * 3600_000).toISOString().slice(0, 10));
+  const items = J.trial_balance.find((x: any) => x.account === "Shop items given (khata)");
+  assert.ok(items, "Shop items given (khata) account exists");
+  near(-(items!.balance as number), itemsCost, "shop items account = goods cost");
+
+  await tallyBooks("after parchi against shop goods");
+
+  // undo reverses the whole slip
+  ok(await call("salesman", "POST", `/api/sales/${sale.id}/undo`, {}), "undo");
+  near(db.get("SELECT balance FROM customers WHERE id=?", cust.id)!.balance as number, balBefore, "khata back");
+  await tallyBooks("after undo (shop goods)");
+});

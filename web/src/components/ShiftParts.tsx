@@ -413,6 +413,7 @@ function ReportBody({ r }: { r: any }) {
           {s.by_payment.filter((p: any) => ["easypaisa", "jazzcash", "card", "raast"].includes(p.method)).map((p: any) => <Row key={p.method} k={<span className="capitalize">📱 {p.method}</span>} v={pkr(p.amount)} />)}
           <Row k="💵 Cash sales" v={pkr(s.cash_sales)} />
           {s.khata_cashback > 0 && <Row k="− Khata baqi-cash (driver ko bag se)" v={pkr(s.khata_cashback)} c="text-red-700" />}
+          {s.khata_items > 0 && <Row k="📦 Khata baqi-saman (shop goods, cash nahi)" v={pkr(s.khata_items)} c="text-slate-600" />}
           {s.khareed > 0 && <Row k="🟢 Khareed (munafa — cash nahi)" v={pkr(s.khareed)} c="text-emerald-700" />}
           <Row k="− Expenses paid from cash" v={pkr(s.expenses_total)} c="text-red-700" />
           <Row k="= Cash to hand over" v={pkr(s.cash_expected)} b />

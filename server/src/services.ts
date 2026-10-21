@@ -124,6 +124,11 @@ export interface SaleInput {
    * (baqi litres × rate − cash handed) is booked as "Khareed" income. Only for a khata fill (not pending). */
   cash_back?: number;
   cash_back_litres?: number;
+  /** khata slip settled with SHOP GOODS: against the baqi/parchi value the customer is handed lubricants / shop items
+   * (a formality — shop stock & sales are untouched). items_cost = the pump's cost of those goods; it is part of the
+   * baqi value alongside any cash, so khareed = baqi value − cash handed − items cost. items_note = what was given. */
+  items_cost?: number;
+  items_note?: string | null;
 }
 
 export function recordSale(tenantId: number, s: SaleInput): Row {
@@ -204,14 +209,16 @@ export function recordSale(tenantId: number, s: SaleInput): Row {
   // (baqiValue); the driver is handed cashBack rupees (≤ baqiValue) out of the bag; the gap is the pump's profit "Khareed".
   const cashBack = round2(s.cash_back ?? 0);          // cash actually handed to the driver (out of the bag)
   const cashBackLitres = round2(s.cash_back_litres ?? 0); // "baqi" litres, billed to the khata at the nozzle rate
-  if (cashBack < 0 || cashBackLitres < 0) throw new AppError(400, "Baqi-cash cannot be negative");
+  const itemsCost = round2(s.items_cost ?? 0);        // pump's cost of shop goods handed against the baqi (shop stock untouched)
+  const itemsNote = s.items_note?.trim() || null;
+  if (cashBack < 0 || cashBackLitres < 0 || itemsCost < 0) throw new AppError(400, "Baqi-cash cannot be negative");
   const baqiValue = round2(cashBackLitres * rate);    // value of the baqi litres at the nozzle rate (billed to the khata)
-  const khareed = round2(baqiValue - cashBack);       // pump's profit: billed value minus the cash handed over
-  if (cashBack > 0 || cashBackLitres > 0) {
+  const khareed = round2(baqiValue - cashBack - itemsCost); // pump's profit: billed value minus cash handed and goods cost
+  if (cashBack > 0 || cashBackLitres > 0 || itemsCost > 0) {
     if (s.payment_method !== "khata") throw new AppError(400, "Baqi-cash sirf khata fill par hota hai");
     if (pending) throw new AppError(400, "Card-pending hold par baqi-cash nahi (card clear hone par)");
     if (!(cashBackLitres > 0)) throw new AppError(400, "Baqi litres daalein");
-    if (khareed < -0.005) throw new AppError(400, `Cash di (${pkr(cashBack)}) baqi ${cashBackLitres}L ki value ${pkr(baqiValue)} se zyada nahi ho sakti`);
+    if (khareed < -0.005) throw new AppError(400, `Cash di (${pkr(cashBack)})${itemsCost > 0 ? ` + saman (${pkr(itemsCost)})` : ""} baqi ${cashBackLitres}L ki value ${pkr(baqiValue)} se zyada nahi ho sakti`);
   }
   if (s.payment_method === "khata") {
     if (!customer) throw new AppError(400, "Khata sale needs a customer");
@@ -251,11 +258,11 @@ export function recordSale(tenantId: number, s: SaleInput): Row {
     // a bank account only applies to a card / digital (POS machine) sale — never cash / khata / coupon etc.
     const accountId = s.account_id && digitalMethods(tenantId).includes(s.payment_method) ? s.account_id : null;
     const { id } = run(
-      `INSERT INTO sales (station_id,shift_id,customer_id,nozzle_id,product,litres,rate,amount,discount,payment_method,vehicle_no,slip_no,created_by,client_uid,source,coupon_id,photo_id,at_close,account_id,pending,over_limit,created_at,discount_kind,discount_ref,cash_back,cash_back_litres,khareed)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      `INSERT INTO sales (station_id,shift_id,customer_id,nozzle_id,product,litres,rate,amount,discount,payment_method,vehicle_no,slip_no,created_by,client_uid,source,coupon_id,photo_id,at_close,account_id,pending,over_limit,created_at,discount_kind,discount_ref,cash_back,cash_back_litres,khareed,items_cost,items_note)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       s.station_id, s.shift_id ?? null, customer?.id ?? null, s.nozzle_id ?? null, s.product,
       round2(litres), rate, amount, discount, s.payment_method, s.vehicle_no?.toUpperCase() ?? null, s.slip_no ?? null, s.created_by ?? null, s.client_uid ?? null, s.source ?? (s.created_by ? "pos" : null), coupon?.id ?? null, photoId, s.at_close ? 1 : null, accountId, pending ? 1 : 0, s.override_limit ? 1 : 0, ts,
-      discountKind, discountKind === "direct" ? (s.discount_ref?.trim() || null) : null, cashBack, cashBackLitres, khareed,
+      discountKind, discountKind === "direct" ? (s.discount_ref?.trim() || null) : null, cashBack, cashBackLitres, khareed, itemsCost, itemsNote,
     );
     if (coupon && run("UPDATE fuel_coupons SET status='used', sale_id=?, used_at=?, used_by=? WHERE id=? AND status='active'", id, ts, String(s.created_by ?? ""), coupon.id).changes !== 1)
       throw new AppError(409, `Coupon ${coupon.code} was just used`);
@@ -280,8 +287,9 @@ export function recordSale(tenantId: number, s: SaleInput): Row {
         // shown as one line (the fuel/meter/stock still used `litres` above; the cash + Khareed legs are in the ledger)
         const slipLitres = round2(litres + cashBackLitres);
         const khataAmount = round2(amount + baqiValue);
+        const baqiGive = [cashBack > 0 ? `cash di ${pkr(cashBack)}` : "", itemsCost > 0 ? `saman ${pkr(itemsCost)}${itemsNote ? ` (${itemsNote})` : ""}` : "", khareed > 0 ? `Khareed ${pkr(khareed)}` : ""].filter(Boolean).join(", ");
         const note = cashBackLitres > 0
-          ? `${round2(slipLitres)}L parchi: ${round2(litres)}L tel + ${round2(cashBackLitres)}L baqi (cash di ${pkr(cashBack)}${khareed > 0 ? `, Khareed ${pkr(khareed)}` : ""})${discount > 0 ? ` − ${pkr(discount)} discount` : ""}`
+          ? `${round2(slipLitres)}L parchi: ${round2(litres)}L tel + ${round2(cashBackLitres)}L baqi (${baqiGive})${discount > 0 ? ` − ${pkr(discount)} discount` : ""}`
           : `${round2(litres)}L ${s.product} @ Rs ${rate}${discount > 0 ? ` − ${pkr(discount)} discount` : ""}`;
         const k = run(`INSERT INTO khata_ledger (customer_id,type,amount,ref,note,product,litres,rate,vehicle_no,slip_no,station_id,created_at)
              VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
@@ -435,8 +443,8 @@ export function undoSale(sale: Row) {
       } else run("UPDATE customers SET loyalty_points = MAX(0, loyalty_points - ?) WHERE id=?", Math.floor(sale.amount / 100), sale.customer_id);
       // a still-pending card hold raised no khata debit, so there is nothing to reverse; a cleared one was billed at its clear rate
       if (sale.payment_method === "khata" && !sale.pending) {
-        // the khata was billed the fuel + the whole baqi value (= cash handed + Khareed profit), so reverse all of it
-        const billed = round2((sale.cleared_at ? round2(sale.litres * sale.clear_rate) : sale.amount) + (sale.cash_back ?? 0) + (sale.khareed ?? 0));
+        // the khata was billed the fuel + the whole baqi value (= cash handed + goods cost + Khareed profit), so reverse all of it
+        const billed = round2((sale.cleared_at ? round2(sale.litres * sale.clear_rate) : sale.amount) + (sale.cash_back ?? 0) + (sale.items_cost ?? 0) + (sale.khareed ?? 0));
         run("DELETE FROM khata_ledger WHERE customer_id=? AND ref=?", sale.customer_id, `SALE-${sale.id}`);
         run("UPDATE customers SET balance = balance - ? WHERE id=?", billed, sale.customer_id);
       }
