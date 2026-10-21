@@ -116,6 +116,20 @@ crm.patch("/customers/:id", requirePerm("customers.edit"), h(async (req) => {
   return get("SELECT * FROM customers WHERE id=?", c.id);
 }));
 
+/** CEO-only: set a khata customer's special fuel rate per product — "fixed" (bill at this rate) or "minus" (pump rate − value).
+ *  A null/0 value for a product clears its special rate (back to the pump rate). Applies only to that customer's future khata fills. */
+crm.post("/customers/:id/khata-rates", requirePerm("customers.edit"), h((req) => {
+  if (!can(req.user, "credit.set_limit")) throw new AppError(403, "Sirf CEO/admin khata customer ko special rate de sakta hai");
+  const c = ownCustomer(tid(req), Number(req.params.id));
+  const b = parse(z.object({ rates: z.record(z.string().max(20), z.object({ mode: z.enum(["fixed", "minus"]), value: z.number().min(0) }).nullable()) }), req.body);
+  const cur: Record<string, { mode: "fixed" | "minus"; value: number }> = c.khata_rates ? JSON.parse(c.khata_rates) : {};
+  for (const [p, v] of Object.entries(b.rates)) { if (!v || !(v.value > 0)) delete cur[p]; else cur[p] = { mode: v.mode, value: round2(v.value) }; }
+  const json = Object.keys(cur).length ? JSON.stringify(cur) : null;
+  run("UPDATE customers SET khata_rates=? WHERE id=? AND tenant_id=?", json, c.id, tid(req));
+  audit(tid(req), req.user!, "khata_rate_set", `customer:${c.id}`, { name: c.name, rates: cur });
+  return get("SELECT * FROM customers WHERE id=?", c.id);
+}));
+
 crm.get("/customers/:id", requirePerm("customers.view"), h((req) => {
   const c = ownCustomer(tid(req), Number(req.params.id));
   return {

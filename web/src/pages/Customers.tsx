@@ -330,12 +330,51 @@ function CustomerDetail({ id, onClose, onChanged }: { id: string; onClose: () =>
               </ul>
             </section>
             {c.credit_limit > 0 && <section className="min-w-0 sm:col-span-2"><GuaranteeSection customerId={c.id} canEdit={can("khata.manage")} /></section>}
+            {c.credit_limit > 0 && can("credit.set_limit") && <section className="min-w-0 sm:col-span-2"><KhataRateSection customerId={c.id} initial={c.khata_rates ?? null} onSaved={refresh} /></section>}
           </div>
           {edit && <CustomerForm open initial={c} onClose={() => setEdit(false)} onSaved={refresh} />}
           {bill && <KhataStatement customerId={c.id} onClose={() => setBill(false)} />}
         </div>
       )}
     </Modal>
+  );
+}
+
+/** CEO-only: a khata customer's special fuel rate per product (fixed, or pump rate − X). Empty = the pump rate. */
+const RATE_PRODS: Record<string, string> = { PMG: "Petrol", HOBC: "Hi-Octane", HSD: "Diesel" };
+function KhataRateSection({ customerId, initial, onSaved }: { customerId: number; initial: string | null; onSaved: () => void }) {
+  const { data } = useApi<any>("/prices");
+  const { busy, run } = useAction();
+  const start: Record<string, any> = (() => { try { return initial ? JSON.parse(initial) : {}; } catch { return {}; } })();
+  const [rates, setRates] = useState<Record<string, { mode: string; value: string }>>(() =>
+    Object.fromEntries(Object.entries(start).map(([k, v]: any) => [k, { mode: v.mode, value: String(v.value) }])));
+  const cur = data?.current ?? {};
+  const prods = Object.keys(cur);
+  const setP = (p: string, patch: any) => setRates((r) => ({ ...r, [p]: { mode: r[p]?.mode ?? "fixed", value: r[p]?.value ?? "", ...patch } }));
+  const eff = (p: string) => { const r = rates[p]; const pump = cur[p]?.price ?? 0; if (!r || !(Number(r.value) > 0)) return pump; const v = r.mode === "minus" ? pump - Number(r.value) : Number(r.value); return Math.min(pump, Math.max(0, Math.round(v * 100) / 100)); };
+  const save = async () => {
+    const body: any = { rates: {} };
+    for (const p of prods) { const r = rates[p]; body.rates[p] = r && Number(r.value) > 0 ? { mode: r.mode === "minus" ? "minus" : "fixed", value: Number(r.value) } : null; }
+    if (await run(() => api(`/customers/${customerId}/khata-rates`, { body }), "Special rate saved")) onSaved();
+  };
+  return (
+    <div className="rounded-xl border border-slate-200 p-3">
+      <h3 className="mb-1 font-semibold">Special khata rate <span className="text-sm font-normal text-slate-500">· sirf CEO · کھاتہ ریٹ</span></h3>
+      <p className="mb-2 text-xs text-slate-500">Is customer ke khata fills ka rate. Khaali = pump (nozzle) rate. Pump rate se zyada nahi ho sakta.</p>
+      <div className="space-y-2">
+        {prods.map((p) => (
+          <div key={p} className="flex flex-wrap items-center gap-2 text-sm">
+            <span className="w-20 font-medium">{RATE_PRODS[p] ?? p}</span>
+            <select className="input min-h-9 w-auto !py-1" aria-label={`${p} rate mode`} value={rates[p]?.mode ?? "fixed"} onChange={(e) => setP(p, { mode: e.target.value })}>
+              <option value="fixed">Fixed rate</option><option value="minus">Pump − X</option>
+            </select>
+            <input className="input min-h-9 w-24 !py-1" type="number" min={0} step="0.01" inputMode="decimal" placeholder="—" aria-label={`${p} rate value`} value={rates[p]?.value ?? ""} onChange={(e) => setP(p, { value: e.target.value })} />
+            <span className="text-xs text-slate-500">Pump {cur[p]?.price ?? "—"} → <b className="tabular-nums">{Number(rates[p]?.value) > 0 ? eff(p) : "pump rate"}</b></span>
+          </div>
+        ))}
+      </div>
+      <button className="btn-primary mt-3 min-h-9 !py-1.5 text-sm" disabled={busy} onClick={save}>Save rate · <Ur>محفوظ</Ur></button>
+    </div>
   );
 }
 

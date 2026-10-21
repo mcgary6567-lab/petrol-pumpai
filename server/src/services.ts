@@ -133,7 +133,20 @@ export function recordSale(tenantId: number, s: SaleInput): Row {
     const dup = get("SELECT * FROM sales WHERE client_uid=? AND station_id=?", s.client_uid, s.station_id);
     if (dup) return { ...dup, duplicate: true };
   }
-  const rate = s.rate ?? priceOf(tenantId, s.product, s.created_at);
+  let rate = s.rate ?? priceOf(tenantId, s.product, s.created_at);
+  // A khata customer the CEO gave a special rate (customers.khata_rates): a fixed per-litre rate, or "pump rate − X".
+  // It applies only to that customer's own khata fills (never a locked rate / pending hold), and is capped at the pump
+  // rate (discount-only, so no one is billed above the board rate). The litres/meter/stock are unaffected.
+  if (s.payment_method === "khata" && s.customer_id && s.rate == null && !s.pending) {
+    const raw = get("SELECT khata_rates FROM customers WHERE id=? AND tenant_id=?", s.customer_id, tenantId)?.khata_rates;
+    if (raw) { try {
+      const r = (JSON.parse(raw) as Record<string, { mode: "fixed" | "minus"; value: number }>)[s.product];
+      if (r && Number.isFinite(r.value)) {
+        const special = r.mode === "minus" ? rate - r.value : r.value;
+        if (special > 0) rate = round2(Math.min(rate, special)); // discount-only
+      }
+    } catch { /* ignore a malformed rate card — fall back to the pump rate */ } }
+  }
   // A wholesale client fuelled straight from the nozzle, at their own wholesale rate. The litres leave the tank and run
   // through the meter like any sale (so the stock register and shift settlement count them once), but the money is NOT
   // retail cash/khata — the /sales route books it to the client's wholesale khata (a wholesale_txns supply). So this row

@@ -148,7 +148,14 @@ export default function Pos() {
   const pumpRate = product && d ? d.prices[product] : 0;
   // a wholesale fill is always litres-based and priced at the client's own wholesale rate, not the pump rate
   const wsRate = pay === "wholesale" && product ? Number(ws?.client?.rates?.[product] ?? 0) : 0;
-  const rate = pay === "wholesale" ? wsRate : pumpRate;
+  // a khata customer the CEO gave a special rate: fixed, or pump rate − X (capped at the pump rate = discount only)
+  const khataSpecial = (() => {
+    if (pay !== "khata" || !product || !khata?.account?.rates) return 0;
+    const r = khata.account.rates[product]; if (!r || !(r.value > 0)) return 0;
+    const v = r.mode === "minus" ? pumpRate - r.value : r.value;
+    return v > 0 ? Math.min(pumpRate, Math.round(v * 100) / 100) : 0;
+  })();
+  const rate = pay === "wholesale" ? wsRate : (khataSpecial > 0 ? khataSpecial : pumpRate);
   const value = Number(entry) || 0;
   const litres = mode === "litres" ? value : rate ? value / rate : 0;
   const amount = mode === "amount" ? value : value * rate;
