@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { Fuel, Delete, Banknote, Smartphone, CreditCard, BookOpen, Check, Search, X, Zap, Undo2, WifiOff, CloudUpload, Gift, ShoppingBasket, Plus, Minus, ScanBarcode, Ticket, Wallet, Camera, Printer, Percent, Truck } from "lucide-react";
 import QRCode from "qrcode";
 import { api, useApi, linkToken } from "../lib/api";
-import { Loading, Modal, useAction, useToast } from "../components/ui";
+import { Loading, Modal, Pager, SearchBar, matchQuery, useAction, usePaged, useToast } from "../components/ui";
 import { WhatsAppDoc } from "../components/WhatsAppDoc";
 import { newUid, isOffline, queueSale, dropQueued, patchQueued, dismissFailed, useOfflineQueue, cacheGet, cacheSet } from "../lib/offline";
 import { num, pkr, PRODUCTS, PRODUCT_COLORS, PRODUCT_UR, activeProducts } from "../lib/format";
@@ -779,7 +779,11 @@ function AllEntries({ stationId, onClose, onChange }: { stationId?: number; onCl
   const money = useLookups("payment_method").list;
   const [edit, setEdit] = useState<any>(null); // { id, litres, payment_method, vehicle_no, slip_no }
   const [confirm, setConfirm] = useState<number | null>(null);
+  const [q, setQ] = useState("");
   const { busy, run } = useAction();
+  const allEntries = (data?.entries ?? []) as any[];
+  const filtered = allEntries.filter((r) => matchQuery(q, fuelOf(r.product).en, r.product, r.payment_method, r.customer_name, r.wholesale_name, r.bank_name, r.slip_no, r.vehicle_no, Math.round(r.amount)));
+  const paged = usePaged(filtered, 10);
   const refresh = () => { reload(); onChange(); };
   const save = async () => {
     const body: any = { litres: Number(edit.litres), payment_method: edit.payment_method };
@@ -799,12 +803,13 @@ function AllEntries({ stationId, onClose, onChange }: { stationId?: number; onCl
             <span>Cash in bag <b className="tabular-nums">{pkr(s?.cash_expected ?? 0)}</b></span>
           </div>
           <p className="text-xs text-slate-500">Fix a wrong litres or payment method, or remove an entry, before you close the shift. The totals above update at once · <Ur>شفٹ بند کرنے سے پہلے غلط اندراج ٹھیک کریں یا ہٹا دیں</Ur></p>
-          <div className="flex flex-wrap gap-2 print:hidden">
+          <div className="flex flex-wrap items-center gap-2 print:hidden">
             <a className="btn-secondary" href={`/api/docs/shift/${data.shift.id}/pdf?token=${linkToken()}`} target="_blank" rel="noreferrer"><Printer size={15} /> Print · <Ur>پرنٹ</Ur></a>
             <WhatsAppDoc kind="shift" id={data.shift.id} label="WhatsApp" />
+            <SearchBar value={q} onChange={setQ} placeholder="Entry dhoondein (fuel, party, slip, raqam)… · تلاش" className="min-w-[12rem] flex-1" />
           </div>
           <ul className="divide-y divide-slate-100 rounded-xl border border-slate-200">
-            {data.entries.map((r: any) => (
+            {paged.slice.map((r: any) => (
               <li key={r.id} className="px-3 py-2.5 text-sm">
                 {edit?.id === r.id ? (
                   <div className="space-y-2">
@@ -845,8 +850,9 @@ function AllEntries({ stationId, onClose, onChange }: { stationId?: number; onCl
                 )}
               </li>
             ))}
-            {!data.entries.length && <li className="py-6 text-center text-slate-500">No entries yet</li>}
+            {!filtered.length && <li className="py-6 text-center text-slate-500">{q ? `"${q}" ke liye koi entry nahi` : "No entries yet"}</li>}
           </ul>
+          <Pager {...paged} />
         </div>
       )}
       <div className="mt-4 flex justify-end"><button className="btn-primary" onClick={onClose}>Done · ہو گیا</button></div>
