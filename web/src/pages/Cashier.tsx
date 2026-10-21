@@ -366,7 +366,7 @@ const Mini = ({ label, ur, n, v, tone = "", onClick }: { label: string; ur: stri
 
 /* ================= receive / pay ================= */
 const IN_TYPES = [["khata", "Khata customer", "کھاتہ گاہک"], ["wholesale", "Wholesale client", "ہول سیل کلائنٹ"], ["other", "Other", "دیگر"]] as const;
-const OUT_TYPES = [["supplier", "Supplier", "سپلائر"], ["expense", "Expense", "خرچہ"], ["staff", "Staff advance", "ملازم ایڈوانس"], ["other", "Other", "دیگر"]] as const;
+const OUT_TYPES = [["supplier", "Supplier", "سپلائر"], ["khata", "Khata customer", "کھاتہ گاہک"], ["wholesale", "Wholesale client", "ہول سیل کلائنٹ"], ["expense", "Expense", "خرچہ"], ["staff", "Staff advance", "ملازم ایڈوانس"], ["other", "Other", "دیگر"]] as const;
 const METHODS = [["Cash", "نقد"], ["Bank transfer", "بینک"], ["Raast", "راست"], ["JazzCash", "جاز کیش"], ["Easypaisa", "ایزی پیسہ"], ["Cheque", "چیک"]] as const;
 const isCash = (m: string) => m === "Cash";
 /** A wholesale client paid our supplier (depot) straight — the bypass: no money here, both accounts go down. */
@@ -418,7 +418,7 @@ function MoneyForm({ dir, preset, onDone }: { dir: "in" | "out"; preset: Record<
   return (
     <form onSubmit={submit} className="card mx-auto max-w-2xl space-y-4 p-4">
       <h2 className="text-lg font-semibold">{dir === "in" ? <>Money received · <Ur>رقم وصول</Ur></> : <>Payment · <Ur>ادائیگی</Ur></>}</h2>
-      <div className={`grid gap-2 ${types.length === 4 ? "grid-cols-2 sm:grid-cols-4" : "grid-cols-3"}`}>
+      <div className={`grid gap-2 ${types.length > 3 ? "grid-cols-2 sm:grid-cols-3" : "grid-cols-3"}`}>
         {types.map(([k, en, ur]) => (
           <button type="button" key={k} onClick={() => { setType(k); setParty(null); if ((k === "staff" && cheque) || (k !== "wholesale" && depot)) set("method", "Cash"); }} aria-pressed={type === k}
             className={`rounded-xl px-2 py-2 text-sm leading-tight ${type === k ? "bg-brand-600 font-semibold text-white" : "bg-slate-100 text-slate-700"}`}>{en}<Ur className="block text-xs">{ur}</Ur></button>

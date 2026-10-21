@@ -140,7 +140,7 @@ function notesJson(method: string, notes: Record<string, number> | null | undefi
 }
 
 const receiveBody = moneyBody.extend({ party_type: z.enum(["khata", "wholesale", "other"]) });
-const payBody = moneyBody.extend({ party_type: z.enum(["supplier", "expense", "staff", "other"]) });
+const payBody = moneyBody.extend({ party_type: z.enum(["supplier", "expense", "staff", "khata", "wholesale", "other"]) });
 cashier.post("/cashier/receive", requirePerm("cash.receive"), h(async (req) => doReceive(req, parse(receiveBody, req.body))));
 
 /** Post a receipt: the party's own ledger / bank row (src) + the voucher. Shared by the cashier's Receive and the CEO's voucher re-route. */
@@ -260,6 +260,22 @@ async function doPay(req: Request, b: z.infer<typeof payBody>, skipCashCheck = f
     linkPhotos(t, b.photo_ids, `staff:${lid}`);
     src = `staff:${lid}`;
     await notify(t, [p!], { type: "staff_ledger", title: `Advance ${pkr(b.amount)} given`, body: `Your account: ${pkr(staffBalance(p!.id))} to be adjusted.` });
+  } else if (b.party_type === "khata") {
+    // paying a khata customer = returning their advance (ref "refund:<method>"): a debit that pays cash/bank out
+    const advance = Math.max(0, -(balanceOf("khata", p!.id) ?? 0));
+    if (!skipCashCheck && b.amount > advance + 0.01 && req.user!.role !== "admin")
+      throw new AppError(400, `${name} ka advance sirf ${pkr(advance)} hai — is se zyada wapas sirf CEO kar sakta hai`);
+    khataEntry(p!.id, "debit", b.amount, `refund:${b.method}`, b.note || "Advance wapas (cash counter)", account);
+    const kid = get("SELECT MAX(id) id FROM khata_ledger WHERE customer_id=?", p!.id)!.id;
+    linkPhotos(t, b.photo_ids, `khata:${kid}`);
+    src = `khata:${kid}`;
+  } else if (b.party_type === "wholesale") {
+    // returning a wholesale client's advance: an adjustment with a "refund:" ref (cash/bank out)
+    const advance = Math.max(0, -round2(clientDue(p!.id)));
+    if (!skipCashCheck && b.amount > advance + 0.01 && req.user!.role !== "admin")
+      throw new AppError(400, `${name} ka advance sirf ${pkr(advance)} hai — is se zyada wapas sirf CEO kar sakta hai`);
+    const r = insertTxn(req, p!.id, { type: "adjustment", amount: b.amount, method: b.method, ref: "refund:", note: b.note || "Advance wapas (cash counter)", photo_ids: b.photo_ids, account_id: account });
+    src = `wtx:${r.id}`;
   } else if (account) {
     const { id } = run("INSERT INTO bank_txns (tenant_id,account_id,kind,amount,party,ref,note,txn_date,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
       t, account, "other_out", -b.amount, name, b.ref ?? null, b.category || b.note || "Other payment", now(), req.user!.name, now());
