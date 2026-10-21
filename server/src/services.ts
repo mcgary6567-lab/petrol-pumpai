@@ -182,7 +182,10 @@ export function recordSale(tenantId: number, s: SaleInput): Row {
     if (coupon.product && coupon.product !== s.product) throw new AppError(400, `Coupon ${coupon.code} is only for ${coupon.product}`);
   }
   const litres = coupon ? coupon.value / rate : s.litres ?? (s.amount ? s.amount / rate : 0);
-  if (!(litres > 0)) throw new AppError(400, "Litres or amount required");
+  // "poora parcha cash": a khata parchi taken entirely as cash — no fuel pumped (litres 0), the whole slip is the baqi
+  // cash leg (cash_back_litres). Every other sale still needs real litres.
+  const fullCashParchi = s.payment_method === "khata" && !coupon && (s.cash_back_litres ?? 0) > 0 && !(litres > 0);
+  if (!(litres > 0) && !fullCashParchi) throw new AppError(400, "Litres or amount required");
   const gross = Math.round(litres * rate * 100) / 100;
   // a fixed rupee discount for a khata customer: the khata is billed the net (litres*rate − discount)
   const discount = round2(s.discount ?? 0);
@@ -190,7 +193,7 @@ export function recordSale(tenantId: number, s: SaleInput): Row {
   const discountKind = discount > 0 ? (s.discount_kind ?? (s.payment_method === "khata" ? "khata" : "direct")) : null;
   if (discountKind === "khata" && s.payment_method !== "khata") throw new AppError(400, "A khata discount needs a khata customer — use Direct discount for a walk-in");
   if (discountKind === "direct" && ["khata", "coupon", "loyalty"].includes(s.payment_method)) throw new AppError(400, "Direct discount is for cash / card / online sales (a khata fill has its own discount)");
-  if (discount >= gross) throw new AppError(400, `Discount ${pkr(discount)} is more than the fuel amount ${pkr(gross)}`);
+  if (discount > 0 && discount >= gross) throw new AppError(400, `Discount ${pkr(discount)} is more than the fuel amount ${pkr(gross)}`);
   const amount = round2(gross - discount); // the net charged to the khata
   const customer = s.customer_id ? get("SELECT * FROM customers WHERE id=? AND tenant_id=?", s.customer_id, tenantId) : undefined;
   const pending = Boolean(s.pending);

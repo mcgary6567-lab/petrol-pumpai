@@ -105,3 +105,34 @@ test("khata slip cash-back: full slip on khata, only pumped litres on the meter,
   near(tankUndo, tankBefore, "stock back");
   await tallyBooks("after undo");
 });
+
+test("poora parcha cash: no fuel pumped, whole slip billed to khata as cash, stock/meter untouched, tally holds", async () => {
+  const t = db.get("SELECT id FROM tenants ORDER BY id LIMIT 1")!.id as number;
+  const cust = db.get("SELECT id, balance FROM customers WHERE tenant_id=? AND credit_limit > 0 ORDER BY credit_limit DESC LIMIT 1", t)!;
+  db.run("UPDATE customers SET credit_limit=100000000 WHERE id=?", cust.id);
+  const balBefore = db.get("SELECT balance FROM customers WHERE id=?", cust.id)!.balance as number;
+  const tankBefore = db.get("SELECT COALESCE(SUM(current_l),0) v FROM tanks tk JOIN stations s ON s.id=tk.station_id WHERE s.tenant_id=? AND tk.product='HSD'", t)!.v as number;
+  const sh = db.get("SELECT id, station_id FROM shifts WHERE status='open' ORDER BY id DESC LIMIT 1") ?? ok(await call("salesman", "POST", "/api/shifts/open", {}), "open");
+  const live = ok(await call("salesman", "GET", `/api/shifts/${sh.id}/live`), "live");
+  const rate = live.prices.HSD as number;
+
+  // parchi 50 L, nothing pumped: cash di = 50×rate − 500 (so Khareed 500); no litres/amount sent
+  const baqiValue = Math.round(50 * rate);
+  const cashBack = baqiValue - 500;
+  const sale = ok(await call("salesman", "POST", "/api/sales", {
+    station_id: live.shift.station_id, product: "HSD", payment_method: "khata", customer_id: cust.id,
+    slip_no: "FC-1", cash_back: cashBack, cash_back_litres: 50,
+  }), "full-cash parchi");
+  near(sale.litres, 0, "no fuel pumped");
+  near(sale.amount, 0, "no fuel revenue");
+  near(sale.cash_back, cashBack, "cash di stored");
+  near(sale.khareed, 500, "khareed = value − cash di");
+
+  // khata billed the whole parchi (50 L × rate), stock/meter untouched
+  const balAfter = db.get("SELECT balance FROM customers WHERE id=?", cust.id)!.balance as number;
+  near(balAfter - balBefore, baqiValue, "khata debited the whole parchi value");
+  const tankAfter = db.get("SELECT COALESCE(SUM(current_l),0) v FROM tanks tk JOIN stations s ON s.id=tk.station_id WHERE s.tenant_id=? AND tk.product='HSD'", t)!.v as number;
+  near(tankAfter, tankBefore, "no fuel left the tank");
+
+  await tallyBooks("after poora parcha cash");
+});

@@ -83,7 +83,7 @@ export default function Pos() {
   const [mode, setMode] = useState<"amount" | "litres">("amount");
   const [entry, setEntry] = useState("");
   const [pay, setPay] = useState<string | null>(null);
-  const [khata, setKhata] = useState<{ account: any; vehicle: string; slip: string; photo_id?: number | null; pending?: boolean; discount?: number; cashOn?: boolean; cashBack?: number; cashBackLitres?: number } | null>(null);
+  const [khata, setKhata] = useState<{ account: any; vehicle: string; slip: string; photo_id?: number | null; pending?: boolean; discount?: number; cashOn?: boolean; cashBack?: number; cashBackLitres?: number; fullCash?: boolean } | null>(null);
   // direct (walk-in) discount on a cash / card / online sale: fixed rupees or Rs per litre; the reference (who / why) is typed right after saving
   const [direct, setDirect] = useState<{ value: number } | null>(null);
   const [pickDirect, setPickDirect] = useState(false);
@@ -166,7 +166,10 @@ export default function Pos() {
   const net = Math.max(0, amount - discount); // what is actually charged / collected after the discount
   const directMax = d?.direct_discount_max ?? null;
   const directOver = directMax != null && directDiscount > directMax;
-  const ready = Boolean(product && value > 0 && pay && (pay !== "khata" || khata) && (pay !== "loyalty" || pointsCust) && (pay !== "coupon" || coupon) && (pay !== "wallet" || walletAcct) && (pay !== "wholesale" || (ws && wsRate > 0))) && (!discount || discount < amount) && !directOver;
+  // "poora parcha cash": no fuel pumped, so the main amount may be empty — readiness comes from the parchi litres instead
+  const fullCashKhata = pay === "khata" && Boolean(khata?.cashOn && khata?.fullCash);
+  const amountReady = fullCashKhata ? (khata!.cashBackLitres ?? 0) > 0 && rate > 0 : value > 0;
+  const ready = Boolean(product && amountReady && pay && (pay !== "khata" || khata) && (pay !== "loyalty" || pointsCust) && (pay !== "coupon" || coupon) && (pay !== "wallet" || walletAcct) && (pay !== "wholesale" || (ws && wsRate > 0))) && (!discount || discount < amount) && !directOver;
   const reset = () => { setProduct(null); setEntry(""); setPay(null); setKhata(null); setWs(null); setMode("amount"); setHeard(null); setPointsCust(null); setCoupon(null); setWalletAcct(null); setCardBank(null); setDirect(null); setRefText(""); };
 
   /** Fill the POS from a spoken sentence; the salesman checks it and presses Save. */
@@ -213,7 +216,11 @@ export default function Pos() {
       if (isBankPay(ws.settle) && ws.account) body.account_id = ws.account.id;
       if (ws.settle === "cheque") Object.assign(body, { cheque_bank: ws.cheque_bank || null, cheque_date: ws.cheque_date || null, slip_no: ws.slip || null });
     }
-    if (pay === "khata" && khata) Object.assign(body, { customer_id: khata.account.id, vehicle_no: khata.vehicle || null, slip_no: khata.slip || null, photo_id: khata.photo_id ?? null, ...(khata.pending ? { pending: true } : {}), ...(khata.discount && khata.discount > 0 ? { discount: khata.discount } : {}), ...(!khata.pending && khata.cashOn && (khata.cashBackLitres ?? 0) > 0 ? { cash_back: khata.cashBack ?? 0, cash_back_litres: khata.cashBackLitres } : {}) });
+    if (pay === "khata" && khata) {
+      Object.assign(body, { customer_id: khata.account.id, vehicle_no: khata.vehicle || null, slip_no: khata.slip || null, photo_id: khata.photo_id ?? null, ...(khata.pending ? { pending: true } : {}), ...(khata.discount && khata.discount > 0 ? { discount: khata.discount } : {}), ...(!khata.pending && khata.cashOn && (khata.cashBackLitres ?? 0) > 0 ? { cash_back: khata.cashBack ?? 0, cash_back_litres: khata.cashBackLitres } : {}) });
+      // "poora parcha cash": no fuel pumped — drop the main litres/amount so the server records 0 pumped litres
+      if (fullCashKhata) { delete body.litres; delete body.amount; }
+    }
     if (pay === "loyalty" && pointsCust) body.customer_id = pointsCust.id;
     if (pay === "coupon" && coupon) body.coupon_code = coupon.code;
     if (pay === "wallet" && walletAcct) body.customer_id = walletAcct.id;
@@ -466,15 +473,23 @@ export default function Pos() {
               <div className="mt-2 rounded-xl bg-amber-50/60 p-3 text-sm ring-1 ring-amber-200">
                 <label className="flex cursor-pointer items-center gap-2 font-semibold text-amber-900">
                   <input type="checkbox" className="h-5 w-5 accent-amber-600" checked={Boolean(khata.cashOn)}
-                    onChange={(e) => { const on = e.target.checked; setKhata({ ...khata, cashOn: on, ...(on ? {} : { cashBackLitres: 0, cashBack: 0 }) }); }} />
+                    onChange={(e) => { const on = e.target.checked; setKhata({ ...khata, cashOn: on, ...(on ? {} : { cashBackLitres: 0, cashBack: 0, fullCash: false }) }); }} />
                   Parchi se kam tel · baqi cash · <Ur>باقی کیش</Ur>
                 </label>
+                {khata.cashOn && (
+                  <label className="mt-2 flex cursor-pointer items-center gap-2 text-sm font-medium text-amber-900">
+                    <input type="checkbox" className="h-4 w-4 accent-amber-600" checked={Boolean(khata.fullCash)}
+                      onChange={(e) => setKhata({ ...khata, fullCash: e.target.checked })} />
+                    Koi tel nahi — poora parcha cash · <Ur>پورا پرچہ کیش</Ur>
+                  </label>
+                )}
                 {khata.cashOn && (() => {
+                  const pumped = khata.fullCash ? 0 : (litres || 0);
                   const baqiVal = Math.round((khata.cashBackLitres || 0) * (rate || 0));
                   const khareed = Math.max(0, baqiVal - (khata.cashBack || 0));
                   return (
                   <div className="mt-2 grid grid-cols-2 gap-2">
-                    <label className="block"><span className="text-xs text-slate-600">Baqi litres (cash)</span>
+                    <label className="block"><span className="text-xs text-slate-600">{khata.fullCash ? "Parchi litres (cash)" : "Baqi litres (cash)"}</span>
                       <input className="input min-h-10" type="number" min={0} step="0.01" inputMode="decimal" value={khata.cashBackLitres ?? ""} placeholder="e.g. 70"
                         onChange={(e) => { const v = e.target.value; setKhata({ ...khata, cashBackLitres: v === "" ? undefined : Math.max(0, Number(v)) }); }} /></label>
                     <label className="block"><span className="text-xs text-slate-600">Baqi value (auto · {rate || 0}/L)</span>
@@ -485,7 +500,7 @@ export default function Pos() {
                     <label className="block"><span className="text-xs text-emerald-700">Khareed (munafa · auto)</span>
                       <input className="input min-h-10 bg-emerald-50 font-semibold text-emerald-800" readOnly value={khareed ? pkr(khareed) : "Rs 0"} /></label>
                     <p className="col-span-2 text-xs text-slate-600">
-                      Parchi <b>{num((litres || 0) + (khata.cashBackLitres || 0), 2)} L</b> = nozzle <b>{num(litres || 0, 2)} L</b> tel + baqi <b>{num(khata.cashBackLitres || 0, 2)} L</b>. Khata par poora bill ({pkr((Math.round((litres||0)*(rate||0))) + baqiVal)}), cash bag se <b>{pkr(khata.cashBack || 0)}</b>, Khareed munafa <b>{pkr(khareed)}</b>. CEO ko notification jayegi.
+                      Parchi <b>{num(pumped + (khata.cashBackLitres || 0), 2)} L</b> = nozzle <b>{num(pumped, 2)} L</b> tel + {khata.fullCash ? "poora" : "baqi"} <b>{num(khata.cashBackLitres || 0, 2)} L</b>. Khata par poora bill ({pkr(Math.round(pumped * (rate || 0)) + baqiVal)}), cash bag se <b>{pkr(khata.cashBack || 0)}</b>, Khareed munafa <b>{pkr(khareed)}</b>. CEO ko notification jayegi.
                     </p>
                   </div>
                   );
