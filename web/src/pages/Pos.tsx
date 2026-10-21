@@ -217,7 +217,10 @@ export default function Pos() {
       if (ws.settle === "cheque") Object.assign(body, { cheque_bank: ws.cheque_bank || null, cheque_date: ws.cheque_date || null, slip_no: ws.slip || null });
     }
     if (pay === "khata" && khata) {
-      Object.assign(body, { customer_id: khata.account.id, vehicle_no: khata.vehicle || null, slip_no: khata.slip || null, photo_id: khata.photo_id ?? null, ...(khata.pending ? { pending: true } : {}), ...(khata.discount && khata.discount > 0 ? { discount: khata.discount } : {}), ...(!khata.pending && khata.cashOn && (khata.cashBackLitres ?? 0) > 0 ? { cash_back: khata.cashBack ?? 0, cash_back_litres: khata.cashBackLitres } : {}) });
+      // full-cash parchi defaults Cash di to the whole baqi value (customer takes it all; operator edits down for Khareed)
+      const baqiVal = Math.round((khata.cashBackLitres || 0) * (rate || 0));
+      const cashDi = khata.cashBack ?? (khata.fullCash ? baqiVal : 0);
+      Object.assign(body, { customer_id: khata.account.id, vehicle_no: khata.vehicle || null, slip_no: khata.slip || null, photo_id: khata.photo_id ?? null, ...(khata.pending ? { pending: true } : {}), ...(khata.discount && khata.discount > 0 ? { discount: khata.discount } : {}), ...(!khata.pending && khata.cashOn && (khata.cashBackLitres ?? 0) > 0 ? { cash_back: cashDi, cash_back_litres: khata.cashBackLitres } : {}) });
       // "poora parcha cash": no fuel pumped — drop the main litres/amount so the server records 0 pumped litres
       if (fullCashKhata) { delete body.litres; delete body.amount; }
     }
@@ -486,7 +489,8 @@ export default function Pos() {
                 {khata.cashOn && (() => {
                   const pumped = khata.fullCash ? 0 : (litres || 0);
                   const baqiVal = Math.round((khata.cashBackLitres || 0) * (rate || 0));
-                  const khareed = Math.max(0, baqiVal - (khata.cashBack || 0));
+                  const cashDi = khata.cashBack ?? (khata.fullCash ? baqiVal : 0);
+                  const khareed = Math.max(0, baqiVal - cashDi);
                   return (
                   <div className="mt-2 grid grid-cols-2 gap-2">
                     <label className="block"><span className="text-xs text-slate-600">{khata.fullCash ? "Parchi litres (cash)" : "Baqi litres (cash)"}</span>
@@ -495,12 +499,12 @@ export default function Pos() {
                     <label className="block"><span className="text-xs text-slate-600">Baqi value (auto · {rate || 0}/L)</span>
                       <input className="input min-h-10 bg-slate-100 font-semibold" readOnly value={baqiVal ? pkr(baqiVal) : ""} placeholder="—" /></label>
                     <label className="block"><span className="text-xs text-slate-600">Cash di (Rs)</span>
-                      <input className="input min-h-10" type="number" min={0} step="1" inputMode="numeric" value={khata.cashBack ?? ""} placeholder="e.g. 18000"
+                      <input className="input min-h-10" type="number" min={0} step="1" inputMode="numeric" value={khata.cashBack ?? (khata.fullCash && baqiVal ? baqiVal : "")} placeholder="e.g. 18000"
                         onChange={(e) => { const v = e.target.value; setKhata({ ...khata, cashBack: v === "" ? undefined : Math.max(0, Number(v)) }); }} /></label>
                     <label className="block"><span className="text-xs text-emerald-700">Khareed (munafa · auto)</span>
                       <input className="input min-h-10 bg-emerald-50 font-semibold text-emerald-800" readOnly value={khareed ? pkr(khareed) : "Rs 0"} /></label>
                     <p className="col-span-2 text-xs text-slate-600">
-                      Parchi <b>{num(pumped + (khata.cashBackLitres || 0), 2)} L</b> = nozzle <b>{num(pumped, 2)} L</b> tel + {khata.fullCash ? "poora" : "baqi"} <b>{num(khata.cashBackLitres || 0, 2)} L</b>. Khata par poora bill ({pkr(Math.round(pumped * (rate || 0)) + baqiVal)}), cash bag se <b>{pkr(khata.cashBack || 0)}</b>, Khareed munafa <b>{pkr(khareed)}</b>. CEO ko notification jayegi.
+                      Parchi <b>{num(pumped + (khata.cashBackLitres || 0), 2)} L</b> = nozzle <b>{num(pumped, 2)} L</b> tel + {khata.fullCash ? "poora" : "baqi"} <b>{num(khata.cashBackLitres || 0, 2)} L</b>. Khata par poora bill ({pkr(Math.round(pumped * (rate || 0)) + baqiVal)}), cash bag se <b>{pkr(cashDi)}</b>, Khareed munafa <b>{pkr(khareed)}</b>. CEO ko notification jayegi.
                     </p>
                   </div>
                   );
@@ -764,8 +768,8 @@ function ShiftPanel({ d, reload, onUndo, myId, expPreset }: { d: any; reload: ()
           {d.recent.slice(salePage * 5, salePage * 5 + 5).map((r: any) => (
             <li key={r.id} className="flex items-center gap-2 py-2 text-sm">
               <span className="h-3 w-3 shrink-0 rounded-full" style={{ background: fuelOf(r.product).color }} />
-              <span className="flex-1"><b>{num(r.litres, 2)} L</b> {fuelOf(r.product).en}<span className="block text-xs text-slate-500">{new Date(r.created_at).toLocaleTimeString("en-PK", { hour: "2-digit", minute: "2-digit" })} · {r.payment_method === "khata" ? `📒 ${r.customer_name}${r.slip_no ? ` · ${r.slip_no}` : ""}` : r.wholesale_name ? `${r.payment_method} · ${r.wholesale_name}` : r.bank_name ? `${r.payment_method} · ${r.bank_name}` : r.payment_method}{r.discount_kind === "direct" ? <span className="text-rose-600"> · −Rs {num(r.discount, 0)} {r.discount_ref ? `(${r.discount_ref})` : "(no ref)"}</span> : null}</span></span>
-              <span className="font-semibold tabular-nums">{pkr(r.amount)}</span>
+              <span className="flex-1"><b>{num(r.litres + (r.cash_back_litres || 0), 2)} L</b> {fuelOf(r.product).en}<span className="block text-xs text-slate-500">{new Date(r.created_at).toLocaleTimeString("en-PK", { hour: "2-digit", minute: "2-digit" })} · {r.payment_method === "khata" ? `📒 ${r.customer_name}${r.slip_no ? ` · ${r.slip_no}` : ""}` : r.wholesale_name ? `${r.payment_method} · ${r.wholesale_name}` : r.bank_name ? `${r.payment_method} · ${r.bank_name}` : r.payment_method}{(r.cash_back_litres || 0) > 0 ? <span className="text-amber-600"> · {num(r.cash_back_litres, 2)} L baqi cash (Rs {num((r.cash_back || 0) + (r.khareed || 0), 0)})</span> : null}{r.discount_kind === "direct" ? <span className="text-rose-600"> · −Rs {num(r.discount, 0)} {r.discount_ref ? `(${r.discount_ref})` : "(no ref)"}</span> : null}</span></span>
+              <span className="font-semibold tabular-nums">{pkr(r.amount + (r.cash_back || 0) + (r.khareed || 0))}</span>
               {r.payment_method === "khata" && (r.photo_id
                 ? <PhotoThumb id={r.photo_id} size={8} />
                 : r.created_by === myId && <PhotoButton kind="slip" label="Slip" className="!px-2 !py-1.5 !text-xs" onRead={async (_r, id) => {
@@ -861,9 +865,9 @@ function AllEntries({ stationId, onClose, onChange }: { stationId?: number; onCl
                 ) : (
                   <div className="flex items-center gap-2">
                     <span className="h-3 w-3 shrink-0 rounded-full" style={{ background: fuelOf(r.product).color }} />
-                    <span className="min-w-0 flex-1"><b>{num(r.litres, 2)} L</b> {fuelOf(r.product).en}
-                      <span className="block text-xs text-slate-500">{new Date(r.created_at).toLocaleTimeString("en-PK", { hour: "2-digit", minute: "2-digit" })} · {r.payment_method === "khata" ? `📒 ${r.customer_name}${r.slip_no ? ` · ${r.slip_no}` : ""}` : r.wholesale_name ? `${r.payment_method} · ${r.wholesale_name}` : r.bank_name ? `${r.payment_method} · ${r.bank_name}` : r.payment_method}{r.source === "meter" ? " · meter" : ""}{!r.mine ? " · other salesman" : ""}</span></span>
-                    <span className="shrink-0 font-semibold tabular-nums">{pkr(r.amount)}</span>
+                    <span className="min-w-0 flex-1"><b>{num(r.litres + (r.cash_back_litres || 0), 2)} L</b> {fuelOf(r.product).en}
+                      <span className="block text-xs text-slate-500">{new Date(r.created_at).toLocaleTimeString("en-PK", { hour: "2-digit", minute: "2-digit" })} · {r.payment_method === "khata" ? `📒 ${r.customer_name}${r.slip_no ? ` · ${r.slip_no}` : ""}` : r.wholesale_name ? `${r.payment_method} · ${r.wholesale_name}` : r.bank_name ? `${r.payment_method} · ${r.bank_name}` : r.payment_method}{(r.cash_back_litres || 0) > 0 ? ` · ${num(r.cash_back_litres, 2)} L baqi cash` : ""}{r.source === "meter" ? " · meter" : ""}{!r.mine ? " · other salesman" : ""}</span></span>
+                    <span className="shrink-0 font-semibold tabular-nums">{pkr(r.amount + (r.cash_back || 0) + (r.khareed || 0))}</span>
                     {r.can_edit && <button onClick={() => setEdit({ id: r.id, litres: String(r.litres), payment_method: r.payment_method, vehicle_no: r.vehicle_no ?? "", slip_no: r.slip_no ?? "" })} className="shrink-0 rounded-lg bg-slate-100 px-2 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-200">Fix · <Ur>ٹھیک</Ur></button>}
                     {r.can_undo && (confirm === r.id
                       ? <button onClick={() => del(r.id)} disabled={busy} className="shrink-0 rounded-lg bg-red-600 px-2 py-1.5 text-xs font-bold text-white">Sure?</button>
