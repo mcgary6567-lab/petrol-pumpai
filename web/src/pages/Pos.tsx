@@ -476,25 +476,26 @@ export default function Pos() {
             )}
             {pay === "khata" && khata && !khata.pending && (
               <div className="mt-2 rounded-xl bg-amber-50/60 p-3 text-sm ring-1 ring-amber-200">
-                <label className="flex cursor-pointer items-center gap-2 font-semibold text-amber-900">
-                  <input type="checkbox" className="h-5 w-5 accent-amber-600" checked={Boolean(khata.cashOn)}
-                    onChange={(e) => { const on = e.target.checked; setKhata({ ...khata, cashOn: on, ...(on ? {} : { cashBackLitres: 0, cashBack: 0, fullCash: false, itemsOn: false, itemsCost: 0, itemsNote: "" }) }); }} />
-                  Parchi se kam tel · baqi cash / saman · <Ur>باقی کیش</Ur>
-                </label>
-                {khata.cashOn && (
-                  <div className="mt-2 flex flex-col gap-1.5">
-                    <label className="flex cursor-pointer items-center gap-2 text-sm font-medium text-amber-900">
-                      <input type="checkbox" className="h-4 w-4 accent-amber-600" checked={Boolean(khata.fullCash)}
-                        onChange={(e) => setKhata({ ...khata, fullCash: e.target.checked })} />
-                      Koi tel nahi — poora parcha {khata.itemsOn ? "saman" : "cash"} · <Ur>پورا پرچہ</Ur>
-                    </label>
-                    <label className="flex cursor-pointer items-center gap-2 text-sm font-medium text-amber-900">
-                      <input type="checkbox" className="h-4 w-4 accent-amber-600" checked={Boolean(khata.itemsOn)}
-                        onChange={(e) => { const on = e.target.checked; setKhata({ ...khata, itemsOn: on, ...(on ? {} : { itemsCost: 0, itemsNote: "" }) }); }} />
-                      Shop saman diya (lubricant etc) · <Ur>شاپ سامان</Ur>
-                    </label>
-                  </div>
-                )}
+                {(() => {
+                  // one tap = one mode; tapping the open one closes it. The box below shows only that mode's fields.
+                  const mode = !khata.cashOn ? null : khata.itemsOn ? "saman" : khata.fullCash ? "fullcash" : "cash";
+                  const pick = (m: "cash" | "fullcash" | "saman") => setKhata(mode === m
+                    ? { ...khata, cashOn: false, fullCash: false, itemsOn: false, cashBackLitres: 0, cashBack: 0, itemsCost: 0, itemsNote: "" }
+                    : { ...khata, cashOn: true, fullCash: m !== "cash", itemsOn: m === "saman", ...(m !== "saman" ? { itemsCost: 0, itemsNote: "" } : {}) });
+                  const btn = (m: "cash" | "fullcash" | "saman", en: string, ur: string) => (
+                    <button type="button" onClick={() => pick(m)}
+                      className={`min-h-11 rounded-xl px-3 py-2 text-left text-sm font-semibold ring-1 transition ${mode === m ? "bg-amber-600 text-white ring-amber-600" : "bg-white text-amber-900 ring-amber-300 hover:bg-amber-100"}`}>
+                      {en} · <Ur className={mode === m ? "text-white" : "text-amber-700"}>{ur}</Ur>
+                    </button>
+                  );
+                  return (
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                      {btn("cash", "Parchi se kam tel · baqi cash", "باقی کیش")}
+                      {btn("fullcash", "Koi tel nahi — poora parcha cash", "پورا پرچہ کیش")}
+                      {btn("saman", "Shop saman diya (lubricant etc)", "شاپ سامان")}
+                    </div>
+                  );
+                })()}
                 {khata.cashOn && (() => {
                   const pumped = khata.fullCash ? 0 : (litres || 0);
                   const baqiVal = Math.round((khata.cashBackLitres || 0) * (rate || 0));
