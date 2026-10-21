@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, useApi } from "../lib/api";
 import { Tv, ExternalLink } from "lucide-react";
-import { Loading, PageHeader, useAction } from "../components/ui";
+import { Loading, Pager, PageHeader, useAction, usePaged } from "../components/ui";
 import { PRODUCTS, dt, pkr } from "../lib/format";
 import { useAuth } from "../App";
 
@@ -16,6 +16,7 @@ export default function Prices() {
   const [schedAt, setSchedAt] = useState("");
   const scheduled = useApi<any[]>(can("prices.update") ? "/prices/scheduled" : null);
   useEffect(() => { if (data) setVals(Object.fromEntries(Object.entries(data.current).map(([k, v]: any) => [k, String(v.price)]))); }, [data]);
+  const paged = usePaged(data?.history ?? [], 10);
   if (!data) return <Loading />;
 
   const changed = Object.entries(vals).filter(([k, v]) => Number(v) > 0 && Number(v) !== data.current[k]?.price);
@@ -96,10 +97,11 @@ export default function Prices() {
         <div className="card">
           <table className="w-full">
             <thead><tr><th className="th">Effective</th><th className="th">Product</th><th className="th text-right">Price / L</th><th className="th">By</th></tr></thead>
-            <tbody>{data.history.map((h: any) => (
+            <tbody>{paged.slice.map((h: any) => (
               <tr key={h.id}><td className="td text-xs">{dt(h.effective_from)}</td><td className="td text-sm">{PRODUCTS[h.product]}</td><td className="td text-right tabular-nums">Rs {h.price.toFixed(2)}</td><td className="td text-xs text-slate-500">{h.created_by}</td></tr>
             ))}</tbody>
           </table>
+          <Pager {...paged} />
         </div>
         </div>
       </div>

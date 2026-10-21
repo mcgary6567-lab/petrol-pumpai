@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { Bot, User, Send, Wand2, Smartphone, Search, CheckCheck, Headset } from "lucide-react";
 import { api, useApi, useLiveEvents } from "../lib/api";
-import { Badge, Empty, Loading, Modal, PageHeader, useAction } from "../components/ui";
+import { Badge, Empty, Loading, Modal, Pager, PageHeader, useAction, usePaged } from "../components/ui";
 import { ago, phone, pkr } from "../lib/format";
 
 export default function Inbox() {
@@ -24,6 +24,7 @@ export default function Inbox() {
   const list = (convs.data ?? []).filter((c) =>
     (filter === "all" || (filter === "human" ? c.mode === "human" : c.unread > 0)) &&
     (!q || c.name.toLowerCase().includes(q.toLowerCase()) || c.phone.includes(q)));
+  const paged = usePaged(list, 10);
 
   return (
     <div>
@@ -43,7 +44,7 @@ export default function Inbox() {
           </div>
           <div className="flex-1 overflow-y-auto">
             {convs.loading && !convs.data && <Loading />}
-            {list.map((c) => (
+            {paged.slice.map((c) => (
               <Link key={c.id} to={`/inbox/${c.id}`} className={`flex gap-3 border-b border-slate-100 px-3 py-3 hover:bg-slate-50 ${String(c.id) === id ? "bg-emerald-50" : ""}`}>
                 <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-100 font-semibold text-emerald-800">{c.name[0]}</div>
                 <div className="min-w-0 flex-1">
@@ -63,6 +64,7 @@ export default function Inbox() {
               </Link>
             ))}
             {convs.data && !list.length && <Empty>No conversations</Empty>}
+            <Pager {...paged} />
           </div>
         </div>
         <div className={`${id ? "flex" : "hidden md:flex"} min-w-0 flex-col`}>

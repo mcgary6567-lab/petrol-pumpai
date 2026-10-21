@@ -2,7 +2,7 @@ import { useOfflineQueue } from "../lib/offline";
 import { useEffect, useMemo, useState } from "react";
 import { Clock, AlertTriangle } from "lucide-react";
 import { api, useApi } from "../lib/api";
-import { Badge, Empty, Field, ListTools, Loading, Modal, PageHeader, statusTone, useAction } from "../components/ui";
+import { Badge, Empty, Field, ListTools, Loading, Modal, Pager, PageHeader, statusTone, useAction, usePaged } from "../components/ui";
 import { PRODUCTS, dt, num, pkr } from "../lib/format";
 import { useAuth } from "../App";
 import { PhotoButton, PhotoThumb } from "../components/Capture";
@@ -28,6 +28,7 @@ export default function Shifts() {
   const [closing, setClosing] = useState<number | null>(null);
   const [report, setReport] = useState<number | null>(null);
 
+  const paged = usePaged(shifts.data ?? [], 10);
   if (!shifts.data || !stations.data) return <Loading />;
   const myOpen = isSalesman ? (mine.data ?? shifts.data).find((s) => s.status === "open") : null;
 
@@ -52,7 +53,7 @@ export default function Shifts() {
       {!shifts.data.length && <Empty>Koi shift nahi mili · <Ur>کوئی شفٹ نہیں ملی</Ur></Empty>}
       {/* phone: one card per shift */}
       <ul className="card divide-y divide-slate-100 sm:hidden">
-        {shifts.data.map((s) => {
+        {paged.slice.map((s) => {
           const hours = (Date.now() - Date.parse(s.opened_at)) / 3600_000;
           return (
             <li key={s.id} className="cursor-pointer px-4 py-3 active:bg-slate-50" onClick={() => setReport(s.id)}>
@@ -83,7 +84,7 @@ export default function Shifts() {
       <div className="card hidden overflow-x-auto sm:block">
         <table className="w-full">
           <thead><tr><th className="th">Shift</th><th className="th">Salesman</th><th className="th">Opened</th><th className="th">Closed</th><th className="th text-right">Litres</th><th className="th text-right">Cash to hand over</th><th className="th text-right">Counted</th><th className="th text-right">Short / over</th><th className="th" /></tr></thead>
-          <tbody>{shifts.data.map((s) => {
+          <tbody>{paged.slice.map((s) => {
             const hours = (Date.now() - Date.parse(s.opened_at)) / 3600_000;
             return (
               <tr key={s.id} className="cursor-pointer hover:bg-slate-50" onClick={() => setReport(s.id)}>
@@ -104,6 +105,7 @@ export default function Shifts() {
           })}</tbody>
         </table>
       </div>
+      <Pager {...paged} />
       </div>
 
       {mgrOpen && (

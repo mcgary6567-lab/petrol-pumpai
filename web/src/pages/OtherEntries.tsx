@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, useApi } from "../lib/api";
-import { Field, ListTools, Loading, Modal, PageHeader, Stat, pkDay, useAction, useListFilter } from "../components/ui";
+import { Field, ListTools, Loading, Modal, Pager, PageHeader, Stat, pkDay, useAction, useListFilter, usePaged } from "../components/ui";
 import { AccountPicker } from "../components/BankParts";
 import { Ur } from "../components/VoiceShell";
 import { pkr, num, dt } from "../lib/format";
@@ -41,6 +41,7 @@ export default function OtherEntries() {
   const { data: report, reload } = useApi<any>(`/other-entries?kind=${kind}${qs}`);
   const [q, setQ] = useState("");
   const list = useListFilter<any>(report?.list, { q, text: (e) => [e.party_name, e.reason, e.method, e.note, e.amount, PTYPES.find((x) => x.v === e.party_type)?.label].filter(Boolean).join(" ") });
+  const paged = usePaged(list, 10);
   const [edit, setEdit] = useState<any>(null);
 
   return (
@@ -87,7 +88,7 @@ export default function OtherEntries() {
               <ListTools q={q} onQ={setQ} placeholder="Party / wajah / amount dhoondein… · تلاش" shown={list.length} total={report.list.length} />
               {!list.length && <p className="py-3 text-center text-sm text-slate-500">Is filter me kuch nahi mila.</p>}
               <div className="space-y-2">
-                {list.map((e: any) => (
+                {paged.slice.map((e: any) => (
                   <div key={e.id} className="flex items-center gap-2 rounded-lg border p-2 text-sm">
                     <div className="min-w-0 flex-1">
                       <div className="font-medium">{e.party_name} · <span className="font-semibold">{pkr(e.amount)}</span></div>
@@ -99,6 +100,7 @@ export default function OtherEntries() {
                   </div>
                 ))}
               </div>
+              <Pager {...paged} />
             </div>
           )}
         </>

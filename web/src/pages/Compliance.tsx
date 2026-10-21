@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Plus, RefreshCw, Check, X } from "lucide-react";
 import { api, useApi } from "../lib/api";
-import { Badge, Field, Loading, Modal, PageHeader, SearchBar, matchQuery, useAction } from "../components/ui";
+import { Badge, Field, Loading, Modal, Pager, PageHeader, SearchBar, matchQuery, useAction, usePaged } from "../components/ui";
 import { d } from "../lib/format";
 import { PhotoButton, PhotoThumb } from "../components/Capture";
 import { useAuth } from "../App";
@@ -27,8 +27,9 @@ function Licences() {
   const stations = useApi<any[]>("/stations");
   const [edit, setEdit] = useState<any>(null);
   const [q, setQ] = useState("");
+  const shown = (data ?? []).filter((l) => matchQuery(q, l.name, l.number, l.authority, l.station_name));
+  const paged = usePaged(shown, 10);
   if (!data) return <Loading />;
-  const shown = data.filter((l) => matchQuery(q, l.name, l.number, l.authority, l.station_name));
   const tone = (n: number) => (n < 0 ? "red" : n <= 7 ? "red" : n <= 30 ? "amber" : "green");
   // compliance calendar: group by urgency so the owner sees at a glance what needs renewing
   const groups: [string, string, (n: number) => boolean][] = [
@@ -62,7 +63,7 @@ function Licences() {
       {data.length > 6 && <div className="px-4 pb-2"><SearchBar value={q} onChange={setQ} placeholder="Licence, number ya authority dhoondein…" /></div>}
       {/* phone: one card per licence */}
       <ul className="divide-y divide-slate-100 border-t border-slate-100 sm:hidden">
-        {shown.map((l) => (
+        {paged.slice.map((l) => (
           <li key={l.id} className="px-4 py-3">
             <div className="flex items-start justify-between gap-2">
               <span className="flex min-w-0 items-center gap-1 font-semibold">{l.name}{l.photo_id ? <PhotoThumb id={l.photo_id} size={7} /> : null}</span>
@@ -79,7 +80,7 @@ function Licences() {
       <div className="hidden overflow-x-auto sm:block">
       <table className="w-full">
         <thead><tr><th className="th">Licence</th><th className="th">Number / authority</th><th className="th">Station</th><th className="th">Expires</th><th className="th" /></tr></thead>
-        <tbody>{shown.map((l) => (
+        <tbody>{paged.slice.map((l) => (
           <tr key={l.id}>
             <td className="td font-medium"><span className="flex items-center gap-1">{l.name}{l.photo_id ? <PhotoThumb id={l.photo_id} size={7} /> : null}</span></td>
             <td className="td text-sm text-slate-600">{[l.number, l.authority].filter(Boolean).join(" · ")}</td>
@@ -90,6 +91,7 @@ function Licences() {
         ))}</tbody>
       </table>
       </div>
+      <Pager {...paged} />
       {edit && <LicenceForm l={edit} stations={stations.data ?? []} onClose={() => setEdit(null)} onDone={() => { setEdit(null); reload(); }} />}
     </div>
     </>

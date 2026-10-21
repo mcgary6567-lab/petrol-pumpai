@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Plus, Pencil, Trash2, Check, X, ShieldCheck, Briefcase, Fuel, Container, KeyRound, Banknote, LogOut, HardHat, UserCog } from "lucide-react";
 import { api, useApi } from "../lib/api";
-import { Badge, Empty, Field, Loading, Modal, PageHeader, PhoneInput, SearchBar, matchQuery, useAction, useToast } from "../components/ui";
+import { Badge, Empty, Field, Loading, Modal, Pager, PageHeader, PhoneInput, SearchBar, matchQuery, useAction, usePaged, useToast } from "../components/ui";
 import { useAuth, ROLE_LABEL } from "../App";
 import { ago } from "../lib/format";
 import { Sessions } from "../components/Sessions";
@@ -57,10 +57,11 @@ export default function Users() {
   const [editing, setEditing] = useState<Partial<U> | null>(null);
   const [pinFor, setPinFor] = useState<U | null>(null);
   const [uq, setUq] = useState("");
+  const shownUsers = ((data?.users ?? []) as U[]).filter((u) => matchQuery(uq, u.name, u.role, (u as any).job_title, (u as any).phone, (u as any).username, (u as any).station_name));
+  const paged = usePaged(shownUsers, 10);
   if (!data || !stations.data) return <Loading />;
 
   const counts = data.users.reduce((a: Record<string, number>, u: U) => ({ ...a, [u.role]: (a[u.role] ?? 0) + 1 }), {});
-  const shownUsers = (data.users as U[]).filter((u) => matchQuery(uq, u.name, u.role, (u as any).job_title, (u as any).phone, (u as any).username, (u as any).station_name));
 
   return (
     <div className="space-y-5">
@@ -84,7 +85,7 @@ export default function Users() {
       {uq && !shownUsers.length && <Empty>"{uq}" ke liye koi user nahi mila.</Empty>}
       {/* phone: one card per user */}
       <ul className="card divide-y divide-slate-100 sm:hidden">
-        {shownUsers.map((u: U) => (
+        {paged.slice.map((u: U) => (
           <li key={u.id} className={`px-4 py-3 ${u.active ? "" : "opacity-60"}`}>
             <div className="flex items-start justify-between gap-2">
               <span className="min-w-0 font-semibold">{u.name} {u.id === me?.id && <span className="text-xs font-normal text-slate-400">(you)</span>}</span>
@@ -109,7 +110,7 @@ export default function Users() {
         <table className="w-full">
           <thead><tr><th className="th">Name</th><th className="th">Email (login)</th><th className="th">Role</th><th className="th">Station</th><th className="th">Status</th><th className="th">Added</th><th className="th" /></tr></thead>
           <tbody>
-            {shownUsers.map((u: U) => (
+            {paged.slice.map((u: U) => (
               <tr key={u.id} className={u.active ? "" : "opacity-60"}>
                 <td className="td font-medium">{u.name} {u.id === me?.id && <span className="text-xs text-slate-400">(you)</span>}</td>
                 <td className="td text-sm text-slate-600">{u.email}{(u as any).phone && <div className="text-xs text-slate-400">+{(u as any).phone}</div>}</td>
@@ -141,6 +142,7 @@ export default function Users() {
           </tbody>
         </table>
       </div>
+      <Pager {...paged} />
 
       <div className="card flex flex-wrap items-center gap-3 p-4">
         <ShieldCheck size={20} className="shrink-0 text-slate-600" />

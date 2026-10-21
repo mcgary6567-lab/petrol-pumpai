@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { api, useApi } from "../lib/api";
-import { Badge, Empty, FilterChips, Loading, Modal, PageHeader, SearchBar, matchQuery, statusTone, useAction } from "../components/ui";
+import { Badge, Empty, FilterChips, Loading, Modal, Pager, PageHeader, SearchBar, matchQuery, statusTone, useAction, usePaged } from "../components/ui";
 import { ago } from "../lib/format";
 
 export default function Complaints() {
@@ -11,10 +11,11 @@ export default function Complaints() {
   const [text, setText] = useState("");
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("");
+  const rows = (data ?? []).filter((k) => (!status || k.status === status) && matchQuery(q, `C-${k.id}`, k.message, k.customer_name, k.category, k.sentiment, k.status, k.phone));
+  const paged = usePaged(rows, 10);
   if (!data) return <Loading />;
   const countOf = (s: string) => data.filter((k) => k.status === s).length;
   const chips: [string, string][] = [["", `All (${data.length})`], ...["open", "in_progress", "resolved"].filter((s) => countOf(s) > 0).map((s) => [s, `${s.replace("_", " ")} (${countOf(s)})`] as [string, string])];
-  const rows = data.filter((k) => (!status || k.status === status) && matchQuery(q, `C-${k.id}`, k.message, k.customer_name, k.category, k.sentiment, k.status, k.phone));
   return (
     <div>
       <PageHeader title="Complaints" subtitle="Logged automatically by the AI agent from WhatsApp chats, with sentiment" />
@@ -23,7 +24,7 @@ export default function Complaints() {
         <FilterChips value={status} onChange={setStatus} opts={chips} />
       </div>
       <div className="card divide-y divide-slate-100">
-        {rows.map((k) => (
+        {paged.slice.map((k) => (
           <div key={k.id} className="flex flex-wrap items-start gap-3 p-4">
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2 text-sm">
@@ -47,6 +48,7 @@ export default function Complaints() {
         {!data.length && <Empty>No complaints 🎉</Empty>}
         {data.length > 0 && !rows.length && <Empty>Kuch nahi mila · کچھ نہیں ملا</Empty>}
       </div>
+      <Pager {...paged} />
       <Modal open={!!replying} onClose={() => setReplying(null)} title={`Resolve C-${replying?.id}`}>
         <textarea className="input h-28" value={text} onChange={(e) => setText(e.target.value)} />
         <div className="mt-3 flex justify-end gap-2">

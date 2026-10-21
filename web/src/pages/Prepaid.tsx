@@ -3,7 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import QRCode from "qrcode";
 import { Ticket, Wallet, Plus, Printer, ArrowLeft, Ban } from "lucide-react";
 import { api, useApi } from "../lib/api";
-import { Badge, Empty, ErrorBox, Field, ListTools, Loading, Modal, PageHeader, SearchBar, Stat, matchQuery, useAction } from "../components/ui";
+import { Badge, Empty, ErrorBox, Field, ListTools, Loading, Modal, Pager, PageHeader, SearchBar, Stat, matchQuery, useAction, usePaged } from "../components/ui";
 import { dt, pkr, PRODUCTS } from "../lib/format";
 import { useAuth } from "../App";
 import { AccountPicker } from "../components/BankParts";
@@ -37,6 +37,7 @@ function Coupons() {
   const { can } = useAuth();
   const { run } = useAction();
   const [sell, setSell] = useState(false);
+  const paged = usePaged(data?.batches ?? [], 10);
   if (!data) return <Loading />;
   const filtered = Boolean(dq || status);
   const chips = [{ k: "", label: "All" }, { k: "active", label: "Unused left · باقی" }, { k: "used", label: "Fully used · استعمال شدہ" }, { k: "void", label: "Has cancelled · منسوخ" }];
@@ -51,7 +52,7 @@ function Coupons() {
       <ListTools q={q} onQ={setQ} placeholder="Buyer / book no… · خریدار یا بک نمبر" chips={chips} chip={status} onChip={setStatus} />
       {/* phone: one card per coupon book */}
       <ul className="card divide-y divide-slate-100 sm:hidden">
-        {data.batches.map((b: any) => (
+        {paged.slice.map((b: any) => (
           <li key={b.batch} className="px-4 py-3">
             <div className="flex items-start justify-between gap-2">
               <span className="min-w-0"><span className="block font-semibold">{b.buyer ?? "—"}</span><span className="font-mono text-xs text-slate-500">{b.batch}</span></span>
@@ -73,7 +74,7 @@ function Coupons() {
           <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500"><tr>
             <th className="px-3 py-2">Book</th><th>Buyer</th><th className="text-right">Coupons</th><th className="text-right">Value</th><th>Used</th><th>Expiry</th><th /></tr></thead>
           <tbody className="divide-y divide-slate-100">
-            {data.batches.map((b: any) => (
+            {paged.slice.map((b: any) => (
               <tr key={b.batch}>
                 <td className="px-3 py-2"><b className="font-mono">{b.batch}</b><span className="block text-xs text-slate-500">{dt(b.sold_at)} · {b.sold_by} · {b.method}</span></td>
                 <td>{b.buyer ?? "—"}{b.product && <span className="block text-xs text-slate-500">{PRODUCTS[b.product]} only</span>}</td>
@@ -92,6 +93,7 @@ function Coupons() {
         </table>
         {!data.batches.length && <Empty>{emptyMsg}</Empty>}
       </div>
+      <Pager {...paged} />
       {sell && <SellCoupons onClose={() => setSell(false)} onDone={() => { setSell(false); reload(); }} />}
     </>
   );

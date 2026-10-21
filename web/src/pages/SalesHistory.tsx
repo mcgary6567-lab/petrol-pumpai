@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Download } from "lucide-react";
 import { useApi } from "../lib/api";
-import { Empty, ListTools, Loading, PageHeader, useListFilter } from "../components/ui";
+import { Empty, ListTools, Loading, Pager, PageHeader, useListFilter, usePaged } from "../components/ui";
 import { Ur } from "../components/VoiceShell";
 import { dt, num, pkr } from "../lib/format";
 import { useAuth } from "../App";
@@ -25,6 +25,7 @@ export default function SalesHistory() {
   const methods: string[] = [...new Set<string>((data?.rows ?? []).map((r: any) => String(r.payment_method)))];
   const products: string[] = [...new Set<string>((data?.rows ?? []).map((r: any) => String(r.product)))];
   const shownAmt = rows.reduce((a, r) => a + r.amount, 0), shownL = rows.reduce((a, r) => a + r.litres, 0);
+  const paged = usePaged(rows, 10);
   const csv = () => {
     const esc = (v: unknown) => `"${String(v ?? "").replaceAll('"', '""')}"`;
     const lines = [["Date", "Station", "Product", "Litres", "Rate", "Amount", "Method", "Customer", "Vehicle", "Slip", "Salesman"].map(esc).join(","),
@@ -55,7 +56,7 @@ export default function SalesHistory() {
             <div className="card overflow-x-auto">
               <table className="w-full min-w-[760px] text-sm">
                 <thead><tr><th className="th">Date</th><th className="th">Station</th><th className="th">Fuel</th><th className="th text-right">Litres</th><th className="th text-right">Rate</th><th className="th text-right">Amount</th><th className="th">Method</th><th className="th">Customer / gaari</th><th className="th">Slip</th><th className="th">Salesman</th></tr></thead>
-                <tbody>{rows.map((r) => (
+                <tbody>{paged.slice.map((r) => (
                   <tr key={r.id} className="border-t border-slate-100 hover:bg-slate-50">
                     <td className="td whitespace-nowrap">{dt(r.created_at)}{r.at_close ? <span className="ml-1 rounded bg-slate-100 px-1 text-[10px]">close</span> : null}</td>
                     <td className="td">{r.station_name}</td><td className="td">{PRODUCT[r.product] ?? r.product}</td>
@@ -68,6 +69,7 @@ export default function SalesHistory() {
                   </tr>
                 ))}</tbody>
               </table>
+              <Pager {...paged} />
             </div>
           )}
         </>

@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { ErrorBox, Field, Modal } from "../components/ui";
+import { ErrorBox, Field, Modal, Pager, usePaged } from "../components/ui";
 import { BackupsPanel } from "../components/BackupsPanel";
 
 /** Platform owner (super-admin) panel: every pump, activate / suspend, and one-time activation codes. Separate login. */
@@ -93,10 +93,8 @@ function Panel({ onLogout }: { onLogout: () => void }) {
   // a fresh pump with every role + one entry of every kind, each with its hand-worked figure — for checking the arithmetic
   const makeTestPump = async () => { setTestBusy(true); setErr(null); try { setTestReport(await pfetch("/platform/test-pump", {})); load(); } catch (e: any) { setErr(e.message); } finally { setTestBusy(false); } };
 
-  if (!ov) return <div className="min-h-screen bg-slate-100 p-8 text-center text-slate-500">Loading… {err && <ErrorBox error={err} />}</div>;
-  const k = ov.kpis;
-  const attentionIds = new Set((ov.attention as any[]).map((a) => a.tenant_id));
-  const tenants: any[] = (ov.tenants as any[]).filter((t) => {
+  const attentionIds = new Set(((ov?.attention ?? []) as any[]).map((a) => a.tenant_id));
+  const tenants: any[] = ((ov?.tenants ?? []) as any[]).filter((t) => {
     if (filter === "lifetime" && !t.lifetime) return false;
     if (filter === "locked" && !t.locked) return false;
     if (filter === "attention" && !attentionIds.has(t.id)) return false;
@@ -104,6 +102,9 @@ function Panel({ onLogout }: { onLogout: () => void }) {
     const s = q.trim().toLowerCase();
     return !s || [t.name, t.slug, t.owner_name, t.owner_phone, t.admin_email].some((x) => String(x ?? "").toLowerCase().includes(s));
   });
+  const paged = usePaged(tenants, 10);
+  if (!ov) return <div className="min-h-screen bg-slate-100 p-8 text-center text-slate-500">Loading… {err && <ErrorBox error={err} />}</div>;
+  const k = ov.kpis;
   const unused = codes.filter((c) => !c.used_by_tenant);
   const maxSign = Math.max(1, ...ov.months.map((m: any) => m.signups));
   const Kpi = ({ label, value, sub, tone = "" }: { label: string; value: string | number; sub?: string; tone?: string }) => (
@@ -197,7 +198,7 @@ function Panel({ onLogout }: { onLogout: () => void }) {
             </div>
             {/* phone: cards */}
             <ul className="divide-y divide-slate-100 md:hidden">
-              {tenants.map((t) => (
+              {paged.slice.map((t) => (
                 <li key={t.id} className="p-3">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
@@ -226,7 +227,7 @@ function Panel({ onLogout }: { onLogout: () => void }) {
                   <th className="p-2">Pump</th><th>Owner</th><th>Plan / status</th><th className="text-right">Users</th><th className="text-right">Sales 30d</th><th className="text-right">Aaj</th><th>Activity</th><th className="p-2">Action</th>
                 </tr></thead>
                 <tbody>
-                  {tenants.map((t) => (
+                  {paged.slice.map((t) => (
                     <tr key={t.id} className={`border-t border-slate-100 ${attentionIds.has(t.id) ? "bg-amber-50/40" : ""}`}>
                       <td className="p-2"><div className="font-medium">{t.name}</div><div className="text-xs text-slate-400">{t.admin_email} · {t.stations} station · banaya {String(t.created_at).slice(0, 10)}</div>
                         {t.pump_url && <div className="mt-0.5 flex items-center gap-1 text-[11px]"><a className="font-mono text-brand-700 underline" href={t.pump_url} target="_blank" rel="noreferrer">/p/{t.slug}</a><button type="button" className="rounded border border-slate-200 px-1 text-[10px]" onClick={() => navigator.clipboard?.writeText(t.pump_url)}>copy</button></div>}</td>
@@ -243,6 +244,7 @@ function Panel({ onLogout }: { onLogout: () => void }) {
                 </tbody>
               </table>
             </div>
+            <Pager {...paged} />
           </div>
         </>)}
 

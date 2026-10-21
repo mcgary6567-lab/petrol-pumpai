@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Plus, Download, Check, X, Trash2, Settings2, Repeat, Printer } from "lucide-react";
 import { api, linkToken, useApi } from "../lib/api";
-import { Badge, Empty, Field, ListTools, Loading, Modal, PageHeader, Stat, statusTone, useAction } from "../components/ui";
+import { Badge, Empty, Field, ListTools, Loading, Modal, Pager, PageHeader, Stat, statusTone, useAction, usePaged } from "../components/ui";
 import { FixedCosts } from "../components/FixedCosts";
 import { d, pkr, pkrShort } from "../lib/format";
 import { useAuth } from "../App";
@@ -31,6 +31,7 @@ export default function Expenses() {
   const [setup, setSetup] = useState(false);
   const [fixed, setFixed] = useState(false);
   const [slip, setSlip] = useState<any>(null);
+  const paged = usePaged(data?.expenses ?? [], 10);
   if (!data || !cats.data) return <Loading />;
   const s = data.summary;
   const change = s.previous_month ? Math.round(((s.total - s.previous_month) / s.previous_month) * 100) : null;
@@ -101,7 +102,7 @@ export default function Expenses() {
         </div>
         {/* phone: one card per expense */}
         <ul className="card min-w-0 divide-y divide-slate-100 sm:hidden">
-          {data.expenses.map((e: any) => (
+          {paged.slice.map((e: any) => (
             <li key={e.id} className="px-4 py-3">
               <div className="flex items-start justify-between gap-2">
                 <span className="min-w-0"><span className="block font-semibold">{e.paid_to ?? e.category}</span><span className="text-xs text-slate-500">{e.category} · {d(e.expense_date)} · {e.method}</span></span>
@@ -119,7 +120,7 @@ export default function Expenses() {
         <div className="card hidden min-w-0 overflow-x-auto sm:block">
           <table className="w-full">
             <thead><tr><th className="th">Date</th><th className="th">Category</th><th className="th">Paid to / note</th><th className="th">Station</th><th className="th text-right">Amount</th><th className="th">Status</th><th className="th" /></tr></thead>
-            <tbody>{data.expenses.map((e: any) => (
+            <tbody>{paged.slice.map((e: any) => (
               <tr key={e.id}>
                 <td className="td text-xs">{d(e.expense_date)}</td>
                 <td className="td text-sm">{e.category}</td>
@@ -136,6 +137,7 @@ export default function Expenses() {
           {!data.expenses.length && <Empty>No expenses for this filter</Empty>}
         </div>
       </div>
+      <Pager {...paged} />
 
       {slip && <VoucherSlip r={slip} onClose={() => setSlip(null)} />}
       {adding && <ExpenseForm categories={cats.data.categories} stations={stations.data ?? []} limit={data.approval_limit} canApprove={can("expenses.approve")} onClose={() => setAdding(false)} onSaved={() => { setAdding(false); refresh(); }} />}

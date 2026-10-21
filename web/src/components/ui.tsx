@@ -259,7 +259,7 @@ export function ListTools({ q, onQ, placeholder = "Dhoondein… · تلاش", ch
 /* ---------------- pagination ---------------- */
 /** Client-side pager over an already-filtered array. Returns the current page's slice + controls.
  * Page resets to 1 whenever the row set shrinks below the current page (e.g. a new search filter). */
-export function usePaged<T>(rows: T[], size = 25) {
+export function usePaged<T>(rows: T[], size = 10) {
   const [page, setPage] = useState(1);
   const total = rows.length;
   const pages = Math.max(1, Math.ceil(total / size));

@@ -31,7 +31,7 @@ function ThekedarList() {
   const [add, setAdd] = useState(false);
   const [chip, setChip] = useState("");
   const list = (data ?? []).filter((k) => (!q || k.name.toLowerCase().includes(q.toLowerCase()) || (k.phone ?? "").includes(q)) && (chip !== "due" || Number(k.due ?? 0) > 0.5));
-  const paged = usePaged(list, 25);
+  const paged = usePaged(list, 10);
   const dueCount = (data ?? []).filter((k) => Number(k.due ?? 0) > 0.5).length;
   return (
     <div className="space-y-4">

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useApi } from "../lib/api";
-import { Loading, PageHeader, SearchBar, Stat, matchQuery } from "../components/ui";
+import { Loading, Pager, PageHeader, SearchBar, Stat, matchQuery, usePaged } from "../components/ui";
 import { PRODUCTS, pkr, num, dt } from "../lib/format";
 
 /** Who gave khata discounts and limit-overrides, and how much — a check on the two money "levers". */
@@ -10,6 +10,7 @@ export default function DiscountReport() {
   const from = new Date(Date.now() - days * 86_400_000).toISOString();
   const { data } = useApi<any>(`/reports/discounts?from=${from}&to=${to}`);
   const [q, setQ] = useState("");
+  const paged = usePaged(data?.list ?? [], 10);
   if (!data) return <Loading />;
   return (
     <div>
@@ -64,7 +65,7 @@ export default function DiscountReport() {
       <div className="card overflow-x-auto">
         <table className="w-full text-sm">
           <thead><tr><th className="th">When</th><th className="th">Customer / reference</th><th className="th">Fuel</th><th className="th text-right">Litres</th><th className="th text-right">Discount</th><th className="th">Kind</th><th className="th">Override</th><th className="th">By</th></tr></thead>
-          <tbody>{data.list.map((r: any) => (
+          <tbody>{paged.slice.map((r: any) => (
             <tr key={r.id}>
               <td className="td text-xs text-slate-500">{dt(r.created_at)}</td>
               <td className="td">{r.discount_kind === "direct" ? <>{r.discount_ref || <span className="text-red-600">no reference</span>}<span className="block text-xs text-slate-400">{r.payment_method}</span></> : <>{r.customer_name ?? "—"}{r.vehicle_no ? <span className="block text-xs text-slate-400">{r.vehicle_no}</span> : null}</>}</td>
@@ -79,6 +80,7 @@ export default function DiscountReport() {
         </table>
         {!data.list.length && <p className="p-6 text-center text-sm text-slate-500">Is arse mein koi discount ya override nahi.</p>}
       </div>
+      <Pager {...paged} />
     </div>
   );
 }

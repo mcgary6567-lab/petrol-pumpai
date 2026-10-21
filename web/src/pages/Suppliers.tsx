@@ -10,7 +10,7 @@ import { VoucherSlip } from "./Cashier";
 import { api, linkToken, useApi } from "../lib/api";
 import { ProofPhotos, ProofThumbs } from "../components/Capture";
 import { AccountPicker } from "../components/BankParts";
-import { Badge, Empty, Field, ListTools, Loading, Modal, PageHeader, PhoneInput, SearchBar, Stat, matchQuery, useAction, useListFilter } from "../components/ui";
+import { Badge, Empty, Field, ListTools, Loading, Modal, PageHeader, Pager, PhoneInput, SearchBar, Stat, matchQuery, useAction, useListFilter, usePaged } from "../components/ui";
 import { WhatsAppDoc } from "../components/WhatsAppDoc";
 import { Ur } from "../components/VoiceShell";
 import { PRODUCTS, ago, d, dt, num, phone, pkr, pkrShort } from "../lib/format";
@@ -27,13 +27,14 @@ export default function Suppliers() {
   const [addDepot, setAddDepot] = useState(false);
   const [editDepot, setEditDepot] = useState<any>(null);
   const [q, setQ] = useState(() => new URLSearchParams(window.location.search).get("q") ?? ""); // global search lands here with ?q=
+  const shown = (data ?? []).filter((s) => matchQuery(q, s.name, s.company, s.phone, s.depot_name, s.city));
+  const paged = usePaged(shown, 10);
   if (!data) return <Loading />;
   const total = data.reduce((a, s) => a + Math.max(0, s.total_owed ?? s.owed), 0);
   const bypassTotal = data.reduce((a, s) => a + Math.max(0, s.bypass_owed ?? 0), 0);
-  const shown = data.filter((s) => matchQuery(q, s.name, s.company, s.phone, s.depot_name, s.city));
-  // group the contacts under their depot; standalone ones go last under "No depot"
+  // group the contacts under their depot (only this page's rows); standalone ones go last under "No depot"
   const byDepot = new Map<string, { depot: any; rows: any[] }>();
-  for (const s of shown) {
+  for (const s of paged.slice) {
     const key = s.depot_id ? `d${s.depot_id}` : "none";
     if (!byDepot.has(key)) byDepot.set(key, { depot: s.depot_id ? { id: s.depot_id, name: s.depot_name, address: s.depot_address, city: s.depot_city } : null, rows: [] });
     byDepot.get(key)!.rows.push(s);
@@ -99,6 +100,7 @@ export default function Suppliers() {
           <span className="tabular-nums text-rose-600">{pkr(shown.reduce((a, s) => a + Math.max(0, s.total_owed ?? s.owed ?? 0), 0))}</span>
         </div>
       )}
+      <Pager {...paged} />
       {!data.length && <div className="card"><Empty>No suppliers yet. Add a depot, then add the company men inside it.</Empty></div>}
 
       {open && <SupplierDetail id={open} onClose={() => setOpen(null)} onChanged={reload} depots={depots.data ?? []} onDepots={depots.reload} />}

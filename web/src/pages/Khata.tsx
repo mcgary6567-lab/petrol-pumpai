@@ -31,7 +31,7 @@ export default function Khata() {
   };
   const inGroup = (c: any) => !group || (group === "institution" ? INST.includes(c.type) : c.type === group);
   const rows = (data ?? []).filter((c) => inGroup(c) && (!flag || FLAGS[flag](c)) && matchQuery(q, c.name, c.phone, c.type));
-  const paged = usePaged(rows, 25);
+  const paged = usePaged(rows, 10);
   if (!data) return <Loading />;
   const total = data.reduce((a, c) => a + Math.max(0, c.balance), 0);
   const nearLimit = data.filter(FLAGS.near).length;

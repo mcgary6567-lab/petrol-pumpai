@@ -196,7 +196,7 @@ function ClientsTable({ onAdd }: { onAdd: () => void }) {
     { k: "inactive", label: "Inactive · بند", n: allClients.filter(isInactive).length },
   ];
   const clients = useListFilter(allClients, { keep: (c) => chip === "due" ? isDue(c) : chip === "over" ? isOver(c) : chip === "inactive" ? isInactive(c) : true });
-  const paged = usePaged(clients, 25);
+  const paged = usePaged(clients, 10);
   return (
     <div className="card">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 p-3">

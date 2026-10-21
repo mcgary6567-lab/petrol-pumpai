@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Wallet, Plus, Minus, Banknote, Pencil } from "lucide-react";
 import { api, useApi } from "../lib/api";
-import { Badge, Empty, Field, ListTools, Loading, Modal, PageHeader, PhoneInput, Stat, matchQuery, useAction, useListFilter } from "../components/ui";
+import { Badge, Empty, Field, ListTools, Loading, Modal, PageHeader, Pager, PhoneInput, Stat, matchQuery, useAction, useListFilter, usePaged } from "../components/ui";
 import { dt, pkr } from "../lib/format";
 import { PhotoThumb, ProofPhotos, ProofThumbs } from "../components/Capture";
 import { DAY_STATUS, LeaveForm } from "./MyAccount";
@@ -171,11 +171,12 @@ function Accounts() {
   const [chip, setChip] = useState(""); // "" all · owes · due (salary set, not paid this month) · inactive — client-side
   const [station, setStation] = useState("");
   const [role, setRole] = useState("");
-  if (!data) return <Loading />;
-  const owed = data.reduce((a, u) => a + Math.max(0, u.balance), 0);
   const salaryDue = (u: any) => Boolean(u.salary && u.active && !u.salary_paid_this_month);
   const chipKeep = (u: any) => (chip === "owes" ? u.balance > 0 : chip === "due" ? salaryDue(u) : chip === "inactive" ? !u.active : true);
-  const shown = data.filter((u) => matchQuery(q, u.name, u.job_title, u.role, u.station_name, u.phone) && chipKeep(u) && (!station || u.station_name === station) && (!role || u.role === role));
+  const shown = (data ?? []).filter((u) => matchQuery(q, u.name, u.job_title, u.role, u.station_name, u.phone) && chipKeep(u) && (!station || u.station_name === station) && (!role || u.role === role));
+  const paged = usePaged(shown, 10);
+  if (!data) return <Loading />;
+  const owed = data.reduce((a, u) => a + Math.max(0, u.balance), 0);
   const stationNames = [...new Set(data.map((u) => u.station_name as string | null).filter(Boolean))] as string[];
   const roles = [...new Set(data.map((u) => u.role as string))];
   return (
@@ -197,7 +198,7 @@ function Accounts() {
       {!shown.length && <Empty>{q ? `"${q}" ke liye koi staff nahi mila.` : "Is filter mein koi staff nahi."}</Empty>}
       {/* phone: one card per person */}
       <ul className="card divide-y divide-slate-100 sm:hidden">
-        {shown.map((u) => (
+        {paged.slice.map((u) => (
           <li key={u.id} className={`cursor-pointer px-4 py-3 active:bg-slate-50 ${u.active ? "" : "opacity-50"}`} onClick={() => setOpen(u.id)}>
             <div className="flex items-start justify-between gap-2">
               <span className="min-w-0"><span className="block font-semibold">{u.name}</span><span className="text-xs capitalize text-slate-500">{u.job_title || u.role}{u.station_name ? ` · ${u.station_name}` : ""}</span></span>
@@ -214,7 +215,7 @@ function Accounts() {
       <div className="card hidden overflow-x-auto sm:block">
         <table className="w-full">
           <thead><tr><th className="th">Name</th><th className="th">Role</th><th className="th text-right">Salary</th><th className="th text-right">Owes</th><th className="th text-right">Short this month</th><th className="th">This month</th></tr></thead>
-          <tbody>{shown.map((u) => (
+          <tbody>{paged.slice.map((u) => (
             <tr key={u.id} className={`cursor-pointer hover:bg-slate-50 ${u.active ? "" : "opacity-50"}`} onClick={() => setOpen(u.id)}>
               <td className="td font-medium">{u.name}<div className="text-xs text-slate-500">{u.station_name ?? ""}</div></td>
               <td className="td text-sm capitalize">{u.job_title || u.role}</td>
@@ -226,6 +227,7 @@ function Accounts() {
           ))}</tbody>
         </table>
       </div>
+      <Pager {...paged} />
       {open && <StaffDetail id={open} onClose={() => { setOpen(null); reload(); }} />}
       {adding && <AddStaffMember stations={stations.data ?? []} onClose={() => setAdding(false)} onSaved={() => { setAdding(false); reload(); }} />}
     </div>

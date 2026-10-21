@@ -46,7 +46,7 @@ export default function Customers() {
   const [chip, setChip] = useState("");
   const keep = CHIPS.find((c) => c.k === chip)?.keep;
   const rows = useListFilter(list.data, { keep });
-  const paged = usePaged(rows, 25);
+  const paged = usePaged(rows, 10);
   const chips = CHIPS.map((c) => ({ k: c.k, label: c.label, n: c.k ? (list.data ?? []).filter(c.keep).length : undefined }));
 
   return (

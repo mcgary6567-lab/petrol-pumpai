@@ -8,7 +8,7 @@ import { api, useApi } from "../lib/api";
 import { useAuth } from "../App";
 import { AccountPicker } from "../components/BankParts";
 import { ProofPhotos, ProofThumbs } from "../components/Capture";
-import { Badge, Empty, Field, ListTools, Loading, Modal, PageHeader, Stat, matchQuery, useAction } from "../components/ui";
+import { Badge, Empty, Field, ListTools, Loading, Modal, Pager, PageHeader, Stat, matchQuery, useAction, usePaged } from "../components/ui";
 import { dt, num, pkr } from "../lib/format";
 
 import { labelMap, useLookups } from "../lib/lookups";
@@ -35,10 +35,11 @@ export default function Shop() {
   const [editSale, setEditSale] = useState<any>(null);
   const [q, setQ] = useState("");
   const [cat, setCat] = useState(""); // item list: category chip or "low" (stock at / under the alert level) — client-side
+  const isLow = (i: any) => i.reorder_level > 0 && i.stock <= i.reorder_level;
+  const shown = (items.data ?? []).filter((i) => matchQuery(q, i.name, i.category, i.sku, i.brand) && (!cat || (cat === "low" ? isLow(i) : i.category === cat)));
+  const paged = usePaged(shown, 10);
   if (!items.data || !sum.data || !stations.data) return <Loading />;
   const s = sum.data;
-  const isLow = (i: any) => i.reorder_level > 0 && i.stock <= i.reorder_level;
-  const shown = items.data.filter((i) => matchQuery(q, i.name, i.category, i.sku, i.brand) && (!cat || (cat === "low" ? isLow(i) : i.category === cat)));
   const catsPresent = [...new Set(items.data.map((i) => i.category as string))];
   const salesFiltered = Boolean(sf.q || sf.from || sf.to || sf.method);
   const reload = () => { items.reload(); sum.reload(); sales.reload(); };
@@ -75,7 +76,7 @@ export default function Shop() {
       {(q || cat) && !shown.length && <Empty>{q ? `"${q}" ke liye koi item nahi mila.` : "Is filter mein koi item nahi."}</Empty>}
       {/* phone: one card per item */}
       <ul className="card divide-y divide-slate-100 sm:hidden">
-        {shown.map((i) => (
+        {paged.slice.map((i) => (
           <li key={i.id} className={`px-4 py-3 ${i.active ? "" : "opacity-50"}`}>
             <div className="flex items-start justify-between gap-2">
               <span className="min-w-0"><span className="block font-semibold">{i.name}</span><span className="text-xs text-slate-500">{CATS[i.category] ?? i.category}{i.barcode ? <> · <span className="font-mono">{i.barcode}</span></> : null}</span></span>
@@ -95,7 +96,7 @@ export default function Shop() {
       <div className="card hidden overflow-x-auto sm:block">
         <table className="w-full">
           <thead><tr><th className="th">Item</th><th className="th">Category</th><th className="th">Barcode</th><th className="th text-right">Cost</th><th className="th text-right">Price</th><th className="th text-right">Margin</th><th className="th text-right">Stock</th><th className="th" /></tr></thead>
-          <tbody>{shown.map((i) => (
+          <tbody>{paged.slice.map((i) => (
             <tr key={i.id} className={i.active ? "" : "opacity-50"}>
               <td className="td font-medium">{i.name}</td>
               <td className="td text-sm">{CATS[i.category] ?? i.category}</td>
@@ -114,6 +115,7 @@ export default function Shop() {
           ))}</tbody>
         </table>
       </div>
+      <Pager {...paged} />
       <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
         <div className="card min-w-0 p-4"><h2 className="mb-2 font-semibold">Best sellers today</h2>
           {s.top.map((t: any) => <div key={t.name} className="flex justify-between gap-2 border-b border-slate-100 py-1.5 text-sm"><span className="min-w-0">{t.name}</span><span className="shrink-0 tabular-nums">{num(t.qty)} · {pkr(t.sales)}</span></div>)}

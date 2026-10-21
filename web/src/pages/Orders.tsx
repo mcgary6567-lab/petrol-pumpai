@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { api, useApi, useLiveEvents } from "../lib/api";
-import { Badge, Empty, FilterChips, Loading, PageHeader, SearchBar, statusTone, matchQuery, useAction } from "../components/ui";
+import { Badge, Empty, FilterChips, Loading, Pager, PageHeader, SearchBar, statusTone, matchQuery, useAction, usePaged } from "../components/ui";
 import { dt, num, phone, pkr } from "../lib/format";
 
 const NEXT: Record<string, string[]> = { pending: ["confirmed", "cancelled"], confirmed: ["dispatched", "cancelled"], dispatched: ["delivered"] };
@@ -14,11 +14,12 @@ export default function Orders() {
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("");
   useLiveEvents((e) => e.type === "order" && reload());
+  const shown = (data ?? []).filter((o) => (!status || o.status === status) && matchQuery(q, o.customer_name, o.phone, o.product, o.status, o.address, `#${o.id}`));
+  const paged = usePaged(shown, 10);
   if (!data) return <Loading />;
   const STATUSES = ["pending", "confirmed", "dispatched", "delivered", "cancelled"];
   const countOf = (s: string) => data.filter((o) => o.status === s).length;
   const chips: [string, string][] = [["", `All (${data.length})`], ...STATUSES.filter((s) => countOf(s) > 0).map((s) => [s, `${s[0].toUpperCase()}${s.slice(1)} (${countOf(s)})`] as [string, string])];
-  const shown = data.filter((o) => (!status || o.status === status) && matchQuery(q, o.customer_name, o.phone, o.product, o.status, o.address, `#${o.id}`));
   const buttons = (o: any) => (NEXT[o.status] ?? []).map((s) => (
     <button key={s} disabled={busy} className={`${s === "cancelled" ? "btn-secondary" : "btn-primary"} min-h-9 !px-2.5 !py-1 text-xs sm:min-h-0`}
       onClick={() => run(() => api(`/orders/${o.id}`, { method: "PATCH", body: { status: s, station_id: stationId || stations.data?.[0]?.id } }), `Order #${o.id} ${s} — customer notified`).then(reload)}>
@@ -39,7 +40,7 @@ export default function Orders() {
       {(q || status) && !shown.length && data.length > 0 && <Empty>Is filter mein koi order nahi mila · کوئی آرڈر نہیں ملا</Empty>}
       {/* phone: one card per order */}
       <ul className="card divide-y divide-slate-100 sm:hidden">
-        {shown.map((o) => (
+        {paged.slice.map((o) => (
           <li key={o.id} className="px-4 py-3">
             <div className="flex items-start justify-between gap-2">
               <span className="min-w-0"><Link to={`/customers/${o.customer_id}`} className="block font-semibold hover:underline">{o.customer_name}</Link><span className="text-xs text-slate-500">#{o.id} · {dt(o.created_at)} · {phone(o.phone)}</span></span>
@@ -58,7 +59,7 @@ export default function Orders() {
         <table className="w-full">
           <thead><tr><th className="th">#</th><th className="th">Customer</th><th className="th">Order</th><th className="th">Deliver</th><th className="th">Payment</th><th className="th">Status</th><th className="th">Actions</th></tr></thead>
           <tbody>
-            {shown.map((o) => (
+            {paged.slice.map((o) => (
               <tr key={o.id}>
                 <td className="td text-xs text-slate-500">#{o.id}<br />{dt(o.created_at)}</td>
                 <td className="td"><Link to={`/customers/${o.customer_id}`} className="font-medium hover:underline">{o.customer_name}</Link><div className="text-xs text-slate-500">{phone(o.phone)}</div></td>
@@ -75,6 +76,7 @@ export default function Orders() {
         </table>
         {!data.length && <Empty>No orders yet. Customers can order on WhatsApp: "500 litre diesel chahiye".</Empty>}
       </div>
+      <Pager {...paged} />
     </div>
   );
 }
