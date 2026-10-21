@@ -289,11 +289,22 @@ export function EditSale({ sale, onClose, onDone }: { sale: any; onClose: () => 
   const [val, setVal] = useState(String(mode === "litres" ? num(sale.litres, 2) : sale.amount));
   const [vehicle, setVehicle] = useState(sale.vehicle_no ?? "");
   const [slip, setSlip] = useState(sale.slip_no ?? "");
+  // khata baqi-cash / shop-saman legs (only when this sale has them)
+  const hasBaqi = (sale.cash_back_litres ?? 0) > 0;
+  const [baqiL, setBaqiL] = useState(String(sale.cash_back_litres ?? ""));
+  const [cashDi, setCashDi] = useState(String(sale.cash_back ?? ""));
+  const [itemsCost, setItemsCost] = useState(String(sale.items_cost ?? ""));
+  const [itemsNote, setItemsNote] = useState(sale.items_note ?? "");
   const n = Number(val) || 0;
+  const bl = Number(baqiL) || 0, cd = Number(cashDi) || 0, ic = Number(itemsCost) || 0;
+  const baqiVal = Math.round(bl * (sale.rate || 0));
+  const khareed = Math.max(0, baqiVal - cd - ic);
+  const baqiBad = hasBaqi && cd + ic > baqiVal + 0.5;
   return (
     <EditModal title={`Edit sale — ${sale.product} (${sale.payment_method})`} onClose={onClose} onDone={onDone}
-      url={`/corrections/sale/${sale.id}/edit`} canSave={n > 0}
-      body={() => ({ [mode]: n, vehicle_no: vehicle || null, slip_no: slip || null })}
+      url={`/corrections/sale/${sale.id}/edit`} canSave={n > 0 && !baqiBad}
+      body={() => ({ [mode]: n, vehicle_no: vehicle || null, slip_no: slip || null,
+        ...(hasBaqi ? { cash_back_litres: bl, cash_back: cd, items_cost: ic, items_note: itemsNote.trim() || null } : {}) })}
       fields={<>
         <div className="flex gap-2">
           <select className="input w-32" value={mode} onChange={(e) => { const m = e.target.value as "litres" | "amount"; setMode(m); setVal(String(m === "litres" ? num(sale.litres, 2) : sale.amount)); }}>
@@ -304,6 +315,20 @@ export function EditSale({ sale, onClose, onDone }: { sale: any; onClose: () => 
         <p className="text-xs text-slate-500">Rate wahi rahega ({pkr(sale.rate)}/L); {mode === "litres" ? "amount" : "litres"} khud ban jayega. Khata/cash/stock sab update honge.</p>
         <Field label="Vehicle no (optional)"><input className="input" value={vehicle} onChange={(e) => setVehicle(e.target.value)} /></Field>
         <Field label="Slip / parchi no (optional)"><input className="input" value={slip} onChange={(e) => setSlip(e.target.value)} /></Field>
+        {hasBaqi && (
+          <div className="rounded-xl bg-amber-50/60 p-2.5 ring-1 ring-amber-200">
+            <div className="mb-1.5 text-xs font-semibold text-amber-900">Baqi cash / shop saman</div>
+            <div className="grid grid-cols-2 gap-2">
+              <Field label="Baqi/parchi litres"><input className="input" type="number" inputMode="decimal" value={baqiL} onChange={(e) => setBaqiL(e.target.value)} /></Field>
+              <Field label={`Baqi value (auto · ${sale.rate}/L)`}><input className="input bg-slate-100 font-semibold" readOnly value={baqiVal ? pkr(baqiVal) : "—"} /></Field>
+              <Field label="Cash di (Rs)"><input className="input" type="number" inputMode="numeric" value={cashDi} onChange={(e) => setCashDi(e.target.value)} /></Field>
+              <Field label="Saman ki lagat (Rs)"><input className="input" type="number" inputMode="numeric" value={itemsCost} onChange={(e) => setItemsCost(e.target.value)} /></Field>
+              <Field label="Saman detail (optional)"><input className="input" value={itemsNote} onChange={(e) => setItemsNote(e.target.value)} /></Field>
+              <Field label="Khareed (munafa · auto)"><input className="input bg-emerald-50 font-semibold text-emerald-800" readOnly value={pkr(khareed)} /></Field>
+            </div>
+            {baqiBad && <p className="mt-1 text-xs text-red-700">Cash di + saman, baqi value ({pkr(baqiVal)}) se zyada nahi ho sakte.</p>}
+          </div>
+        )}
       </>} />
   );
 }

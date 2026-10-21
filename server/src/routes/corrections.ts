@@ -106,6 +106,7 @@ corrections.post("/corrections/sale/:id/edit", requirePerm("entries.edit"), h((r
     payment_method: z.string().max(40).optional(), customer_id: z.number().int().positive().nullable().optional(),
     vehicle_no: z.string().max(40).nullable().optional(), slip_no: z.string().max(40).nullable().optional(), account_id: z.number().int().positive().nullable().optional(),
     discount: z.number().min(0).optional(), discount_kind: z.enum(["khata", "direct"]).optional(), discount_ref: z.string().trim().max(120).nullable().optional(),
+    cash_back: z.number().min(0).optional(), cash_back_litres: z.number().min(0).optional(), items_cost: z.number().min(0).optional(), items_note: z.string().trim().max(120).nullable().optional(),
   }), req.body);
   const sale = get(`SELECT s.*, sh.status shift_status FROM sales s JOIN stations st ON st.id=s.station_id LEFT JOIN shifts sh ON sh.id=s.shift_id WHERE s.id=? AND st.tenant_id=?`, Number(req.params.id), t);
   if (!sale) throw new AppError(404, "Sale nahi mili");
@@ -132,6 +133,12 @@ corrections.post("/corrections/sale/:id/edit", requirePerm("entries.edit"), h((r
       vehicle_no: b.vehicle_no !== undefined ? b.vehicle_no : sale.vehicle_no, slip_no: b.slip_no !== undefined ? b.slip_no : sale.slip_no,
       account_id: b.account_id !== undefined ? b.account_id : sale.account_id,
       discount: b.discount ?? sale.discount ?? 0, discount_kind: b.discount_kind ?? sale.discount_kind ?? undefined, discount_ref: b.discount_ref ?? sale.discount_ref ?? undefined,
+      // keep the khata baqi-cash / shop-saman legs unless the edit changes them (else re-recording would silently drop them);
+      // these are khata-only, so they go only when the sale stays a khata fill
+      ...(method === "khata" ? {
+        cash_back: b.cash_back ?? sale.cash_back ?? 0, cash_back_litres: b.cash_back_litres ?? sale.cash_back_litres ?? 0,
+        items_cost: b.items_cost ?? sale.items_cost ?? 0, items_note: b.items_note !== undefined ? b.items_note : sale.items_note,
+      } : {}),
     });
     // on a CLOSED shift the bag's cash follows: cash → khata/card (or a smaller cash amount) frees counted cash → expected drops;
     // khata/card → cash would ADD cash that was never counted → refused (the tx rolls back)

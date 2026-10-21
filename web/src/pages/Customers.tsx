@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { Plus, MessageCircle, Wallet, BellRing, Car, Pencil, Trash2 } from "lucide-react";
+import { Plus, MessageCircle, Wallet, BellRing, Car, Pencil, Trash2, Eye } from "lucide-react";
 import { VoidWithReason } from "./Corrections";
 import { FullEditEntry } from "../components/FullEdit";
+import { EntryView } from "../components/EntryView";
 import { ImportExport } from "../components/ImportExport";
 import { PrintListButton } from "../components/PrintList";
 import { WhatsAppDoc } from "../components/WhatsAppDoc";
@@ -199,9 +200,11 @@ function CustomerDetail({ id, onClose, onChanged }: { id: string; onClose: () =>
   // CEO corrections on a khata line: sale / shop / opening / other-entry rows have their own editors (the server says which)
   const [editLine, setEditLine] = useState<any>(null);
   const [voidLine, setVoidLine] = useState<any>(null);
+  const [viewLine, setViewLine] = useState<any>(null);
   const fixable = (l: any) => !/^(SALE-|SHOP-|oth-|open:|LATE-)/.test(String(l.ref ?? "")) && !l.product;
   const lineActions = (l: any) => (
     <span className="ml-auto flex shrink-0 gap-1">
+      <button className="btn-secondary !px-2 !py-1" aria-label="View entry" title="Poori detail dekhein" onClick={() => setViewLine(l)}><Eye size={13} /></button>
       {can("entries.edit") && fixable(l) && <button className="btn-secondary !px-2 !py-1" aria-label="Edit khata entry" title="Edit (CEO)" onClick={() => setEditLine(l)}><Pencil size={13} /></button>}
       {can("corrections.manage") && fixable(l) && <button className="btn-secondary !px-2 !py-1 !text-red-700" aria-label="Void khata entry" title="Void (CEO)" onClick={() => setVoidLine(l)}><Trash2 size={13} /></button>}
     </span>
@@ -280,6 +283,7 @@ function CustomerDetail({ id, onClose, onChanged }: { id: string; onClose: () =>
                 </tbody></table>
                 {!ledger.length && <Empty>{c.ledger.length ? "Is filter me koi entry nahi" : "No khata entries"}</Empty>}
               </div>
+              {viewLine && <EntryView customerId={c.id} lineId={viewLine.id} canEdit={can("entries.edit")} onClose={() => setViewLine(null)} onChanged={refresh} />}
               {editLine && <FullEditEntry kind="khata" id={editLine.id} onClose={() => setEditLine(null)} onDone={() => { setEditLine(null); refresh(); }} />}
               {voidLine && <VoidWithReason title={`Void khata entry — ${c.name}`} what={`${voidLine.type === "credit" ? "Payment" : "Charge"} · ${pkr(voidLine.amount)} · ${d(voidLine.created_at)}${voidLine.note ? ` · ${voidLine.note}` : ""}`}
                 url={`/corrections/khata/${voidLine.id}/void`} onClose={() => setVoidLine(null)} onDone={() => { setVoidLine(null); refresh(); }} />}

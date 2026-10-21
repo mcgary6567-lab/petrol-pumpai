@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { Plus, Search, Truck, Wallet, Undo2, SlidersHorizontal, Download, Printer, Ban, ArrowLeft, Pencil, Send, Receipt } from "lucide-react";
+import { Plus, Search, Truck, Wallet, Undo2, SlidersHorizontal, Download, Printer, Ban, ArrowLeft, Pencil, Send, Receipt, Eye } from "lucide-react";
 import { ImportExport } from "../components/ImportExport";
 import { PrintListButton } from "../components/PrintList";
 import { PartyAdmin } from "../components/PartyAdmin";
@@ -14,6 +14,7 @@ import { OpeningBalanceField, type AdvanceReceipt } from "../components/OpeningB
 import { WholesaleDashboard } from "../components/WholesaleDashboard";
 import { ProofPhotos, ProofThumbs } from "../components/Capture";
 import { FullEditEntry } from "../components/FullEdit";
+import { WholesaleEntryView } from "../components/EntryView";
 import { AccountPicker } from "../components/BankParts";
 import { PortalCard } from "../components/PortalCard";
 import { FleetPicker, FleetTab, TripForm, TripSheet, TripsTab, fleetBody } from "../components/WholesaleFleet";
@@ -351,6 +352,7 @@ function ClientDetail({ id }: { id: string }) {
   const qs = new URLSearchParams(Object.entries(range).filter(([, v]) => v)).toString();
   const stmt = useApi<any>(`/wholesale/clients/${id}/statement${qs ? `?${qs}` : ""}`);
   const [editRow, setEditRow] = useState<any>(null); // CEO: fix a supply / payment in place (reverse + re-post everywhere)
+  const [viewRow, setViewRow] = useState<any>(null); // anyone: see every input of one entry + print / WhatsApp
   const [params, setParams] = useSearchParams();
   const [action, setAction] = useState<null | "supply" | "return" | "payment" | "refund" | "adjustment" | "rates" | "edit" | "order" | "promise" | "cheque">(() => (params.get("do") as any) || null);
   // supplying a booked order (from the order book) fills the form and closes the order
@@ -468,7 +470,8 @@ function ClientDetail({ id }: { id: string }) {
           <>
             <div className="flex justify-between bg-slate-50 px-4 py-2 text-sm"><span>Opening balance{stmt.data.opening_balance < -0.5 ? " (advance)" : ""}</span><span className="font-medium tabular-nums">{pkr(Math.abs(stmt.data.opening_balance))}</span></div>
             {editRow && <FullEditEntry kind="wholesale" id={editRow.id} onClose={() => setEditRow(null)} onDone={refresh} />}
-            <LedgerTable rows={stmt.data.lines} running tools onEdit={can("entries.edit") ? (row) => setEditRow(row) : undefined} onVoid={(can("wholesale.void") || can("wholesale.manage")) ? async (row) => {
+            {viewRow && <WholesaleEntryView clientId={Number(id)} txnId={viewRow.id} onClose={() => setViewRow(null)} />}
+            <LedgerTable rows={stmt.data.lines} running tools onView={(row) => setViewRow(row)} onEdit={can("entries.edit") ? (row) => setEditRow(row) : undefined} onVoid={(can("wholesale.void") || can("wholesale.manage")) ? async (row) => {
               if (row.type === "fuel_note") {
                 if (confirm(`Void this fuel payment of ${pkr(row.amount)}? Any bank movement will be reversed.`)) { await api(`/carriage/fuel-payments/${String(row.id).replace("bfp", "")}/void`, { body: {} }).catch((e) => alert(e.message)); refresh(); }
                 return;
@@ -494,7 +497,7 @@ function ClientDetail({ id }: { id: string }) {
   );
 }
 
-function LedgerTable({ rows: allRows, running, showClient, tools, onVoid, onEdit }: { rows: any[]; running?: boolean; showClient?: boolean; tools?: boolean; onVoid?: (row: any) => void; onEdit?: (row: any) => void }) {
+function LedgerTable({ rows: allRows, running, showClient, tools, onVoid, onEdit, onView }: { rows: any[]; running?: boolean; showClient?: boolean; tools?: boolean; onVoid?: (row: any) => void; onEdit?: (row: any) => void; onView?: (row: any) => void }) {
   const [q, setQ] = useState("");
   const [type, setType] = useState("");
   const typeChips = [{ k: "", label: "All", n: allRows.length }, ...["supply", "return", "payment", "adjustment", "carriage"].map((k) => ({ k, label: TYPE[k].label, n: allRows.filter((r) => r.type === k).length })).filter((c) => c.n > 0)];
@@ -529,6 +532,7 @@ function LedgerTable({ rows: allRows, running, showClient, tools, onVoid, onEdit
               {debit ? <div className="font-semibold">{pkr(debit)}</div> : null}
               {credit ? <div className="font-semibold text-emerald-700">−{pkr(credit)}</div> : null}
               {running && <div className="text-xs text-slate-500">bal {pkr(r.balance)}</div>}
+              {onView && r.type !== "fuel_note" && <button className="-mr-2 inline-flex h-9 w-9 items-center justify-center text-slate-400 hover:text-brand-700" title="Poori detail dekhein" aria-label="View entry" onClick={() => onView(r)}><Eye size={14} /></button>}
               {onEdit && !r.voided && r.type !== "fuel_note" && <button className="-mr-2 inline-flex h-9 w-9 items-center justify-center text-slate-400 hover:text-brand-700" title="Edit entry (CEO)" aria-label="Edit entry" onClick={() => onEdit(r)}><Pencil size={14} /></button>}
               {onVoid && !r.voided && <button className="-mr-2 inline-flex h-9 w-9 items-center justify-center text-slate-400 hover:text-red-600" title="Void entry" aria-label="Void entry" onClick={() => onVoid(r)}><Ban size={14} /></button>}
             </div>
@@ -562,7 +566,7 @@ function LedgerTable({ rows: allRows, running, showClient, tools, onVoid, onEdit
                 <td className="td whitespace-nowrap text-right tabular-nums">{debit ? pkr(debit) : ""}</td>
                 <td className="td whitespace-nowrap text-right tabular-nums text-emerald-700">{credit ? pkr(credit) : ""}</td>
                 {running && <td className="td whitespace-nowrap text-right font-medium tabular-nums">{pkr(r.balance)}</td>}
-                <td className="td print:hidden"><span className="flex gap-2">{onEdit && !r.voided && r.type !== "fuel_note" && <button className="text-slate-400 hover:text-brand-700" title="Edit entry (CEO)" onClick={() => onEdit(r)}><Pencil size={14} /></button>}{onVoid && !r.voided && <button className="text-slate-400 hover:text-red-600" title="Void entry" onClick={() => onVoid(r)}><Ban size={14} /></button>}</span></td>
+                <td className="td print:hidden"><span className="flex gap-2">{onView && r.type !== "fuel_note" && <button className="text-slate-400 hover:text-brand-700" title="Poori detail dekhein" aria-label="View entry" onClick={() => onView(r)}><Eye size={14} /></button>}{onEdit && !r.voided && r.type !== "fuel_note" && <button className="text-slate-400 hover:text-brand-700" title="Edit entry (CEO)" onClick={() => onEdit(r)}><Pencil size={14} /></button>}{onVoid && !r.voided && <button className="text-slate-400 hover:text-red-600" title="Void entry" onClick={() => onVoid(r)}><Ban size={14} /></button>}</span></td>
               </tr>
             );
           })}

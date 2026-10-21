@@ -14,7 +14,7 @@ import { PRODUCTS } from "../config.js";
 import { announce } from "../notifications.js";
 import { linkPhotos, proofPhotos, proofCol, requireProof, isCheque } from "./capture.js";
 import { bankAccountFor, accountIdField, DEPOT_PAY } from "./banks.js";
-import { wholesaleReceipt, wholesaleRateMessage, sendWholesaleStatement, billLink, prevMonth } from "../billing.js";
+import { wholesaleReceipt, wholesaleRateMessage, sendWholesaleStatement, billLink, prevMonth, receiptUrl } from "../billing.js";
 import { recordPurchase } from "./suppliers.js";
 import { createExpense } from "./expenses.js";
 import { claimForTrip } from "./claims.js";
@@ -590,6 +590,32 @@ export function statement(tenantId: number, clientId: number, from?: string, to?
 wholesale.get("/wholesale/clients/:id/statement", h((req) => {
   const q = parse(z.object({ from: dateStr, to: dateStr }), req.query);
   return statement(tid(req), Number(req.params.id), q.from, q.to);
+}));
+
+/** One wholesale entry with every input filled in — for the "View" panel on the client page. A supply that came off a
+ *  pump nozzle links to its sale, so a print link is returned too. */
+wholesale.get("/wholesale/clients/:id/txn/:tid/detail", h((req) => {
+  const t = tid(req);
+  const c = ownClient(t, Number(req.params.id));
+  const x = get(`SELECT x.*, ${proofCol("'wtx:'||x.id")}, st.name station_name FROM wholesale_txns x LEFT JOIN stations st ON st.id=x.station_id WHERE x.id=? AND x.client_id=?`, Number(req.params.tid), c.id);
+  if (!x) throw new AppError(404, "Entry nahi mili");
+  const sale = x.sale_id ? get("SELECT s.id FROM sales s JOIN stations st ON st.id=s.station_id WHERE s.id=? AND st.tenant_id=?", x.sale_id, t) : null;
+  return {
+    entry: x, client: { id: c.id, name: c.name, phone: c.phone, balance: clientDue(c.id) },
+    print_url: sale ? receiptUrl(t, "f", sale.id) : null,
+    can_whatsapp: Boolean(c.phone),
+  };
+}));
+
+/** Resend one wholesale entry to the client on WhatsApp. */
+wholesale.post("/wholesale/clients/:id/txn/:tid/whatsapp", requirePerm("wholesale.manage"), h(async (req) => {
+  const t = tid(req);
+  const c = ownClient(t, Number(req.params.id));
+  if (!c.phone) throw new AppError(400, "Is client ka WhatsApp number nahi — pehle number add karein");
+  const x = get("SELECT * FROM wholesale_txns WHERE id=? AND client_id=?", Number(req.params.tid), c.id);
+  if (!x) throw new AppError(404, "Entry nahi mili");
+  await wholesaleReceipt(t, c.id, x);
+  return { ok: true };
 }));
 
 wholesale.get("/wholesale/clients/:id/statement.csv", (req, res, next) => {

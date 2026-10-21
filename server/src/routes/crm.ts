@@ -10,7 +10,8 @@ import { setKhataOpening } from "./opening.js";
 import { productSchema } from "../products.js";
 import { assertLookup } from "./lookups.js";
 import { sendWhatsApp } from "../whatsapp/cloud.js";
-import { billLink, sendKhataBill, prevMonth } from "../billing.js";
+import { billLink, sendKhataBill, prevMonth, receiptUrl } from "../billing.js";
+import { PRODUCTS } from "../config.js";
 import { writeCampaign } from "../ai/agent.js";
 import { announce } from "../notifications.js";
 
@@ -141,6 +142,56 @@ crm.get("/customers/:id", requirePerm("customers.view"), h((req) => {
     complaints: all("SELECT * FROM complaints WHERE customer_id=? ORDER BY id DESC LIMIT 20", c.id),
     conversation: get("SELECT * FROM conversations WHERE customer_id=?", c.id) ?? null,
   };
+}));
+
+/** One khata ledger entry with every input filled in — for the "View" panel on the customer page. If the entry came
+ *  from a POS sale (ref SALE-/LATE-), the whole sale (litres, rate, discount, baqi cash / shop saman, Khareed, who entered
+ *  it, when) is returned too, with a signed print link. */
+crm.get("/customers/:id/ledger/:lid/detail", requirePerm("khata.manage"), h((req) => {
+  const t = tid(req);
+  const c = ownCustomer(t, Number(req.params.id));
+  const k = get(`SELECT k.*, ${proofCol("'khata:'||k.id")}, st.name station_name FROM khata_ledger k LEFT JOIN stations st ON st.id=k.station_id WHERE k.id=? AND k.customer_id=?`, Number(req.params.lid), c.id);
+  if (!k) throw new AppError(404, "Entry nahi mili");
+  const ref = String(k.ref ?? "");
+  const saleId = /^(?:SALE|LATE)-(\d+)$/.exec(ref)?.[1];
+  const sale = saleId ? get(`SELECT s.*, st.name station_name, u.name created_by_name FROM sales s JOIN stations st ON st.id=s.station_id LEFT JOIN users u ON u.id=s.created_by WHERE s.id=? AND st.tenant_id=?`, Number(saleId), t) : null;
+  const canEditSale = Boolean(sale && sale.created_by && !["coupon", "wallet", "loyalty", "wholesale"].includes(sale.payment_method) && !sale.pending);
+  return {
+    entry: k, sale: sale ?? null,
+    customer: { id: c.id, name: c.name, phone: c.phone, balance: c.balance, credit_limit: c.credit_limit },
+    print_url: sale && sale.payment_method === "khata" ? receiptUrl(t, "f", sale.id) : null,
+    can_whatsapp: Boolean(c.phone),
+    can_edit_sale: canEditSale,
+    // a plain manual charge/payment (not a sale / shop / opening / cashier-mirrored row) is edited via the khata edit tool
+    can_edit_entry: !/^(?:SALE|SHOP|oth-|open:|LATE)/.test(ref) && !k.product && !get("SELECT 1 FROM cashier_vouchers WHERE tenant_id=? AND src=?", t, `khata:${k.id}`),
+  };
+}));
+
+/** Resend one khata entry to the customer on WhatsApp (works regardless of the auto-receipt setting). */
+crm.post("/customers/:id/ledger/:lid/whatsapp", requirePerm("khata.manage"), h(async (req) => {
+  const t = tid(req);
+  const c = ownCustomer(t, Number(req.params.id));
+  if (!c.phone) throw new AppError(400, "Is customer ka WhatsApp number nahi — pehle number add karein");
+  const k = get(`SELECT k.*, st.name station_name FROM khata_ledger k LEFT JOIN stations st ON st.id=k.station_id WHERE k.id=? AND k.customer_id=?`, Number(req.params.lid), c.id);
+  if (!k) throw new AppError(404, "Entry nahi mili");
+  const saleId = /^(?:SALE|LATE)-(\d+)$/.exec(String(k.ref ?? ""))?.[1];
+  const sale = saleId ? get("SELECT * FROM sales s JOIN stations st ON st.id=s.station_id WHERE s.id=? AND st.tenant_id=?", Number(saleId), t) : null;
+  const when = new Date(k.created_at).toLocaleString("en-PK", { timeZone: "Asia/Karachi", dateStyle: "medium", timeStyle: "short" });
+  const baqi = sale && (sale.cash_back_litres ?? 0) > 0
+    ? `Parchi ${round2((sale.litres ?? 0) + (sale.cash_back_litres ?? 0))} L: ${round2(sale.litres ?? 0)} L tel + ${round2(sale.cash_back_litres)} L baqi (${[sale.cash_back > 0 && `cash ${pkr(sale.cash_back)}`, (sale.items_cost ?? 0) > 0 && `saman ${pkr(sale.items_cost)}${sale.items_note ? ` ${sale.items_note}` : ""}`, (sale.khareed ?? 0) > 0 && `Khareed ${pkr(sale.khareed)}`].filter(Boolean).join(", ")})`
+    : "";
+  const text = [
+    `⛽ ${k.station_name ?? "Fuel"} — ${when}`,
+    k.type === "credit" ? `Payment mili: ${pkr(k.amount)}`
+      : k.product ? `${PRODUCTS[k.product] ?? k.product}: ${round2(k.litres ?? 0)} L × Rs ${k.rate} = ${pkr(k.amount)}`
+      : `${k.note ?? "Charge"}: ${pkr(k.amount)}`,
+    baqi,
+    [k.vehicle_no && `Gaari ${k.vehicle_no}`, k.slip_no && `Slip ${k.slip_no}`].filter(Boolean).join(" · "),
+    `📒 Khata balance: ${pkr(c.balance)}${c.credit_limit ? ` (limit ${pkr(c.credit_limit)})` : ""}`,
+    "Shukriya! 🙏",
+  ].filter(Boolean).join("\n");
+  await sendWhatsApp(t, c, text, "system", { kind: "khata_entry", ledger_id: k.id });
+  return { ok: true };
 }));
 
 crm.post("/customers/:id/vehicles", requirePerm("customers.create"), h(async (req) => {
