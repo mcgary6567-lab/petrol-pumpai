@@ -5,6 +5,7 @@ import { Plus, Printer, Wallet, Building2, Pencil, Download, Trash2 } from "luci
 import { ImportExport } from "../components/ImportExport";
 import { PrintListButton } from "../components/PrintList";
 import { PartyAdmin } from "../components/PartyAdmin";
+import { DayFeed } from "../components/DayFeed";
 
 import { VoucherSlip } from "./Cashier";
 import { api, linkToken, useApi } from "../lib/api";
@@ -102,6 +103,8 @@ export default function Suppliers() {
       )}
       <Pager {...paged} />
       {!data.length && <div className="card"><Empty>No suppliers yet. Add a depot, then add the company men inside it.</Empty></div>}
+
+      <DayFeed scope="supplier" title="Supplier ki aaj ki entries" />
 
       {open && <SupplierDetail id={open} onClose={() => setOpen(null)} onChanged={reload} depots={depots.data ?? []} onDepots={depots.reload} />}
       {adding && <SupplierForm depots={depots.data ?? []} onClose={() => setAdding(false)} onSaved={() => { setAdding(false); reload(); }} onDepots={depots.reload} />}

@@ -56,7 +56,7 @@ export default function Cashier() {
           </button>
         ))}
       </div>
-      {tab === "desk" && <><PaymentApprovals /><Desk key={key} go={go} onSlip={setSlip} /><DayFeed /></>}
+      {tab === "desk" && <><PaymentApprovals /><Desk key={key} go={go} onSlip={setSlip} /><DayFeed scope="cashier" title="Cashier ki aaj ki entries" /></>}
       {tab === "receive" && <MoneyForm key={`in-${params.toString()}-${key}`} dir="in" preset={Object.fromEntries(params)} onDone={done} />}
       {tab === "pay" && <MoneyForm key={`out-${params.toString()}-${key}`} dir="out" preset={Object.fromEntries(params)} onDone={done} />}
       {tab === "cheques" && <Cheques go={go} />}
