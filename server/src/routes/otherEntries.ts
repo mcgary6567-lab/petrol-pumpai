@@ -18,6 +18,7 @@ import { all, get, run, tx, now, pkDate, pkStart, pkEnd } from "../db.js";
 import { h, parse, tid, requirePerm } from "../auth.js";
 import { AppError, round2, audit } from "../services.js";
 import { otherMoney, accountIdField } from "./banks.js";
+import { backdateAt } from "./backoffice.js";
 
 export const otherEntries = Router();
 
@@ -66,6 +67,8 @@ const body = z.object({
   /** income/expense with a real party: ALSO post it on the party's own khata (expense → they owe us more, income → they
    *  paid us). The money then moves against the party's receivable, not the CEO's P&L — it is the party's udhaar/wasooli. */
   to_party: z.boolean().optional().nullable(),
+  /** a missed entry recorded a few days late on its real date (YYYY-MM-DD) — CEO/manager only, never a closed day */
+  entry_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
 });
 
 /** The entry is a money move on a party's own account (not the CEO's P&L). */
@@ -155,7 +158,8 @@ otherEntries.post("/other-entries", requirePerm("other_entries.manage"), h((req)
   // a discount must reduce a real party's outstanding — it cannot apply to a free-text "other"
   if (b.kind === "discount" && b.party_type === "other") throw new AppError(400, "Discount ke liye koi khata / wholesale / thekedar party chunein (free-text par discount nahi)");
   const name = partyName(t, b.party_type, b.party_id, b.party_name);
-  const at = now();
+  // a missed entry recorded on its real (past) date — CEO/manager only, never a closed day; else books at now
+  const at = backdateAt(req, t, b.entry_date) ?? now();
   const entry = tx(() => {
     const oe = writeOtherRow(t, b, name, by, at, null);
     const src = applyOtherMoney(t, by, b, oe, name, at);

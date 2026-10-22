@@ -12,6 +12,7 @@ import { assertLookup } from "./lookups.js";
 import { sendWhatsApp } from "../whatsapp/cloud.js";
 import { billLink, sendKhataBill, prevMonth, receiptUrl } from "../billing.js";
 import { PRODUCTS } from "../config.js";
+import { backdateAt } from "./backoffice.js";
 import { writeCampaign } from "../ai/agent.js";
 import { announce } from "../notifications.js";
 
@@ -224,7 +225,10 @@ crm.delete("/customers/:id/vehicles/:vid", requirePerm("customers.edit"), h((req
 crm.post("/customers/:id/khata", requireAny("khata.manage", "cash.receive"), h(async (req) => {
   const c = ownCustomer(tid(req), Number(req.params.id));
   const b = parse(z.object({ type: z.enum(["debit", "credit", "refund"]), amount: z.number().positive(), note: z.string().optional(), method: z.string().optional(), notify: z.boolean().default(true), photo_ids: proofPhotos, account_id: accountIdField,
-    cheque_bank: z.string().max(80).optional().nullable(), cheque_no: z.string().max(30).optional().nullable(), cheque_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable() }), req.body);
+    cheque_bank: z.string().max(80).optional().nullable(), cheque_no: z.string().max(30).optional().nullable(), cheque_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
+    entry_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable() }), req.body);
+  // a missed entry recorded on its real (past) date — CEO/manager only, never a closed day (see backdateAt)
+  const at = backdateAt(req, tid(req), b.entry_date);
   if (b.type === "credit" && !b.method) b.method = "Cash"; // a payment with no method is cash — every book reads it the same way
   if (b.type === "debit") b.method = undefined; // a charge moves no cash/bank (the ledger books it as income); cash given to a customer goes through Other entries → party khata
   if (b.type !== "credit" && !can(req.user, "khata.manage")) throw new AppError(403, "The cashier can only receive payments");
@@ -234,7 +238,7 @@ crm.post("/customers/:id/khata", requireAny("khata.manage", "cash.receive"), h(a
     const method = b.method || "Cash";
     const accountId = bankAccountFor(tid(req), b.account_id, method);
     if (!/^cash$/i.test(method.trim()) && !accountId) throw new AppError(400, `${method}: bank / wallet account chunein`);
-    const updated = khataEntry(c.id, "debit", b.amount, `refund:${method}`, b.note ?? "Advance returned", accountId);
+    const updated = khataEntry(c.id, "debit", b.amount, `refund:${method}`, b.note ?? "Advance returned", accountId, at);
     if (b.photo_ids?.length) linkPhotos(tid(req), b.photo_ids, `khata:${get("SELECT MAX(id) id FROM khata_ledger WHERE customer_id=?", c.id)!.id}`);
     if (b.notify && c.phone)
       await sendWhatsApp(tid(req), updated, `💸 ${updated.name}, aap ka advance ${pkr(b.amount)} wapas kar diya gaya (${method}). Naya khata balance: ${dueText(updated.balance)}.`, "system", { kind: "refund_receipt" }).catch(() => undefined);
@@ -248,7 +252,7 @@ crm.post("/customers/:id/khata", requireAny("khata.manage", "cash.receive"), h(a
     if (b.notify) await sendWhatsApp(tid(req), c, `✅ Shukriya ${c.name}! ${pkr(b.amount)} ka cheque mil gaya. Clear hone par khate mein jama ho jayega.`, "system", { kind: "payment_receipt" });
     return { ...get("SELECT * FROM customers WHERE id=?", c.id)!, cheque_pending: true, cheque_id: id };
   }
-  const updated = khataEntry(c.id, b.type, b.amount, b.method ?? null, b.note ?? null, b.type === "credit" ? bankAccountFor(tid(req), b.account_id, b.method) : null);
+  const updated = khataEntry(c.id, b.type, b.amount, b.method ?? null, b.note ?? null, b.type === "credit" ? bankAccountFor(tid(req), b.account_id, b.method) : null, at);
   if (b.photo_ids?.length) linkPhotos(tid(req), b.photo_ids, `khata:${get("SELECT MAX(id) id FROM khata_ledger WHERE customer_id=?", c.id)!.id}`);
   if (b.notify && b.type === "credit")
     await sendWhatsApp(tid(req), updated, `✅ Shukriya ${updated.name}! ${pkr(b.amount)} ki payment mil gayi${b.method ? ` (${b.method})` : ""}. Naya khata balance: ${dueText(updated.balance)}.`, "system", { kind: "payment_receipt" });

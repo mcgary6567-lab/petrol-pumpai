@@ -146,6 +146,7 @@ function EntryForm({ kind, meta, onSaved }: { kind: Kind; meta: { en: string; to
   const [account, setAccount] = useState<number | null>(null);
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [toParty, setToParty] = useState(true); // income/expense with a real party: also post it on their khata
+  const [entryDate, setEntryDate] = useState(""); // a missed entry recorded on its real (past) date
   const { data: parties } = useApi<any>(ptype === "other" ? null : `/other-entries/parties?q=${encodeURIComponent(q)}`);
   const cash = isCashM(method);
 
@@ -155,12 +156,12 @@ function EntryForm({ kind, meta, onSaved }: { kind: Kind; meta: { en: string; to
   useEffect(() => { setAccount(null); }, [method]); // a new method needs its own account chosen
 
   const list = ptype === "other" ? [] : (parties?.[ptype] ?? []);
-  const reset = () => { setParty(null); setOtherName(""); setReason(""); setAmount(""); setQ(""); setMethod("Cash"); setAccount(null); setNotes({}); setToParty(true); };
+  const reset = () => { setParty(null); setOtherName(""); setReason(""); setAmount(""); setQ(""); setMethod("Cash"); setAccount(null); setNotes({}); setToParty(true); setEntryDate(""); };
 
   const submit = () => {
     const amt = Number(amount);
     if (!(amt > 0)) return run(() => Promise.reject(new Error("Amount theek likhein")), "");
-    const b: any = { kind, party_type: ptype, reason, amount: amt,
+    const b: any = { kind, party_type: ptype, reason, amount: amt, ...(entryDate ? { entry_date: entryDate } : {}),
       ...(ptype === "other" ? { party_name: otherName } : { party_id: party?.id }),
       ...(kind === "discount" ? {} : { method, account_id: cash ? null : account, to_party: ptype !== "other" && toParty,
         notes: cash ? Object.fromEntries(Object.entries(notes).filter(([, n]) => Number(n) > 0).map(([k, n]) => [k, Number(n)])) : undefined }) };
@@ -229,6 +230,7 @@ function EntryForm({ kind, meta, onSaved }: { kind: Kind; meta: { en: string; to
         </div>
       )}
       {kind === "discount" && <p className="rounded-lg bg-amber-50 p-2 text-xs text-amber-800">Discount se is party ka outstanding {pkr(Number(amount) || 0)} kam ho jayega, aur profit bhi utna kam hoga.</p>}
+      <Field label="Entry ki date (agar aaj ki nahi reh gayi) · پرانی تاریخ"><input className="input" type="date" max={new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 10)} value={entryDate} onChange={(e) => setEntryDate(e.target.value)} /></Field>
       <button disabled={busy || !ready} onClick={submit} className={`btn-primary w-full ${!ready ? "opacity-60" : ""}`}>{busy ? "Saving…" : `${meta.en} save karein`}</button>
     </div>
   );

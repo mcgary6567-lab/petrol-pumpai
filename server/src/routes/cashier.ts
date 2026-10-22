@@ -18,7 +18,7 @@ import { sendDirect, sendWhatsApp } from "../whatsapp/cloud.js";
 import { linkPhotos, proofPhotos, proofCol, requireProof, isCheque } from "./capture.js";
 import { bankAccountFor, accountName, bankAccounts, accountIdField, posMap, POS_DIGITAL, DEPOT_PAY, notDepot, cardFees } from "./banks.js";
 import { taxSettings, splitTax } from "./tax.js";
-import { cashPosition, handoverMode } from "./backoffice.js";
+import { cashPosition, handoverMode, backdateAt } from "./backoffice.js";
 import { chargeShortage } from "./staff.js";
 import { clientDue, clientDueAll, insertTxn } from "./wholesale.js";
 import { promises } from "./wholesaleDesk.js";
@@ -130,6 +130,8 @@ const moneyBody = z.object({
   supplier_id: z.number().int().optional().nullable(), // method "Paid to depot": the depot the client paid
   /** cash note breakdown counted at the counter: { "5000": 2, "1000": 10, ... } */
   notes: z.record(z.enum(["5000", "1000", "500", "100", "50", "20", "10"]), z.number().int().min(0).max(100_000)).optional().nullable(),
+  /** a missed entry recorded a few days late on its real date (YYYY-MM-DD) — CEO/manager only, never a closed day */
+  entry_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
 });
 
 /** Keep only non-zero counts; return a JSON string for a cash voucher, else null. */
@@ -200,6 +202,9 @@ async function doReceive(req: Request, b: z.infer<typeof receiveBody>) {
   const v = voucher(req, { direction: "in", party_type: b.party_type, party_id: p?.id, party_name: name, amount: b.amount, method: cheque ? "Cheque" : b.method,
     account_id: account, category: b.category, ref: b.cheque?.cheque_no ?? b.ref, note: b.note, src, notes_json: notesJson(b.method, b.notes) });
   if (!src) linkPhotos(t, b.photo_ids, `voucher:${v.id}`);
+  // a missed receipt recorded on its real (past) date — move the voucher and its ledger leg into that day's books
+  const at = backdateAt(req, t, b.entry_date);
+  if (at) { run("UPDATE cashier_vouchers SET created_at=? WHERE id=?", at, v.id); backdateSrc(t, src, at); v.created_at = at; }
   return { voucher: v, balance_after: p ? balanceOf(b.party_type, p.id) : null, cheque_pending: cheque, message,
     ...(supplier ? { depot: { id: supplier.id, name: supplier.name, owed_after: round2(supplierOwed(supplier.id)) } } : {}) };
 }
@@ -285,6 +290,9 @@ async function doPay(req: Request, b: z.infer<typeof payBody>, skipCashCheck = f
   const v = { ...voucher(req, { direction: "out", party_type: b.party_type, party_id: p?.id, party_name: name, amount: b.amount, method: cheque ? "Cheque" : b.method,
     account_id: account, category: b.category, ref: b.cheque?.cheque_no ?? b.ref, note: b.note, src, notes_json: notesJson(b.method, b.notes) }), pending: approval === "pending" ? 1 : 0 };
   if (!src) linkPhotos(t, b.photo_ids, `voucher:${v.id}`);
+  // a missed payment recorded on its real (past) date — move the voucher and its ledger leg into that day's books
+  const at = backdateAt(req, t, b.entry_date);
+  if (at) { run("UPDATE cashier_vouchers SET created_at=? WHERE id=?", at, v.id); backdateSrc(t, src, at); v.created_at = at; }
   return { voucher: v, balance_after: p ? balanceOf(b.party_type, p.id) : null, cheque_pending: cheque, message, approval };
 }
 

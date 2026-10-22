@@ -180,7 +180,9 @@ function CustomerForm({ open, onClose, onSaved, initial }: { open: boolean; onCl
 }
 
 function CustomerDetail({ id, onClose, onChanged }: { id: string; onClose: () => void; onChanged: () => void }) {
-  const { can } = useAuth();
+  const { can, user } = useAuth();
+  const canBackdate = ["admin", "manager"].includes(user?.role ?? "");
+  const [entryDate, setEntryDate] = useState("");
   const { data: c, reload, error } = useApi<any>(`/customers/${id}`);
   const { busy, run } = useAction();
   const [pay, setPay] = useState<"credit" | "debit" | "refund" | null>(null);
@@ -240,12 +242,13 @@ function CustomerDetail({ id, onClose, onChanged }: { id: string; onClose: () =>
             <form className="flex flex-wrap items-end gap-2 rounded-lg bg-slate-50 p-3" onSubmit={async (e) => {
               e.preventDefault();
               const isCash = /^cash$/i.test(method.trim());
-              const r = await run(() => api(`/customers/${c.id}/khata`, { body: { type: pay, amount: Number(amount), method, note: pay === "credit" ? "Payment received" : pay === "refund" ? "Advance returned" : "Manual charge", photo_ids: photos, account_id: pay === "credit" ? account : pay === "refund" ? (isCash ? null : account) : null } }), pay === "credit" ? "Payment recorded & receipt sent on WhatsApp" : pay === "refund" ? "Advance wapas ho gaya" : "Charge added");
-              if (r) { setPay(null); setAmount(""); setPhotos([]); refresh(); }
+              const r = await run(() => api(`/customers/${c.id}/khata`, { body: { type: pay, amount: Number(amount), method, note: pay === "credit" ? "Payment received" : pay === "refund" ? "Advance returned" : "Manual charge", photo_ids: photos, account_id: pay === "credit" ? account : pay === "refund" ? (isCash ? null : account) : null, ...(entryDate ? { entry_date: entryDate } : {}) } }), pay === "credit" ? "Payment recorded & receipt sent on WhatsApp" : pay === "refund" ? "Advance wapas ho gaya" : "Charge added");
+              if (r) { setPay(null); setAmount(""); setPhotos([]); setEntryDate(""); refresh(); }
             }}>
               <Field label={pay === "credit" ? "Payment amount · رقم وصول" : pay === "refund" ? "Wapas amount · واپس رقم" : "Charge amount · کھاتے میں رقم"}><input className="input w-40" type="number" inputMode="decimal" min={1} required value={amount} onChange={(e) => setAmount(e.target.value)} /></Field>
               {pay === "credit" && <Field label="Method · طریقہ"><select className="input w-40" value={method} onChange={(e) => setMethod(e.target.value)}>{["Cash", "JazzCash", "Easypaisa", "Raast", "Bank transfer", "Cheque"].map((m) => <option key={m}>{m}</option>)}</select></Field>}
               {pay === "refund" && <Field label="Method · طریقہ"><select className="input w-40" value={method} onChange={(e) => { setMethod(e.target.value); setAccount(null); }}>{["Cash", "JazzCash", "Easypaisa", "Raast", "Bank transfer", "Online"].map((m) => <option key={m}>{m}</option>)}</select></Field>}
+              {canBackdate && <Field label="Entry ki date (agar aaj ki nahi) · پرانی تاریخ"><input className="input w-44" type="date" max={new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 10)} value={entryDate} onChange={(e) => setEntryDate(e.target.value)} /></Field>}
               {pay === "debit" && <span className="text-xs text-slate-500">Charge sirf khate me likhta hai (cash nahi hilta). Cash dena ho to Other entries → party khata.</span>}
               {pay === "refund" && <span className="w-full text-xs text-slate-500">Customer ka advance ({pkr(Math.max(0, -c.balance))}) cash/bank se wapas — cash book se niklega.</span>}
               {(pay === "credit" || (pay === "refund" && !/^cash$/i.test(method.trim()))) && <div className="w-full"><AccountPicker method={method} value={account} onChange={setAccount} /></div>}

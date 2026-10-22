@@ -376,7 +376,8 @@ function MoneyForm({ dir, preset, onDone }: { dir: "in" | "out"; preset: Record<
   const types = dir === "in" ? IN_TYPES : OUT_TYPES;
   const [type, setType] = useState<string>(types.some((t) => t[0] === preset.type) ? preset.type : types[0][0]);
   const [party, setParty] = useState<any>(null);
-  const [f, setF] = useState({ amount: preset.amount ?? "", method: preset.method ?? "Cash", party_name: "", category: "", note: "", ref: "", bank: "", cheque_no: "", cheque_date: today(), notify: true });
+  const [f, setF] = useState({ amount: preset.amount ?? "", method: preset.method ?? "Cash", party_name: "", category: "", note: "", ref: "", bank: "", cheque_no: "", cheque_date: today(), notify: true, entry_date: "" });
+  const canBackdate = ["admin", "manager"].includes(useAuth().user?.role ?? "");
   const [account, setAccount] = useState<number | null>(null);
   const [depotId, setDepotId] = useState<number | null>(null);
   const [photos, setPhotos] = useState<number[]>([]);
@@ -409,6 +410,7 @@ function MoneyForm({ dir, preset, onDone }: { dir: "in" | "out"; preset: Record<
       account_id: isCash(f.method) || depot ? null : account, ...(depot ? { supplier_id: depotId } : {}), ref: f.ref || null, note: f.note || null, photo_ids: photos, notify: f.notify,
       cheque: cheque ? { bank: ourBank ?? f.bank, cheque_no: f.cheque_no, cheque_date: f.cheque_date } : null,
       notes: isCash(f.method) ? Object.fromEntries(Object.entries(notes).filter(([, n]) => Number(n) > 0).map(([k, n]) => [k, Number(n)])) : undefined,
+      ...(canBackdate && f.entry_date ? { entry_date: f.entry_date } : {}),
     };
     const r = await run(() => api(`/cashier/${dir === "in" ? "receive" : "pay"}`, { body }), (x: any) => x.pending ? x.message : `${x.voucher.no} saved · محفوظ`);
     if (r?.pending) { alert(r.message); return; }
@@ -494,6 +496,7 @@ function MoneyForm({ dir, preset, onDone }: { dir: "in" | "out"; preset: Record<
         <Field label="Ref / slip no. · حوالہ"><input className="input" value={f.ref} onChange={(e) => set("ref", e.target.value)} /></Field>
         <Field label="Note · نوٹ"><input className="input" value={f.note} onChange={(e) => set("note", e.target.value)} /></Field>
       </div>
+      {canBackdate && <Field label="Entry ki date (agar aaj ki nahi reh gayi) · پرانی تاریخ"><input className="input" type="date" max={today()} value={f.entry_date} onChange={(e) => set("entry_date", e.target.value)} /></Field>}
       <ProofPhotos value={photos} onChange={setPhotos} required={cheque} hint={cheque ? "photo of the cheque" : depot ? "depot's deposit slip / receipt" : "receipt / slip / screenshot"} />
       {dir === "in" && type === "khata" && <label className="flex items-center gap-2 py-1 text-sm"><input type="checkbox" className="h-5 w-5 shrink-0" checked={f.notify} onChange={(e) => set("notify", e.target.checked)} /> Send the receipt on WhatsApp · <Ur>رسید واٹس ایپ پر</Ur></label>}
 

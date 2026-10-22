@@ -264,6 +264,17 @@ export function guardClosedDay(req: { user?: { role: string } }, t: number, date
   const closed = lastClosedDay(t);
   if (closed && date.slice(0, 10) <= closed && req.user?.role !== "admin") throw new AppError(400, `${date.slice(0, 10)} is closed. Only the admin can change it.`);
 }
+/** A missed entry recorded a few days late on its real date. Returns the created_at timestamp for that day (noon PK) or
+ *  undefined for "today / now". Only the CEO or a manager may back-date; a closed day is admin-only; the future is refused. */
+export function backdateAt(req: { user?: { role: string } }, t: number, entry_date?: string | null): string | undefined {
+  if (!entry_date) return undefined;
+  const today = pkDate();
+  if (entry_date >= today) return undefined; // today (or anything not earlier) books at the real time, as usual
+  if (!["admin", "manager"].includes(req.user?.role ?? "")) throw new AppError(403, "Purani date par entry sirf CEO ya manager daal sakta hai");
+  if (entry_date < "2000-01-01") throw new AppError(400, "Date theek nahi");
+  guardClosedDay(req, t, entry_date); // a closed day is CEO-only
+  return new Date(`${entry_date}T12:00:00+05:00`).toISOString();
+}
 const dayToken = (t: number, day: string) => jwt.sign({ day, t }, config.jwtSecret, { expiresIn: "400d" });
 
 export async function closeDay(t: number, day = pkDate(Date.now() - 86_400_000)) {
