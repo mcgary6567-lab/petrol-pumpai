@@ -46,6 +46,41 @@ type Tab = (typeof TABS)[number][0];
 type Col = { h: string; v: (r: any) => ReactNode; csv?: (r: any) => unknown; right?: boolean };
 type TableDef = { title: string; rows: any[]; cols: Col[] };
 
+// Urdu for the common table headers across every tab — applied by a lookup so column definitions stay untouched.
+const TH_UR: Record<string, string> = {
+  "Date": "تاریخ", "Period": "عرصہ", "Product": "پراڈکٹ", "Station": "اسٹیشن", "Meter": "میٹر", "Method": "طریقہ",
+  "Litres": "لیٹر", "Amount": "رقم", "Transactions": "لین دین", "Shifts": "شفٹیں", "Salesmen": "سیلزمین",
+  "Customer": "گاہک", "Type": "قسم", "Visits": "چکر", "Name": "نام", "Phone": "فون", "Reason": "وجہ",
+  "Category": "قسم", "Paid to": "کس کو دیا", "Note": "نوٹ", "By": "کس نے", "Entries": "انٹریز", "Entered by": "داخل کیا",
+  "Credit given": "ادھار دیا", "Collected": "وصول", "Balance now": "موجودہ بیلنس", "Limit": "حد", "Credit limit": "ادھار کی حد",
+  "Amount due": "باقی رقم", "Last payment": "آخری ادائیگی", "Aging": "عمر", "Client": "کلائنٹ",
+  "Supplied L": "سپلائی لیٹر", "Returned L": "واپس لیٹر", "Net billed": "خالص بل", "Received": "وصول", "Due now": "ابھی باقی",
+  "Net litres": "خالص لیٹر", "Attendant": "سیلزمین", "Expected": "متوقع", "Counted": "گنا", "Variance": "فرق", "Worst": "بدترین",
+  "Retail": "ریٹیل", "Expenses": "اخراجات", "Petrol L": "پیٹرول لیٹر", "Hi-Octane L": "ہائی آکٹین لیٹر", "Diesel L": "ڈیزل لیٹر",
+  "Wholesale": "ہول سیل", "Wholesale L": "ہول سیل لیٹر", "Tank": "ٹینک", "Capacity": "گنجائش", "Stock L": "اسٹاک لیٹر",
+  "Cost": "لاگت", "Tanker": "ٹینکر", "Supplier": "سپلائر", "Invoice L": "انوائس لیٹر", "Rate": "ریٹ", "Opening": "ابتدائی",
+};
+/** English column header with its Urdu underneath (when known). */
+const Th = ({ h }: { h: string }) => (<>{h}{TH_UR[h] ? <Ur className="block text-[10px] font-normal opacity-60">{TH_UR[h]}</Ur> : null}</>);
+
+/** Dependency-free sparkline: a tiny trend line for a KPI card. */
+function Sparkline({ data, color = "#2a78d6", width = 108, height = 26 }: { data: number[]; color?: string; width?: number; height?: number }) {
+  const pts = (data ?? []).filter((n) => typeof n === "number" && isFinite(n));
+  if (pts.length < 2) return null;
+  const min = Math.min(...pts), max = Math.max(...pts), span = max - min || 1;
+  const dx = width / (pts.length - 1);
+  const xy = pts.map((v, i) => [i * dx, height - 2 - ((v - min) / span) * (height - 4)]);
+  const line = xy.map(([x, y], i) => `${i ? "L" : "M"}${x.toFixed(1)} ${y.toFixed(1)}`).join(" ");
+  const area = `${line} L${width} ${height} L0 ${height} Z`;
+  return (
+    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className="overflow-visible" aria-hidden>
+      <path d={area} fill={color} opacity={0.08} />
+      <path d={line} fill="none" stroke={color} strokeWidth={1.5} strokeLinejoin="round" strokeLinecap="round" />
+      <circle cx={xy[xy.length - 1][0]} cy={xy[xy.length - 1][1]} r={2} fill={color} />
+    </svg>
+  );
+}
+
 function Table({ title, rows, cols }: TableDef) {
   const [q, setQ] = useState("");
   // searchable text of a row = each column's CSV value (or its plain string/number cell)
@@ -66,18 +101,18 @@ function Table({ title, rows, cols }: TableDef) {
             return (
               <li key={i} className="px-4 py-2.5 text-sm">
                 <div className="min-w-0">{names.map((c, j) => <span key={c.h} className={j === 0 ? "block font-medium" : "mr-2 text-xs text-slate-500"}>{c.v(r)}</span>)}</div>
-                {nums.length > 0 && <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-slate-500">{nums.map((c) => <span key={c.h} className="whitespace-nowrap">{c.h} <b className="tabular-nums text-slate-800">{c.v(r)}</b></span>)}</div>}
+                {nums.length > 0 && <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-slate-500">{nums.map((c) => <span key={c.h} className="whitespace-nowrap">{c.h}{TH_UR[c.h] ? <Ur className="opacity-60"> {TH_UR[c.h]}</Ur> : null} <b className="tabular-nums text-slate-800">{c.v(r)}</b></span>)}</div>}
               </li>
             );
           })}
         </ul>
         <div className="hidden max-h-[480px] overflow-auto sm:block print:block print:max-h-none">
           <table className="w-full">
-            <thead className="sticky top-0"><tr>{cols.map((c) => <th key={c.h} className={`th ${c.right ? "text-right" : ""}`}>{c.h}</th>)}</tr></thead>
+            <thead className="sticky top-0"><tr>{cols.map((c) => <th key={c.h} className={`th ${c.right ? "text-right" : ""}`}><Th h={c.h} /></th>)}</tr></thead>
             <tbody>{shown.map((r, i) => <tr key={i}>{cols.map((c) => <td key={c.h} className={`td text-sm ${c.right || c.h === "Date" ? "whitespace-nowrap" : ""} ${c.right ? "text-right tabular-nums" : ""}`}>{c.v(r)}</td>)}</tr>)}</tbody>
           </table>
         </div>
-      </>) : <Empty>Nothing in this period</Empty>}
+      </>) : <Empty>Is period mein kuch nahi · <Ur>اس عرصے میں کچھ نہیں</Ur></Empty>}
     </div>
   );
 }
@@ -174,6 +209,9 @@ function Overview({ r }: { r: any }) {
   const est = s.gross_profit_estimate != null;
   const prev = s.prev;
   const margin = s.revenue ? (s.net_profit_estimate / s.revenue) * 100 : null;
+  // per-bucket trend lines for the KPI sparklines (from the same data the chart below uses)
+  const revSeries = (r.trend ?? []).map((b: any) => (b.retail ?? 0) + (b.wholesale ?? 0));
+  const expSeries = (r.trend ?? []).map((b: any) => b.expenses ?? 0);
   return (
     <>
       {/* bank-statement style account band: the period's bottom line at a glance, with last-period comparison */}
@@ -202,11 +240,28 @@ function Overview({ r }: { r: any }) {
       </div>
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Stat label={<Lbl en="Total revenue" ur="کل آمدن" block />} value={pkrShort(s.revenue)} tone="green" hint={<>Retail {pkrShort(s.retail_sales)} ({num(s.retail_litres)} L) · Wholesale {pkrShort(s.wholesale_net)} ({num(s.wholesale_litres)} L){prev && <div className="mt-0.5"><Delta now={s.revenue} prev={prev.revenue} /></div>}</>} />
-        <Stat label={<Lbl en="Expenses" ur="اخراجات" block />} value={pkrShort(s.expenses)} tone="red" hint={<>{r.expenses.count} entries{prev && <div className="mt-0.5"><Delta now={s.expenses} prev={prev.expenses} lowerIsBetter /></div>}</>} />
+        <Stat label={<Lbl en="Total revenue" ur="کل آمدن" block />} value={pkrShort(s.revenue)} tone="green" hint={<>Retail {pkrShort(s.retail_sales)} ({num(s.retail_litres)} L) · Wholesale {pkrShort(s.wholesale_net)} ({num(s.wholesale_litres)} L){prev && <div className="mt-0.5"><Delta now={s.revenue} prev={prev.revenue} /></div>}<Sparkline data={revSeries} color="#16a34a" /></>} />
+        <Stat label={<Lbl en="Expenses" ur="اخراجات" block />} value={pkrShort(s.expenses)} tone="red" hint={<>{r.expenses.count} entries{prev && <div className="mt-0.5"><Delta now={s.expenses} prev={prev.expenses} lowerIsBetter /></div>}<Sparkline data={expSeries} color="#e11d48" /></>} />
         <Stat label={<Lbl en="Gross profit (est.)" ur="مجموعی منافع" block />} value={est ? pkrShort(s.gross_profit_estimate) : "—"} tone="blue" hint={<>{est ? (s.cost_assumed_products?.length ? `${s.cost_assumed_products.join(", ")}: khareed rate nahi, pump price par cost mana (0 margin) — Opening balances me rate likhein` : `Revenue − fuel cost ${pkrShort(s.fuel_cost_estimate)}`) : "Add purchase rates on deliveries"}{prev && est && <div className="mt-0.5"><Delta now={s.gross_profit_estimate} prev={prev.gross_profit_estimate} /></div>}</>} />
         <Stat label={<Lbl en="Net profit (est.)" ur="خالص منافع" block />} value={est ? pkrShort(s.net_profit_estimate) : "—"} tone={est && s.net_profit_estimate < 0 ? "red" : "green"} hint={<>Gross profit − expenses{prev && est && <div className="mt-0.5"><Delta now={s.net_profit_estimate} prev={prev.net_profit_estimate} /></div>}</>} />
       </div>
+
+      {/* this period vs the one before it, side by side — each metric scaled to its own pair so nothing drowns out */}
+      {prev && <div className="card p-4">
+        <h3 className="mb-3 text-sm font-semibold">Is period vs pichla · <Ur className="text-slate-500">اس عرصے کا پچھلے سے موازنہ</Ur></h3>
+        <div className="space-y-3">
+          {[["Revenue", "آمدن", s.revenue, prev.revenue, "#16a34a"], ["Expenses", "اخراجات", s.expenses, prev.expenses, "#e11d48"], ["Net profit", "خالص منافع", s.net_profit_estimate, prev.net_profit_estimate, "#2a78d6"]].map(([en, ur, now, pv, c]: any) => {
+            const mx = Math.max(Math.abs(now ?? 0), Math.abs(pv ?? 0)) || 1;
+            return (
+              <div key={en} className="text-xs">
+                <div className="mb-1 flex justify-between"><span className="font-medium text-slate-700">{en} · <Ur className="text-slate-400">{ur}</Ur></span></div>
+                <div className="flex items-center gap-2"><span className="w-20 shrink-0 text-slate-500">Ab · <Ur>اب</Ur></span><div className="h-3 flex-1 rounded-full bg-slate-100"><div className="h-full rounded-full" style={{ width: `${(Math.abs(now ?? 0) / mx) * 100}%`, background: c }} /></div><span className="w-24 shrink-0 text-right font-semibold tabular-nums">{pkrShort(now ?? 0)}</span></div>
+                <div className="mt-1 flex items-center gap-2"><span className="w-20 shrink-0 text-slate-400">Pichla · <Ur>پچھلا</Ur></span><div className="h-3 flex-1 rounded-full bg-slate-100"><div className="h-full rounded-full bg-slate-300" style={{ width: `${(Math.abs(pv ?? 0) / mx) * 100}%` }} /></div><span className="w-24 shrink-0 text-right tabular-nums text-slate-500">{pkrShort(pv ?? 0)}</span></div>
+              </div>
+            );
+          })}
+        </div>
+      </div>}
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
         <div className="card p-4">
           <h3 className="mb-2 flex items-center gap-1.5 text-sm font-semibold"><ArrowDownLeft size={15} className="text-emerald-600" /> Money in · <Ur className="text-slate-500">پیسہ آیا</Ur></h3>
