@@ -129,6 +129,9 @@ export function bankMoves(t: number, accountId?: number | null, showPrivate = tr
       FROM wholesale_txns x JOIN wholesale_clients c ON c.id=x.client_id WHERE x.tenant_id=? AND x.type='payment' AND x.voided=0${acc}`, t, ...A),
     ...all(`SELECT x.account_id, x.created_at at, x.amount, 'receipt' kind, 'Khata payment — ' || c.name || ' (' || COALESCE(x.ref,'') || ')' text, NULL who, 'khata:' || x.id ref
       FROM khata_ledger x JOIN customers c ON c.id=x.customer_id WHERE c.tenant_id=? AND x.type='credit'${acc}`, t, ...A),
+    // a customer's advance returned by bank/online (ref refund:<method>) leaves the bank, just like the cash one leaves the drawer
+    ...all(`SELECT x.account_id, x.created_at at, -x.amount amount, 'payment' kind, 'Advance wapas — ' || c.name || ' (' || COALESCE(x.ref,'') || ')' text, NULL who, 'khata:' || x.id ref
+      FROM khata_ledger x JOIN customers c ON c.id=x.customer_id WHERE c.tenant_id=? AND x.type='debit' AND x.ref LIKE 'refund:%'${acc}`, t, ...A),
     ...all(`SELECT x.account_id, x.txn_date at, x.amount, 'receipt' kind, 'Carriage payment — ' || k.name || ' (' || COALESCE(x.method,'') || COALESCE(' ' || x.ref, '') || ')' text, x.created_by who, 'ctx:' || x.id ref
       FROM carriage_txns x JOIN thekedars k ON k.id=x.thekedar_id WHERE x.tenant_id=? AND x.type='payment' AND x.voided=0${acc}`, t, ...A),
     ...all(`SELECT x.account_id, x.txn_date at, -x.amount amount, 'payment' kind, 'Paid supplier — ' || s.name || ' (' || COALESCE(x.method,'') || COALESCE(' ' || x.ref, '') || ')' text, x.created_by who, 'stx:' || x.id ref

@@ -157,14 +157,18 @@ crm.get("/customers/:id/ledger/:lid/detail", requirePerm("khata.manage"), h((req
   const saleId = /^(?:SALE|LATE)-(\d+)$/.exec(ref)?.[1];
   const sale = saleId ? get(`SELECT s.*, st.name station_name, u.name created_by_name FROM sales s JOIN stations st ON st.id=s.station_id LEFT JOIN users u ON u.id=s.created_by WHERE s.id=? AND st.tenant_id=?`, Number(saleId), t) : null;
   const canEditSale = Boolean(sale && sale.created_by && !["coupon", "wallet", "loyalty", "wholesale"].includes(sale.payment_method) && !sale.pending);
+  // how the money moved on this ledger line: a payment (credit) carries the method in its ref; an "advance wapas" refund
+  // (debit, ref refund:<method>) carries it after the colon; a plain charge moves no cash (just the khata).
+  const method = k.type === "credit" ? (k.ref || "Cash") : ref.startsWith("refund:") ? (ref.slice("refund:".length) || "Cash") : null;
+  const accountName = k.account_id ? (() => { const a = get("SELECT bank, title, account_no FROM bank_accounts WHERE id=? AND tenant_id=?", k.account_id, t); return a ? `${a.bank}${a.title ? ` · ${a.title}` : ""}${a.account_no ? ` ·${String(a.account_no).slice(-4)}` : ""}` : null; })() : null;
   return {
-    entry: k, sale: sale ?? null,
+    entry: k, sale: sale ?? null, method, account_name: accountName, is_refund: ref.startsWith("refund:"),
     customer: { id: c.id, name: c.name, phone: c.phone, balance: c.balance, credit_limit: c.credit_limit },
     print_url: sale && sale.payment_method === "khata" ? receiptUrl(t, "f", sale.id) : null,
     can_whatsapp: Boolean(c.phone),
     can_edit_sale: canEditSale,
-    // a plain manual charge/payment (not a sale / shop / opening / cashier-mirrored row) is edited via the khata edit tool
-    can_edit_entry: !/^(?:SALE|SHOP|oth-|open:|LATE)/.test(ref) && !k.product && !get("SELECT 1 FROM cashier_vouchers WHERE tenant_id=? AND src=?", t, `khata:${k.id}`),
+    // a manual charge / payment / refund is edited via the khata full-edit tool (it also carries a mirroring cashier voucher along)
+    can_edit_entry: !/^(?:SALE|SHOP|oth-|open:|LATE)/.test(ref) && !k.product,
   };
 }));
 

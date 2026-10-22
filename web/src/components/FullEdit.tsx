@@ -31,7 +31,8 @@ export function FullEditEntry({ kind, id, onClose, onDone }: { kind: FullEditKin
   const e = data?.entry;
   const realKind: string = data?.kind ?? kind;
   const withLitres = useMemo(() => !!f && realKind !== "khata" && ["supply", "return", "purchase", "carriage"].includes(f.type), [f, realKind]);
-  const moneyRow = !!f && ((realKind === "khata" && f.type === "credit") || f.type === "payment");
+  // a khata payment (credit) and a khata "advance wapas" refund (debit) both move cash/bank → show the method + account
+  const moneyRow = !!f && ((realKind === "khata" && (f.type === "credit" || (data?.entry?.is_refund && f.type === "debit"))) || f.type === "payment");
   const amount = useMemo(() => { if (!f) return 0; const l = Number(f.litres), r = Number(f.rate); return withLitres && realKind !== "carriage" && l > 0 && r > 0 && (f.amountTouched !== true) ? Math.round(l * r * 100) / 100 : Number(f.amount) || 0; }, [f, withLitres, realKind]);
   const party = data?.parties?.find((p: any) => p.id === f?.party_id);
   const shownParties = useMemo(() => (data?.parties ?? []).filter((p: any) => !q || `${p.name} ${p.sub}`.toLowerCase().includes(q.toLowerCase())).slice(0, 60), [data, q]);

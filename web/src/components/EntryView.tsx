@@ -83,7 +83,9 @@ export function EntryView({ customerId, lineId, canEdit, onClose, onChanged }: {
           <div className="rounded-xl border border-slate-200 p-3">
             <Row k="Kism" v={e.type === "credit" ? "Payment (jama)" : "Charge (udhaar)"} />
             <Row k="Tareekh / waqt" v={dt(e.created_at)} />
-            <Row k="Amount" v={<span className={e.type === "credit" ? "text-emerald-700" : ""}>{e.type === "credit" ? "−" : "+"}{pkr(e.amount)}</span>} />
+            <Row k="Amount" v={<span className={data.is_refund ? "text-rose-700" : e.type === "credit" ? "text-emerald-700" : ""}>{data.is_refund ? "− " : e.type === "credit" ? "−" : "+"}{pkr(e.amount)}{data.is_refund ? " (paisa bahar)" : ""}</span>} />
+            <Row k="Payment method · طریقہ" v={data.method ? <span className="capitalize">{data.method}{data.is_refund ? " (advance wapas)" : ""}</span> : null} />
+            <Row k="Bank / account" v={data.account_name} />
             <Row k="Fuel" v={e.product ? (PRODUCTS[e.product] ?? e.product) : null} />
             <Row k="Litres" v={e.litres != null ? `${num(e.litres, 2)} L` : null} />
             <Row k="Rate" v={e.rate != null ? `Rs ${Number(e.rate).toFixed(2)}/L` : null} />

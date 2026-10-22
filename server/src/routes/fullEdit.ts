@@ -68,9 +68,13 @@ function lockedWhy(t: number, kind: Kind, x: Row): string | null {
 function load(t: number, kind: Kind, id: number) {
   if (kind === "khata") {
     const x = get("SELECT k.*, c.name party_name, c.tenant_id FROM khata_ledger k JOIN customers c ON c.id=k.customer_id WHERE k.id=? AND c.tenant_id=?", id, t);
+    // an "advance wapas" refund is a debit whose ref is "refund:<method>" and which actually pays cash/bank out — treat it
+    // as a money row (method + account) so the method can be viewed and changed, just like a payment
+    const refund = Boolean(x && x.type === "debit" && String(x.ref ?? "").startsWith("refund:"));
     return x && { x, party_id: x.customer_id as number, party_name: x.party_name as string, type: x.type as string, txn_date: x.created_at as string, amount: x.amount as number,
-      litres: x.litres ?? null, rate: x.rate ?? null, product: x.product ?? null, method: x.type === "credit" ? (x.ref ?? null) : null, account_id: x.account_id ?? null,
-      ref: x.type === "credit" ? null : (x.ref ?? null), note: x.note ?? null, vehicle_no: x.vehicle_no ?? null, slip_no: x.slip_no ?? null, created_by: null, voided: false };
+      litres: x.litres ?? null, rate: x.rate ?? null, product: x.product ?? null,
+      method: x.type === "credit" ? (x.ref ?? null) : refund ? (String(x.ref).slice("refund:".length) || "Cash") : null, account_id: x.account_id ?? null,
+      ref: x.type === "credit" || refund ? null : (x.ref ?? null), note: x.note ?? null, vehicle_no: x.vehicle_no ?? null, slip_no: x.slip_no ?? null, created_by: null, voided: false, is_refund: refund };
   }
   if (kind === "wholesale") {
     const x = get("SELECT w.*, c.name party_name FROM wholesale_txns w JOIN wholesale_clients c ON c.id=w.client_id WHERE w.id=? AND w.tenant_id=?", id, t);
@@ -132,7 +136,7 @@ fullEdit.get("/corrections/entry/:kind/:id", requirePerm("entries.edit"), h((req
   if (e.voided) throw new AppError(400, "Ye entry pehle hi void hai");
   const locked = lockedWhy(t, kind, e.x);
   const { x, ...entry } = e;
-  const hasMoney = (kind === "khata" && entry.type === "credit") || entry.type === "payment";
+  const hasMoney = (kind === "khata" && (entry.type === "credit" || (entry as { is_refund?: boolean }).is_refund)) || entry.type === "payment";
   return {
     kind, id, party_label: partyLabel[kind], entry: { ...entry, day: dayOf(entry.txn_date), has_litres: kind !== "khata" && (entry.type === "supply" || entry.type === "return" || entry.type === "purchase" || entry.type === "carriage"), has_money: hasMoney, tank_id: x.tank_id ?? null },
     voucher: voucher ? { id: voucher.id, no: `CV-${String(voucher.id).padStart(5, "0")}` } : null,
@@ -179,7 +183,9 @@ fullEdit.post("/corrections/entry/:kind/:id/full-edit", requirePerm("entries.edi
   const product = withLitres ? (b.product !== undefined ? b.product : e.product) : null;
   let amount = b.amount != null ? round2(b.amount) : withLitres && litres && rate ? round2(litres * rate) : round2(e.amount);
   if (type === "adjustment" ? amount === 0 : amount <= 0) throw new AppError(400, "Amount theek nahi");
-  const moneyRow = (kind === "khata" && type === "credit") || type === "payment";
+  // a khata "advance wapas" refund (debit, ref refund:<method>) is a money row too — keep it one unless the type changes
+  const wasRefund = kind === "khata" && x.type === "debit" && String(x.ref ?? "").startsWith("refund:");
+  const moneyRow = (kind === "khata" && (type === "credit" || (type === "debit" && wasRefund))) || type === "payment";
   const method = moneyRow ? (b.method !== undefined ? (b.method || "Cash") : (e.method || "Cash")) : null;
   if (method && /cheque/i.test(method)) throw new AppError(400, "Cheque method yahan se nahi — cheque register se banayein.");
   const account = moneyRow && method && !isCashMethod(method) ? bankAccountFor(t, b.account_id !== undefined ? b.account_id : e.account_id, method) : null;
@@ -195,7 +201,9 @@ fullEdit.post("/corrections/entry/:kind/:id/full-edit", requirePerm("entries.edi
       // reverse the old row's balance move and drop it; post the corrected one on the chosen customer
       run("UPDATE customers SET balance = balance + ? WHERE id=?", x.type === "credit" ? x.amount : -x.amount, x.customer_id);
       run("DELETE FROM khata_ledger WHERE id=?", x.id);
-      khataEntry(partyId, type as "debit" | "credit", amount, type === "credit" ? method : (ref ?? null), note ?? null, account);
+      // credit → ref is the method; a kept refund → ref stays "refund:<method>" (so cash/bank go back out); else a plain charge ref
+      const khataRef = type === "credit" ? method : (type === "debit" && wasRefund) ? `refund:${method || "Cash"}` : (ref ?? null);
+      khataEntry(partyId, type as "debit" | "credit", amount, khataRef, note ?? null, (type === "credit" || (type === "debit" && wasRefund)) ? account : null);
       newId = get("SELECT MAX(id) id FROM khata_ledger WHERE customer_id=?", partyId)!.id as number;
       run("UPDATE khata_ledger SET created_at=?, vehicle_no=?, slip_no=?, station_id=? WHERE id=?", stamp, vehicle ?? null, slip ?? null, x.station_id ?? null, newId);
       run("UPDATE photos SET ref=? WHERE tenant_id=? AND ref=?", `khata:${newId}`, t, `khata:${x.id}`);
