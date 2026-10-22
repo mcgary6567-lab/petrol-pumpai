@@ -203,6 +203,73 @@ export default function Reports() {
   );
 }
 
+/** One plain-language line: what happened this period, in Roman Urdu + Urdu. Rule-based (no AI key needed), always consistent. */
+function smartSummary(r: any): { en: string; ur: string } {
+  const s = r.summary, prev = s.prev, en: string[] = [], ur: string[] = [];
+  if (prev && s.net_profit_estimate != null) {
+    const d = s.net_profit_estimate - prev.net_profit_estimate;
+    const pct = prev.net_profit_estimate ? Math.round(Math.abs((d / prev.net_profit_estimate) * 100)) : null;
+    if (Math.abs(d) < 1) { en.push("Munafa pichle period jaisa hi raha"); ur.push("منافع تقریباً وہی رہا"); }
+    else { en.push(`Munafa ${d > 0 ? "barha" : "gira"}${pct != null ? ` ${pct}%` : ""} (${pkrShort(Math.abs(d))})`); ur.push(`منافع ${d > 0 ? "بڑھا" : "گرا"}${pct != null ? ` ${pct}%` : ""}`); }
+  } else { en.push(`Is period munafa ${pkrShort(s.net_profit_estimate ?? 0)}`); ur.push(`اس عرصے منافع ${pkrShort(s.net_profit_estimate ?? 0)}`); }
+  const bp = [...(r.sales?.by_product ?? [])].sort((a, b) => b.litres - a.litres)[0];
+  if (bp?.litres > 0) { en.push(`sab se zyada ${PRODUCTS[bp.product] ?? bp.product} bika (${num(bp.litres)} L)`); ur.push(`سب سے زیادہ ${PRODUCTS[bp.product] ?? bp.product} بکا`); }
+  const be = r.expenses?.by_category?.[0];
+  if (be) { en.push(`sab se bara kharcha ${be.category} (${pkrShort(be.amount)})`); ur.push(`سب سے بڑا خرچ ${be.category}`); }
+  return { en: en.join(" · "), ur: ur.join(" · ") };
+}
+
+/** Red-flags the owner should act on, derived from the period's numbers — so nothing has to be hunted for. */
+function healthSignals(r: any): { tone: "red" | "amber"; en: string; ur: string }[] {
+  const s = r.summary, out: { tone: "red" | "amber"; en: string; ur: string }[] = [];
+  if (s.net_profit_estimate != null && s.net_profit_estimate < 0) out.push({ tone: "red", en: "Is period net LOSS hai", ur: "اس عرصے میں نقصان ہے" });
+  else if (s.prev && s.net_profit_estimate != null && s.prev.net_profit_estimate > 0) {
+    const drop = (s.prev.net_profit_estimate - s.net_profit_estimate) / s.prev.net_profit_estimate;
+    if (drop >= 0.2) out.push({ tone: "amber", en: `Munafa pichle period se ${Math.round(drop * 100)}% kam hua`, ur: "منافع نمایاں کم ہوا" });
+  }
+  if (s.cost_assumed_products?.length) out.push({ tone: "amber", en: `${s.cost_assumed_products.join(", ")}: khareed rate nahi — munafa theek nahi aa raha, Opening balances me rate daalein`, ur: "خرید ریٹ درج کریں" });
+  const aging90 = r.receivables?.aging?.find((a: any) => a.bucket === "90+ days");
+  if (aging90 && aging90.amount > 0) out.push({ tone: "red", en: `${aging90.count} account 90+ din se baqi: ${pkrShort(aging90.amount)} — wasooli karein`, ur: "پرانا ادھار وصول کریں" });
+  if (r.payables?.pending_expenses?.count > 0) out.push({ tone: "amber", en: `${r.payables.pending_expenses.count} kharche approval ke muntazir: ${pkrShort(r.payables.pending_expenses.amount)}`, ur: "منظوری باقی" });
+  if (r.shifts?.totals?.variance < -1000) out.push({ tone: "red", en: `Shift cash ${pkrShort(Math.abs(r.shifts.totals.variance))} kam nikla`, ur: "کیش کم نکلا" });
+  for (const t of (r.stock?.tanks ?? []).filter((t: any) => typeof t.days_to_empty === "number" && isFinite(t.days_to_empty) && t.days_to_empty <= 3))
+    out.push({ tone: "amber", en: `${t.station} — ${t.tank} (${PRODUCTS[t.product] ?? t.product}) ~${t.days_to_empty} din mein khali, order karein`, ur: "ٹینک خالی ہونے والا" });
+  return out;
+}
+
+/** Bank-style Profit & Loss statement for the period — revenue down to net profit, each line bilingual, prints cleanly. */
+function ProfitLoss({ r }: { r: any }) {
+  const s = r.summary;
+  if (s.gross_profit_estimate == null) return null;
+  const shopCost = Math.max(0, (s.shop_sales ?? 0) - (s.shop_profit ?? 0));
+  const other = (s.rent_income ?? 0) + (s.carriage_income ?? 0);
+  const rows: { k: string; ur: string; v: number; bold?: boolean; hl?: boolean; sub?: boolean; hide?: boolean }[] = [
+    { k: "Revenue (sales)", ur: "کل آمدن", v: s.revenue, bold: true },
+    { k: "Retail fuel", ur: "ریٹیل تیل", v: s.retail_sales, sub: true },
+    { k: "Wholesale (net)", ur: "ہول سیل", v: s.wholesale_net, sub: true },
+    { k: "Shop", ur: "شاپ", v: s.shop_sales ?? 0, sub: true, hide: !s.shop_sales },
+    { k: "− Cost of fuel / goods sold", ur: "بیچے مال کی لاگت", v: -(s.fuel_cost_estimate + shopCost) },
+    { k: "= Gross profit", ur: "مجموعی منافع", v: s.gross_profit_estimate, bold: true, hl: true },
+    { k: "− Operating expenses", ur: "چلانے کے اخراجات", v: -s.expenses },
+    { k: "+ Other income (rent, carriage)", ur: "دیگر آمدن (کرایہ، ڈھلائی)", v: other, hide: !other },
+    { k: "= Net profit", ur: "خالص منافع", v: s.net_profit_estimate, bold: true, hl: true },
+  ];
+  return (
+    <div className="card break-inside-avoid p-4">
+      <h3 className="mb-2 text-sm font-semibold">Profit &amp; Loss (est.) · <Ur className="text-slate-500">نفع و نقصان</Ur></h3>
+      <div className="divide-y divide-slate-100">
+        {rows.filter((x) => !x.hide).map((x) => (
+          <div key={x.k} className={`flex items-center justify-between py-1.5 text-sm ${x.hl ? "bg-slate-50 px-2 font-semibold" : x.bold ? "font-semibold" : x.sub ? "pl-4 text-slate-500" : ""}`}>
+            <span className="min-w-0">{x.k} <Ur className="ml-1 text-[11px] text-slate-400">{x.ur}</Ur></span>
+            <span className={`shrink-0 tabular-nums ${x.v < 0 ? "text-rose-700" : x.hl ? "text-slate-900" : ""}`}>{x.v < 0 ? `− ${pkr(Math.abs(x.v))}` : pkr(x.v)}</span>
+          </div>
+        ))}
+      </div>
+      {s.cost_assumed_products?.length ? <p className="mt-2 text-[11px] text-amber-700">Note: {s.cost_assumed_products.join(", ")} ka khareed rate nahi mila — unki cost pump price par mani gayi (0 margin). Opening balances me rate daalein to munafa sahi aayega.</p> : null}
+    </div>
+  );
+}
+
 /* ---------- headers / charts per tab ---------- */
 function Overview({ r }: { r: any }) {
   const s = r.summary;
@@ -212,6 +279,8 @@ function Overview({ r }: { r: any }) {
   // per-bucket trend lines for the KPI sparklines (from the same data the chart below uses)
   const revSeries = (r.trend ?? []).map((b: any) => (b.retail ?? 0) + (b.wholesale ?? 0));
   const expSeries = (r.trend ?? []).map((b: any) => b.expenses ?? 0);
+  const summ = smartSummary(r);
+  const signals = healthSignals(r);
   return (
     <>
       {/* bank-statement style account band: the period's bottom line at a glance, with last-period comparison */}
@@ -239,12 +308,35 @@ function Overview({ r }: { r: any }) {
         {prev && <div className="mt-3 border-t border-white/15 pt-2 text-[11px] text-white/60">Comparison: pichhle barabar period se ({dt(prev.from)} → {dt(prev.to)}) · <Ur>پچھلے عرصے سے موازنہ</Ur></div>}
       </div>
 
+      {/* plain-language one-liner: what this period looks like, both scripts */}
+      <div className="rounded-xl border border-slate-200 bg-white p-3 text-sm">
+        <span className="mr-1 font-semibold text-slate-700">Khulasa:</span>{summ.en}
+        {summ.ur && <Ur className="mt-0.5 block text-xs text-slate-500">{summ.ur}</Ur>}
+      </div>
+
+      {/* red-flags to act on */}
+      {signals.length > 0 && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 print:hidden">
+          <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-amber-800">Dhyan dein · <Ur>توجہ طلب</Ur> <span className="font-normal">({signals.length})</span></div>
+          <ul className="space-y-1 text-sm">
+            {signals.map((g, i) => (
+              <li key={i} className="flex items-start gap-2">
+                <span className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${g.tone === "red" ? "bg-rose-500" : "bg-amber-500"}`} />
+                <span className="min-w-0">{g.en} <Ur className="text-xs text-slate-500">{g.ur}</Ur></span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Stat label={<Lbl en="Total revenue" ur="کل آمدن" block />} value={pkrShort(s.revenue)} tone="green" hint={<>Retail {pkrShort(s.retail_sales)} ({num(s.retail_litres)} L) · Wholesale {pkrShort(s.wholesale_net)} ({num(s.wholesale_litres)} L){prev && <div className="mt-0.5"><Delta now={s.revenue} prev={prev.revenue} /></div>}<Sparkline data={revSeries} color="#16a34a" /></>} />
         <Stat label={<Lbl en="Expenses" ur="اخراجات" block />} value={pkrShort(s.expenses)} tone="red" hint={<>{r.expenses.count} entries{prev && <div className="mt-0.5"><Delta now={s.expenses} prev={prev.expenses} lowerIsBetter /></div>}<Sparkline data={expSeries} color="#e11d48" /></>} />
         <Stat label={<Lbl en="Gross profit (est.)" ur="مجموعی منافع" block />} value={est ? pkrShort(s.gross_profit_estimate) : "—"} tone="blue" hint={<>{est ? (s.cost_assumed_products?.length ? `${s.cost_assumed_products.join(", ")}: khareed rate nahi, pump price par cost mana (0 margin) — Opening balances me rate likhein` : `Revenue − fuel cost ${pkrShort(s.fuel_cost_estimate)}`) : "Add purchase rates on deliveries"}{prev && est && <div className="mt-0.5"><Delta now={s.gross_profit_estimate} prev={prev.gross_profit_estimate} /></div>}</>} />
         <Stat label={<Lbl en="Net profit (est.)" ur="خالص منافع" block />} value={est ? pkrShort(s.net_profit_estimate) : "—"} tone={est && s.net_profit_estimate < 0 ? "red" : "green"} hint={<>Gross profit − expenses{prev && est && <div className="mt-0.5"><Delta now={s.net_profit_estimate} prev={prev.net_profit_estimate} /></div>}</>} />
       </div>
+
+      <ProfitLoss r={r} />
 
       {/* this period vs the one before it, side by side — each metric scaled to its own pair so nothing drowns out */}
       {prev && <div className="card p-4">
