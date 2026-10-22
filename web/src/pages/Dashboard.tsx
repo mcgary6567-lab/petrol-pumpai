@@ -9,6 +9,7 @@ import { QuickAddTiles } from "../components/QuickAdd";
 import { HealthCard } from "./Insights";
 import { ManagerDesk } from "../components/ManagerDesk";
 import { OwnerOverview } from "../components/OwnerOverview";
+import { DayFeed } from "../components/DayFeed";
 import { useAuth } from "../App";
 
 const insightIcon: Record<string, any> = { fuel: Fuel, trend: TrendingUp, users: Users, credit: CreditCard, chart: BarChart3 };
@@ -52,6 +53,7 @@ export default function Dashboard() {
       <Link to="/insights" className="block"><HealthCard compact /></Link>
       {data.day && <TodayBook b={data.day} />}
       {can("reports.view") && data.biz_profit && <BizProfit p={data.biz_profit} />}
+      <DayFeed />
 
       <div className="grid items-start gap-5 lg:grid-cols-3">
         <div className="card p-4 lg:col-span-2">

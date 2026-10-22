@@ -16,6 +16,7 @@ import { AccountPicker, BankAccounts, BankLogo, BankNamePicker, BankSummary } fr
 import { Ur } from "../components/VoiceShell";
 import { CashForm, DepositSlip } from "./Cash";
 import { OnlineToday } from "../components/OnlineMoney";
+import { DayFeed } from "../components/DayFeed";
 import { useAuth } from "../App";
 
 const today = () => new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 10);
@@ -55,7 +56,7 @@ export default function Cashier() {
           </button>
         ))}
       </div>
-      {tab === "desk" && <><PaymentApprovals /><Desk key={key} go={go} onSlip={setSlip} /></>}
+      {tab === "desk" && <><PaymentApprovals /><Desk key={key} go={go} onSlip={setSlip} /><DayFeed /></>}
       {tab === "receive" && <MoneyForm key={`in-${params.toString()}-${key}`} dir="in" preset={Object.fromEntries(params)} onDone={done} />}
       {tab === "pay" && <MoneyForm key={`out-${params.toString()}-${key}`} dir="out" preset={Object.fromEntries(params)} onDone={done} />}
       {tab === "cheques" && <Cheques go={go} />}
