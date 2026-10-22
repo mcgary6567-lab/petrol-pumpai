@@ -47,7 +47,7 @@ export function meterSales(t: number, from: string, to: string, stationId?: numb
   });
 }
 
-export function buildReport(t: number, from: string, to: string) {
+export function buildReport(t: number, from: string, to: string, withPrev = true) {
   const span = Date.parse(to) - Date.parse(from);
   const grain = span <= 2 * DAY ? "hour" : span <= 93 * DAY ? "day" : "month";
   const fmt = grain === "hour" ? "%Y-%m-%d %H:00" : grain === "day" ? "%Y-%m-%d" : "%Y-%m";
@@ -262,6 +262,18 @@ export function buildReport(t: number, from: string, to: string) {
     },
     cash_variance: r0(shifts.totals!.variance),
   };
+
+  // bank-style "vs last period" comparison: the same headline figures for the immediately preceding window of equal length
+  if (withPrev) {
+    const prevTo = from;
+    const prevFrom = new Date(Date.parse(from) - span).toISOString();
+    const p = buildReport(t, prevFrom, prevTo, false).summary;
+    (summary as any).prev = {
+      from: prevFrom, to: prevTo,
+      revenue: p.revenue, retail_sales: p.retail_sales, retail_litres: p.retail_litres, wholesale_net: p.wholesale_net,
+      expenses: p.expenses, gross_profit_estimate: p.gross_profit_estimate, net_profit_estimate: p.net_profit_estimate,
+    };
+  }
 
   return { from, to, grain, summary, trend, sales, stock, expenses, khata, wholesale, shifts, ...balances(t) };
 }

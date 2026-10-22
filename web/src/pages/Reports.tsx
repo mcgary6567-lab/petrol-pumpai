@@ -1,19 +1,44 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { ResponsiveContainer, ComposedChart, Bar, Line, LineChart, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from "recharts";
-import { Download, Printer, ArrowDownLeft, ArrowUpRight } from "lucide-react";
+import { Download, Printer, ArrowDownLeft, ArrowUpRight, TrendingUp, TrendingDown, Minus } from "lucide-react";
 import { useApi } from "../lib/api";
 import { Badge, Empty, ErrorBox, Loading, PageHeader, SearchBar, Stat, matchQuery } from "../components/ui";
+import { Ur } from "../components/VoiceShell";
 import { PRODUCTS, PRODUCT_COLORS, ago, dt, num, pkr, pkrShort } from "../lib/format";
+
+/** English + Urdu together, bank-app style. Urdu sits under or beside the English. */
+const Lbl = ({ en, ur, block }: { en: string; ur: string; block?: boolean }) =>
+  block ? <>{en}<Ur className="mt-0.5 block text-[11px] font-normal opacity-70">{ur}</Ur></> : <>{en} · <Ur className="opacity-70">{ur}</Ur></>;
+
+/**
+ * "vs last period" change, like a bank statement's up/down arrow. Green when the move is good for the owner
+ * (more revenue/profit, LESS expense), red when it's bad. `lowerIsBetter` flips the colour for cost lines.
+ */
+function Delta({ now, prev, lowerIsBetter = false, money = true }: { now: number; prev?: number; lowerIsBetter?: boolean; money?: boolean }) {
+  if (prev == null || !isFinite(prev)) return null;
+  const diff = now - prev;
+  const pct = prev !== 0 ? (diff / Math.abs(prev)) * 100 : now !== 0 ? 100 : 0;
+  const flat = Math.abs(pct) < 0.05;
+  const good = flat ? null : lowerIsBetter ? diff < 0 : diff > 0;
+  const cls = good == null ? "text-slate-400" : good ? "text-emerald-600" : "text-rose-600";
+  const Icon = flat ? Minus : diff > 0 ? TrendingUp : TrendingDown;
+  return (
+    <span className={`inline-flex items-center gap-1 font-medium ${cls}`} title="Pichhle barabar period se">
+      <Icon size={12} />{flat ? "—" : `${diff > 0 ? "+" : "−"}${Math.abs(pct).toFixed(Math.abs(pct) >= 10 ? 0 : 1)}%`}
+      <span className="font-normal text-slate-400">{diff !== 0 ? `(${diff > 0 ? "+" : "−"}${money ? pkrShort(Math.abs(diff)) : num(Math.abs(diff))})` : ""}</span>
+    </span>
+  );
+}
 
 const DAY = 86_400_000;
 const PRESETS = [
-  { key: "24h", label: "24 hours", days: 1 }, { key: "7d", label: "7 days", days: 7 }, { key: "1m", label: "1 month", days: 30 },
-  { key: "6m", label: "6 months", days: 182 }, { key: "1y", label: "1 year", days: 365 }, { key: "custom", label: "Custom", days: 0 },
+  { key: "24h", label: "24 hours", ur: "24 گھنٹے", days: 1 }, { key: "7d", label: "7 days", ur: "7 دن", days: 7 }, { key: "1m", label: "1 month", ur: "1 مہینہ", days: 30 },
+  { key: "6m", label: "6 months", ur: "6 مہینے", days: 182 }, { key: "1y", label: "1 year", ur: "1 سال", days: 365 }, { key: "custom", label: "Custom", ur: "اپنی مرضی", days: 0 },
 ];
 const TABS = [
-  ["overview", "Overview"], ["sales", "Sales"], ["stock", "Stock"], ["expenses", "Expenses"], ["receivables", "Receivables (owed to us)"],
-  ["payables", "Payables (we owe)"], ["khata", "Khata"], ["wholesale", "Wholesale"], ["shifts", "Shifts & cash"],
+  ["overview", "Overview", "خلاصہ"], ["sales", "Sales", "فروخت"], ["stock", "Stock", "اسٹاک"], ["expenses", "Expenses", "اخراجات"], ["receivables", "Receivables (owed to us)", "ہمارا باقی"],
+  ["payables", "Payables (we owe)", "ہم پر باقی"], ["khata", "Khata", "کھاتہ"], ["wholesale", "Wholesale", "ہول سیل"], ["shifts", "Shifts & cash", "شفٹ اور کیش"],
 ] as const;
 type Tab = (typeof TABS)[number][0];
 
@@ -99,15 +124,15 @@ export default function Reports() {
 
   return (
     <div className="space-y-5">
-      <PageHeader title="Reports" subtitle={`Pakistan time · ${periodLabel}`}
+      <PageHeader title={<Lbl en="Reports" ur="رپورٹس" />} subtitle={`Pakistan time · ${periodLabel}`}
         actions={<div className="flex gap-2 print:hidden">
           <button className="btn-secondary" disabled={!r} onClick={() => downloadCsv(`pumpai-${tab}-${from.slice(0, 10)}_${to.slice(0, 10)}`, tables)}><Download size={15} /> Excel / CSV</button>
-          <button className="btn-secondary" onClick={() => window.print()}><Printer size={15} /> Print / PDF</button>
+          <button className="btn-secondary" onClick={() => window.print()}><Printer size={15} /> Print / PDF · <Ur>پرنٹ</Ur></button>
         </div>} />
 
       <div className="flex flex-wrap items-end gap-2 print:hidden">
         {PRESETS.map((p) => (
-          <button key={p.key} onClick={() => setPreset(p.key)} className={`min-h-10 rounded-full px-4 py-1.5 text-sm ${preset === p.key ? "bg-brand-600 text-white" : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"}`}>{p.label}</button>
+          <button key={p.key} onClick={() => setPreset(p.key)} className={`min-h-10 rounded-full px-4 py-1.5 text-sm ${preset === p.key ? "bg-brand-600 text-white" : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"}`}>{p.label} <Ur className="text-[11px] opacity-80">{p.ur}</Ur></button>
         ))}
         {preset === "custom" && (
           <div className="flex flex-wrap items-end gap-2">
@@ -118,11 +143,11 @@ export default function Reports() {
       </div>
 
       <div className="flex gap-1 overflow-x-auto border-b border-slate-200 print:hidden">
-        {TABS.map(([k, label]) => (
-          <button key={k} onClick={() => setTab(k)} className={`whitespace-nowrap border-b-2 px-3 py-2 text-sm ${tab === k ? "border-brand-600 font-medium text-brand-700" : "border-transparent text-slate-600 hover:text-slate-900"}`}>{label}</button>
+        {TABS.map(([k, label, ur]) => (
+          <button key={k} onClick={() => setTab(k)} className={`whitespace-nowrap border-b-2 px-3 py-2 text-sm ${tab === k ? "border-brand-600 font-medium text-brand-700" : "border-transparent text-slate-600 hover:text-slate-900"}`}>{label} <Ur className="text-[11px] opacity-80">{ur}</Ur></button>
         ))}
       </div>
-      <h2 className="hidden text-lg font-semibold print:block">{TABS.find(([k]) => k === tab)![1]}</h2>
+      <h2 className="hidden text-lg font-semibold print:block">{TABS.find(([k]) => k === tab)![1]} · <Ur>{TABS.find(([k]) => k === tab)![2]}</Ur></h2>
 
       {error && <ErrorBox error={error} />}
       {!r || loading ? <Loading /> : (
@@ -133,9 +158,9 @@ export default function Reports() {
           {tab === "expenses" && <ExpensesHead r={r} />}
           {tab === "receivables" && <ReceivablesHead r={r} />}
           {tab === "payables" && <PayablesHead r={r} />}
-          {tab === "khata" && <div className="grid grid-cols-3 gap-3"><Stat label="Credit given" value={pkrShort(r.khata.given)} /><Stat label="Collected" value={pkrShort(r.khata.collected)} tone="green" /><Stat label="Net change" value={pkrShort(r.khata.net_change)} tone={r.khata.net_change > 0 ? "amber" : "green"} hint="Positive = more credit given than collected" /></div>}
-          {tab === "wholesale" && <div className="grid grid-cols-2 gap-3 lg:grid-cols-4"><Stat label="Supplied" value={`${num(r.wholesale.supplied_l)} L`} hint={`Returned ${num(r.wholesale.returned_l)} L`} /><Stat label="Net billed" value={pkrShort(r.wholesale.net_billed)} /><Stat label="Received" value={pkrShort(r.wholesale.received)} tone="green" /><Stat label="Due now (all clients)" value={pkrShort(r.receivables.wholesale_total)} tone="amber" /></div>}
-          {tab === "shifts" && <div className="grid grid-cols-2 gap-3 lg:grid-cols-4"><Stat label="Closed shifts" value={r.shifts.totals.n} /><Stat label="Cash expected" value={pkrShort(r.shifts.totals.expected)} /><Stat label="Cash counted" value={pkrShort(r.shifts.totals.counted)} /><Stat label="Total variance" value={pkr(r.shifts.totals.variance)} tone={r.shifts.totals.variance < -1000 ? "red" : "green"} /></div>}
+          {tab === "khata" && <div className="grid grid-cols-3 gap-3"><Stat label={<Lbl en="Credit given" ur="ادھار دیا" block />} value={pkrShort(r.khata.given)} /><Stat label={<Lbl en="Collected" ur="وصول ہوا" block />} value={pkrShort(r.khata.collected)} tone="green" /><Stat label={<Lbl en="Net change" ur="خالص تبدیلی" block />} value={pkrShort(r.khata.net_change)} tone={r.khata.net_change > 0 ? "amber" : "green"} hint="Positive = more credit given than collected" /></div>}
+          {tab === "wholesale" && <div className="grid grid-cols-2 gap-3 lg:grid-cols-4"><Stat label={<Lbl en="Supplied" ur="سپلائی" block />} value={`${num(r.wholesale.supplied_l)} L`} hint={`Returned ${num(r.wholesale.returned_l)} L`} /><Stat label={<Lbl en="Net billed" ur="خالص بل" block />} value={pkrShort(r.wholesale.net_billed)} /><Stat label={<Lbl en="Received" ur="وصول" block />} value={pkrShort(r.wholesale.received)} tone="green" /><Stat label={<Lbl en="Due now (all clients)" ur="ابھی باقی" block />} value={pkrShort(r.receivables.wholesale_total)} tone="amber" /></div>}
+          {tab === "shifts" && <div className="grid grid-cols-2 gap-3 lg:grid-cols-4"><Stat label={<Lbl en="Closed shifts" ur="بند شفٹیں" block />} value={r.shifts.totals.n} /><Stat label={<Lbl en="Cash expected" ur="متوقع کیش" block />} value={pkrShort(r.shifts.totals.expected)} /><Stat label={<Lbl en="Cash counted" ur="گنا ہوا کیش" block />} value={pkrShort(r.shifts.totals.counted)} /><Stat label={<Lbl en="Total variance" ur="کل فرق" block />} value={pkr(r.shifts.totals.variance)} tone={r.shifts.totals.variance < -1000 ? "red" : "green"} /></div>}
           <div className={`grid gap-5 ${tables.length > 1 ? "xl:grid-cols-2" : ""}`}>{tables.map((t) => <Table key={t.title} {...t} />)}</div>
         </div>
       )}
@@ -147,28 +172,55 @@ export default function Reports() {
 function Overview({ r }: { r: any }) {
   const s = r.summary;
   const est = s.gross_profit_estimate != null;
+  const prev = s.prev;
+  const margin = s.revenue ? (s.net_profit_estimate / s.revenue) * 100 : null;
   return (
     <>
+      {/* bank-statement style account band: the period's bottom line at a glance, with last-period comparison */}
+      <div className="overflow-hidden rounded-2xl bg-gradient-to-br from-brand-700 to-brand-900 p-4 text-white shadow-sm sm:p-5 print:hidden">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="text-xs uppercase tracking-wide text-white/70">Net profit (est.) · <Ur>خالص منافع</Ur></div>
+            <div className="mt-1 text-3xl font-bold tabular-nums sm:text-4xl">{est ? pkr(s.net_profit_estimate) : "—"}</div>
+            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-white/80">
+              {prev && est && <span className="rounded-full bg-white/15 px-2 py-0.5"><Delta now={s.net_profit_estimate} prev={prev.net_profit_estimate} /></span>}
+              {margin != null && <span>Margin {margin.toFixed(1)}% · <Ur>مارجن</Ur></span>}
+            </div>
+          </div>
+          <div className="grid grid-cols-3 gap-4 text-right">
+            {[["Revenue", "آمدن", s.revenue, prev?.revenue, false], ["Expenses", "اخراجات", s.expenses, prev?.expenses, true], ["Gross profit", "مجموعی منافع", s.gross_profit_estimate, prev?.gross_profit_estimate, false]].map(([en, ur, now, pv, low]: any) => (
+              <div key={en}>
+                <div className="text-[11px] uppercase tracking-wide text-white/60">{en}</div>
+                <div className="text-sm font-semibold tabular-nums sm:text-lg">{now != null ? pkrShort(now) : "—"}</div>
+                <Ur className="block text-[10px] text-white/50">{ur}</Ur>
+                {prev && now != null && <div className="mt-0.5 text-[11px]"><Delta now={now} prev={pv} lowerIsBetter={low} money={false} /></div>}
+              </div>
+            ))}
+          </div>
+        </div>
+        {prev && <div className="mt-3 border-t border-white/15 pt-2 text-[11px] text-white/60">Comparison: pichhle barabar period se ({dt(prev.from)} → {dt(prev.to)}) · <Ur>پچھلے عرصے سے موازنہ</Ur></div>}
+      </div>
+
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Stat label="Total revenue" value={pkrShort(s.revenue)} tone="green" hint={`Retail ${pkrShort(s.retail_sales)} (${num(s.retail_litres)} L) · Wholesale ${pkrShort(s.wholesale_net)} (${num(s.wholesale_litres)} L)`} />
-        <Stat label="Expenses" value={pkrShort(s.expenses)} tone="red" hint={`${r.expenses.count} entries`} />
-        <Stat label="Gross profit (est.)" value={est ? pkrShort(s.gross_profit_estimate) : "—"} tone="blue" hint={est ? (s.cost_assumed_products?.length ? `${s.cost_assumed_products.join(", ")}: khareed rate nahi, pump price par cost mana (0 margin) — Opening balances me rate likhein` : `Revenue − fuel cost ${pkrShort(s.fuel_cost_estimate)}`) : "Add purchase rates on deliveries"} />
-        <Stat label="Net profit (est.)" value={est ? pkrShort(s.net_profit_estimate) : "—"} tone={est && s.net_profit_estimate < 0 ? "red" : "green"} hint="Gross profit − expenses" />
+        <Stat label={<Lbl en="Total revenue" ur="کل آمدن" block />} value={pkrShort(s.revenue)} tone="green" hint={<>Retail {pkrShort(s.retail_sales)} ({num(s.retail_litres)} L) · Wholesale {pkrShort(s.wholesale_net)} ({num(s.wholesale_litres)} L){prev && <div className="mt-0.5"><Delta now={s.revenue} prev={prev.revenue} /></div>}</>} />
+        <Stat label={<Lbl en="Expenses" ur="اخراجات" block />} value={pkrShort(s.expenses)} tone="red" hint={<>{r.expenses.count} entries{prev && <div className="mt-0.5"><Delta now={s.expenses} prev={prev.expenses} lowerIsBetter /></div>}</>} />
+        <Stat label={<Lbl en="Gross profit (est.)" ur="مجموعی منافع" block />} value={est ? pkrShort(s.gross_profit_estimate) : "—"} tone="blue" hint={<>{est ? (s.cost_assumed_products?.length ? `${s.cost_assumed_products.join(", ")}: khareed rate nahi, pump price par cost mana (0 margin) — Opening balances me rate likhein` : `Revenue − fuel cost ${pkrShort(s.fuel_cost_estimate)}`) : "Add purchase rates on deliveries"}{prev && est && <div className="mt-0.5"><Delta now={s.gross_profit_estimate} prev={prev.gross_profit_estimate} /></div>}</>} />
+        <Stat label={<Lbl en="Net profit (est.)" ur="خالص منافع" block />} value={est ? pkrShort(s.net_profit_estimate) : "—"} tone={est && s.net_profit_estimate < 0 ? "red" : "green"} hint={<>Gross profit − expenses{prev && est && <div className="mt-0.5"><Delta now={s.net_profit_estimate} prev={prev.net_profit_estimate} /></div>}</>} />
       </div>
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
         <div className="card p-4">
-          <h3 className="mb-2 flex items-center gap-1.5 text-sm font-semibold"><ArrowDownLeft size={15} className="text-emerald-600" /> Money in</h3>
-          {[["Cash sales", s.money_in.cash_sales], ["Digital (JazzCash, Easypaisa, Raast, card)", s.money_in.digital_sales], ["Khata collected", s.money_in.khata_collected], ["Wholesale payments received", s.money_in.wholesale_received]].map(([k, v]) => <Row key={k as string} k={k as string} v={pkr(v as number)} />)}
-          <Row k="Total" v={pkr(Object.values(s.money_in).reduce((a: number, b: any) => a + b, 0) as number)} bold />
+          <h3 className="mb-2 flex items-center gap-1.5 text-sm font-semibold"><ArrowDownLeft size={15} className="text-emerald-600" /> Money in · <Ur className="text-slate-500">پیسہ آیا</Ur></h3>
+          {[["Cash sales", "کیش فروخت", s.money_in.cash_sales], ["Digital (JazzCash, Easypaisa, Raast, card)", "ڈیجیٹل", s.money_in.digital_sales], ["Khata collected", "کھاتہ وصول", s.money_in.khata_collected], ["Wholesale payments received", "ہول سیل وصولی", s.money_in.wholesale_received]].map(([k, u, v]) => <Row key={k as string} k={k as string} ur={u as string} v={pkr(v as number)} />)}
+          <Row k="Total" ur="کل" v={pkr(Object.values(s.money_in).reduce((a: number, b: any) => a + b, 0) as number)} bold />
         </div>
         <div className="card p-4">
-          <h3 className="mb-2 flex items-center gap-1.5 text-sm font-semibold"><ArrowUpRight size={15} className="text-red-600" /> Money out</h3>
-          <Row k="Expenses" v={pkr(s.money_out.expenses)} />
-          <Row k="Paid to fuel suppliers" v={pkr(s.money_out.supplier_payments)} />
-          <Row k="Fuel purchased in period (cost)" v={pkr(s.purchases_cost)} muted />
+          <h3 className="mb-2 flex items-center gap-1.5 text-sm font-semibold"><ArrowUpRight size={15} className="text-red-600" /> Money out · <Ur className="text-slate-500">پیسہ گیا</Ur></h3>
+          <Row k="Expenses" ur="اخراجات" v={pkr(s.money_out.expenses)} />
+          <Row k="Paid to fuel suppliers" ur="سپلائر کو ادائیگی" v={pkr(s.money_out.supplier_payments)} />
+          <Row k="Fuel purchased in period (cost)" ur="خریدا گیا تیل (لاگت)" v={pkr(s.purchases_cost)} muted />
           {r.stock.direct?.cost > 0 && <Row k={`Depot direct to clients (${num(r.stock.direct.litres)} L, not in stock)`} v={pkr(r.stock.direct.cost)} muted />}
-          <Row k="Shift cash variance" v={pkr(s.cash_variance)} muted />
-          <Row k="Total paid out" v={pkr(s.money_out.expenses + s.money_out.supplier_payments)} bold />
+          <Row k="Shift cash variance" ur="شفٹ کیش فرق" v={pkr(s.cash_variance)} muted />
+          <Row k="Total paid out" ur="کل ادائیگی" v={pkr(s.money_out.expenses + s.money_out.supplier_payments)} bold />
         </div>
       </div>
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -178,7 +230,7 @@ function Overview({ r }: { r: any }) {
         <Stat label="Stock value (at cost)" value={r.stock.products.every((p: any) => p.closing_value != null) ? pkrShort(r.stock.products.reduce((a: number, p: any) => a + p.closing_value, 0)) : "—"} />
       </div>
       <div className="card p-4">
-        <h3 className="mb-2 text-sm font-semibold">Revenue vs expenses by {r.grain}</h3>
+        <h3 className="mb-2 text-sm font-semibold">Revenue vs expenses by {r.grain} · <Ur className="text-slate-500">آمدن بمقابلہ اخراجات</Ur></h3>
         <div className="h-72">
           <ResponsiveContainer>
             <ComposedChart data={r.trend} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
@@ -198,14 +250,14 @@ function Overview({ r }: { r: any }) {
   );
 }
 
-const Row = ({ k, v, bold, muted }: { k: string; v: string; bold?: boolean; muted?: boolean }) => (
-  <div className={`flex justify-between border-b border-slate-100 py-1.5 text-sm ${bold ? "font-semibold" : ""} ${muted ? "text-slate-500" : ""}`}><span>{k}</span><span className="tabular-nums">{v}</span></div>
+const Row = ({ k, ur, v, bold, muted }: { k: string; ur?: string; v: string; bold?: boolean; muted?: boolean }) => (
+  <div className={`flex justify-between gap-2 border-b border-slate-100 py-1.5 text-sm ${bold ? "font-semibold" : ""} ${muted ? "text-slate-500" : ""}`}><span className="min-w-0">{k}{ur ? <Ur className="ml-1 text-[11px] text-slate-400">{ur}</Ur> : null}</span><span className="shrink-0 tabular-nums">{v}</span></div>
 );
 
 function SalesHead({ r }: { r: any }) {
   return (
     <div className="card p-4">
-      <h3 className="mb-2 text-sm font-semibold">Litres sold by {r.grain} (retail)</h3>
+      <h3 className="mb-2 text-sm font-semibold">Litres sold by {r.grain} (retail) · <Ur className="text-slate-500">فروخت لیٹر</Ur></h3>
       <div className="h-64">
         <ResponsiveContainer>
           <LineChart data={r.trend} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
@@ -262,7 +314,7 @@ function ExpensesHead({ r }: { r: any }) {
   const max = Math.max(1, ...r.expenses.by_category.map((c: any) => c.amount));
   return (
     <div className="grid grid-cols-1 gap-3 lg:grid-cols-[260px_1fr]">
-      <Stat label="Total expenses" value={pkr(r.expenses.total)} tone="red" hint={`${r.expenses.count} entries · ${r.summary.revenue ? ((r.expenses.total / r.summary.revenue) * 100).toFixed(1) : 0}% of revenue`} />
+      <Stat label={<Lbl en="Total expenses" ur="کل اخراجات" block />} value={pkr(r.expenses.total)} tone="red" hint={<>{r.expenses.count} entries · {r.summary.revenue ? ((r.expenses.total / r.summary.revenue) * 100).toFixed(1) : 0}% of revenue{r.summary.prev && <div className="mt-0.5"><Delta now={r.expenses.total} prev={r.summary.prev.expenses} lowerIsBetter /></div>}</>} />
       <div className="card space-y-1.5 p-4">
         {r.expenses.by_category.map((c: any) => (
           <div key={c.category} className="grid grid-cols-[180px_1fr_110px] items-center gap-2 text-xs">
@@ -281,11 +333,11 @@ function ReceivablesHead({ r }: { r: any }) {
   const rv = r.receivables;
   return (
     <>
-      <p className="text-sm text-slate-600">Balances <b>as of now</b> (not limited to the selected period). Aging is days since the last payment.</p>
+      <p className="text-sm text-slate-600">Balances <b>as of now</b> (not limited to the selected period). Aging is days since the last payment. · <Ur className="text-slate-500">ابھی کا باقی — عمر = آخری ادائیگی سے دن</Ur></p>
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
-        <Stat label="Total owed to us" value={pkr(rv.total)} tone="amber" />
-        <Stat label="Khata customers" value={pkr(rv.khata_total)} />
-        <Stat label="Wholesale clients" value={pkr(rv.wholesale_total)} />
+        <Stat label={<Lbl en="Total owed to us" ur="کل ہمارا باقی" block />} value={pkr(rv.total)} tone="amber" />
+        <Stat label={<Lbl en="Khata customers" ur="کھاتہ گاہک" block />} value={pkr(rv.khata_total)} />
+        <Stat label={<Lbl en="Wholesale clients" ur="ہول سیل کلائنٹ" block />} value={pkr(rv.wholesale_total)} />
       </div>
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
         {rv.aging.map((a: any) => <Stat key={a.bucket} label={a.bucket} value={pkrShort(a.amount)} hint={`${a.count} accounts`} tone={a.bucket === "90+ days" && a.amount > 0 ? "red" : "slate"} />)}
@@ -298,11 +350,11 @@ function PayablesHead({ r }: { r: any }) {
   const p = r.payables;
   return (
     <>
-      <p className="text-sm text-slate-600">What the business owes <b>as of now</b>: fuel suppliers, customer advances, and expenses still waiting for approval.</p>
+      <p className="text-sm text-slate-600">What the business owes <b>as of now</b>: fuel suppliers, customer advances, and expenses still waiting for approval. · <Ur className="text-slate-500">ابھی ہم پر باقی</Ur></p>
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
-        <Stat label="Total we owe" value={pkr(p.total)} tone="red" />
-        <Stat label="Fuel suppliers" value={pkr(p.suppliers_total)} hint={<Link to="/suppliers" className="text-brand-600 hover:underline">Pay suppliers →</Link>} />
-        <Stat label="Expenses awaiting approval" value={pkr(p.pending_expenses.amount)} hint={`${p.pending_expenses.count} entries`} tone="amber" />
+        <Stat label={<Lbl en="Total we owe" ur="کل ہم پر باقی" block />} value={pkr(p.total)} tone="red" />
+        <Stat label={<Lbl en="Fuel suppliers" ur="تیل سپلائر" block />} value={pkr(p.suppliers_total)} hint={<Link to="/suppliers" className="text-brand-600 hover:underline">Pay suppliers →</Link>} />
+        <Stat label={<Lbl en="Expenses awaiting approval" ur="منظوری کے منتظر" block />} value={pkr(p.pending_expenses.amount)} hint={`${p.pending_expenses.count} entries`} tone="amber" />
       </div>
     </>
   );

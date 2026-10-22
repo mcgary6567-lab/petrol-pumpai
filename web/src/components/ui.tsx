@@ -3,7 +3,7 @@ import { PrintFooter, PrintHeader } from "./Letterhead";
 import { createPortal } from "react-dom";
 import { X, CheckCircle2, AlertTriangle, Loader2, Search } from "lucide-react";
 
-export function PageHeader({ title, subtitle, actions }: { title: string; subtitle?: string; actions?: ReactNode }) {
+export function PageHeader({ title, subtitle, actions }: { title: ReactNode; subtitle?: ReactNode; actions?: ReactNode }) {
   return (
     <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
       <div>
@@ -17,7 +17,7 @@ export function PageHeader({ title, subtitle, actions }: { title: string; subtit
 
 /** a long rupee figure in a 2-up phone grid shrinks a step instead of wrapping mid-number ("Rs 47,32,55 / 3") */
 const statSize = (v: ReactNode) => { const n = typeof v === "string" ? v.length : typeof v === "number" ? Math.round(v).toLocaleString("en-IN").length : 0; return n > 13 ? "text-sm" : n > 11 ? "text-base" : n > 9 ? "text-lg" : "text-xl"; };
-export function Stat({ label, value, hint, icon, tone = "slate" }: { label: string; value: ReactNode; hint?: ReactNode; icon?: ReactNode; tone?: "slate" | "green" | "red" | "amber" | "blue" }) {
+export function Stat({ label, value, hint, icon, tone = "slate" }: { label: ReactNode; value: ReactNode; hint?: ReactNode; icon?: ReactNode; tone?: "slate" | "green" | "red" | "amber" | "blue" }) {
   const tones = { slate: "bg-slate-100 text-slate-600", green: "bg-emerald-100 text-emerald-700", red: "bg-red-100 text-red-700", amber: "bg-amber-100 text-amber-700", blue: "bg-blue-100 text-blue-700" };
   return (
     <div className="card p-4">
