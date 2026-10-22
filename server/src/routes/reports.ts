@@ -6,7 +6,8 @@
  */
 import { Router } from "express";
 import { z } from "zod";
-import { all, get, pkDayStart, METER } from "../db.js";
+import { all, get, pkDayStart, getSetting, METER } from "../db.js";
+import { sendToPhone } from "../whatsapp/cloud.js";
 import { notDepot } from "./banks.js";
 import { h, parse, tid, requirePerm } from "../auth.js";
 import { AppError, round2, currentPrices } from "../services.js";
@@ -377,6 +378,30 @@ reports.get("/reports", h((req) => {
   if (Date.parse(from) >= Date.parse(to)) throw new AppError(400, "'From' must be before 'To'");
   if (Date.parse(to) - Date.parse(from) > 3 * 366 * DAY) throw new AppError(400, "Maximum report period is 3 years");
   return buildReport(tid(req), from, to);
+}));
+
+/** Send the current period's summary to the owner's WhatsApp on demand (the scheduled daily brief is separate). */
+reports.post("/reports/whatsapp", h(async (req) => {
+  const q = parse(z.object({ from: z.string().datetime({ offset: true }).optional(), to: z.string().datetime({ offset: true }).optional() }), req.body);
+  const to = q.to ? new Date(q.to).toISOString() : new Date().toISOString();
+  const from = q.from ? new Date(q.from).toISOString() : new Date(Date.parse(to) - 30 * DAY).toISOString();
+  const t = tid(req);
+  const phone = getSetting(t, "owner_phone") || get("SELECT owner_phone FROM tenants WHERE id=?", t)?.owner_phone;
+  if (!phone) throw new AppError(400, "Owner ka WhatsApp number set nahi — Settings me 'owner_phone' daalein.");
+  const rep = buildReport(t, from, to);
+  const s = rep.summary as any;
+  const est = s.gross_profit_estimate != null;
+  const d = (iso: string) => new Date(Date.parse(iso) + 5 * 3600_000).toISOString().slice(0, 10);
+  const text = [
+    `📊 Report — ${d(from)} se ${d(to)}`,
+    `💰 Revenue: Rs ${Math.round(s.revenue).toLocaleString("en-IN")}`,
+    `🧾 Kharcha: Rs ${Math.round(s.expenses).toLocaleString("en-IN")}`,
+    est ? `📈 Munafa (est.): Rs ${Math.round(s.net_profit_estimate).toLocaleString("en-IN")}` : `📈 Munafa: khareed rate daalein`,
+    `📒 Humara baqi: Rs ${Math.round((rep as any).receivables.total).toLocaleString("en-IN")} · Hum par: Rs ${Math.round((rep as any).payables.total).toLocaleString("en-IN")}`,
+    `— Petrol PumpAI`,
+  ].join("\n");
+  const r = await sendToPhone(phone, text);
+  return { sent: !("simulated" in r && r.simulated), simulated: "simulated" in r, to: phone, preview: text };
 }));
 
 /** Discounts & limit-overrides given on sales, by who gave them — a check on the two money "levers" salesmen/managers hold. */

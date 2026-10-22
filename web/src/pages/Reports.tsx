@@ -1,9 +1,9 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { ResponsiveContainer, ComposedChart, Bar, Line, LineChart, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from "recharts";
-import { Download, Printer, ArrowDownLeft, ArrowUpRight, TrendingUp, TrendingDown, Minus } from "lucide-react";
-import { useApi } from "../lib/api";
-import { Badge, Empty, ErrorBox, Loading, PageHeader, SearchBar, Stat, matchQuery } from "../components/ui";
+import { Download, Printer, ArrowDownLeft, ArrowUpRight, TrendingUp, TrendingDown, Minus, Send } from "lucide-react";
+import { api, useApi } from "../lib/api";
+import { Badge, Empty, ErrorBox, Loading, PageHeader, SearchBar, Stat, matchQuery, useAction } from "../components/ui";
 import { Ur } from "../components/VoiceShell";
 import { PRODUCTS, PRODUCT_COLORS, ago, dt, num, pkr, pkrShort } from "../lib/format";
 
@@ -154,6 +154,7 @@ export default function Reports() {
   }, [preset, custom, nowKey]);
 
   const { data: r, error, loading } = useApi<any>(`/reports?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
+  const wa = useAction();
   const tables = r ? tablesFor(tab, r) : [];
   const periodLabel = `${dt(from)} → ${dt(to)}`;
 
@@ -162,6 +163,7 @@ export default function Reports() {
       <PageHeader title={<Lbl en="Reports" ur="رپورٹس" />} subtitle={`Pakistan time · ${periodLabel}`}
         actions={<div className="flex gap-2 print:hidden">
           <button className="btn-secondary" disabled={!r} onClick={() => downloadCsv(`pumpai-${tab}-${from.slice(0, 10)}_${to.slice(0, 10)}`, tables)}><Download size={15} /> Excel / CSV</button>
+          <button className="btn-secondary" disabled={!r || wa.busy} onClick={() => wa.run(() => api("/reports/whatsapp", { body: { from, to } }), (x: any) => x.simulated ? "WhatsApp abhi set nahi — Settings me connect karein" : `Owner ko WhatsApp bhej diya (${x.to})`)}><Send size={15} /> WhatsApp</button>
           <button className="btn-secondary" onClick={() => window.print()}><Printer size={15} /> Print / PDF · <Ur>پرنٹ</Ur></button>
         </div>} />
 
