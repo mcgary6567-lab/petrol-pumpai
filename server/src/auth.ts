@@ -286,6 +286,9 @@ export function verify2fa(userId: number, code: string, meta: SessionMeta = {}) 
   return issueSession(u, "password + code", meta);
 }
 
+/** The only endpoints a URL (media) token may open: files the browser fetches itself — photos, CSV/PDF downloads,
+ *  payment notices, and the live/event streams. Everything else needs a real session in the Authorization header. */
+const MEDIA_TOKEN_OK = /(\.csv$|\/notice$|\/pdf$|^\/photos\/|^\/backups\/|^\/(live|events)$)/;
 export function requireAuth(req: Request, _res: Response, next: NextFunction) {
   const h = req.headers.authorization;
   const inUrl = !h?.startsWith("Bearer ");
@@ -297,6 +300,10 @@ export function requireAuth(req: Request, _res: Response, next: NextFunction) {
     // a token in a link (photo, download, live feed) must be a short read-only media token, never a full session
     if (inUrl && (!p.media || req.method !== "GET")) return next(new AppError(401, "Not signed in"));
     if (!inUrl && p.media) return next(new AppError(401, "Not signed in"));
+    // a media token rides in URLs the browser opens itself (img src, download href, EventSource), so it can leak via
+    // referrer headers / proxy logs / a shared link. Scope it to exactly the file/stream endpoints that need it — never
+    // the bulk-data JSON endpoints — so a leaked media URL can't read the whole tenant. (req.path here is sub-of /api.)
+    if (inUrl && !MEDIA_TOKEN_OK.test(req.path)) return next(new AppError(403, "This link can only open files, not data"));
     const u = get("SELECT id, tenant_id, name, email, role, station_id, active, token_version FROM users WHERE id=?", p.sub);
     if (!u || !u.active) return next(new AppError(401, "User not found or disabled"));
     if ((p.tv ?? 0) !== (u.token_version ?? 0)) return next(new AppError(401, "Signed out — please sign in again"));

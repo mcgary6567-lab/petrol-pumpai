@@ -47,6 +47,16 @@ insightsRouter.get("/dashboard", requirePerm("dashboard.view"), h((req) => {
   };
 }));
 
+/** Just the three nav-badge counts the sidebar needs — far cheaper than the full /dashboard payload it used to poll. */
+insightsRouter.get("/badges", requirePerm("dashboard.view"), h((req) => {
+  const t = tid(req);
+  return {
+    unread: get("SELECT COALESCE(SUM(unread),0) n FROM conversations WHERE tenant_id=? AND status='open'", t)!.n,
+    pending_orders: get("SELECT COUNT(*) n FROM orders WHERE tenant_id=? AND status IN ('pending','confirmed')", t)!.n,
+    open_alerts: get("SELECT COUNT(*) n FROM alerts WHERE tenant_id=? AND acknowledged=0", t)!.n,
+  };
+}));
+
 insightsRouter.post("/ai/ask", requirePerm("ai.ask"), h(async (req) => {
   const b = parse(z.object({ question: z.string().min(3).max(1000) }), req.body);
   return askBusiness(tid(req), b.question);

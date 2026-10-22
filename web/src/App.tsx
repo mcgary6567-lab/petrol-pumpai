@@ -1,67 +1,70 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, lazy, Suspense, useContext, useEffect, useState, type ReactNode } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { api, getToken, setToken, setMediaToken } from "./lib/api";
 import { ToastProvider, Loading } from "./components/ui";
 import Layout from "./components/Layout";
 import { LightboxHost } from "./components/Capture";
 import { UpdateBanner } from "./components/UpdateBanner";
-import Login from "./pages/Login";
-import Help from "./pages/Help";
-import Dashboard from "./pages/Dashboard";
-import Inbox from "./pages/Inbox";
-import Customers from "./pages/Customers";
-import Khata from "./pages/Khata";
-import Orders from "./pages/Orders";
-import Complaints from "./pages/Complaints";
-import Campaigns from "./pages/Campaigns";
-import Pos from "./pages/Pos";
-import Shifts from "./pages/Shifts";
-import Stock from "./pages/Stock";
-import DipCharts from "./pages/DipCharts";
-import Prices from "./pages/Prices";
-import Alerts from "./pages/Alerts";
-import Automations from "./pages/Automations";
-import SettingsPage from "./pages/Settings";
-import Lists from "./pages/Lists";
+import Login from "./pages/Login"; // sign-in is the first screen an unauthenticated user needs — keep it eager
 import { loadLookups } from "./lib/lookups";
 import { loadProducts } from "./lib/format";
-import Users from "./pages/Users";
-import Wholesale from "./pages/Wholesale";
-import Expenses from "./pages/Expenses";
-import Property from "./pages/Property";
-import Reports from "./pages/Reports";
-import Suppliers from "./pages/Suppliers";
-import Carriage from "./pages/Carriage";
-import Staff from "./pages/Staff";
-import MyAccount from "./pages/MyAccount";
-import Cards from "./pages/Cards";
-import Cash from "./pages/Cash";
-import Shop from "./pages/Shop";
-import Compliance from "./pages/Compliance";
-import ChecklistPage from "./pages/ChecklistPage";
-import Insights from "./pages/Insights";
-import Bookings from "./pages/Bookings";
-import Register from "./pages/Register";
-import Prepaid, { CouponSheet } from "./pages/Prepaid";
-import Team from "./pages/Team";
-import Accounts from "./pages/Accounts";
-import Setup from "./pages/Setup";
-import Audit from "./pages/Audit";
-import Machines from "./pages/Machines";
-import Cashier from "./pages/Cashier";
-import Suggestions from "./pages/Suggestions";
-import CardPending from "./pages/CardPending";
-import OwnerReport from "./pages/OwnerReport";
-import DiscountReport from "./pages/DiscountReport";
-import OtherEntries from "./pages/OtherEntries";
-import Corrections from "./pages/Corrections";
-import SalesHistory from "./pages/SalesHistory";
-import OpeningBalances from "./pages/OpeningBalances";
-import GoLive from "./pages/GoLive";
-import Margins from "./pages/Margins";
-import ProfitExplainer from "./pages/ProfitExplainer";
-import Roster from "./pages/Roster";
-import Kiosk from "./pages/Kiosk";
+// every other page is code-split (React.lazy): the browser only downloads a screen's JS when it's first opened, so
+// sign-in and first paint stay fast on the phones/tablets this PWA targets instead of pulling all ~60 pages up front.
+const Help = lazy(() => import("./pages/Help"));
+const Dashboard = lazy(() => import("./pages/Dashboard"));
+const Inbox = lazy(() => import("./pages/Inbox"));
+const Customers = lazy(() => import("./pages/Customers"));
+const Khata = lazy(() => import("./pages/Khata"));
+const Orders = lazy(() => import("./pages/Orders"));
+const Complaints = lazy(() => import("./pages/Complaints"));
+const Campaigns = lazy(() => import("./pages/Campaigns"));
+const Pos = lazy(() => import("./pages/Pos"));
+const Shifts = lazy(() => import("./pages/Shifts"));
+const Stock = lazy(() => import("./pages/Stock"));
+const DipCharts = lazy(() => import("./pages/DipCharts"));
+const Prices = lazy(() => import("./pages/Prices"));
+const Alerts = lazy(() => import("./pages/Alerts"));
+const Automations = lazy(() => import("./pages/Automations"));
+const SettingsPage = lazy(() => import("./pages/Settings"));
+const Lists = lazy(() => import("./pages/Lists"));
+const Users = lazy(() => import("./pages/Users"));
+const Wholesale = lazy(() => import("./pages/Wholesale"));
+const Expenses = lazy(() => import("./pages/Expenses"));
+const Property = lazy(() => import("./pages/Property"));
+const Reports = lazy(() => import("./pages/Reports"));
+const Suppliers = lazy(() => import("./pages/Suppliers"));
+const Carriage = lazy(() => import("./pages/Carriage"));
+const Staff = lazy(() => import("./pages/Staff"));
+const MyAccount = lazy(() => import("./pages/MyAccount"));
+const Cards = lazy(() => import("./pages/Cards"));
+const Cash = lazy(() => import("./pages/Cash"));
+const Shop = lazy(() => import("./pages/Shop"));
+const Compliance = lazy(() => import("./pages/Compliance"));
+const ChecklistPage = lazy(() => import("./pages/ChecklistPage"));
+const Insights = lazy(() => import("./pages/Insights"));
+const Bookings = lazy(() => import("./pages/Bookings"));
+const Register = lazy(() => import("./pages/Register"));
+const Prepaid = lazy(() => import("./pages/Prepaid"));
+const CouponSheet = lazy(() => import("./pages/Prepaid").then((m) => ({ default: m.CouponSheet })));
+const Team = lazy(() => import("./pages/Team"));
+const Accounts = lazy(() => import("./pages/Accounts"));
+const Setup = lazy(() => import("./pages/Setup"));
+const Audit = lazy(() => import("./pages/Audit"));
+const Machines = lazy(() => import("./pages/Machines"));
+const Cashier = lazy(() => import("./pages/Cashier"));
+const Suggestions = lazy(() => import("./pages/Suggestions"));
+const CardPending = lazy(() => import("./pages/CardPending"));
+const OwnerReport = lazy(() => import("./pages/OwnerReport"));
+const DiscountReport = lazy(() => import("./pages/DiscountReport"));
+const OtherEntries = lazy(() => import("./pages/OtherEntries"));
+const Corrections = lazy(() => import("./pages/Corrections"));
+const SalesHistory = lazy(() => import("./pages/SalesHistory"));
+const OpeningBalances = lazy(() => import("./pages/OpeningBalances"));
+const GoLive = lazy(() => import("./pages/GoLive"));
+const Margins = lazy(() => import("./pages/Margins"));
+const ProfitExplainer = lazy(() => import("./pages/ProfitExplainer"));
+const Roster = lazy(() => import("./pages/Roster"));
+const Kiosk = lazy(() => import("./pages/Kiosk"));
 import { loadBranding, applyBrand, setPumpSlug, applyPumpManifest } from "./lib/brand";
 import { useParams } from "react-router-dom";
 
@@ -71,8 +74,8 @@ function PumpLink() {
   setPumpSlug(slug ?? null);
   return <Navigate to={`/login?pump=${encodeURIComponent(slug ?? "")}`} replace />;
 }
-import Activate from "./pages/Activate";
-import Platform from "./pages/Platform";
+const Activate = lazy(() => import("./pages/Activate"));
+const Platform = lazy(() => import("./pages/Platform"));
 
 loadBranding().catch(() => {});
 
@@ -164,6 +167,7 @@ export default function App() {
         <UpdateBanner />
         <LightboxHost />
         <BrowserRouter>
+          <Suspense fallback={<Loading />}>
           <Routes>
             <Route path="/login" element={<Login />} />
             <Route path="/p/:slug" element={<PumpLink />} />
@@ -232,6 +236,7 @@ export default function App() {
             <Route path="/coupons/:batch" element={<Protected><Need perm="khata.manage"><CouponSheet /></Need></Protected>} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
+          </Suspense>
         </BrowserRouter>
       </AuthProvider>
     </ToastProvider>

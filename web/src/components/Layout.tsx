@@ -267,11 +267,11 @@ export default function Layout() {
   const pageLoc = useLocation();
   const [open, setOpen] = useState(false);
   const brand = useBranding();
-  const counts = useApi<any>(can("dashboard.view") ? "/dashboard" : null, 60_000);
+  const counts = useApi<any>(can("dashboard.view") ? "/badges" : null, 60_000);
   useLiveEvents((e) => { if (e?.type !== "changed") counts.reload(); }, can("whatsapp.inbox"));
   useLiveData(); // every entry, from any tab or device, refreshes the open screens without a browser reload
-  const k = counts.data?.kpis;
-  const badgeVal: Record<string, number> = { unread: k?.whatsapp.unread ?? 0, orders: k?.pending_orders ?? 0, alerts: k?.open_alerts ?? 0 };
+  const k = counts.data;
+  const badgeVal: Record<string, number> = { unread: k?.unread ?? 0, orders: k?.pending_orders ?? 0, alerts: k?.open_alerts ?? 0 };
   const [q, setQ] = useState("");
   const visible = NAV.filter((n) => (!n.perm || n.perm.split("|").some(can)) && (!("only" in n) || (n.only as string[]).includes(user?.role ?? "")));
   // flat, searchable list of every menu item the role can see, plus sub-items (e.g. Day book)
