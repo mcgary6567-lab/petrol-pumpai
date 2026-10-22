@@ -5,7 +5,7 @@ import { ArrowDownRight, ArrowUpRight, Banknote, CalendarClock, ClipboardList, P
 import { ChequeForm, OrderForm, PromiseForm } from "./WholesaleDesk";
 import { WholesaleVoice } from "./WholesaleVoice";
 import { useApi } from "../lib/api";
-import { Loading, Modal } from "./ui";
+import { Loading, Modal, Pager, usePaged } from "./ui";
 import { PRODUCTS, PRODUCT_COLORS, num, pkr, pkrShort } from "../lib/format";
 import { useAuth } from "../App";
 
@@ -59,11 +59,13 @@ export function WholesaleDashboard({ onTrip, onAddClient, onTab }: { onTrip: () 
   const [desk, setDesk] = useState<null | "order" | "cheque" | "promise">(null);
   const [pick, setPick] = useState<null | "supply" | "payment">(null);
   const [q, setQ] = useState("");
+  // hooks must run before any early return — derive the filtered + paged list null-safely, then guard on data
+  const clients = (data?.clients ?? []).filter((c: any) => !q || c.name.toLowerCase().includes(q.toLowerCase()));
+  const paged = usePaged(clients, 10);
   if (!data) return <Loading />;
   const k = data.kpi;
   const manage = can("wholesale.manage");
   const ageTotal = AGE.reduce((s, a) => s + data.ageing[a.k], 0);
-  const clients = data.clients.filter((c: any) => !q || c.name.toLowerCase().includes(q.toLowerCase()));
 
   return (
     <div className="space-y-5">
@@ -175,7 +177,7 @@ export function WholesaleDashboard({ onTrip, onAddClient, onTab }: { onTrip: () 
           <div className="relative w-full sm:w-56"><Search size={15} className="absolute left-2.5 top-2.5 text-slate-400" /><input className="input pl-8" placeholder="Search client" value={q} onChange={(e) => setQ(e.target.value)} /></div>
         </div>
         {/* phone: one card per client */}
-        <ul className="divide-y divide-slate-100 sm:hidden">{clients.map((c: any) => (
+        <ul className="divide-y divide-slate-100 sm:hidden">{paged.slice.map((c: any) => (
           <li key={c.id}><button className="w-full px-4 py-3 text-left active:bg-slate-50" onClick={() => nav(`/wholesale/${c.id}`)}>
             <div className="flex items-start gap-2">
               <span className={`mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full ${HEALTH[c.health].dot}`} />
@@ -189,7 +191,7 @@ export function WholesaleDashboard({ onTrip, onAddClient, onTab }: { onTrip: () 
         <div className="hidden overflow-x-auto sm:block">
           <table className="w-full">
             <thead><tr><th className="th">Client</th><th className="th">Health</th><th className="th text-right">Due</th><th className="th">Credit limit used</th><th className="th text-right">Oldest unpaid</th><th className="th text-right">This month</th><th className="th">Last order</th><th className="th">Margin / L</th></tr></thead>
-            <tbody>{clients.map((c: any) => (
+            <tbody>{paged.slice.map((c: any) => (
               <tr key={c.id} className="cursor-pointer hover:bg-slate-50" onClick={() => nav(`/wholesale/${c.id}`)}>
                 <td className="td"><div className="font-medium">{c.name}</div><div className="text-xs text-slate-500">{c.city}</div></td>
                 <td className="td"><span className="inline-flex items-center gap-1.5 text-sm"><span className={`h-2.5 w-2.5 rounded-full ${HEALTH[c.health].dot}`} />{HEALTH[c.health].label}</span></td>
@@ -203,6 +205,8 @@ export function WholesaleDashboard({ onTrip, onAddClient, onTab }: { onTrip: () 
             ))}</tbody>
           </table>
         </div>
+        {!clients.length && <div className="p-4 text-center text-sm text-slate-500">{q ? "Koi client nahi mila" : "Koi client nahi"}</div>}
+        <div className="px-4 pb-3"><Pager {...paged} /></div>
       </div>
 
       {desk === "order" && <OrderForm onClose={() => setDesk(null)} onDone={() => { setDesk(null); reload(); }} />}
