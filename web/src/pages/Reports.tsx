@@ -270,6 +270,48 @@ function ProfitLoss({ r }: { r: any }) {
   );
 }
 
+/**
+ * Per-pump scorecard — only the figures that split cleanly by station (litres, sales, expenses, shifts, cash variance).
+ * Money that is tenant-wide (khata/wholesale/supplier balances, profit) is NOT split here, so no misleading per-pump profit.
+ */
+function PerStation({ r }: { r: any }) {
+  const bySale: any[] = r.sales?.by_station ?? [];
+  if (bySale.length < 2) return null; // single pump → nothing to compare
+  const exp = new Map<string, number>((r.expenses?.by_station ?? []).map((e: any) => [e.station, e.amount]));
+  const shifts = new Map<string, { n: number; variance: number }>();
+  for (const a of r.shifts?.by_attendant ?? []) {
+    const p = shifts.get(a.station) ?? { n: 0, variance: 0 };
+    p.n += a.shifts ?? 0; p.variance += a.variance ?? 0; shifts.set(a.station, p);
+  }
+  const stockL = new Map<string, number>();
+  for (const t of r.stock?.tanks ?? []) stockL.set(t.station, (stockL.get(t.station) ?? 0) + (t.current_l ?? 0));
+  const rows = bySale.map((s: any) => ({ station: s.station, litres: s.litres, sales: s.amount, txns: s.txns, expenses: exp.get(s.station) ?? 0, shifts: shifts.get(s.station)?.n ?? 0, variance: shifts.get(s.station)?.variance ?? 0, stock: stockL.get(s.station) ?? 0 }));
+  return (
+    <div className="card break-inside-avoid overflow-hidden">
+      <h3 className="px-4 pt-3 text-sm font-semibold">Har pump ka haal · <Ur className="text-slate-500">فی پمپ</Ur> <span className="text-xs font-normal text-slate-400">({rows.length})</span></h3>
+      <p className="px-4 text-[11px] text-slate-400">Sirf woh cheezein jo pump se alag hoti hain. Munafa / baqaya poore business ke hain.</p>
+      <div className="mt-1 overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead><tr>{[["Pump", "پمپ", false], ["Litres", "لیٹر", true], ["Sales", "فروخت", true], ["Kharcha", "خرچ", true], ["Shifts", "شفٹیں", true], ["Cash farq", "کیش فرق", true], ["Stock now", "موجودہ اسٹاک", true]].map(([en, ur, right]: any) => (
+            <th key={en} className={`th ${right ? "text-right" : ""}`}>{en}<Ur className="block text-[10px] font-normal opacity-60">{ur}</Ur></th>
+          ))}</tr></thead>
+          <tbody>{rows.map((r2: any) => (
+            <tr key={r2.station}>
+              <td className="td font-medium">{r2.station}</td>
+              <td className="td text-right tabular-nums">{num(r2.litres)}</td>
+              <td className="td text-right tabular-nums">{pkr(r2.sales)}</td>
+              <td className="td text-right tabular-nums text-rose-700">{r2.expenses ? pkr(r2.expenses) : "—"}</td>
+              <td className="td text-right tabular-nums">{r2.shifts || "—"}</td>
+              <td className={`td text-right tabular-nums ${r2.variance < -500 ? "font-semibold text-rose-700" : ""}`}>{r2.shifts ? pkr(r2.variance) : "—"}</td>
+              <td className="td text-right tabular-nums">{num(r2.stock)} L</td>
+            </tr>
+          ))}</tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 /* ---------- headers / charts per tab ---------- */
 function Overview({ r }: { r: any }) {
   const s = r.summary;
@@ -337,6 +379,8 @@ function Overview({ r }: { r: any }) {
       </div>
 
       <ProfitLoss r={r} />
+
+      <PerStation r={r} />
 
       {/* this period vs the one before it, side by side — each metric scaled to its own pair so nothing drowns out */}
       {prev && <div className="card p-4">
