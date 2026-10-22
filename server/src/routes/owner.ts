@@ -59,12 +59,21 @@ owner.get("/owner/overview", requirePerm("reports.view"), h((req) => {
   // ---- today ----
   const r = buildReport(t, dayStart, nowIso).summary;
   const book = cashierDayBook(t, today, req.user!.role === "admin");
+  // one-glance trend: today's fuel sale (retail + wholesale) vs the same by this time yesterday, and vs the 7-day average
+  const saleSince = (from: string, to?: string) => round2(get(
+    `SELECT COALESCE(SUM(s.amount),0) v FROM sales s JOIN stations st ON st.id=s.station_id WHERE st.tenant_id=? AND s.created_at >= ?${to ? " AND s.created_at < ?" : ""}`,
+    t, from, ...(to ? [to] : []) as [])!.v ?? 0);
+  const saleToday = round2(r.retail_sales + (r.wholesale_net ?? 0));
+  const saleYest = saleSince(pkDayStart(Date.now() - 86_400_000), dayStart);
+  const avg7 = round2(saleSince(new Date(Date.now() - 7 * 86_400_000).toISOString(), dayStart) / 7);
   const today_ = {
     revenue: r.revenue, retail_sales: r.retail_sales, retail_litres: r.retail_litres, retail_txns: r.retail_txns,
     wholesale: r.wholesale_net, wholesale_litres: r.wholesale_litres, shop: r.shop_sales,
     expenses: r.expenses, profit_estimate: r.gross_profit_estimate, cost_assumed: r.cost_assumed_products, cost_missing: r.cost_missing_products,
     money_in: { cash: book.totals.in_cash, bank: book.totals.in_bank }, money_out: { cash: book.totals.out_cash, bank: book.totals.out_bank },
     deposited: book.totals.deposited,
+    sale: saleToday, vs_yesterday_pct: saleYest > 0 ? Math.round(((saleToday - saleYest) / saleYest) * 1000) / 10 : null,
+    vs_avg7_pct: avg7 > 0 ? Math.round(((saleToday - avg7) / avg7) * 1000) / 10 : null,
   };
 
   // ---- what every module did today ----

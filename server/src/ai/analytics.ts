@@ -84,7 +84,7 @@ export function tankOutlook(tenantId: number) {
     const reorderL = (t.capacity_l * t.reorder_pct) / 100;
     return {
       ...t,
-      fill_pct: Math.round((t.current_l / t.capacity_l) * 1000) / 10,
+      fill_pct: t.capacity_l > 0 ? Math.round((t.current_l / t.capacity_l) * 1000) / 10 : 0,
       forecast_daily_l: Math.round(daily),
       days_to_empty: Math.round((t.current_l / daily) * 10) / 10,
       days_to_reorder: Math.round((Math.max(0, t.current_l - reorderL) / daily) * 10) / 10,

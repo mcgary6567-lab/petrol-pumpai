@@ -108,7 +108,7 @@ function NavMenu({ items, grouped, badges, onGo }: { items: NavItem[]; grouped: 
       </NavLink>
       {pinnable && (
         <button type="button" onClick={(e) => { e.preventDefault(); togglePin(n.to); }} aria-label={pins.includes(n.to) ? "Unpin" : "Pin to top"} title={pins.includes(n.to) ? "Unpin · ہٹائیں" : "Pin to top · اوپر رکھیں"}
-          className={`absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 transition ${pins.includes(n.to) ? "text-amber-300" : "text-white/0 group-hover/item:text-emerald-100/70 hover:!text-amber-300"}`}>
+          className={`absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 transition ${pins.includes(n.to) ? "text-amber-300" : "text-emerald-100/50 lg:text-white/0 lg:group-hover/item:text-emerald-100/70 hover:!text-amber-300"}`}>
           <Star size={14} fill={pins.includes(n.to) ? "currentColor" : "none"} />
         </button>
       )}
@@ -123,7 +123,7 @@ function NavMenu({ items, grouped, badges, onGo }: { items: NavItem[]; grouped: 
             {!grouped && <span lang="ur" dir="rtl" className="font-urdu shrink-0 text-sm opacity-70">{x.ur}</span>}
           </Link>
           <button type="button" onClick={(e) => { e.preventDefault(); togglePin(x.to); }} aria-label={pins.includes(x.to) ? "Unpin" : "Pin to top"} title={pins.includes(x.to) ? "Unpin · ہٹائیں" : "Pin to top · اوپر رکھیں"}
-            className={`absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 transition ${pins.includes(x.to) ? "text-amber-300" : "text-white/0 group-hover/item:text-emerald-100/70 hover:!text-amber-300"}`}>
+            className={`absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 transition ${pins.includes(x.to) ? "text-amber-300" : "text-emerald-100/50 lg:text-white/0 lg:group-hover/item:text-emerald-100/70 hover:!text-amber-300"}`}>
             <Star size={14} fill={pins.includes(x.to) ? "currentColor" : "none"} />
           </button>
         </div>
@@ -141,7 +141,7 @@ function NavMenu({ items, grouped, badges, onGo }: { items: NavItem[]; grouped: 
           {t.badge && <Badge n={badges[t.badge] ?? 0} />}
         </Link>
         <button type="button" onClick={(e) => { e.preventDefault(); togglePin(to); }} aria-label={pins.includes(to) ? "Unpin" : "Pin"} title={pins.includes(to) ? "Unpin · ہٹائیں" : "Pin to top · اوپر رکھیں"}
-          className={`absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 transition ${pins.includes(to) ? "text-amber-300" : "text-white/0 group-hover/item:text-emerald-100/70 hover:!text-amber-300"}`}>
+          className={`absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 transition ${pins.includes(to) ? "text-amber-300" : "text-emerald-100/50 lg:text-white/0 lg:group-hover/item:text-emerald-100/70 hover:!text-amber-300"}`}>
           <Star size={14} fill={pins.includes(to) ? "currentColor" : "none"} />
         </button>
       </div>

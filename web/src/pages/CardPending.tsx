@@ -65,7 +65,8 @@ export default function CardPending() {
                   <h2 className="flex-1 font-semibold">📒 {name}</h2>
                   <span className="text-sm text-slate-500">{list.length} hold{list.length === 1 ? "" : "s"}</span>
                 </div>
-                <table className="w-full">
+                <div className="overflow-x-auto">
+                <table className="w-full min-w-[480px]">
                   <thead><tr><th className="th w-8"></th><th className="th">Fuel</th><th className="th text-right">Litres</th><th className="th">Filled</th><th className="th text-right">At today's rate</th><th className="th">Slip</th></tr></thead>
                   <tbody>{list.map((r: any) => (
                     <tr key={r.id} className={sel.has(r.id) ? "bg-violet-50" : ""}>
@@ -78,6 +79,7 @@ export default function CardPending() {
                     </tr>
                   ))}</tbody>
                 </table>
+                </div>
               </div>
             ))}
           </div>

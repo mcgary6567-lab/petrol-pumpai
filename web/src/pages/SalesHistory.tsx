@@ -54,7 +54,29 @@ export default function SalesHistory() {
           {data.totals.by_method?.length > 1 && <div className="flex flex-wrap gap-2 text-xs">{data.totals.by_method.map((m: any) => <span key={m.method} className="rounded-full bg-slate-100 px-2.5 py-1">{m.method}: <b className="tabular-nums">{pkr(m.amount)}</b> ({m.n})</span>)}</div>}
           {!rows.length ? <Empty>Is range me koi sale nahi mili · <Ur>کوئی سیل نہیں ملی</Ur></Empty> : (
             <div className="card overflow-x-auto">
-              <table className="w-full min-w-[760px] text-sm">
+              {/* phone: one card per sale (no sideways scroll of a 10-column table) */}
+              <ul className="divide-y divide-slate-100 sm:hidden">
+                {paged.slice.map((r) => (
+                  <li key={r.id} className="px-3 py-2.5 text-sm">
+                    <div className="flex items-start justify-between gap-2">
+                      <span className="min-w-0 font-medium">{PRODUCT[r.product] ?? r.product} · {num(r.litres, 2)} L <span className="font-normal text-slate-500">@ {r.rate}</span></span>
+                      <span className="shrink-0 font-semibold tabular-nums">{pkr(r.amount)}</span>
+                    </div>
+                    <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-slate-500">
+                      <span>{dt(r.created_at)}</span><span className="capitalize">· {r.payment_method}</span>{r.station_name && <span>· {r.station_name}</span>}
+                      {r.discount ? <span className="text-rose-600">· disc {pkr(r.discount)}</span> : null}
+                    </div>
+                    {(r.customer_name || r.vehicle_no || r.slip_no || r.attendant) && (
+                      <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-slate-500">
+                        {r.customer_name && <span>{r.customer_id && can("customers.view") ? <Link className="text-brand-700 underline" to={`/customers/${r.customer_id}`}>{r.customer_name}</Link> : r.customer_name}</span>}
+                        {r.vehicle_no && <span>· {r.vehicle_no}</span>}{r.slip_no && <span>· slip {r.slip_no}</span>}{r.attendant && <span>· {r.attendant}</span>}
+                        {can("entries.edit") && <Link className="text-brand-700 underline" to={`/corrections?sale=${r.id}`}>fix</Link>}
+                      </div>
+                    )}
+                  </li>
+                ))}
+              </ul>
+              <table className="hidden w-full min-w-[760px] text-sm sm:table">
                 <thead><tr><th className="th">Date</th><th className="th">Station</th><th className="th">Fuel</th><th className="th text-right">Litres</th><th className="th text-right">Rate</th><th className="th text-right">Amount</th><th className="th">Method</th><th className="th">Customer / gaari</th><th className="th">Slip</th><th className="th">Salesman</th></tr></thead>
                 <tbody>{paged.slice.map((r) => (
                   <tr key={r.id} className="border-t border-slate-100 hover:bg-slate-50">

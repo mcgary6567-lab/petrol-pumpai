@@ -186,6 +186,9 @@ export function recordSale(tenantId: number, s: SaleInput): Row {
     if (coupon.expires_on && coupon.expires_on < new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 10)) throw new AppError(400, `Coupon ${coupon.code} expired on ${coupon.expires_on}`);
     if (coupon.product && coupon.product !== s.product) throw new AppError(400, `Coupon ${coupon.code} is only for ${coupon.product}`);
   }
+  // never divide an amount by a zero/blank rate — it would make Infinity litres and a NaN sale slip past the litres>0 guard
+  if (!(rate > 0) && (coupon || (s.litres == null && (s.amount ?? 0) > 0)))
+    throw new AppError(400, `${s.product} ka rate 0 hai — pehle is fuel ka rate daalein (Prices page)`);
   const litres = coupon ? coupon.value / rate : s.litres ?? (s.amount ? s.amount / rate : 0);
   // "poora parcha cash": a khata parchi taken entirely as cash — no fuel pumped (litres 0), the whole slip is the baqi
   // cash leg (cash_back_litres). Every other sale still needs real litres.

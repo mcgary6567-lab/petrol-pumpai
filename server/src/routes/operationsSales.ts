@@ -49,6 +49,7 @@ function rebookLateSale(req: Request, shift: Row, s: Omit<SaleInput, "shift_id" 
   const t = tid(req);
   if (s.payment_method === "cash") return { covered_by_meter: true, shift_id: shift.id, payment_method: "cash", product: s.product, litres: s.litres ?? null, amount: s.amount ?? null };
   const rate = priceOf(t, s.product, at);
+  if (!(rate > 0) && s.litres == null && (s.amount ?? 0) > 0) throw new AppError(400, `${s.product} ka rate 0 hai — pehle is fuel ka rate daalein`);
   const litres = round2(s.litres ?? (s.amount ? s.amount / rate : 0));
   if (!(litres > 0)) throw new AppError(400, "Litres or amount required");
   // the same slip may already have been added on the close screen ("khata slips not entered yet")

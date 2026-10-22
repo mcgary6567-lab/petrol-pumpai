@@ -35,12 +35,14 @@ export function parseBankStatement(csv: string): BankLine[] {
     if (iDr < 0 && iCr < 0) { const a = num(r[iAmt]); if (a < 0) debit = -a; else credit = a; }
     const d = r[iDate] ?? "";
     const m = d.match(/^(\d{1,2})[/\-. ]([A-Za-z]{3}|\d{1,2})[/\-. ](\d{2,4})/);
+    // a malformed uploaded row (e.g. "2024-99-99" or "45/67/24") must never throw — return null and drop the line below
+    const safeIso = (s: string) => { const dt = new Date(s); return isNaN(dt.getTime()) ? null : dt.toISOString(); };
     let iso: string | null = null;
-    if (/^\d{4}-\d{2}-\d{2}/.test(d)) iso = new Date(`${d.slice(0, 10)}T12:00:00+05:00`).toISOString();
+    if (/^\d{4}-\d{2}-\d{2}/.test(d)) iso = safeIso(`${d.slice(0, 10)}T12:00:00+05:00`);
     else if (m) {
       const mon = /^\d+$/.test(m[2]) ? Number(m[2]) : ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"].indexOf(m[2].toLowerCase()) + 1;
       const y = m[3].length === 2 ? 2000 + Number(m[3]) : Number(m[3]);
-      if (mon > 0) iso = new Date(`${y}-${String(mon).padStart(2, "0")}-${m[1].padStart(2, "0")}T12:00:00+05:00`).toISOString();
+      if (mon > 0 && mon <= 12 && Number(m[1]) >= 1 && Number(m[1]) <= 31) iso = safeIso(`${y}-${String(mon).padStart(2, "0")}-${m[1].padStart(2, "0")}T12:00:00+05:00`);
     }
     return { at: iso, text: iText >= 0 ? r[iText] ?? "" : r.join(" "), ref: iRef >= 0 ? r[iRef] ?? "" : "", debit: round2(debit), credit: round2(credit), balance: iBal >= 0 && r[iBal] ? num(r[iBal]) : null };
   }).filter((l) => l.at && (l.debit > 0 || l.credit > 0));

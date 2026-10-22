@@ -134,7 +134,7 @@ export function FilterChips({ value, onChange, opts, className = "" }: { value: 
     <div className={`flex flex-wrap gap-1.5 ${className}`}>
       {opts.map(([v, label]) => (
         <button key={v} type="button" onClick={() => onChange(v)}
-          className={`rounded-full px-3 py-1 text-sm font-medium ring-1 transition active:scale-95 ${value === v ? "bg-brand-600 text-white ring-brand-600" : "bg-white text-slate-600 ring-slate-300 hover:ring-brand-400"}`}>{label}</button>
+          className={`inline-flex min-h-9 items-center rounded-full px-3 py-1.5 text-sm font-medium ring-1 transition active:scale-95 ${value === v ? "bg-brand-600 text-white ring-brand-600" : "bg-white text-slate-600 ring-slate-300 hover:ring-brand-400"}`}>{label}</button>
       ))}
     </div>
   );
@@ -244,7 +244,7 @@ export function ListTools({ q, onQ, placeholder = "Dhoondein… · تلاش", ch
         <div className="flex flex-wrap gap-1">
           {chips.map((c) => (
             <button type="button" key={c.k} onClick={() => onChip?.(c.k)} aria-pressed={chip === c.k}
-              className={`rounded-full px-2.5 py-1 text-xs font-semibold ${chip === c.k ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}>
+              className={`inline-flex min-h-9 items-center rounded-full px-3 py-1.5 text-xs font-semibold ${chip === c.k ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}>
               {c.label}{c.n != null ? ` ${c.n}` : ""}
             </button>
           ))}

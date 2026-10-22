@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { AlertTriangle, ArrowDownCircle, ArrowUpCircle, Banknote, Landmark, Scale, TrendingUp, Users, FileCheck2, ChevronDown, Receipt } from "lucide-react";
+import { AlertTriangle, ArrowDownCircle, ArrowUpCircle, Banknote, Landmark, Scale, TrendingUp, Users, FileCheck2, ChevronDown, Receipt, ArrowUpRight, ArrowDownRight, Fuel, Wallet, Coins } from "lucide-react";
 import { useApi } from "../lib/api";
 import { Loading, CountUp, pkDay } from "./ui";
 import { Ur } from "./VoiceShell";
@@ -29,6 +29,7 @@ export function OwnerOverview() {
   const m = data.money, o = data.owed_to_us, w = data.we_owe, t = data.today, mo = data.month;
   return (
     <div className="space-y-4">
+      <VitalsStrip data={data} m={m} o={o} w={w} t={t} mo={mo} />
       {/* where the money is */}
       <div className="overflow-hidden rounded-2xl bg-gradient-to-br from-slate-900 to-slate-700 p-4 text-white shadow">
         <div className="flex items-center gap-1.5 text-sm opacity-90"><Banknote size={16} /> Your money right now · <Ur>آپ کا پیسہ ابھی</Ur></div>
@@ -124,6 +125,46 @@ export function OwnerOverview() {
           ))}
         </div>
       </div>
+    </div>
+  );
+}
+
+/** One-glance vitals: the eight numbers a CEO wants the moment the app opens. Horizontally scrolls on a phone,
+ *  an even grid on a wider screen. Each tile taps through to the page behind it; trend arrows compare today to
+ *  yesterday (green up / red down). */
+function VitalsStrip({ data, m, o, w, t, mo }: { data: any; m: any; o: any; w: any; t: any; mo: any }) {
+  const tiles = [
+    { icon: Banknote, label: "Paisa abhi", ur: "پیسہ", v: m.total, to: "/cash", tone: "text-slate-900", accent: "bg-slate-100 text-slate-700" },
+    { icon: Wallet, label: "Aaj sale", ur: "آج سیل", v: t.sale ?? t.retail_sales, to: "/reports", tone: "text-slate-900", accent: "bg-emerald-100 text-emerald-700", trend: t.vs_yesterday_pct, trendNote: "vs kal" },
+    { icon: TrendingUp, label: "Aaj munafa", ur: "منافع", v: t.profit_estimate, to: "/insights", tone: "text-emerald-700", accent: "bg-emerald-100 text-emerald-700" },
+    { icon: Fuel, label: "Aaj litre", ur: "لیٹر", v: null, raw: `${num(t.retail_litres)} L`, to: "/reports", tone: "text-slate-900", accent: "bg-blue-100 text-blue-700" },
+    { icon: ArrowDownRight, label: "Lena", ur: "لینا", v: o.total, to: "/khata", tone: "text-emerald-700", accent: "bg-emerald-100 text-emerald-700" },
+    { icon: ArrowUpRight, label: "Dena", ur: "دینا", v: w.total, to: "/suppliers", tone: "text-rose-700", accent: "bg-rose-100 text-rose-700" },
+    { icon: Landmark, label: "Mahine ka munafa", ur: "اس مہینے", v: mo.net_profit, to: "/insights", tone: mo.net_profit < 0 ? "text-rose-700" : "text-emerald-700", accent: "bg-violet-100 text-violet-700", note: `${mo.margin_pct}% margin` },
+    { icon: Scale, label: "Kul maaliyat", ur: "کل مالیت", v: data.net_position, to: "/insights", tone: data.net_position < 0 ? "text-rose-700" : "text-slate-900", accent: "bg-amber-100 text-amber-700", note: "paisa + lena − dena" },
+  ];
+  return (
+    <div className="-mx-1 flex gap-2.5 overflow-x-auto px-1 pb-1 [scrollbar-width:none] sm:grid sm:grid-cols-3 sm:overflow-visible lg:grid-cols-4 xl:grid-cols-8">
+      {tiles.map((tl) => {
+        const Icon = tl.icon;
+        const up = typeof tl.trend === "number" && tl.trend > 0, down = typeof tl.trend === "number" && tl.trend < 0;
+        return (
+          <Link key={tl.label} to={tl.to} className="min-w-[8.5rem] shrink-0 rounded-2xl bg-white p-3 ring-1 ring-slate-200 transition hover:ring-brand-300 sm:min-w-0">
+            <div className="flex items-center justify-between">
+              <span className={`inline-flex h-7 w-7 items-center justify-center rounded-lg ${tl.accent}`}><Icon size={15} /></span>
+              {typeof tl.trend === "number" && (
+                <span className={`inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[11px] font-semibold tabular-nums ${up ? "bg-emerald-50 text-emerald-700" : down ? "bg-rose-50 text-rose-700" : "bg-slate-100 text-slate-500"}`}>
+                  {up ? <ArrowUpRight size={11} /> : down ? <ArrowDownRight size={11} /> : null}{Math.abs(tl.trend)}%
+                </span>
+              )}
+            </div>
+            <div className="mt-2 truncate text-[11px] font-medium uppercase tracking-wide text-slate-500">{tl.label} · <Ur className="normal-case">{tl.ur}</Ur></div>
+            <div className={`truncate text-lg font-bold tabular-nums ${tl.tone}`}>{tl.raw ?? pkrShort(tl.v ?? 0)}</div>
+            {tl.note && <div className="truncate text-[11px] text-slate-400">{tl.note}</div>}
+            {tl.trendNote && typeof tl.trend === "number" && <div className="truncate text-[11px] text-slate-400">{tl.trendNote}</div>}
+          </Link>
+        );
+      })}
     </div>
   );
 }
