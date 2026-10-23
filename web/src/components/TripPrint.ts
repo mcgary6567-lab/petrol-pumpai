@@ -37,6 +37,8 @@ const CSS = `
   .r { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
   .nw { white-space: nowrap; }
   .total td { font-weight: 700; background: #f1f5f9; border-top: 2px solid #0f172a; }
+  td.pos, .total td.pos { color: #047857; }   /* credit / money in — green */
+  td.neg, .total td.neg { color: #b91c1c; }   /* debit / money out — red */
   .signs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 22px; }
   .signs div { border-top: 1px solid #0f172a; padding-top: 3px; font-size: 11px; text-align: center; }
   .note { margin-top: 10px; padding: 8px 11px; font-size: 13px; font-weight: 700; color: #0f172a; background: #f1f5f9; border-left: 4px solid var(--brand, #059669); border-radius: 5px; letter-spacing: .01em; }

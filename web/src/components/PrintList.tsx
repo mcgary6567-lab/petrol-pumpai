@@ -20,6 +20,10 @@ export type PrintCol<T> = {
   sub?: (row: T) => string | null | undefined;
   /** totals row text for this column */
   total?: (rows: T[]) => string | number | null | undefined;
+  /** cell colour: "pos" = green (credit / money in), "neg" = red (debit / money out) */
+  tone?: (row: T) => "pos" | "neg" | "" | undefined;
+  /** colour for this column's totals cell */
+  totalTone?: "pos" | "neg" | "";
 };
 const esc = (v: unknown) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 
@@ -41,9 +45,10 @@ export function listPage<T>(b: any, title: string, sub: string, columns: PrintCo
   const hasTotal = columns.some((c) => c.total);
   const body = rows.map((r, i) => `<tr><td class="no">${i + 1}</td>${columns.map((c) => {
     const s = c.sub?.(r);
-    return `<td class="${c.r ? "r" : ""}">${esc(c.v(r) ?? "—")}${s ? `<div class="muted">${esc(s)}</div>` : ""}</td>`;
+    const tone = c.tone?.(r);
+    return `<td class="${c.r ? "r" : ""}${tone ? ` ${tone}` : ""}">${esc(c.v(r) ?? "—")}${s ? `<div class="muted">${esc(s)}</div>` : ""}</td>`;
   }).join("")}</tr>`).join("");
-  const totals = hasTotal ? `<tr class="total"><td></td>${columns.map((c, i) => `<td class="${c.r ? "r" : ""}">${i === 0 && !c.total ? `Total · کل (${rows.length})` : esc(c.total?.(rows) ?? "")}</td>`).join("")}</tr>` : "";
+  const totals = hasTotal ? `<tr class="total"><td></td>${columns.map((c, i) => `<td class="${c.r ? "r" : ""}${c.totalTone ? ` ${c.totalTone}` : ""}">${i === 0 && !c.total ? `Total · کل (${rows.length})` : esc(c.total?.(rows) ?? "")}</td>`).join("")}</tr>` : "";
   return `<div class="page">${letterhead(b ?? {}, title, sub, by)}
     <table class="list"><thead><tr><th>#</th>${columns.map((c) => `<th class="${c.r ? "r" : ""}">${esc(c.label)}</th>`).join("")}</tr></thead><tbody>${body}${totals}</tbody></table>
     ${note ? `<div class="note">${esc(note)}</div>` : ""}${footer(b ?? {})}</div>
