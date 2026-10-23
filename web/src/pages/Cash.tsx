@@ -14,6 +14,44 @@ import { Ur } from "../components/VoiceShell";
 const IN: Record<string, string> = { shift_cash: "Cash handed over from shifts", khata_cash: "Khata payments in cash", wholesale_cash: "Wholesale payments in cash", prepaid_cash: "Coupons sold & wallet deposits (cash)", staff_repaid: "Staff advances paid back", bank_withdrawals: "Cash taken out of bank", other_cash: "Other money in (cash counter)" };
 const OUT: Record<string, string> = { bank_deposits: "Deposited in bank", expenses: "Cash expenses (office)", supplier_payments: "Supplier paid in cash", staff_advances: "Staff advances / bonus", other_cash: "Other payments (cash counter)" };
 
+/** Live cash position: office drawer, cash still with salesmen and every bank, side by side with a grand total. */
+function LiveCash() {
+  const { data } = useApi<any>("/cash/live", 30_000);
+  if (!data) return null;
+  return (
+    <div className="card p-4">
+      <div className="mb-2 flex items-center justify-between">
+        <h2 className="font-semibold">Abhi paisa kahan hai · <Ur>اس وقت پیسہ کہاں</Ur></h2>
+        {data.needs_attention && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">⚠ Tally check karein</span>}
+      </div>
+      <div className="grid gap-3 sm:grid-cols-4">
+        <Stat label="Office drawer" value={pkr(data.office.cash_in_hand)} tone="green"
+          hint={data.office.variance ? `Last count ${data.office.variance < 0 ? "short" : "extra"} ${pkr(Math.abs(data.office.variance))}` : "Counted OK"} />
+        <Stat label="Salesmen ke paas" value={pkr(data.salesmen.total)} tone="amber"
+          hint={`${data.salesmen.open_shifts} open shift${data.salesmen.not_handed ? ` · ${pkr(data.salesmen.not_handed)} not handed` : ""}`} />
+        <Stat label="Banks" value={pkr(data.banks.total)} tone="blue"
+          hint={`${data.banks.accounts.filter((a: any) => a.active).length} account`} />
+        <Stat label="Total" value={pkr(data.total)} tone="green" />
+      </div>
+      {data.banks.accounts.filter((a: any) => a.active).length > 0 && (
+        <ul className="mt-3 divide-y divide-slate-100 text-sm">
+          {data.banks.accounts.filter((a: any) => a.active).map((a: any) => (
+            <li key={a.id} className="flex items-center gap-2 py-1.5">
+              <BankLogo name={a.name} size={28} />
+              <span className="min-w-0 flex-1 truncate">{a.name}</span>
+              {(a.today_in > 0 || a.today_out > 0) && <span className="text-xs text-slate-500">aaj +{pkr(a.today_in)} / −{pkr(a.today_out)}</span>}
+              <span className="font-semibold tabular-nums">{pkr(a.balance)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {(data.unlinked.received > 0.5 || data.unlinked.paid > 0.5) && (
+        <p className="mt-2 text-xs text-amber-700">Kis bank me gaya, yeh nahi likha: aaya {pkr(data.unlinked.received)}, gaya {pkr(data.unlinked.paid)} — tally saaf karne ke liye bank chunein.</p>
+      )}
+    </div>
+  );
+}
+
 /** Office cash book: what should be in the drawer now, bank deposits and cash counts — no cash register on paper. */
 export default function Cash() {
   const { data, reload } = useApi<any>("/cash");
@@ -29,6 +67,7 @@ export default function Cash() {
           <button className="btn-secondary" onClick={() => setForm("count")}><Calculator size={15} /> Count cash</button>
           <button className="btn-primary" onClick={() => setForm("deposit")}><Landmark size={15} /> Bank deposit</button>
         </>} />
+      <LiveCash />
       <div className="grid gap-3 sm:grid-cols-3">
         <Stat label="Cash in hand (should be)" value={pkr(data.cash_in_hand)} tone="green"
           hint={data.last_count ? `Last counted ${pkr(data.last_count.amount)} by ${data.last_count.by}, ${dt(data.last_count.at)}` : "Count the cash once to start the book"} />

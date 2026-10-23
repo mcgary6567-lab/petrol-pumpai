@@ -12,6 +12,8 @@ import { z } from "zod";
 import jwt from "jsonwebtoken";
 import { all, get, run, tx, now, pkDate, pkStart, pkEnd, getSetting } from "../db.js";
 import { rentalIncome } from "./property.js";
+import { bankAccounts, unlinkedMoney } from "./banks.js";
+import { cashWithSalesmen } from "./cashier.js";
 import { h, parse, tid, requirePerm, requireAny, can } from "../auth.js";
 import { AppError, round2, pkr, createAlert } from "../services.js";
 import { config, PRODUCTS } from "../config.js";
@@ -93,6 +95,22 @@ backoffice.get("/cash", requireAny("expenses.view", "cash.book"), h((req) => ({
   deposits: all(`${DEPOSIT_SQL} WHERE d.tenant_id=? ORDER BY d.id DESC LIMIT 30`, tid(req)),
   counts: all(`SELECT c.*, ${proofCol("'cashcount:'||c.id")} FROM cash_counts c WHERE c.tenant_id=? ORDER BY c.id DESC LIMIT 15`, tid(req)),
 })));
+
+/** Live cash position: office drawer, cash still with salesmen, and every bank — side by side with tally flags. */
+backoffice.get("/cash/live", requireAny("expenses.view", "cash.book"), h((req) => {
+  const t = tid(req);
+  const pos = cashPosition(t), ws = cashWithSalesmen(t), banks = bankAccounts(t), unlinked = unlinkedMoney(t);
+  const office_variance = pos.last_count?.variance ?? 0; // last count vs book: + = extra, − = short
+  return {
+    as_of: new Date().toISOString(),
+    office: { cash_in_hand: pos.cash_in_hand, last_count: pos.last_count, variance: office_variance },
+    salesmen: ws, // { in_open_shifts, not_handed, open_shifts, total }
+    banks: { accounts: banks.accounts.map((a: any) => ({ id: a.id, name: a.name, active: a.active, balance: a.balance, today_in: a.today_in, today_out: a.today_out })), total: banks.total },
+    unlinked, // non-cash money in the last 30 days not tied to a bank — fix for a clean tally
+    total: round2(pos.cash_in_hand + ws.total + banks.total),
+    needs_attention: Math.abs(office_variance) >= 500 || unlinked.received > 0.5 || unlinked.paid > 0.5,
+  };
+}));
 
 // labels for the cash-book CSV (mirror the web page's IN/OUT rows)
 const CASH_IN: Record<string, string> = { shift_cash: "Cash handed over from shifts", khata_cash: "Khata payments in cash", wholesale_cash: "Wholesale payments in cash", carriage_cash: "Carriage payments in cash", prepaid_cash: "Coupons sold & wallet deposits (cash)", staff_repaid: "Staff advances paid back", bank_withdrawals: "Cash taken out of bank", counter_sales: "Counter cash sales", other_cash: "Other money in (cash counter)" };

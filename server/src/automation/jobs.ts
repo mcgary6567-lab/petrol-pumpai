@@ -351,11 +351,18 @@ export async function buildDailyBrief(t: number) {
     `SELECT s.product, ROUND(SUM(s.litres)) l FROM sales s JOIN stations st ON st.id=s.station_id WHERE st.tenant_id=? AND s.created_at >= ? GROUP BY s.product`,
     t, pkDayStart(),
   );
+  const topExp = all("SELECT category, ROUND(SUM(amount)) a FROM expenses WHERE tenant_id=? AND status='approved' AND expense_date=? GROUP BY category ORDER BY a DESC LIMIT 3", t, pkDate());
+  const expTotal = topExp.reduce((s: number, r: Row) => s + Number(r.a), 0);
+  // cash short/extra from the shifts closed today (negative variance = short, positive = extra)
+  const vr = get("SELECT ROUND(SUM(sh.variance)) v, SUM(CASE WHEN sh.variance < -1 THEN 1 ELSE 0 END) short_n FROM shifts sh JOIN stations s ON s.id=sh.station_id WHERE s.tenant_id=? AND sh.status='closed' AND substr(sh.closed_at,1,10)=?", t, pkDate());
+  const netVar = Number(vr?.v ?? 0);
   return [
     `📊 Aaj ki report — ${pkDate()}`,
     `⛽ Sales: ${byProduct.map((r: Row) => `${r.product} ${Number(r.l).toLocaleString()}L`).join(" | ") || "—"}`,
     `💰 Revenue ${pkr(k.today.amount)} (Cash ${pkr(k.today.cash)} · Digital ${pkr(k.today.digital)} · Khata ${pkr(k.today.khata)})`,
     `📒 Khata outstanding ${pkr(k.khata.outstanding)} (${k.khata.debtors} customers)`,
+    `🧾 Kharcha ${pkr(expTotal)}${topExp.length ? ` — top: ${topExp.map((r: Row) => `${r.category} ${pkr(Number(r.a))}`).join(", ")}` : ""}`,
+    netVar === 0 ? "✅ Cash poora — koi kami/zyadti nahi" : netVar < 0 ? `🔴 Cash kami ${pkr(-netVar)}${vr?.short_n ? ` (${vr.short_n} shift)` : ""}` : `🟢 Cash zyada ${pkr(netVar)}`,
     ...tanks.filter((x) => x.days_to_reorder <= 2).map((x) => `🛢️ ${x.station_name} ${x.name}: ${x.fill_pct}% — order ${x.suggested_order_l.toLocaleString()}L`),
     ...alerts.map((a: Row) => `⚠️ ${a.title}`),
     ...insights(t).filter((c) => c.icon === "trend").map((c) => `📈 ${c.title}`),

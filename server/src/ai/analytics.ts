@@ -217,6 +217,68 @@ export function detectAnomalies(tenantId: number) {
       });
     }
   }
+  // 5. Meter rollback — a closing totalizer below its own opening (tampering / wrong entry) in a recent shift
+  for (const m of all(
+    `SELECT m.id, m.opening, m.closing, sh.id shift_id, sh.attendant, sh.station_id FROM meter_readings m
+     JOIN shifts sh ON sh.id=m.shift_id JOIN stations s ON s.id=sh.station_id
+     WHERE s.tenant_id=? AND m.closing IS NOT NULL AND m.closing < m.opening - 0.01 AND sh.closed_at >= ?`,
+    tenantId, new Date(Date.now() - 2 * DAY).toISOString(),
+  )) {
+    findings.push({
+      type: "meter_rollback", severity: "critical", station_id: m.station_id,
+      title: `Meter ulta chala — ${m.attendant}`,
+      body: `Shift #${m.shift_id}: closing reading ${Math.round(m.closing).toLocaleString()} opening ${Math.round(m.opening).toLocaleString()} se kam hai. Meter tampering ya ghalat entry — check karein.`,
+      key: `rollback-${m.id}`,
+    });
+  }
+  // 6. Repeated / large discounts by one salesman in a day (data is in sales.discount; threshold owner-tunable)
+  const discWatch = Number(getSetting(tenantId, "sens_discount_day", "4000"));
+  for (const r of all(
+    `SELECT sh.attendant, sh.station_id, COUNT(*) n, ROUND(SUM(s.discount)) d FROM sales s
+     JOIN shifts sh ON sh.id=s.shift_id JOIN stations st ON st.id=s.station_id
+     WHERE st.tenant_id=? AND COALESCE(s.discount,0) > 0 AND s.created_at >= ? GROUP BY sh.attendant, sh.station_id HAVING d >= ?`,
+    tenantId, new Date(Date.now() - 1 * DAY).toISOString(), discWatch,
+  )) {
+    findings.push({
+      type: "discount_watch", severity: r.d >= discWatch * 3 ? "critical" : "warning", station_id: r.station_id,
+      title: `Zyada discount — ${r.attendant} ne Rs ${Number(r.d).toLocaleString()}`,
+      body: `Pichle din ${r.n} sale par kul Rs ${Number(r.d).toLocaleString()} discount diya. Har discount ki wajah check karein.`,
+      key: `disc-${r.attendant}-${pkDate()}`,
+    });
+  }
+  // 7. Odd-hours sales — large sales in the dead of night (local PK time), often a sign of off-book dealing
+  const oddFrom = Number(getSetting(tenantId, "sens_odd_from", "1")), oddTo = Number(getSetting(tenantId, "sens_odd_to", "5"));
+  const oddMin = Number(getSetting(tenantId, "sens_odd_min", "15000"));
+  const odd = get(
+    `SELECT COUNT(*) n, COALESCE(ROUND(SUM(s.amount)),0) amt FROM sales s JOIN stations st ON st.id=s.station_id
+     WHERE st.tenant_id=? AND s.created_at >= ? AND COALESCE(s.pending,0)=0
+       AND CAST(strftime('%H', datetime(s.created_at, '+5 hours')) AS INTEGER) >= ?
+       AND CAST(strftime('%H', datetime(s.created_at, '+5 hours')) AS INTEGER) < ?`,
+    tenantId, new Date(Date.now() - 1 * DAY).toISOString(), oddFrom, oddTo,
+  )!;
+  if (Number(odd.amt) >= oddMin) {
+    findings.push({
+      type: "odd_hours", severity: Number(odd.amt) >= oddMin * 3 ? "critical" : "warning",
+      title: `Raat ${oddFrom}–${oddTo} baje ${odd.n} sale, Rs ${Number(odd.amt).toLocaleString()}`,
+      body: `Raat ke ghanton me badi sale hui. CCTV aur meter se milaein — off-book dealing ka khatra.`,
+      key: `odd-${pkDate()}`,
+    });
+  }
+  // 8. Excess test litres — recent shifts returning far more "test" fuel to the tank than the allowed limit
+  const testLimit = Number(getSetting(tenantId, "test_limit_l", "10"));
+  for (const r of all(
+    `SELECT sh.id shift_id, sh.attendant, sh.station_id, ROUND(SUM(m.test_l)) tl FROM meter_readings m
+     JOIN shifts sh ON sh.id=m.shift_id JOIN stations s ON s.id=sh.station_id
+     WHERE s.tenant_id=? AND COALESCE(m.test_l,0) > 0 AND sh.closed_at >= ? GROUP BY sh.id HAVING tl > ?`,
+    tenantId, new Date(Date.now() - 2 * DAY).toISOString(), Math.max(testLimit * 2, testLimit + 20),
+  )) {
+    findings.push({
+      type: "excess_test", severity: "warning", station_id: r.station_id,
+      title: `Test litre had se zyada — ${r.attendant}`,
+      body: `Shift #${r.shift_id}: ${Number(r.tl).toLocaleString()}L test/wapas tank (hadd ${testLimit}L). Baar-baar ho to pilferage check karein.`,
+      key: `testl-${r.shift_id}`,
+    });
+  }
   return findings;
 }
 
