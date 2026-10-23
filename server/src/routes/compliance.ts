@@ -9,7 +9,7 @@ import { z } from "zod";
 import { randomBytes } from "node:crypto";
 import { all, get, run, now, pkDate } from "../db.js";
 import { h, parse, tid, requirePerm, requireAny, can, scopedStation } from "../auth.js";
-import { AppError, round2, createAlert } from "../services.js";
+import { AppError, round2, createAlert, audit } from "../services.js";
 import { notify, staff } from "../notifications.js";
 import { linkPhotos } from "./capture.js";
 import { sendDirect } from "../whatsapp/cloud.js";
@@ -169,8 +169,10 @@ export function checkIn(t: number, user: { id: number; name: string }, o: { stat
   // geofence: owner can set a hard max distance (metres). 0 = off. A QR self check-in beyond it is rejected;
   // app/kiosk check-ins (done under a login) are flagged, not blocked. The alert fires at the fence, else 300 m.
   const maxM = Number(getSetting(t, "attend_max_m", "0")) || 0;
-  if (maxM > 0 && away != null && away > maxM && o.source === "qr")
+  if (maxM > 0 && away != null && away > maxM && o.source === "qr") {
+    audit(t, { id: user.id, name: user.name }, "security:Attendance geofence reject", "attend-qr", { away_m: Math.round(away), max_m: maxM });
     throw new AppError(400, `Aap pump se ${away.toLocaleString()} m door hain (hadd ${maxM.toLocaleString()} m) — pump par aa kar attendance lagayein.`);
+  }
   const late = lateBy(u.duty_start, Date.now());
   const { id } = run("INSERT INTO attendance (tenant_id,user_id,station_id,day,check_in,in_lat,in_lng,in_acc,away_m,late_minutes,source) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
     t, user.id, st?.id ?? null, day, now(), o.lat ?? null, o.lng ?? null, o.accuracy ?? null, away, late, o.source);
@@ -284,7 +286,7 @@ function attendGuard(token: string) {
 function attendBad(t: number, token: string) {
   const f = attendFails.get(token) ?? { n: 0, until: 0 };
   f.n++;
-  if (f.n >= 5) { f.until = Date.now() + 10 * 60_000; f.n = 0; createAlert(t, { type: "attend_bruteforce", severity: "warning", title: "Attendance QR par baar-baar ghalat code", body: "Kisi ne kai dafa ghalat code daala — QR rotate karna behtar ho sakta hai.", dedupe_key: `attbf-${pkDate()}` }); }
+  if (f.n >= 5) { f.until = Date.now() + 10 * 60_000; f.n = 0; createAlert(t, { type: "attend_bruteforce", severity: "warning", title: "Attendance QR par baar-baar ghalat code", body: "Kisi ne kai dafa ghalat code daala — QR rotate karna behtar ho sakta hai.", dedupe_key: `attbf-${pkDate()}` }); audit(t, null, "security:Attendance QR brute-force (locked 10 min)", "attend-qr", { token: token.slice(0, 6) + "…" }); }
   attendFails.set(token, f);
 }
 function attendOk(token: string) { attendFails.delete(token); }

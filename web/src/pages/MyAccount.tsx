@@ -87,6 +87,33 @@ export default function MyAccount() {
       <div className="card p-3"><LedgerList lines={data.lines} /></div>
       {leave && <LeaveForm onClose={() => setLeave(false)} onDone={() => { setLeave(false); att.reload(); }} />}
       <ChangePassword />
+      <MyDevices />
+    </div>
+  );
+}
+
+/** The devices this person is signed in on, with a one-tap "sign out my other devices" (keeps the current one). */
+function MyDevices() {
+  const { data, reload } = useApi<any>("/security/my-sessions", 0);
+  const { busy, run } = useAction();
+  if (!data?.sessions?.length) return null;
+  const others = data.sessions.filter((s: any) => !s.current).length;
+  return (
+    <div className="rounded-2xl bg-white p-4 ring-1 ring-slate-200">
+      <div className="mb-2 flex items-center justify-between">
+        <div className="font-semibold">My devices · <Ur>میرے ڈیوائس</Ur></div>
+        {others > 0 && <button className="btn-secondary min-h-8 !px-2 !py-1 !text-xs !text-rose-700" disabled={busy}
+          onClick={() => { if (confirm(`Baaqi ${others} device se sign out karein? Yeh wala device chalta rahega.`)) run(() => api("/security/my-sessions/logout-others", { body: {} }), "Baaqi devices sign out ho gaye").then(() => reload()); }}>
+          <LogOut size={13} /> Sign out other devices</button>}
+      </div>
+      <ul className="divide-y divide-slate-100 text-sm">
+        {data.sessions.map((s: any) => (
+          <li key={s.id} className="flex items-center justify-between gap-2 py-2">
+            <span className="min-w-0"><span className="font-medium">{s.device}</span>{s.current && <Badge tone="green">This device</Badge>}
+              <span className="block text-xs text-slate-500">{s.ip ?? ""}{s.how ? ` · ${s.how}` : ""} · last seen {new Date(s.last_seen_at).toLocaleString("en-PK", { dateStyle: "medium", timeStyle: "short" })}</span></span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

@@ -192,10 +192,11 @@ export function pinUsers(device: string | undefined) {
 }
 
 const PIN_TRIES = 5, PIN_LOCK_MIN = 10;
-/** Sign-ins and wrong passwords / PINs go in the audit log. */
-function auditLogin(u: { id: number; tenant_id: number; name: string }, ok: boolean, how: string) {
-  run("INSERT INTO audit_log (tenant_id,user_id,user_name,action,ref,created_at) VALUES (?,?,?,?,?,?)",
-    u.tenant_id, u.id, u.name, `login:${ok ? `Signed in (${how})` : `Wrong ${how}`}`, how, new Date().toISOString());
+/** Sign-ins and wrong passwords / PINs go in the audit log — with the device and IP when the login route passes them. */
+function auditLogin(u: { id: number; tenant_id: number; name: string }, ok: boolean, how: string, meta: SessionMeta = {}) {
+  const data = meta.ip || meta.ua ? JSON.stringify({ ip: meta.ip ?? null, device: meta.ua ? String(meta.ua).slice(0, 200) : null }) : null;
+  run("INSERT INTO audit_log (tenant_id,user_id,user_name,action,ref,data,created_at) VALUES (?,?,?,?,?,?,?)",
+    u.tenant_id, u.id, u.name, `login:${ok ? `Signed in (${how})` : `Wrong ${how}`}`, how, data, new Date().toISOString());
 }
 
 export function pinLogin(device: string | undefined, userId: number, pin: string, meta: SessionMeta = {}) {
@@ -208,11 +209,11 @@ export function pinLogin(device: string | undefined, userId: number, pin: string
     const fails = u.pin_fails + 1;
     run("UPDATE users SET pin_fails=?, pin_locked_until=? WHERE id=?", fails >= PIN_TRIES ? 0 : fails,
       fails >= PIN_TRIES ? new Date(Date.now() + PIN_LOCK_MIN * 60000).toISOString() : null, u.id);
-    auditLogin(u, false, fails >= PIN_TRIES ? "PIN — locked for 10 minutes" : "PIN");
+    auditLogin(u, false, fails >= PIN_TRIES ? "PIN — locked for 10 minutes" : "PIN", meta);
     throw new AppError(401, fails >= PIN_TRIES ? `Wrong PIN. Locked for ${PIN_LOCK_MIN} minutes — forgot it? Ask the admin to reset it.` : `Wrong PIN (${PIN_TRIES - fails} tries left)`);
   }
   run("UPDATE users SET pin_fails=0, pin_locked_until=NULL WHERE id=?", u.id);
-  auditLogin(u, true, "PIN");
+  auditLogin(u, true, "PIN", meta);
   const user: AuthUser = { id: u.id, tenant_id: u.tenant_id, name: u.name, email: u.email, role: u.role, station_id: u.station_id };
   return { token: signToken(user, { ...meta, how: "PIN" }), user, permissions: permissionsOf(user.role, user.tenant_id), modules: modulesOf(user.tenant_id) };
 }
@@ -250,7 +251,7 @@ export function authenticate(login: string, password: string, tenantScope?: numb
 }
 /** Issue a signed session for an already-authenticated user row. */
 export function issueSession(u: Row, how = "password", meta: SessionMeta = {}) {
-  auditLogin(u, true, how);
+  auditLogin(u, true, how, meta);
   const user: AuthUser = { id: u.id, tenant_id: u.tenant_id, name: u.name, email: u.email, role: u.role, station_id: u.station_id };
   // only the owner / a manager links a shared tablet for PIN sign-in
   const links = ["admin", "manager"].includes(u.role);
@@ -289,6 +290,7 @@ export function verify2fa(userId: number, code: string, meta: SessionMeta = {}) 
   if (o.attempts >= OTP_TRIES) { run("DELETE FROM login_otps WHERE user_id=?", userId); throw new AppError(429, "Too many wrong codes — sign in again"); }
   if (!bcrypt.compareSync(code, o.code_hash)) {
     run("UPDATE login_otps SET attempts=attempts+1 WHERE user_id=?", userId);
+    auditLogin(u, false, "2FA code", meta);
     throw new AppError(401, `Wrong code (${OTP_TRIES - o.attempts - 1} tries left)`);
   }
   run("DELETE FROM login_otps WHERE user_id=?", userId);

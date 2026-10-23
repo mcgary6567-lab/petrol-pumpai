@@ -131,6 +131,21 @@ users.post("/security/unlink-devices", requirePerm("users.manage"), h((req) => {
   return { ok: true };
 }));
 
+/** The current user's OWN signed-in devices (any role) — "mere devices", with the one they're on marked. */
+const currentSid = (req: any) => { try { const tok = String(req.headers.authorization ?? "").replace(/^Bearer /, ""); return JSON.parse(Buffer.from(tok.split(".")[1] ?? "", "base64url").toString()).sid as string | undefined; } catch { return undefined; } };
+users.get("/security/my-sessions", h((req) => {
+  const since = new Date(Date.now() - 7 * 86400_000).toISOString(), sid = currentSid(req);
+  const rows = all("SELECT id, sid, user_agent, ip, how, created_at, last_seen_at FROM sessions WHERE user_id=? AND tenant_id=? AND revoked_at IS NULL AND created_at > ? ORDER BY last_seen_at DESC", req.user!.id, tid(req), since);
+  return { sessions: rows.map((r) => ({ id: r.id, device: deviceLabel(r.user_agent), ip: r.ip, how: r.how, created_at: r.created_at, last_seen_at: r.last_seen_at, current: !!sid && r.sid === sid })) };
+}));
+/** Sign out all of MY other devices, keeping the one I'm on (no token-version bump, so this session stays alive). */
+users.post("/security/my-sessions/logout-others", h((req) => {
+  const sid = currentSid(req);
+  const n = run("UPDATE sessions SET revoked_at=?, revoked_by='self: sign out others' WHERE user_id=? AND tenant_id=? AND revoked_at IS NULL AND sid<>?", new Date().toISOString(), req.user!.id, tid(req), sid ?? "").changes;
+  audit(tid(req), req.user!, "security:Signed out my other devices", `user:${req.user!.id}`, { count: n });
+  return { ok: true, signed_out: n };
+}));
+
 /** Forgotten PIN: the admin sets a new one (or lets the app pick one) and the lock is lifted. */
 users.post("/users/:id/reset-pin", h((req) => {
   const u = ownUser(tid(req), Number(req.params.id));
