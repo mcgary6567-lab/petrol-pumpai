@@ -90,8 +90,8 @@ export function DayFeed({ title = "Aaj ki saari entries", scope = "all" }: { tit
               { label: "Waqt", v: (r: any) => t12(r.at) },
               { label: "Kism", v: (r: any) => KIND[r.kind]?.en ?? r.kind },
               { label: "Kis ne", v: (r: any) => r.who ?? "—" },
-              { label: "Party / detail", v: (r: any) => [r.party, r.label].filter(Boolean).join(" · ") },
-              { label: "Amount", r: true, v: (r: any) => `${sign(r.dir)}${pkr(r.amount)}`, total: (rs: any[]) => `${rs.length} entries · net ${pkr(netSigned(rs))}` },
+              { label: "Party / detail", v: (r: any) => [r.party, r.label].filter(Boolean).join(" · "), total: (rs: any[]) => `${rs.length} entries` },
+              { label: "Amount", r: true, v: (r: any) => `${sign(r.dir)}${pkr(r.amount)}`, total: (rs: any[]) => `Net ${pkr(netSigned(rs))}` },
             ]} />}
         </div>
       </div>
