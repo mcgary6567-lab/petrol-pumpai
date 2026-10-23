@@ -79,7 +79,7 @@ function QrAttendance() {
       <h1>${data?.pump ?? "Haazri · حاضری"}</h1><div class="ur">حاضری لگانے کے لیے یہ QR اسکین کریں</div>
       <img src="${src}"/>
       <ol><li>موبائل کیمرہ سے یہ QR اسکین کریں</li><li>اپنا 4 ہندسوں کا کوڈ درج کریں</li><li>سیلفی لیں — حاضری لگ جائے گی</li></ol>
-      <p style="color:#64748b;margin-top:16px">${data?.url ?? ""}</p></body></html>`);
+      <p style="color:#0f172a;margin-top:16px;font-weight:700;font-size:18px">${data?.pump ?? ""}</p></body></html>`);
     w.document.close(); w.focus(); setTimeout(() => w.print(), 300);
   };
   if (!data) return null;
