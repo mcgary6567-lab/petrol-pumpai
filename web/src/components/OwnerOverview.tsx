@@ -5,7 +5,7 @@ import { useApi } from "../lib/api";
 import { Loading, CountUp, pkDay } from "./ui";
 import { Ur } from "./VoiceShell";
 import { BankLogo } from "./BankParts";
-import { OnlineToday } from "./OnlineMoney";
+import { ModuleFeeds } from "./DayFeed";
 import { num, pkr, pkrShort } from "../lib/format";
 import { useAuth } from "../App";
 
@@ -106,8 +106,8 @@ export function OwnerOverview() {
         </div>
       </div>
 
-      {/* online money: not in the cash, it goes to the bank */}
-      <OnlineToday o={data.online} onBank={() => nav("/cash")} />
+      {/* each module's own live feed — POS / cashier / wholesale — pulled up right here on the CEO dashboard */}
+      <ModuleFeeds />
 
       {/* kharcha kis cheez par: category-wise, today / 7 days / month / any dates */}
       {can("expenses.view") && <ExpenseBreakdown />}

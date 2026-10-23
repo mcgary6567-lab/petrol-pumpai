@@ -4,7 +4,7 @@
  * Read-only: it reads /day-feed and nothing it shows changes the books. Used on the dashboard and the cashier desk.
  */
 import { useState } from "react";
-import { Printer, ChevronDown } from "lucide-react";
+import { Printer, ChevronDown, BarChart3, Fuel, Coins, Scale } from "lucide-react";
 import { useApi } from "../lib/api";
 import { Loading, Pager, usePaged, useListFilter } from "./ui";
 import { PrintListButton } from "./PrintList";
@@ -105,6 +105,34 @@ export function DayFeed({ title = "Aaj ki saari entries", scope = "all" }: { tit
           <p className="mt-1 text-[11px] text-slate-400">Sirf dekhne ke liye — {num(data.totals.count)} entries. {scope === "pos" ? "Sirf POS ki sale aur kharch entries." : scope === "cashier" ? "Sirf cashier counter ki receive/pay entries." : scope === "supplier" ? "Sirf supplier ki supply, bill aur payment entries." : scope === "wholesale" ? "Sirf wholesale clients ki supply, wapsi aur payment entries." : "Sale = pump + khata + wholesale; counter receive/pay, khata, supply sab yahan."}</p>
         </>
       )}
+    </div>
+  );
+}
+
+/**
+ * CEO can pull up each module's own live feed — the same "aaj ki entries" the POS, cashier and wholesale desks
+ * see on their own screens. Buttons switch which module's feed is shown; whole-pump is the default.
+ */
+export function ModuleFeeds() {
+  const tabs = [
+    { k: "all" as const, en: "Poora pump", ur: "پورا پمپ", Icon: BarChart3, title: "Poore pump ki aaj ki entries" },
+    { k: "pos" as const, en: "POS", ur: "پی او ایس", Icon: Fuel, title: "POS ki aaj ki entries" },
+    { k: "cashier" as const, en: "Cashier", ur: "کیشیئر", Icon: Coins, title: "Cashier ki aaj ki entries" },
+    { k: "wholesale" as const, en: "Wholesale", ur: "ہول سیل", Icon: Scale, title: "Wholesale ki aaj ki entries" },
+  ];
+  const [scope, setScope] = useState<(typeof tabs)[number]["k"]>("all");
+  const active = tabs.find((t) => t.k === scope)!;
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap gap-2">
+        {tabs.map((t) => (
+          <button key={t.k} onClick={() => setScope(t.k)}
+            className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm ${scope === t.k ? "bg-brand-600 text-white" : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"}`}>
+            <t.Icon size={15} /> {t.en} <Ur className="text-[11px] opacity-80">{t.ur}</Ur>
+          </button>
+        ))}
+      </div>
+      <DayFeed key={scope} scope={scope} title={active.title} />
     </div>
   );
 }
