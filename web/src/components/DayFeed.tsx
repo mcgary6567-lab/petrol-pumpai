@@ -12,7 +12,7 @@ import { Ur } from "./VoiceShell";
 import { num, pkr } from "../lib/format";
 
 const today = () => new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 10);
-const yday = () => new Date(Date.now() + 5 * 3600_000 - 86_400_000).toISOString().slice(0, 10);
+const daysAgo = (n: number) => new Date(Date.now() + 5 * 3600_000 - n * 86_400_000).toISOString().slice(0, 10);
 /** net money movement of the shown rows: money-in minus money-out (neutral rows don't count). */
 const netSigned = (rs: any[]) => rs.reduce((a, r) => a + (r.dir === "in" ? r.amount : r.dir === "out" ? -r.amount : 0), 0);
 /** share the day's summary (totals + count) on WhatsApp — opens the share sheet so any contact can be picked. */
@@ -47,9 +47,16 @@ const amtCls = (dir: string) => (dir === "in" ? "text-emerald-700" : dir === "ou
 const sign = (dir: string) => (dir === "in" ? "+" : dir === "out" ? "−" : "");
 const t12 = (s: string) => new Date(s).toLocaleTimeString("en-PK", { hour: "2-digit", minute: "2-digit" });
 
+const RANGES = [{ k: "today", en: "Aaj", ur: "آج", span: 0 }, { k: "7d", en: "7 din", ur: "7 دن", span: 6 }, { k: "15d", en: "15 din", ur: "15 دن", span: 14 }, { k: "custom", en: "Custom", ur: "تاریخ", span: -1 }] as const;
+
 export function DayFeed({ title = "Aaj ki saari entries", scope = "all" }: { title?: string; scope?: "all" | "pos" | "cashier" | "supplier" | "wholesale" }) {
-  const [date, setDate] = useState(today());
-  const { data } = useApi<any>(`/day-feed?date=${date}&scope=${scope}`, 60_000);
+  const [range, setRange] = useState<(typeof RANGES)[number]["k"]>("today");
+  const [cFrom, setCFrom] = useState(daysAgo(6));
+  const [cTo, setCTo] = useState(today());
+  const span = RANGES.find((r) => r.k === range)!.span;
+  const from = range === "custom" ? cFrom : range === "today" ? today() : daysAgo(span);
+  const to = range === "custom" ? cTo : today();
+  const { data } = useApi<any>(`/day-feed?from=${from}&to=${to}&scope=${scope}`, 60_000);
   const [q, setQ] = useState("");
   const [people, setPeople] = useState(false);
   const rows = useListFilter<any>(data?.rows, { q, text: (r) => [r.label, r.party, r.who, KIND[r.kind]?.en, Math.round(r.amount)].filter(Boolean).join(" ") });
@@ -60,12 +67,22 @@ export function DayFeed({ title = "Aaj ki saari entries", scope = "all" }: { tit
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
         <h2 className="font-semibold">{title} · <Ur className="text-slate-500">آج کی تمام انٹریز</Ur></h2>
         <div className="flex flex-wrap items-center gap-2">
-          {/* quick ranges: today / yesterday, plus the date picker for any custom day */}
+          {/* quick ranges: Aaj / 7 din / 15 din / Custom (date se date) */}
           <div className="flex overflow-hidden rounded-lg border border-slate-300 text-sm">
-            <button type="button" onClick={() => setDate(today())} className={`px-2.5 py-1.5 ${date === today() ? "bg-brand-600 text-white" : "bg-white text-slate-700 hover:bg-slate-50"}`}>Aaj</button>
-            <button type="button" onClick={() => setDate(yday())} className={`border-l border-slate-300 px-2.5 py-1.5 ${date === yday() ? "bg-brand-600 text-white" : "bg-white text-slate-700 hover:bg-slate-50"}`}>Kal</button>
+            {RANGES.map((r, i) => (
+              <button key={r.k} type="button" onClick={() => setRange(r.k)}
+                className={`px-2.5 py-1.5 ${i ? "border-l border-slate-300" : ""} ${range === r.k ? "bg-brand-600 text-white" : "bg-white text-slate-700 hover:bg-slate-50"}`}>
+                {r.en} <Ur className="text-[11px] opacity-80">{r.ur}</Ur>
+              </button>
+            ))}
           </div>
-          <input className="input w-auto" type="date" max={today()} value={date} onChange={(e) => setDate(e.target.value)} aria-label="Din" />
+          {range === "custom" && (
+            <div className="flex items-center gap-1 text-sm">
+              <input className="input w-auto" type="date" max={today()} value={cFrom} onChange={(e) => e.target.value && setCFrom(e.target.value)} aria-label="Se" />
+              <span className="text-slate-400">→</span>
+              <input className="input w-auto" type="date" max={today()} value={cTo} onChange={(e) => e.target.value && setCTo(e.target.value)} aria-label="Tak" />
+            </div>
+          )}
           {data && <button type="button" className="btn-secondary !text-emerald-700" onClick={() => shareWhatsApp(title, data)} title="Is report ka khulasa WhatsApp par bhejein"><MessageCircle size={15} /> WhatsApp</button>}
           {data && <PrintListButton title={`${title} — ${data.date}`} subtitle={data.is_today ? "aaj (abhi tak)" : data.date} rows={rows} label="Report / Print"
             note={`Sales ${pkr(data.totals.sales)} · Kharcha ${pkr(data.totals.expenses)} · Aur aaya ${pkr(data.totals.received)} · Aur gaya ${pkr(data.totals.paid)} · ${data.totals.count} entries`}

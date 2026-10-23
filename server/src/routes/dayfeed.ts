@@ -20,10 +20,13 @@ interface FeedRow { id: string; at: string; kind: string; who: string | null; pa
 
 dayfeed.get("/day-feed", requireAny("dashboard.view", "cashier.desk", "reports.view"), h((req) => {
   const t = tid(req);
-  const q = parse(z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), scope: z.enum(["all", "pos", "cashier", "supplier", "wholesale"]).optional() }), req.query);
+  const D = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional();
+  const q = parse(z.object({ date: D, from: D, to: D, scope: z.enum(["all", "pos", "cashier", "supplier", "wholesale"]).optional() }), req.query);
   const scope = q.scope ?? "all"; // all = whole pump; pos = fuel/shop sales + expenses (POS left panel); cashier = counter vouchers; supplier = supplier dealings; wholesale = wholesale client dealings
-  const day = q.date ?? pkDate();
-  const from = pkStart(day), to = pkEnd(day);
+  // a single day (date=) or a range (from=&to=); reversed dates are swapped so the window is always valid
+  const a = q.from ?? q.date ?? pkDate(), b = q.to ?? q.date ?? a;
+  const lo = a <= b ? a : b, hi = a <= b ? b : a;
+  const from = pkStart(lo), to = pkEnd(hi);
   const P = [t, from, to] as const;
   const rows: FeedRow[] = [];
 
@@ -98,6 +101,6 @@ dayfeed.get("/day-feed", requireAny("dashboard.view", "cashier.desk", "reports.v
     paid: round2(rows.filter((r) => r.dir === "out" && r.kind !== "expense").reduce((a, r) => a + r.amount, 0)),
     count: rows.length,
   };
-  return { date: day, is_today: day === pkDate(), scope, rows, totals,
+  return { date: lo === hi ? lo : `${lo} → ${hi}`, from: lo, to: hi, is_today: lo === hi && lo === pkDate(), days: 1 + Math.round((Date.parse(hi) - Date.parse(lo)) / 86_400_000), scope, rows, totals,
     by_person: [...byPerson.values()].map((p) => ({ ...p, sales: round2(p.sales), expenses: round2(p.expenses), received: round2(p.received), paid: round2(p.paid) })).sort((a, b) => b.sales - a.sales || b.n - a.n) };
 }));
