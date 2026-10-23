@@ -4,7 +4,7 @@
  * Read-only: it reads /day-feed and nothing it shows changes the books. Used on the dashboard and the cashier desk.
  */
 import { useState } from "react";
-import { Printer, ChevronDown, BarChart3, Fuel, Coins, Scale } from "lucide-react";
+import { ChevronDown, BarChart3, Fuel, Coins, Scale, MessageCircle } from "lucide-react";
 import { useApi } from "../lib/api";
 import { Loading, Pager, usePaged, useListFilter } from "./ui";
 import { PrintListButton } from "./PrintList";
@@ -12,6 +12,23 @@ import { Ur } from "./VoiceShell";
 import { num, pkr } from "../lib/format";
 
 const today = () => new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 10);
+const yday = () => new Date(Date.now() + 5 * 3600_000 - 86_400_000).toISOString().slice(0, 10);
+/** net money movement of the shown rows: money-in minus money-out (neutral rows don't count). */
+const netSigned = (rs: any[]) => rs.reduce((a, r) => a + (r.dir === "in" ? r.amount : r.dir === "out" ? -r.amount : 0), 0);
+/** share the day's summary (totals + count) on WhatsApp — opens the share sheet so any contact can be picked. */
+function shareWhatsApp(title: string, data: any) {
+  const T = data.totals;
+  const text = [
+    `${title} — ${data.date}${data.is_today ? " (aaj, abhi tak)" : ""}`,
+    `Sales: ${pkr(T.sales)}`,
+    `Kharcha: ${pkr(T.expenses)}`,
+    `Aur aaya: ${pkr(T.received)}`,
+    `Aur gaya: ${pkr(T.paid)}`,
+    `Kul ${T.count} entries`,
+    `— Petrol PumpAI`,
+  ].join("\n");
+  window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, "_blank");
+}
 const KIND: Record<string, { en: string; cls: string }> = {
   sale: { en: "Sale", cls: "bg-emerald-100 text-emerald-700" },
   expense: { en: "Expense", cls: "bg-rose-100 text-rose-700" },
@@ -43,14 +60,21 @@ export function DayFeed({ title = "Aaj ki saari entries", scope = "all" }: { tit
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
         <h2 className="font-semibold">{title} · <Ur className="text-slate-500">آج کی تمام انٹریز</Ur></h2>
         <div className="flex flex-wrap items-center gap-2">
+          {/* quick ranges: today / yesterday, plus the date picker for any custom day */}
+          <div className="flex overflow-hidden rounded-lg border border-slate-300 text-sm">
+            <button type="button" onClick={() => setDate(today())} className={`px-2.5 py-1.5 ${date === today() ? "bg-brand-600 text-white" : "bg-white text-slate-700 hover:bg-slate-50"}`}>Aaj</button>
+            <button type="button" onClick={() => setDate(yday())} className={`border-l border-slate-300 px-2.5 py-1.5 ${date === yday() ? "bg-brand-600 text-white" : "bg-white text-slate-700 hover:bg-slate-50"}`}>Kal</button>
+          </div>
           <input className="input w-auto" type="date" max={today()} value={date} onChange={(e) => setDate(e.target.value)} aria-label="Din" />
-          {data && <PrintListButton title={`Din ki report — ${data.date}`} subtitle={data.is_today ? "aaj (abhi tak)" : data.date} rows={rows} label="Report / Print"
+          {data && <button type="button" className="btn-secondary !text-emerald-700" onClick={() => shareWhatsApp(title, data)} title="Is report ka khulasa WhatsApp par bhejein"><MessageCircle size={15} /> WhatsApp</button>}
+          {data && <PrintListButton title={`${title} — ${data.date}`} subtitle={data.is_today ? "aaj (abhi tak)" : data.date} rows={rows} label="Report / Print"
+            note={`Sales ${pkr(data.totals.sales)} · Kharcha ${pkr(data.totals.expenses)} · Aur aaya ${pkr(data.totals.received)} · Aur gaya ${pkr(data.totals.paid)} · ${data.totals.count} entries`}
             columns={[
               { label: "Waqt", v: (r: any) => t12(r.at) },
               { label: "Kism", v: (r: any) => KIND[r.kind]?.en ?? r.kind },
               { label: "Kis ne", v: (r: any) => r.who ?? "—" },
               { label: "Party / detail", v: (r: any) => [r.party, r.label].filter(Boolean).join(" · ") },
-              { label: "Amount", r: true, v: (r: any) => `${sign(r.dir)}${pkr(r.amount)}`, total: (rs: any[]) => `${rs.length} entries` },
+              { label: "Amount", r: true, v: (r: any) => `${sign(r.dir)}${pkr(r.amount)}`, total: (rs: any[]) => `${rs.length} entries · net ${pkr(netSigned(rs))}` },
             ]} />}
         </div>
       </div>
