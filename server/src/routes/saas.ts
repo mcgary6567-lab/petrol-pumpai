@@ -19,7 +19,7 @@ import { config } from "../config.js";
 import { all, get, run, now, setSetting, tx, db } from "../db.js";
 import { h, parse, tid, forgetModules } from "../auth.js";
 import { AppError, audit, normalizePhone } from "../services.js";
-import { setupBody, provisionTenant, integrationsValues, applyIntegrations } from "./setup.js";
+import { setupBody, provisionTenant } from "./setup.js";
 import { mountBackupRoutes, makeBackup, listBackups } from "./system.js";
 import fs from "node:fs";
 import { serverStatus, serverLogs, clearServerLogs } from "../serverStatus.js";
@@ -307,9 +307,6 @@ platform.post("/tenants/:id/:action", h((req) => {
   else throw new AppError(400, "Unknown action");
   return { ok: true, status: get("SELECT status FROM tenants WHERE id=?", id)!.status };
 }));
-// install-wide integrations (super-admin): AI keys, WhatsApp shared number, and the Google/Dropbox OAuth app creds
-platform.get("/integrations", h(() => integrationsValues()));
-platform.put("/integrations", h((req) => ({ ok: true, changed: applyIntegrations(req.body) })));
 platform.get("/codes", h(() => ({ codes: all("SELECT * FROM activation_codes ORDER BY id DESC LIMIT 200") })));
 // whole-database backups (every pump in one file) + Google Drive / Dropbox copies — platform owner only in SaaS
 mountBackupRoutes(platform, (_req, _res, next) => next(), (req) => ({ t: 0, user: { id: 0, name: `platform:${(req as Request & { padmin?: { email: string } }).padmin?.email ?? ""}` } }));

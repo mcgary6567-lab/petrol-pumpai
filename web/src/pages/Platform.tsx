@@ -73,7 +73,7 @@ function Panel({ onLogout }: { onLogout: () => void }) {
   const [made, setMade] = useState<string[]>([]);
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState<"all" | "active" | "trial" | "suspended" | "lifetime" | "locked" | "attention">("all");
-  const [tab, setTab] = useState<"pumps" | "codes" | "backups" | "server" | "catalog" | "integrations">("pumps");
+  const [tab, setTab] = useState<"pumps" | "codes" | "backups" | "server" | "catalog">("pumps");
   const load = useCallback(async () => {
     try { setOv(await pfetch("/platform/overview")); setCodes((await pfetch("/platform/codes")).codes); setErr(null); }
     catch (e: any) { setErr(e.message); if (/login|401/i.test(e.message)) onLogout(); }
@@ -136,7 +136,7 @@ function Panel({ onLogout }: { onLogout: () => void }) {
           </div>
         </div>
         <div className="mx-auto flex max-w-6xl gap-1 px-3 sm:px-4">
-          {([["pumps", "Pumps"], ["server", "Server"], ["catalog", "Catalog"], ["codes", `Codes${unused.length ? ` · ${unused.length}` : ""}`], ["backups", "Backups"], ["integrations", "Integrations"]] as const).map(([key, l]) => (
+          {([["pumps", "Pumps"], ["server", "Server"], ["catalog", "Catalog"], ["codes", `Codes${unused.length ? ` · ${unused.length}` : ""}`], ["backups", "Backups"]] as const).map(([key, l]) => (
             <button key={key} onClick={() => setTab(key)} className={`border-b-2 px-3 py-1.5 text-sm ${tab === key ? "border-emerald-400 font-semibold text-white" : "border-transparent text-slate-400"}`}>{l}</button>
           ))}
         </div>
@@ -274,7 +274,6 @@ function Panel({ onLogout }: { onLogout: () => void }) {
         {tab === "backups" && (
           <BackupsPanel title="Backups — saare pumps (poora database)" base="/platform/backups" request={(p, i) => pfetch(p, i?.body, i?.method)} downloadUrl={(n) => `/api/platform/backups/${n}?token=${getTok() ?? ""}`} />
         )}
-        {tab === "integrations" && <IntegrationsTab />}
       </div>
 
       {resetFor && <AdminResetModal t={resetFor} onClose={() => setResetFor(null)} onDone={() => { setResetFor(null); load(); }} />}
@@ -655,40 +654,5 @@ function DeletePumpModal({ t, onClose, onDone }: { t: any; onClose: () => void; 
         </div>
       )}
     </Modal>
-  );
-}
-
-/* ================= Integrations tab: install-wide keys (WhatsApp shared number + cloud OAuth apps) ================= */
-function IntegrationsTab() {
-  const [data, setData] = useState<any>(null);
-  const [v, setV] = useState<Record<string, string> | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState("");
-  useEffect(() => { pfetch("/platform/integrations").then((d) => { setData(d); setV(d.values); }).catch((e) => setMsg(e.message)); }, []);
-  const inp = (k: string, label: string, ph = "", secret = false) => v && (
-    <label className="block text-sm">
-      <span className="text-slate-600">{label}</span>
-      <input className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 font-mono text-xs" type={secret ? "password" : "text"} autoComplete="off" placeholder={ph}
-        value={v[k] ?? ""} onFocus={(e) => secret && e.target.value.startsWith("•") && setV({ ...v, [k]: "" })} onChange={(e) => setV({ ...v, [k]: e.target.value })} />
-    </label>
-  );
-  const save = async () => { setBusy(true); setMsg(""); try { await pfetch("/platform/integrations", v, "PUT"); const d = await pfetch("/platform/integrations"); setData(d); setV(d.values); setMsg("Saved — sab pumps par chalu (restart ki zaroorat nahi)"); } catch (e: any) { setMsg(e.message); } finally { setBusy(false); } };
-  if (!data || !v) return <div className="text-slate-400">{msg || "Loading…"}</div>;
-  const base = String(data.webhook_url || "").replace(/\/webhooks\/whatsapp$/, "");
-  return (
-    <div className="space-y-4">
-      <div className="rounded-2xl bg-white p-4 text-slate-900 ring-1 ring-slate-200">
-        <h3 className="mb-1 font-semibold">WhatsApp — shared number (saare pumps)</h3>
-        <p className="mb-2 text-sm text-slate-600">Ek PumpAI number ka token + phone number ID. Webhook: <span className="break-all font-mono text-xs">{data.webhook_url}</span> · verify token neeche · utility template (1 body variable) banayein.</p>
-        <div className="grid gap-2 sm:grid-cols-2">{inp("wa_token", "Access token", "EAAG…", true)}{inp("wa_phone_number_id", "Phone number ID")}{inp("wa_verify_token", "Verify token")}{inp("wa_app_secret", "App secret", "", true)}{inp("wa_template", "Template name")}{inp("public_url", "Public address of this app", "https://…")}</div>
-      </div>
-      <div className="rounded-2xl bg-white p-4 text-slate-900 ring-1 ring-slate-200">
-        <h3 className="mb-1 font-semibold">Cloud backup apps — Google Drive / Dropbox</h3>
-        <p className="mb-2 text-sm text-slate-600">Ek dafa OAuth app creds daalein. Phir har pump Settings → Backups se <b>ek click</b> mein apni Drive/Dropbox connect kar lega.</p>
-        <div className="grid gap-2 sm:grid-cols-2">{inp("google_client_id", "Google OAuth client ID", "…apps.googleusercontent.com")}{inp("google_client_secret", "Google OAuth client secret", "", true)}{inp("dropbox_app_key", "Dropbox app key")}{inp("dropbox_app_secret", "Dropbox app secret", "", true)}</div>
-        <p className="mt-2 text-[11px] text-slate-500">Google OAuth redirect URI: <span className="break-all font-mono">{base}/api/cloud/google/callback</span> · Dropbox: Scoped app (App folder) → key & secret.</p>
-      </div>
-      <div className="flex items-center gap-3"><button className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50" disabled={busy} onClick={save}>Save</button>{msg && <span className="text-sm text-slate-600">{msg}</span>}</div>
-    </div>
   );
 }
