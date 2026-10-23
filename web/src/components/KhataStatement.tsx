@@ -93,7 +93,7 @@ export default function KhataStatement({ customerId, onClose }: { customerId: nu
                 <div className="flex justify-between gap-2">
                   <span className="min-w-0 font-medium">{l.product ? PRODUCTS[l.product] : l.type === "credit" ? <span className="text-emerald-700">Payment</span> : l.note}
                     {l.litres != null && <span className="font-normal text-slate-600"> · {num(l.litres, 2)} L{l.rate != null ? ` × ${Number(l.rate).toFixed(2)}` : ""}</span>}</span>
-                  <b className={`shrink-0 tabular-nums ${l.type === "credit" ? "text-emerald-700" : ""}`}>{l.type === "credit" ? "−" : ""}{pkr(l.amount)}</b>
+                  <b className={`shrink-0 tabular-nums ${l.type === "credit" ? "text-emerald-700" : "text-rose-700"}`}>{l.type === "credit" ? "−" : ""}{pkr(l.amount)}</b>
                 </div>
                 <div className="flex justify-between gap-2 text-xs text-slate-500">
                   <span className="min-w-0">{new Date(l.created_at).toLocaleString("en-PK", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
@@ -116,7 +116,7 @@ export default function KhataStatement({ customerId, onClose }: { customerId: nu
                     <td className="td whitespace-nowrap text-sm">{l.product ? PRODUCTS[l.product] : l.type === "credit" ? <span className="text-emerald-700">Payment</span> : l.note} <span className="print:hidden"><ProofThumbs ids={l.proof_ids} /></span></td>
                     <td className="td whitespace-nowrap text-right tabular-nums">{l.litres != null ? num(l.litres, 2) : ""}</td>
                     <td className="td whitespace-nowrap text-right tabular-nums">{l.rate != null ? `Rs ${Number(l.rate).toFixed(2)}` : ""}</td>
-                    <td className="td whitespace-nowrap text-right tabular-nums">{l.type === "debit" ? pkr(l.amount) : ""}</td>
+                    <td className="td whitespace-nowrap text-right tabular-nums text-rose-700">{l.type === "debit" ? pkr(l.amount) : ""}</td>
                     <td className="td whitespace-nowrap text-right tabular-nums text-emerald-700">{l.type === "credit" ? pkr(l.amount) : ""}</td>
                     <td className="td whitespace-nowrap text-right font-medium tabular-nums">{pkr(l.balance)}</td>
                   </tr>

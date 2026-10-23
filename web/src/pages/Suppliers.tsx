@@ -290,13 +290,13 @@ function SupplierDetail({ id, onClose, onChanged, depots, onDepots }: { id: numb
                   <tr key={t.id}>
                     <td className="td whitespace-nowrap">{d(t.txn_date)}</td><td className="td capitalize">{t.type}{t.source === "bypass" ? " (bypass)" : ""}</td>
                     <td className="td">{t.product ? `${num(t.litres)} L ${PRODUCTS[t.product]} @ Rs ${t.rate}` : t.method}<span className="text-[10px] text-slate-500">{[t.ref, t.note].filter(Boolean).map((x) => ` · ${x}`).join("")}</span></td>
-                    <td className="td whitespace-nowrap text-right tabular-nums">{t.debit ? pkr(t.debit) : ""}</td>
-                    <td className="td whitespace-nowrap text-right tabular-nums">{t.credit ? pkr(t.credit) : ""}</td>
+                    <td className="td whitespace-nowrap text-right tabular-nums text-rose-700">{t.debit ? pkr(t.debit) : ""}</td>
+                    <td className="td whitespace-nowrap text-right tabular-nums text-emerald-700">{t.credit ? pkr(t.credit) : ""}</td>
                     <td className="td whitespace-nowrap text-right tabular-nums">{pkr(t.balance)}</td>
                   </tr>))}
                 <tr className="font-bold"><td className="td border-t-2 border-slate-800" colSpan={3}>Closing balance (we owe)</td>
-                <td className="td whitespace-nowrap text-right tabular-nums">{pkr(s.lines.reduce((a: number, t: any) => a + t.debit, 0))}</td>
-                <td className="td whitespace-nowrap text-right tabular-nums">{pkr(s.lines.reduce((a: number, t: any) => a + t.credit, 0))}</td>
+                <td className="td border-t-2 border-slate-800 whitespace-nowrap text-right tabular-nums text-rose-700">{pkr(s.lines.reduce((a: number, t: any) => a + t.debit, 0))}</td>
+                <td className="td border-t-2 border-slate-800 whitespace-nowrap text-right tabular-nums text-emerald-700">{pkr(s.lines.reduce((a: number, t: any) => a + t.credit, 0))}</td>
                 <td className="td whitespace-nowrap text-right tabular-nums">{pkr(s.total_owed ?? s.owed)}</td></tr>
               </tbody>
             </table>
@@ -342,7 +342,7 @@ function SupplierDetail({ id, onClose, onChanged, depots, onDepots }: { id: numb
                 <li key={t.id} className="px-3 py-2">
                   <div className="flex items-start justify-between gap-2">
                     <span className="min-w-0"><Badge tone={t.type === "purchase" ? "blue" : t.type === "payment" ? "green" : "violet"}>{t.type}</Badge>{t.source === "bypass" && <Badge tone="amber">bypass</Badge>} <span className="text-xs text-slate-500">{dt(t.txn_date)}</span></span>
-                    <span className="shrink-0 text-right tabular-nums">{t.debit ? <span className="block font-semibold">{pkr(t.debit)}</span> : null}{t.credit ? <span className="block font-semibold text-emerald-700">−{pkr(t.credit)}</span> : null}<span className="text-[11px] text-slate-500">owe {pkr(t.balance)}</span></span>
+                    <span className="shrink-0 text-right tabular-nums">{t.debit ? <span className="block font-semibold text-rose-700">{pkr(t.debit)}</span> : null}{t.credit ? <span className="block font-semibold text-emerald-700">−{pkr(t.credit)}</span> : null}<span className="text-[11px] text-slate-500">owe {pkr(t.balance)}</span></span>
                   </div>
                   <div className="break-words text-xs text-slate-600">{t.product ? `${num(t.litres)} L ${PRODUCTS[t.product]} @ Rs ${t.rate}` : t.method} <span className="text-slate-500">{[t.ref, t.note].filter(Boolean).join(" · ")}</span></div>
                   <div className="flex items-center justify-between gap-2"><ProofThumbs ids={t.proof_ids} />
@@ -357,7 +357,7 @@ function SupplierDetail({ id, onClose, onChanged, depots, onDepots }: { id: numb
                   <td className="td text-xs">{dt(t.txn_date)}</td>
                   <td className="td"><Badge tone={t.type === "purchase" ? "blue" : t.type === "payment" ? "green" : "violet"}>{t.type}</Badge>{t.source === "bypass" && <> <Badge tone="amber">bypass</Badge></>}</td>
                   <td className="td text-xs">{t.product ? `${num(t.litres)} L ${PRODUCTS[t.product]} @ Rs ${t.rate}` : t.method} <span className="text-slate-500">{[t.ref, t.note].filter(Boolean).join(" · ")}</span> <ProofThumbs ids={t.proof_ids} /></td>
-                  <td className="td text-right tabular-nums">{t.debit ? pkr(t.debit) : ""}</td>
+                  <td className="td text-right tabular-nums text-rose-700">{t.debit ? pkr(t.debit) : ""}</td>
                   <td className="td text-right tabular-nums text-emerald-700">{t.credit ? pkr(t.credit) : ""}</td>
                   <td className="td text-right font-medium tabular-nums">{pkr(t.balance)}</td>
                   <td className="td"><div className="flex justify-end gap-1">{lineActions(t)}{printable(t) && <button className="btn-secondary !px-2 !py-1" aria-label="Print voucher" title="Print voucher" onClick={() => setSlip(voucherOf(t, t.balance))}><Printer size={14} /></button>}</div></td>

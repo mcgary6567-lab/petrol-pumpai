@@ -529,7 +529,7 @@ function LedgerTable({ rows: allRows, running, showClient, tools, onVoid, onEdit
               <ProofThumbs ids={r.proof_ids} />
             </div>
             <div className="shrink-0 text-right tabular-nums">
-              {debit ? <div className="font-semibold">{pkr(debit)}</div> : null}
+              {debit ? <div className="font-semibold text-rose-700">{pkr(debit)}</div> : null}
               {credit ? <div className="font-semibold text-emerald-700">−{pkr(credit)}</div> : null}
               {running && <div className="text-xs text-slate-500">bal {pkr(r.balance)}</div>}
               {onView && r.type !== "fuel_note" && <button className="-mr-2 inline-flex h-9 w-9 items-center justify-center text-slate-400 hover:text-brand-700" title="Poori detail dekhein" aria-label="View entry" onClick={() => onView(r)}><Eye size={14} /></button>}
@@ -563,7 +563,7 @@ function LedgerTable({ rows: allRows, running, showClient, tools, onVoid, onEdit
                   <ProofThumbs ids={r.proof_ids} />
                   <div className="text-slate-500 print:text-[10px] print:leading-tight">{[r.vehicle_no && `🚛 ${r.vehicle_no}`, r.driver_name && `👤 ${r.driver_name}`, r.location && `📍 ${r.location}`, r.trip_id && `trip #${r.trip_id}`, r.ref, r.note, r.voided && r.void_reason].filter(Boolean).join(" · ")}</div>
                 </td>
-                <td className="td whitespace-nowrap text-right tabular-nums">{debit ? pkr(debit) : ""}</td>
+                <td className="td whitespace-nowrap text-right tabular-nums text-rose-700">{debit ? pkr(debit) : ""}</td>
                 <td className="td whitespace-nowrap text-right tabular-nums text-emerald-700">{credit ? pkr(credit) : ""}</td>
                 {running && <td className="td whitespace-nowrap text-right font-medium tabular-nums">{pkr(r.balance)}</td>}
                 <td className="td print:hidden"><span className="flex gap-2">{onView && r.type !== "fuel_note" && <button className="text-slate-400 hover:text-brand-700" title="Poori detail dekhein" aria-label="View entry" onClick={() => onView(r)}><Eye size={14} /></button>}{onEdit && !r.voided && r.type !== "fuel_note" && <button className="text-slate-400 hover:text-brand-700" title="Edit entry (CEO)" onClick={() => onEdit(r)}><Pencil size={14} /></button>}{onVoid && !r.voided && <button className="text-slate-400 hover:text-red-600" title="Void entry" onClick={() => onVoid(r)}><Ban size={14} /></button>}</span></td>
