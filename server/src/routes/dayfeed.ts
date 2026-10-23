@@ -20,15 +20,15 @@ interface FeedRow { id: string; at: string; kind: string; who: string | null; pa
 
 dayfeed.get("/day-feed", requireAny("dashboard.view", "cashier.desk", "reports.view"), h((req) => {
   const t = tid(req);
-  const q = parse(z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), scope: z.enum(["all", "cashier", "supplier"]).optional() }), req.query);
-  const scope = q.scope ?? "all"; // all = whole pump (dashboard); cashier = counter vouchers only; supplier = supplier dealings only
+  const q = parse(z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), scope: z.enum(["all", "pos", "cashier", "supplier", "wholesale"]).optional() }), req.query);
+  const scope = q.scope ?? "all"; // all = whole pump; pos = fuel/shop sales + expenses (POS left panel); cashier = counter vouchers; supplier = supplier dealings; wholesale = wholesale client dealings
   const day = q.date ?? pkDate();
   const from = pkStart(day), to = pkEnd(day);
   const P = [t, from, to] as const;
   const rows: FeedRow[] = [];
 
   // fuel / shop sales (cash, card, khata, wholesale all in one table) — the billed value incl. any baqi-cash / shop-saman
-  if (scope === "all") for (const s of all(`SELECT s.id, s.created_at, s.product, s.litres, s.amount, s.payment_method, s.cash_back, s.cash_back_litres, s.items_cost, s.khareed,
+  if (scope === "all" || scope === "pos") for (const s of all(`SELECT s.id, s.created_at, s.product, s.litres, s.amount, s.payment_method, s.cash_back, s.cash_back_litres, s.items_cost, s.khareed,
        u.name who, c.name cust FROM sales s JOIN stations st ON st.id=s.station_id LEFT JOIN users u ON u.id=s.created_by LEFT JOIN customers c ON c.id=s.customer_id
      WHERE st.tenant_id=? AND s.created_at>=? AND s.created_at<?`, ...P)) {
     const litres = round2((s.litres ?? 0) + (s.cash_back_litres ?? 0));
@@ -37,7 +37,7 @@ dayfeed.get("/day-feed", requireAny("dashboard.view", "cashier.desk", "reports.v
       label: `${PRODUCTS[s.product] ?? s.product}${litres ? ` ${litres} L` : ""} · ${s.payment_method}`, amount, dir: "in", ref: `SALE-${s.id}` });
   }
   // expenses (approved + pending)
-  if (scope === "all") for (const e of all(`SELECT id, created_at, category, paid_to, method, amount, status, created_by who FROM expenses WHERE tenant_id=? AND created_at>=? AND created_at<?`, ...P))
+  if (scope === "all" || scope === "pos") for (const e of all(`SELECT id, created_at, category, paid_to, method, amount, status, created_by who FROM expenses WHERE tenant_id=? AND created_at>=? AND created_at<?`, ...P))
     rows.push({ id: `exp-${e.id}`, at: e.created_at, kind: "expense", who: e.who ?? null, party: e.paid_to ?? null,
       label: `${e.category}${e.paid_to ? ` · ${e.paid_to}` : ""} · ${e.method}${e.status === "pending" ? " (approval me)" : ""}`, amount: round2(e.amount), dir: "out", ref: null });
   // cashier counter vouchers (receive / pay) — not voided
@@ -65,6 +65,17 @@ dayfeed.get("/day-feed", requireAny("dashboard.view", "cashier.desk", "reports.v
     rows.push({ id: `stx-${x.id}`, at: x.created_at, kind: pay ? "pay" : x.type === "purchase" ? "supply_bill" : "adjust", who: x.who ?? null, party: x.supplier ?? null,
       label: pay ? `Supplier ko diya${x.method ? ` · ${x.method}` : ""}` : x.type === "purchase" ? `Udhaar maal${x.product ? ` · ${PRODUCTS[x.product] ?? x.product}` : ""}${x.litres ? ` ${round2(x.litres)} L` : ""}` : `Adjustment${x.note ? ` · ${x.note}` : ""}`,
       amount: round2(x.amount ?? 0), dir: pay ? "out" : x.type === "purchase" ? "neutral" : "neutral", ref: null });
+  }
+
+  // wholesale client dealings (supply / return / payment / adjustment) — the wholesale dashboard's own feed
+  if (scope === "wholesale") for (const w of all(`SELECT w.id, w.created_at, w.type, w.product, w.litres, w.amount, w.method, w.vehicle_no, w.created_by who, c.name client
+       FROM wholesale_txns w JOIN wholesale_clients c ON c.id=w.client_id WHERE w.tenant_id=? AND COALESCE(w.voided,0)=0 AND w.created_at>=? AND w.created_at<?`, ...P)) {
+    const kind = w.type === "payment" ? "khata_in" : w.type === "supply" ? "ws_supply" : w.type === "return" ? "ws_return" : "adjust";
+    const dir: Dir = w.type === "payment" ? "in" : w.type === "return" ? "out" : "neutral";
+    const label = w.type === "payment" ? `Payment aayi${w.method ? ` · ${w.method}` : ""}`
+      : w.type === "supply" ? `Supply di${w.product ? ` · ${PRODUCTS[w.product] ?? w.product}` : ""}${w.litres ? ` ${round2(w.litres)} L` : ""}${w.vehicle_no ? ` · ${w.vehicle_no}` : ""}`
+      : w.type === "return" ? `Wapas aaya${w.litres ? ` · ${round2(w.litres)} L` : ""}` : "Adjustment";
+    rows.push({ id: `wtx-${w.id}`, at: w.created_at, kind, who: w.who ?? null, party: w.client ?? null, label, amount: round2(w.amount ?? 0), dir, ref: null });
   }
 
   rows.sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0)); // newest first

@@ -23,12 +23,14 @@ const KIND: Record<string, { en: string; cls: string }> = {
   supply: { en: "Supply", cls: "bg-blue-100 text-blue-700" },
   supply_bill: { en: "Udhaar maal", cls: "bg-slate-100 text-slate-600" },
   adjust: { en: "Adjustment", cls: "bg-slate-100 text-slate-600" },
+  ws_supply: { en: "Supply di", cls: "bg-blue-100 text-blue-700" },
+  ws_return: { en: "Wapas", cls: "bg-rose-100 text-rose-700" },
 };
 const amtCls = (dir: string) => (dir === "in" ? "text-emerald-700" : dir === "out" ? "text-rose-700" : "text-slate-700");
 const sign = (dir: string) => (dir === "in" ? "+" : dir === "out" ? "−" : "");
 const t12 = (s: string) => new Date(s).toLocaleTimeString("en-PK", { hour: "2-digit", minute: "2-digit" });
 
-export function DayFeed({ title = "Aaj ki saari entries", scope = "all" }: { title?: string; scope?: "all" | "cashier" | "supplier" }) {
+export function DayFeed({ title = "Aaj ki saari entries", scope = "all" }: { title?: string; scope?: "all" | "pos" | "cashier" | "supplier" | "wholesale" }) {
   const [date, setDate] = useState(today());
   const { data } = useApi<any>(`/day-feed?date=${date}&scope=${scope}`, 60_000);
   const [q, setQ] = useState("");
@@ -100,7 +102,7 @@ export function DayFeed({ title = "Aaj ki saari entries", scope = "all" }: { tit
             {!rows.length && <li className="p-4 text-center text-sm text-slate-500">{q ? "Kuch nahi mila" : "Is din koi entry nahi"}</li>}
           </ul>
           <div className="pt-2"><Pager {...paged} /></div>
-          <p className="mt-1 text-[11px] text-slate-400">Sirf dekhne ke liye — {num(data.totals.count)} entries. {scope === "cashier" ? "Sirf cashier counter ki receive/pay entries." : scope === "supplier" ? "Sirf supplier ki supply, bill aur payment entries." : "Sale = pump + khata + wholesale; counter receive/pay, khata, supply sab yahan."}</p>
+          <p className="mt-1 text-[11px] text-slate-400">Sirf dekhne ke liye — {num(data.totals.count)} entries. {scope === "pos" ? "Sirf POS ki sale aur kharch entries." : scope === "cashier" ? "Sirf cashier counter ki receive/pay entries." : scope === "supplier" ? "Sirf supplier ki supply, bill aur payment entries." : scope === "wholesale" ? "Sirf wholesale clients ki supply, wapsi aur payment entries." : "Sale = pump + khata + wholesale; counter receive/pay, khata, supply sab yahan."}</p>
         </>
       )}
     </div>
