@@ -36,10 +36,10 @@ const CSS = `
   th { font-size: 11px; }
   .r { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
   .nw { white-space: nowrap; }
-  .total td { font-weight: 700; }
+  .total td { font-weight: 700; background: #f1f5f9; border-top: 2px solid #0f172a; }
   .signs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 22px; }
   .signs div { border-top: 1px solid #0f172a; padding-top: 3px; font-size: 11px; text-align: center; }
-  .note { margin-top: 6px; font-size: 11px; color: #334155; }
+  .note { margin-top: 10px; padding: 8px 11px; font-size: 13px; font-weight: 700; color: #0f172a; background: #f1f5f9; border-left: 4px solid var(--brand, #059669); border-radius: 5px; letter-spacing: .01em; }
   img.logo { height: 40px; max-width: 140px; object-fit: contain; display: block; margin-bottom: 2px; }
   @page { size: A4; margin: 0; }
   .bar { position: sticky; top: 0; z-index: 1; display: flex; gap: 8px; align-items: center; justify-content: space-between; padding: 10px 12px; background: #0f172a; color: #fff; }
