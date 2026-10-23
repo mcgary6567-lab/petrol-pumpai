@@ -25,12 +25,17 @@ sudo bash deploy/install.sh \
   --vendor-name "Your Company" --vendor-phone 0300xxxxxxx
 ```
 
-Or straight from your git repository:
+Or straight from the git repository — **one line, nothing else needed** on a fresh Ubuntu/Debian VPS (the repo
+URL is built in, so no `--repo` is required for the public repo):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/<you>/PumpAI/main/deploy/install.sh | \
-  sudo bash -s -- --repo https://github.com/<you>/PumpAI.git --domain pump.almadina.pk --email owner@almadina.pk
+curl -fsSL https://raw.githubusercontent.com/mcgary6567-lab/petrol-pumpai/main/deploy/install.sh | \
+  sudo bash -s -- --domain pump.almadina.pk --email owner@almadina.pk
 ```
+
+If the repository is **private**, pass a token in the URL:
+`… | sudo bash -s -- --repo https://<GITHUB_TOKEN>@github.com/mcgary6567-lab/petrol-pumpai --domain …`
+(or just `scp` the code folder to the server and use the first command above, which needs no GitHub access).
 
 The installer:
 

@@ -37,7 +37,10 @@ done
 APP_DIR=/opt/pumpai
 DATA_DIR=/var/lib/pumpai
 ENV_FILE=/etc/pumpai.env
-SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+DEFAULT_REPO="https://github.com/mcgary6567-lab/petrol-pumpai"   # used when piped on a bare VPS (curl … | sudo bash)
+SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." 2>/dev/null && pwd || echo /nonexistent)"
+# piped straight from curl (no local repo folder alongside the script) → install from the default GitHub repo
+if [[ -z "$REPO" && ! ( -f "$SRC_DIR/package.json" && -d "$SRC_DIR/server" ) ]]; then REPO="$DEFAULT_REPO"; fi
 say() { printf '\n\033[1;32m==> %s\033[0m\n' "$*"; }
 die() { printf '\n\033[1;31mERROR: %s\033[0m\n' "$*" >&2; exit 1; }
 
