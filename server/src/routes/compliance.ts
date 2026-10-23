@@ -6,13 +6,15 @@
  */
 import { Router } from "express";
 import { z } from "zod";
+import { randomBytes } from "node:crypto";
 import { all, get, run, now, pkDate } from "../db.js";
 import { h, parse, tid, requirePerm, requireAny, can, scopedStation } from "../auth.js";
 import { AppError, round2, createAlert } from "../services.js";
 import { notify, staff } from "../notifications.js";
 import { linkPhotos } from "./capture.js";
 import { sendDirect } from "../whatsapp/cloud.js";
-import { getSetting } from "../db.js";
+import { getSetting, setSetting } from "../db.js";
+import { config } from "../config.js";
 
 export const compliance = Router();
 const DAY = 86_400_000;
@@ -257,6 +259,72 @@ compliance.post("/attendance/kiosk/check-out", requireAny("staff.manage", "sales
   const r = checkOut(u.id, b.photo_id, t, b);
   if (!r) throw new AppError(400, `${u.name} ne abhi check-in nahi kiya`);
   return r;
+}));
+
+/* ===== Self check-in by QR + 4-digit code (non-login workers, no app sign-in) =====
+ * One QR per pump, printed and put up in the office. A worker scans it, types their own 4-digit code,
+ * takes a live selfie and their phone's location is captured — the same safeguards as the kiosk, minus
+ * the signed-in operator. The QR link carries an unguessable per-pump token; the code names the worker. */
+function ensureAttendToken(t: number): string {
+  let tok = getSetting(t, "attend_token", "");
+  if (!tok) { tok = randomBytes(12).toString("hex"); setSetting(t, "attend_token", tok); }
+  return tok;
+}
+const attendWorker = (t: number, id: number) => get(`SELECT id, name, role, job_title, duty_start, station_id, attend_code FROM users WHERE id=? AND tenant_id=? AND active=1 AND role IN ${ATTENDANCE_ROLES}`, id, t);
+
+// Admin: the printable QR link for this pump, and the workers with their codes.
+compliance.get("/attendance/qr", requirePerm("staff.manage"), h((req) => {
+  const t = tid(req), tok = ensureAttendToken(t), today = pkDate();
+  const workers = all(`SELECT id, name, role, job_title, attend_code FROM users WHERE tenant_id=? AND active=1 AND role IN ${ATTENDANCE_ROLES} ORDER BY CASE role WHEN 'salesman' THEN 0 ELSE 1 END, name`, t)
+    .map((u) => { const a = get("SELECT check_in, check_out FROM attendance WHERE user_id=? AND day=?", u.id, today); return { ...u, checked_in: Boolean(a?.check_in), checked_out: Boolean(a?.check_out) }; });
+  return { url: `${config.publicUrl}/a/${tok}`, pump: get("SELECT name FROM tenants WHERE id=?", t)?.name ?? "", workers };
+}));
+// Admin: set (or auto-generate) a worker's 4-digit code; must be unique within the pump.
+compliance.post("/attendance/workers/:id/code", requirePerm("staff.manage"), h((req) => {
+  const t = tid(req), id = Number(req.params.id);
+  if (!attendWorker(t, id)) throw new AppError(400, "Only salesmen and non-login staff get an attendance code");
+  const b = parse(z.object({ code: z.string().regex(/^\d{4}$/).optional() }), req.body);
+  const taken = (c: string) => Boolean(get("SELECT id FROM users WHERE tenant_id=? AND attend_code=? AND id<>?", t, c, id));
+  let code = b.code;
+  if (code) { if (taken(code)) throw new AppError(400, "Yeh code pehle se kisi aur ka hai — doosra chunein"); }
+  else { do { code = String(Math.floor(1000 + Math.random() * 9000)); } while (taken(code)); }
+  run("UPDATE users SET attend_code=? WHERE id=? AND tenant_id=?", code, id, t);
+  return { id, code };
+}));
+
+const attendTenant = (token: string) => get("SELECT tenant_id FROM settings WHERE key='attend_token' AND value=?", token)?.tenant_id as number | undefined;
+const attendByCode = (t: number, code: string) => get(`SELECT id, name, role, duty_start, station_id FROM users WHERE tenant_id=? AND active=1 AND attend_code=? AND role IN ${ATTENDANCE_ROLES}`, t, code);
+
+// Public (no login): the worker's phone resolves their name from the code, then marks in/out with a selfie + location.
+export const attendPublic = Router();
+attendPublic.post("/attend/:token/resolve", h((req) => {
+  const t = attendTenant(req.params.token); if (!t) throw new AppError(404, "Galat QR — manager se naya QR lein");
+  const b = parse(z.object({ code: z.string().regex(/^\d{4}$/, "4 hindson ka code daalein") }), req.body);
+  const u = attendByCode(t, b.code); if (!u) throw new AppError(404, "Yeh code kisi ka nahi — manager se apna code lein");
+  const a = get("SELECT check_in, check_out FROM attendance WHERE user_id=? AND day=?", u.id, pkDate());
+  const biz = get("SELECT name FROM tenants WHERE id=?", t);
+  return { name: u.name, pump: biz?.name ?? "", checked_in: Boolean(a?.check_in), checked_out: Boolean(a?.check_out) };
+}));
+attendPublic.post("/attend/:token/mark", h((req) => {
+  const t = attendTenant(req.params.token); if (!t) throw new AppError(404, "Galat QR — manager se naya QR lein");
+  const b = parse(z.object({
+    code: z.string().regex(/^\d{4}$/),
+    direction: z.enum(["in", "out"]),
+    image: z.string().regex(/^data:image\/(jpeg|png|webp);base64,/, "Selfie laazmi hai · سیلفی لازمی"),
+    lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180), accuracy: z.number().min(0).optional().nullable(),
+  }), req.body);
+  const u = attendByCode(t, b.code); if (!u) throw new AppError(404, "Yeh code kisi ka nahi — manager se apna code lein");
+  const [, mime, data] = b.image.match(/^data:(image\/[a-z]+);base64,(.*)$/s)!;
+  const bytes = Buffer.from(data, "base64");
+  if (bytes.length > 4_000_000) throw new AppError(400, "Selfie bohat bari hai");
+  const { id: photoId } = run("INSERT INTO photos (tenant_id,kind,mime,data,created_by,created_at) VALUES (?,?,?,?,?,?)", t, "selfie", mime, bytes, u.id, now());
+  if (b.direction === "in") {
+    const a = checkIn(t, u, { station_id: u.station_id, photo_id: photoId, lat: b.lat, lng: b.lng, accuracy: b.accuracy, source: "qr" });
+    return { name: u.name, direction: "in", at: a!.check_in, already: Boolean(a && a.source !== "qr" && a.check_in && Date.parse(a.check_in) < Date.now() - 5000), away_m: a!.away_m, late_minutes: a!.late_minutes };
+  }
+  const a = checkOut(u.id, photoId, t, { lat: b.lat, lng: b.lng, accuracy: b.accuracy });
+  if (!a) throw new AppError(400, `${u.name}: pehle check-in karein`);
+  return { name: u.name, direction: "out", at: a.check_out };
 }));
 
 /** Month summary for one person: present, late, leave, weekly off and unpaid absent days so far. */

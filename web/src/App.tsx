@@ -75,6 +75,7 @@ function PumpLink() {
   return <Navigate to={`/login?pump=${encodeURIComponent(slug ?? "")}`} replace />;
 }
 const Activate = lazy(() => import("./pages/Activate"));
+const AttendPublic = lazy(() => import("./pages/AttendPublic"));
 const Platform = lazy(() => import("./pages/Platform"));
 
 loadBranding().catch(() => {});
@@ -170,6 +171,7 @@ export default function App() {
           <Suspense fallback={<Loading />}>
           <Routes>
             <Route path="/login" element={<Login />} />
+            <Route path="/a/:token" element={<AttendPublic />} />
             <Route path="/p/:slug" element={<PumpLink />} />
             <Route path="/setup" element={<Setup />} />
             <Route path="/signup" element={<Setup signup />} />

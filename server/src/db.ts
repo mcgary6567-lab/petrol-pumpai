@@ -277,6 +277,7 @@ export function migrate() {
   addColumn("users", "pin_hash", "TEXT"); // 4-digit quick login on the pump's shared tablet
   addColumn("users", "pin_fails", "INTEGER NOT NULL DEFAULT 0");
   addColumn("users", "pin_locked_until", "TEXT");
+  addColumn("users", "attend_code", "TEXT"); // 4-digit self check-in code for non-login workers (QR attendance)
   addColumn("sales", "slip_no", "TEXT");
   addColumn("sales", "created_by", "INTEGER"); // user who entered it (for undo)
   addColumn("sales", "client_uid", "TEXT");

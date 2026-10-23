@@ -42,7 +42,7 @@ import { renderBill } from "./billing.js";
 import { staffRouter } from "./routes/staff.js";
 import { backoffice, renderDay } from "./routes/backoffice.js";
 import { shop } from "./routes/shop.js";
-import { compliance } from "./routes/compliance.js";
+import { compliance, attendPublic } from "./routes/compliance.js";
 import { analysis } from "./routes/analysis.js";
 import { care, portalFromOldToken } from "./routes/customerCare.js";
 import { system } from "./routes/system.js";
@@ -121,6 +121,8 @@ app.get("/api/health", (_req, res) => {
   try { get("SELECT 1 x"); } catch { db = false; }
   res.status(db ? 200 : 503).json({ ok: db, db, version: APP_VERSION, ai: aiProvider() === "none" ? "rules" : aiProvider(), whatsapp: waLive() ? "live" : "simulated" });
 });
+app.use("/api/attend", rateLimit("attend", 40, 10 * 60_000)); // QR self check-in: stop code guessing
+app.use("/api", attendPublic); // non-login workers' QR + 4-digit self check-in (no login)
 app.use("/api", setupPublic); // setup wizard + branding (no login)
 app.use("/api", saasPublic); // SaaS mode: public sign-up + platform owner panel (no login)
 // business logo (login page, receipts, bills, TV board, app icon)

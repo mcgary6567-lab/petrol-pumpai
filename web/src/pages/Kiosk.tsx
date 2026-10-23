@@ -1,7 +1,8 @@
-import { useState } from "react";
-import { Camera, CheckCircle2, LogIn, LogOut } from "lucide-react";
+import { useEffect, useState } from "react";
+import QRCode from "qrcode";
+import { Camera, CheckCircle2, LogIn, LogOut, QrCode, Printer, RefreshCw } from "lucide-react";
 import { api, useApi } from "../lib/api";
-import { PageHeader, Loading, Empty, useToast } from "../components/ui";
+import { PageHeader, Loading, Empty, useToast, useAction } from "../components/ui";
 import { LiveSelfie } from "../components/LiveSelfie";
 
 const Ur = ({ children, className = "" }: { children: React.ReactNode; className?: string }) => <span lang="ur" dir="rtl" className={`font-urdu ${className}`}>{children}</span>;
@@ -29,6 +30,7 @@ export default function Kiosk() {
   return (
     <div className="space-y-4">
       <PageHeader title="Staff attendance · حاضری" subtitle="Manager har salesman aur staff (helper, cleaner, driver, guard) ki selfie + location se haaziri lagaye — aana aur jaana dono. Cashier, wholesale aur manager khud shaamil nahi." />
+      <QrAttendance />
       {!data ? <Loading /> : !data.length ? <Empty>Koi staff nahi. Staff page se add karein.</Empty> : (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {data.map((u) => (
@@ -56,6 +58,62 @@ export default function Kiosk() {
       )}
       <p className="text-xs text-slate-500"><Camera size={13} className="mr-1 inline" /> Har check-in aur check-out par us bande ki live selfie aur location record hoti hai — baad me Staff → Attendance par dekh sakte hain.</p>
       <LiveSelfie open={!!act} title={act ? `${act.user.name} — ${act.kind === "in" ? "check in" : "check out"} · selfie + location` : ""} onClose={() => setAct(null)} onDone={mark} />
+    </div>
+  );
+}
+
+/**
+ * QR self check-in: one printed QR for the whole pump, and each worker's own 4-digit code. The worker scans
+ * the QR, types their code, takes a selfie — no app login. Manager still has the kiosk above as a fallback.
+ */
+function QrAttendance() {
+  const { data, reload } = useApi<any>("/attendance/qr", 0);
+  const [open, setOpen] = useState(false);
+  const [src, setSrc] = useState("");
+  const { busy, run } = useAction();
+  useEffect(() => { if (data?.url) QRCode.toDataURL(data.url, { margin: 1, width: 300 }).then(setSrc); }, [data?.url]);
+  const newCode = (id: number) => run(() => api(`/attendance/workers/${id}/code`, { body: {} }), "Naya code ban gaya").then(reload);
+  const print = () => {
+    const w = window.open("", "_blank"); if (!w || !src) return;
+    w.document.write(`<html><head><title>Haazri QR</title><style>body{font-family:system-ui,sans-serif;text-align:center;padding:24px;color:#0f172a}h1{margin:0 0 4px}.ur{direction:rtl;font-size:20px;color:#334155}img{width:320px;height:320px;margin:16px auto}ol{display:inline-block;text-align:right;direction:rtl;font-size:20px;line-height:2}</style></head><body>
+      <h1>${data?.pump ?? "Haazri · حاضری"}</h1><div class="ur">حاضری لگانے کے لیے یہ QR اسکین کریں</div>
+      <img src="${src}"/>
+      <ol><li>موبائل کیمرہ سے یہ QR اسکین کریں</li><li>اپنا 4 ہندسوں کا کوڈ درج کریں</li><li>سیلفی لیں — حاضری لگ جائے گی</li></ol>
+      <p style="color:#64748b;margin-top:16px">${data?.url ?? ""}</p></body></html>`);
+    w.document.close(); w.focus(); setTimeout(() => w.print(), 300);
+  };
+  if (!data) return null;
+  return (
+    <div className="card p-4">
+      <button className="flex w-full items-center justify-between font-semibold" onClick={() => setOpen(!open)}>
+        <span className="flex items-center gap-2"><QrCode size={18} className="text-emerald-600" /> QR se khud haazri · <Ur className="text-slate-500">کیو آر سے حاضری</Ur></span>
+        <span className="text-sm font-normal text-slate-500">{open ? "▲" : "▼"}</span>
+      </button>
+      {open && (
+        <div className="mt-3 grid gap-4 sm:grid-cols-[300px_1fr]">
+          <div className="text-center">
+            {src ? <img src={src} alt="Attendance QR" className="mx-auto w-full max-w-[260px] rounded-xl ring-1 ring-slate-200" /> : <div className="py-10 text-slate-400">QR ban raha hai…</div>}
+            <button className="btn-primary mt-3 w-full" onClick={print}><Printer size={15} /> QR print karein</button>
+            <p className="mt-1 text-[11px] text-slate-400">Ye QR office/gate par chaspa karein. Worker scan kare → apna code → selfie.</p>
+          </div>
+          <div>
+            <div className="mb-1 text-sm font-medium text-slate-700">Har bande ka apna code · <Ur className="text-slate-500">کوڈ</Ur></div>
+            <ul className="divide-y divide-slate-100 rounded-xl ring-1 ring-slate-200">
+              {data.workers.map((w: any) => (
+                <li key={w.id} className="flex items-center justify-between gap-2 px-3 py-2 text-sm">
+                  <span className="min-w-0"><span className="font-medium">{w.name}</span><span className="block text-xs text-slate-500">{w.job_title || ROLE[w.role] || w.role}{w.checked_in ? " · on duty" : ""}</span></span>
+                  <span className="flex shrink-0 items-center gap-2">
+                    <span className="rounded-lg bg-slate-100 px-2 py-1 font-mono text-base tracking-widest">{w.attend_code ?? "— — — —"}</span>
+                    <button className="btn-secondary !px-2 !py-1 text-xs" disabled={busy} onClick={() => newCode(w.id)} title={w.attend_code ? "Naya code" : "Code banayein"}><RefreshCw size={13} /></button>
+                  </span>
+                </li>
+              ))}
+              {!data.workers.length && <li className="px-3 py-4 text-center text-sm text-slate-500">Koi staff nahi. Staff page se add karein.</li>}
+            </ul>
+            <p className="mt-1 text-[11px] text-slate-400">Har bande ko uska code bata dein. Code badalना ho to 🔄 dabayein.</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
