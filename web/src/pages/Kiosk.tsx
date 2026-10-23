@@ -73,12 +73,13 @@ function QrAttendance() {
   const { busy, run } = useAction();
   useEffect(() => { if (data?.url) QRCode.toDataURL(data.url, { margin: 1, width: 300 }).then(setSrc); }, [data?.url]);
   const newCode = (id: number) => run(() => api(`/attendance/workers/${id}/code`, { body: {} }), "Naya code ban gaya").then(reload);
+  const rotate = () => { if (!confirm("Naya QR banayein? Purana chaspa kiya hua QR foran band ho jayega — naya print karna hoga.")) return; run(() => api("/attendance/qr/rotate", { body: {} }), "Naya QR ban gaya — ab print karein").then(reload); };
   const print = () => {
     const w = window.open("", "_blank"); if (!w || !src) return;
     w.document.write(`<html><head><title>Haazri QR</title><style>body{font-family:system-ui,sans-serif;text-align:center;padding:24px;color:#0f172a}h1{margin:0 0 4px}.ur{direction:rtl;font-size:20px;color:#334155}img{width:320px;height:320px;margin:16px auto}ol{display:inline-block;text-align:right;direction:rtl;font-size:20px;line-height:2}</style></head><body>
       <h1>${data?.pump ?? "Haazri · حاضری"}</h1><div class="ur">حاضری لگانے کے لیے یہ QR اسکین کریں</div>
       <img src="${src}"/>
-      <ol><li>موبائل کیمرہ سے یہ QR اسکین کریں</li><li>اپنا 4 ہندسوں کا کوڈ درج کریں</li><li>سیلفی لیں — حاضری لگ جائے گی</li></ol>
+      <ol><li>موبائل کیمرہ سے یہ QR اسکین کریں</li><li>اپنا کوڈ درج کریں</li><li>سیلفی لیں — حاضری لگ جائے گی</li></ol>
       <p style="color:#0f172a;margin-top:16px;font-weight:700;font-size:18px">${data?.pump ?? ""}</p></body></html>`);
     w.document.close(); w.focus(); setTimeout(() => w.print(), 300);
   };
@@ -94,7 +95,8 @@ function QrAttendance() {
           <div className="text-center">
             {src ? <img src={src} alt="Attendance QR" className="mx-auto w-full max-w-[260px] rounded-xl ring-1 ring-slate-200" /> : <div className="py-10 text-slate-400">QR ban raha hai…</div>}
             <button className="btn-primary mt-3 w-full" onClick={print}><Printer size={15} /> QR print karein</button>
-            <p className="mt-1 text-[11px] text-slate-400">Ye QR office/gate par chaspa karein. Worker scan kare → apna code → selfie.</p>
+            <button className="btn-secondary mt-2 w-full" disabled={busy} onClick={rotate}><RefreshCw size={14} /> Naya QR banayein (purana band)</button>
+            <p className="mt-1 text-[11px] text-slate-400">Ye QR office/gate par chaspa karein. Worker scan kare → apna code → selfie. QR leak ho ya banda chala jaye to naya QR banayein.</p>
           </div>
           <div>
             <div className="mb-1 text-sm font-medium text-slate-700">Har bande ka apna code · <Ur className="text-slate-500">کوڈ</Ur></div>

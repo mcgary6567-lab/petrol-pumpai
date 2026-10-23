@@ -166,11 +166,16 @@ export function checkIn(t: number, user: { id: number; name: string }, o: { stat
   const u = get("SELECT * FROM users WHERE id=?", user.id)!;
   const st = get("SELECT * FROM stations WHERE id=?", o.station_id ?? u.station_id ?? 0);
   const away = st?.lat != null && o.lat != null && o.lng != null ? metres({ lat: st.lat, lng: st.lng }, { lat: o.lat, lng: o.lng }) : null;
+  // geofence: owner can set a hard max distance (metres). 0 = off. A QR self check-in beyond it is rejected;
+  // app/kiosk check-ins (done under a login) are flagged, not blocked. The alert fires at the fence, else 300 m.
+  const maxM = Number(getSetting(t, "attend_max_m", "0")) || 0;
+  if (maxM > 0 && away != null && away > maxM && o.source === "qr")
+    throw new AppError(400, `Aap pump se ${away.toLocaleString()} m door hain (hadd ${maxM.toLocaleString()} m) — pump par aa kar attendance lagayein.`);
   const late = lateBy(u.duty_start, Date.now());
   const { id } = run("INSERT INTO attendance (tenant_id,user_id,station_id,day,check_in,in_lat,in_lng,in_acc,away_m,late_minutes,source) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
     t, user.id, st?.id ?? null, day, now(), o.lat ?? null, o.lng ?? null, o.accuracy ?? null, away, late, o.source);
   if (o.photo_id && linkPhotos(t, [o.photo_id], `attend-in:${id}`)) run("UPDATE attendance SET in_photo_id=? WHERE id=?", o.photo_id, id);
-  if (away != null && away > 300)
+  if (away != null && away > (maxM > 0 ? maxM : 300))
     createAlert(t, { station_id: st?.id, type: "attendance_away", severity: "warning", title: `${user.name} checked in ${away.toLocaleString()} m away from ${st!.name}`, dedupe_key: `away-${id}` });
   return get("SELECT * FROM attendance WHERE id=?", id);
 }
@@ -270,6 +275,19 @@ function ensureAttendToken(t: number): string {
   if (!tok) { tok = randomBytes(12).toString("hex"); setSetting(t, "attend_token", tok); }
   return tok;
 }
+// brute-force guard for the public QR: too many wrong codes on one pump's QR → short cooldown + one alert to the owner.
+const attendFails = new Map<string, { n: number; until: number }>();
+function attendGuard(token: string) {
+  const f = attendFails.get(token);
+  if (f && f.until > Date.now()) throw new AppError(429, "Bohat ghalat koshishein — thori der baad dobara. Manager se apna sahi code lein.");
+}
+function attendBad(t: number, token: string) {
+  const f = attendFails.get(token) ?? { n: 0, until: 0 };
+  f.n++;
+  if (f.n >= 5) { f.until = Date.now() + 10 * 60_000; f.n = 0; createAlert(t, { type: "attend_bruteforce", severity: "warning", title: "Attendance QR par baar-baar ghalat code", body: "Kisi ne kai dafa ghalat code daala — QR rotate karna behtar ho sakta hai.", dedupe_key: `attbf-${pkDate()}` }); }
+  attendFails.set(token, f);
+}
+function attendOk(token: string) { attendFails.delete(token); }
 const attendWorker = (t: number, id: number) => get(`SELECT id, name, role, job_title, duty_start, station_id, attend_code FROM users WHERE id=? AND tenant_id=? AND active=1 AND role IN ${ATTENDANCE_ROLES}`, id, t);
 
 // Admin: the printable QR link for this pump, and the workers with their codes.
@@ -279,15 +297,21 @@ compliance.get("/attendance/qr", requirePerm("staff.manage"), h((req) => {
     .map((u) => { const a = get("SELECT check_in, check_out FROM attendance WHERE user_id=? AND day=?", u.id, today); return { ...u, checked_in: Boolean(a?.check_in), checked_out: Boolean(a?.check_out) }; });
   return { url: `${config.publicUrl}/a/${tok}`, pump: get("SELECT name FROM tenants WHERE id=?", t)?.name ?? "", workers };
 }));
-// Admin: set (or auto-generate) a worker's 4-digit code; must be unique within the pump.
+// rotate the QR: a new unguessable token; the old printed QR stops working at once (leak / staff left)
+compliance.post("/attendance/qr/rotate", requirePerm("staff.manage"), h((req) => {
+  const t = tid(req), tok = randomBytes(12).toString("hex");
+  setSetting(t, "attend_token", tok);
+  return { url: `${config.publicUrl}/a/${tok}` };
+}));
+// Admin: set (or auto-generate) a worker's attendance code (6 digits auto; 4–6 if set by hand); unique within the pump.
 compliance.post("/attendance/workers/:id/code", requirePerm("staff.manage"), h((req) => {
   const t = tid(req), id = Number(req.params.id);
   if (!attendWorker(t, id)) throw new AppError(400, "Only salesmen and non-login staff get an attendance code");
-  const b = parse(z.object({ code: z.string().regex(/^\d{4}$/).optional() }), req.body);
+  const b = parse(z.object({ code: z.string().regex(/^\d{4,6}$/).optional() }), req.body);
   const taken = (c: string) => Boolean(get("SELECT id FROM users WHERE tenant_id=? AND attend_code=? AND id<>?", t, c, id));
   let code = b.code;
   if (code) { if (taken(code)) throw new AppError(400, "Yeh code pehle se kisi aur ka hai — doosra chunein"); }
-  else { do { code = String(Math.floor(1000 + Math.random() * 9000)); } while (taken(code)); }
+  else { do { code = String(Math.floor(100000 + Math.random() * 900000)); } while (taken(code)); }
   run("UPDATE users SET attend_code=? WHERE id=? AND tenant_id=?", code, id, t);
   return { id, code };
 }));
@@ -299,21 +323,25 @@ const attendByCode = (t: number, code: string) => get(`SELECT id, name, role, du
 export const attendPublic = Router();
 attendPublic.post("/attend/:token/resolve", h((req) => {
   const t = attendTenant(req.params.token); if (!t) throw new AppError(404, "Galat QR — manager se naya QR lein");
-  const b = parse(z.object({ code: z.string().regex(/^\d{4}$/, "4 hindson ka code daalein") }), req.body);
-  const u = attendByCode(t, b.code); if (!u) throw new AppError(404, "Yeh code kisi ka nahi — manager se apna code lein");
+  attendGuard(req.params.token);
+  const b = parse(z.object({ code: z.string().regex(/^\d{4,6}$/, "Apna code daalein") }), req.body);
+  const u = attendByCode(t, b.code); if (!u) { attendBad(t, req.params.token); throw new AppError(404, "Yeh code kisi ka nahi — manager se apna code lein"); }
+  attendOk(req.params.token);
   const a = get("SELECT check_in, check_out FROM attendance WHERE user_id=? AND day=?", u.id, pkDate());
   const biz = get("SELECT name FROM tenants WHERE id=?", t);
   return { name: u.name, pump: biz?.name ?? "", checked_in: Boolean(a?.check_in), checked_out: Boolean(a?.check_out) };
 }));
 attendPublic.post("/attend/:token/mark", h((req) => {
   const t = attendTenant(req.params.token); if (!t) throw new AppError(404, "Galat QR — manager se naya QR lein");
+  attendGuard(req.params.token);
   const b = parse(z.object({
-    code: z.string().regex(/^\d{4}$/),
+    code: z.string().regex(/^\d{4,6}$/),
     direction: z.enum(["in", "out"]),
     image: z.string().regex(/^data:image\/(jpeg|png|webp);base64,/, "Selfie laazmi hai · سیلفی لازمی"),
     lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180), accuracy: z.number().min(0).optional().nullable(),
   }), req.body);
-  const u = attendByCode(t, b.code); if (!u) throw new AppError(404, "Yeh code kisi ka nahi — manager se apna code lein");
+  const u = attendByCode(t, b.code); if (!u) { attendBad(t, req.params.token); throw new AppError(404, "Yeh code kisi ka nahi — manager se apna code lein"); }
+  attendOk(req.params.token);
   const [, mime, data] = b.image.match(/^data:(image\/[a-z]+);base64,(.*)$/s)!;
   const bytes = Buffer.from(data, "base64");
   if (bytes.length > 4_000_000) throw new AppError(400, "Selfie bohat bari hai");

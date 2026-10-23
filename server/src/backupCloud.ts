@@ -11,6 +11,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { getSetting, setSetting } from "./db.js";
 import { config } from "./config.js";
+import { encryptSecret, decryptSecret } from "./secretbox.js";
 
 export const PROVIDERS = ["gdrive", "dropbox"] as const;
 export type Provider = (typeof PROVIDERS)[number];
@@ -18,7 +19,12 @@ const KEEP_CLOUD = 14;
 const FOLDER_NAME = "PumpAI backups";
 const NAME = /^pumpai-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.db$/;
 
-const readJson = <T,>(key: string): T | null => { try { return JSON.parse(getSetting(0, key, "null")); } catch { return null; } };
+// the connection config holds refresh tokens / private keys → stored encrypted at rest, read back decrypted
+const readJson = <T,>(key: string): T | null => { try { return JSON.parse(decryptSecret(getSetting(0, key, "null"))); } catch { return null; } };
+/** Save (encrypted) or clear a provider's connection config. */
+export function saveCloud(p: Provider, cfg: unknown | null) {
+  setSetting(0, p === "gdrive" ? "cloud_gdrive" : "cloud_dropbox", cfg == null ? "null" : encryptSecret(JSON.stringify(cfg)));
+}
 // Drive: either a service-account key (manual, folder shared with it) or a one-click user-OAuth connection (kind:"oauth").
 type GdriveCfg = { kind?: "oauth"; client_email?: string; private_key?: string; refresh_token?: string; email?: string; folder_id: string };
 type DropboxCfg = { app_key: string; app_secret: string; refresh_token: string; account?: string | null };

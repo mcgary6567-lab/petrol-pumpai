@@ -12,7 +12,7 @@ import { h, parse, tid, requirePerm } from "../auth.js";
 import { AppError, audit } from "../services.js";
 import { config } from "../config.js";
 import { vapidPublicKey, saveSubscription, removeSubscription, subscriptionCount, pushToUser } from "../push.js";
-import { PROVIDERS, cloudStatus, cloudPush, cloudPushAll, cloudConfigured, parseServiceAccount, gdriveCheck, dropboxAuthUrl, dropboxConnect, dropboxCheck, googleAuthUrl, googleConnect, googleConfigured, type Provider } from "../backupCloud.js";
+import { PROVIDERS, cloudStatus, cloudPush, cloudPushAll, cloudConfigured, parseServiceAccount, gdriveCheck, gdriveCfg, dropboxCfg, saveCloud, dropboxAuthUrl, dropboxConnect, dropboxCheck, googleAuthUrl, googleConnect, googleConfigured, type Provider } from "../backupCloud.js";
 import { randomBytes } from "node:crypto";
 
 export const system = Router();
@@ -74,7 +74,7 @@ export function mountBackupRoutes(r: Router, guard: import("express").RequestHan
     const cfg = { ...key, folder_id: b.folder_id.replace(/^.*\/folders\//, "").split(/[?#]/)[0] };
     let check: { folder: string };
     try { check = await gdriveCheck(cfg); } catch (e: any) { throw new AppError(400, `Google Drive: ${e.message}. Share the folder with ${key.client_email} (Editor) and check the folder ID.`); }
-    setSetting(0, "cloud_gdrive", JSON.stringify(cfg));
+    saveCloud("gdrive", cfg);
     audit(actor(req).t, actor(req).user, "backup_cloud_connected", "gdrive", { email: key.client_email, folder: check.folder });
     return { ok: true, folder: check.folder, email: key.client_email, cloud: cloudStatus() };
   }));
@@ -99,7 +99,7 @@ export function mountBackupRoutes(r: Router, guard: import("express").RequestHan
     if (!appKey || !appSecret) throw new AppError(400, "Dropbox app key/secret missing — platform owner sets it once in Settings → Integrations");
     let cfg;
     try { cfg = await dropboxConnect(appKey, appSecret, b.code); } catch (e: any) { throw new AppError(400, e.message); }
-    setSetting(0, "cloud_dropbox", JSON.stringify(cfg));
+    saveCloud("dropbox", cfg);
     audit(actor(req).t, actor(req).user, "backup_cloud_connected", "dropbox", { account: cfg.account });
     return { ok: true, account: cfg.account, cloud: cloudStatus() };
   }));
@@ -108,8 +108,8 @@ export function mountBackupRoutes(r: Router, guard: import("express").RequestHan
     const p = provider(req.params.provider);
     if (!cloudConfigured(p)) throw new AppError(400, "Not connected");
     try {
-      const g = JSON.parse(getSetting(0, "cloud_gdrive", "null")), d = JSON.parse(getSetting(0, "cloud_dropbox", "null"));
-      return { ok: true, ...(p === "gdrive" ? await gdriveCheck(g) : await dropboxCheck(d)) };
+      const g = gdriveCfg(), d = dropboxCfg();
+      return { ok: true, ...(p === "gdrive" ? await gdriveCheck(g!) : await dropboxCheck(d!)) };
     } catch (e: any) { throw new AppError(400, e.message); }
   }));
   /** Upload the newest backup to one provider now (also what the nightly backup does by itself). */
@@ -123,7 +123,7 @@ export function mountBackupRoutes(r: Router, guard: import("express").RequestHan
   }));
   r.delete("/backups/cloud/:provider", guard, h((req) => {
     const p = provider(req.params.provider);
-    setSetting(0, p === "gdrive" ? "cloud_gdrive" : "cloud_dropbox", "null");
+    saveCloud(p, null);
     setSetting(0, `cloud_last_${p}`, "null");
     audit(actor(req).t, actor(req).user, "backup_cloud_disconnected", p, {});
     return { ok: true, cloud: cloudStatus() };
@@ -217,7 +217,7 @@ cloudPublic.get("/cloud/google/callback", async (req, res) => {
     if (!saved || saved.nonce !== state || Date.now() - saved.at > 10 * 60_000) return page("Link purana ho gaya", "Dobara 'Connect Google Drive' dabayein.");
     setSetting(0, "oauth_state_gdrive", "null");
     const cfg = await googleConnect(code, `${config.publicUrl}/api/cloud/google/callback`);
-    setSetting(0, "cloud_gdrive", JSON.stringify(cfg));
+    saveCloud("gdrive", cfg);
     return page("✓ Google Drive connect ho gaya", `Account: ${cfg.email ?? "—"}. Ab har raat ka backup khud-ba-khud yahan jayega. Yeh tab band kar dein.`);
   } catch (e: any) { return page("Nahi ho saka", String(e?.message ?? e).slice(0, 200)); }
 });

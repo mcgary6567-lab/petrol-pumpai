@@ -3,7 +3,7 @@ import jwt from "jsonwebtoken";
 import crypto from "node:crypto";
 import bcrypt from "bcryptjs";
 import { z, ZodError } from "zod";
-import { config } from "./config.js";
+import { config, waLive } from "./config.js";
 import { all, get, run, getSetting, type Row } from "./db.js";
 import { AppError } from "./services.js";
 /** Set by serverStatus.ts at start-up: records 500s in the platform's error log (late-bound to avoid an import cycle). */
@@ -260,9 +260,18 @@ export function login(email: string, password: string, meta: SessionMeta = {}) {
   return issueSession(authenticate(email, password), "password", meta);
 }
 
-/** Two-factor login for the owner: is it switched on and usable (admin with a phone)? */
-export const twoFaRequired = (u: Row) =>
-  u.role === "admin" && get("SELECT value FROM settings WHERE tenant_id=? AND key='admin_2fa'", u.tenant_id)?.value === "1" && Boolean(u.phone);
+/**
+ * Two-factor login for the owner. On by default for admins — but only when it is actually usable, so nobody is
+ * ever locked out: the admin must have a phone AND WhatsApp OTP delivery must be live. The owner can still turn it
+ * off explicitly (setting '0'); an unset setting defaults ON when deliverable.
+ */
+export const twoFaRequired = (u: Row) => {
+  if (u.role !== "admin" || !u.phone) return false;
+  const set = get("SELECT value FROM settings WHERE tenant_id=? AND key='admin_2fa'", u.tenant_id)?.value as string | undefined;
+  if (set === "1") return true;   // explicitly on — honoured even before WhatsApp is live
+  if (set === "0") return false;  // explicitly off
+  return waLive();                // unset → default-on, but only once OTP can actually be delivered (no lock-out)
+};
 const OTP_MIN = 10, OTP_TRIES = 5;
 /** Make and store a 6-digit one-time code for this user; returns the plain code to send on WhatsApp. */
 export function create2fa(userId: number): string {

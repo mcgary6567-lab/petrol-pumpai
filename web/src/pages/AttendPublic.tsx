@@ -75,11 +75,11 @@ export default function AttendPublic() {
           </div>
         ) : !worker ? (
           <form onSubmit={resolve} className="space-y-3">
-            <label className="block text-sm font-medium text-slate-700">Apna 4-hindson ka code daalein<span className="block text-xs font-normal text-slate-400">اپنا کوڈ درج کریں</span></label>
-            <input className="input text-center text-2xl tracking-[0.5em]" inputMode="numeric" maxLength={4} autoFocus
-              value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 4))} placeholder="••••" />
+            <label className="block text-sm font-medium text-slate-700">Apna code daalein<span className="block text-xs font-normal text-slate-400">اپنا کوڈ درج کریں</span></label>
+            <input className="input text-center text-2xl tracking-[0.5em]" inputMode="numeric" maxLength={6} autoFocus
+              value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="••••••" />
             {err && <div className="rounded-lg bg-rose-50 p-2 text-sm text-rose-700">{err}</div>}
-            <button className="btn-primary w-full" disabled={busy || code.length !== 4}>Aage · آگے</button>
+            <button className="btn-primary w-full" disabled={busy || code.length < 4}>Aage · آگے</button>
           </form>
         ) : (
           <div className="space-y-3 text-center">

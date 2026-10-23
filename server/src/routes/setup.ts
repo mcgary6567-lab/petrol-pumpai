@@ -13,6 +13,7 @@ import { config, APP_VERSION, PRODUCTS } from "../config.js";
 import { get, run, now, tx, getSetting, setSetting, uniqueSlug } from "../db.js";
 import { h, parse, tid, requirePerm, signToken } from "../auth.js";
 import { AppError, normalizePhone, audit } from "../services.js";
+import { encryptSecret, decryptSecret } from "../secretbox.js";
 import { newPumpDefaults } from "./golive.js";
 import { ensureCategories } from "./expenses.js";
 import { ensureAutomations } from "../automation/scheduler.js";
@@ -212,7 +213,7 @@ const CFG: Record<string, { set: (v: string) => void; secret?: boolean }> = {
 export function applyStoredConfig() {
   for (const [k, c] of Object.entries(CFG)) {
     const v = getSetting(0, `cfg:${k}`, "\u0000");
-    if (v !== "\u0000") c.set(v);
+    if (v !== "\u0000") c.set(c.secret ? decryptSecret(v) : v); // secrets are stored encrypted at rest
   }
 }
 const mask = (v: string) => (v ? `${"•".repeat(8)}${v.slice(-4)}` : "");
@@ -238,7 +239,7 @@ export function applyIntegrations(body: unknown): string[] {
   for (const [k, v] of Object.entries(b)) {
     if (CFG[k].secret && v.startsWith("•")) continue; // unchanged masked value
     if (k === "public_url" && v && !/^https?:\/\/[^\s/]+/.test(v)) throw new AppError(400, "Public address must start with https://");
-    setSetting(0, `cfg:${k}`, v.trim());
+    setSetting(0, `cfg:${k}`, CFG[k].secret ? encryptSecret(v.trim()) : v.trim()); // secrets encrypted at rest
     CFG[k].set(v.trim());
     changed.push(k);
   }
