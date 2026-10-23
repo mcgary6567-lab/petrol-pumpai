@@ -843,6 +843,8 @@ export function migrate() {
   ]) try { db.exec(ix); } catch { /* table may not exist on an older/partial schema — index is best-effort */ }
   // the cashier takes the cash from the salesman after the shift closes
   for (const [c, t] of [["handed_amount", "REAL"], ["handed_to", "TEXT"], ["handed_at", "TEXT"], ["handover_note", "TEXT"]]) addColumn("shifts", c, t);
+  // both-party, dispute-proof handover: the salesman counter-signs the amount the cashier recorded
+  for (const [c, t] of [["handover_ack_by", "TEXT"], ["handover_ack_at", "TEXT"], ["handover_ack_note", "TEXT"]]) addColumn("shifts", c, t);
   addColumn("cash_counts", "notes_json", "TEXT");
   // money wiring: how a staff advance was paid, which bank got coupon money, what an expense cheque is for
   addColumn("staff_ledger", "method", "TEXT");

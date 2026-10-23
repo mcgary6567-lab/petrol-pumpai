@@ -600,7 +600,7 @@ cashier.post("/cashier/cheques/:id/:action", requirePerm("cheques.manage"), h(as
 const HANDOVER_DAYS = 30;
 function handovers(t: number) {
   const since = new Date(Date.now() - HANDOVER_DAYS * 86400_000).toISOString();
-  const cols = `sh.id, sh.attendant, sh.opened_at, sh.closed_at, sh.cash_expected, sh.cash_actual, sh.variance, sh.handed_amount, sh.handed_to, sh.handed_at, sh.handover_note, s.name station_name`;
+  const cols = `sh.id, sh.attendant, sh.opened_at, sh.closed_at, sh.cash_expected, sh.cash_actual, sh.variance, sh.handed_amount, sh.handed_to, sh.handed_at, sh.handover_note, sh.handover_ack_by, sh.handover_ack_at, sh.handover_ack_note, s.name station_name`;
   return {
     // a shift with no cash at all (strike / pump closed, nothing sold) has nothing to hand over
     pending: all(`SELECT ${cols} FROM shifts sh JOIN stations s ON s.id=sh.station_id WHERE s.tenant_id=? AND sh.status='closed' AND sh.handed_at IS NULL AND sh.closed_at >= ?
@@ -638,6 +638,31 @@ cashier.post("/cashier/handovers/:id", requirePerm("shifts.handover"), h(async (
     await chargeShortage(t, { id: sh.id, attendant: sh.attendant, station_id: sh.station_id }, diff);
   }
   return { shift: get("SELECT * FROM shifts WHERE id=?", sh.id), difference: diff, ...handovers(t) };
+}));
+
+/**
+ * Both-party sign-off: the salesman who ran the shift counter-signs the amount the cashier recorded, so a later
+ * dispute ("I gave more") is settled by a record both sides agreed to. Only the shift's own attendant may confirm.
+ */
+cashier.post("/cashier/handovers/:id/confirm", h((req) => {
+  const t = tid(req);
+  const b = parse(z.object({ agree: z.boolean(), note: z.string().max(200).optional().nullable() }), req.body);
+  const sh = get("SELECT sh.*, s.name station_name FROM shifts sh JOIN stations s ON s.id=sh.station_id WHERE sh.id=? AND s.tenant_id=?", Number(req.params.id), t);
+  if (!sh) throw new AppError(404, "Shift not found");
+  if (!sh.handed_at) throw new AppError(400, "Cashier ne abhi cash receive nahi kiya");
+  if (sh.handover_ack_at) throw new AppError(400, `Pehle hi sign ho chuka (${sh.handover_ack_by})`);
+  // the confirming user must be this shift's salesman (match by name; managers/admin can also co-sign on their behalf)
+  const isAttendant = req.user!.name === sh.attendant;
+  if (!isAttendant && !can(req.user!, "shifts.handover")) throw new AppError(403, "Sirf isi shift ka salesman confirm kar sakta hai");
+  if (!b.agree) {
+    const a = createAlert(t, { station_id: sh.station_id, type: "handover_dispute", severity: "warning",
+      title: `Handover par ikhtilaf — ${sh.attendant}`, body: `Shift #${sh.id}: salesman ne cashier ke ${pkr(sh.handed_amount)} par ettiraaz kiya.${b.note ? ` Note: ${b.note}` : ""}`, dedupe_key: `hdispute-${sh.id}` });
+    if (a) notify(t, staff(t, ["admin", "manager"], req.user!.id), { type: "handover_dispute", title: a.title, body: a.body });
+    throw new AppError(409, "Ikhtilaf darj ho gaya — manager ko ittila kar di gayi. Cash dobara ginkar milaayein.");
+  }
+  run("UPDATE shifts SET handover_ack_by=?, handover_ack_at=?, handover_ack_note=? WHERE id=?", req.user!.name, now(), b.note ?? null, sh.id);
+  audit(t, req.user!, "Handover counter-signed by salesman", `shift:${sh.id}`, { amount: sh.handed_amount, by: req.user!.name });
+  return { shift: get("SELECT * FROM shifts WHERE id=?", sh.id), ...handovers(t) };
 }));
 
 /* ---------------- day book ---------------- */

@@ -1,4 +1,4 @@
-import { all, get, run, tx, now, type Row } from "./db.js";
+import { all, get, run, tx, now, getSetting, type Row } from "./db.js";
 import { config } from "./config.js";
 import { digitalMethods } from "./routes/lookups.js";
 
@@ -282,8 +282,10 @@ export function recordSale(tenantId: number, s: SaleInput): Row {
       // keep the slip photo (parchi) linked to the sale as proof until it is cleared
       if (photoId) run("UPDATE photos SET ref=? WHERE id=? AND ref IS NULL", `sale:${id}`, photoId);
     } else if (customer) {
+      // earn rate is owner-set: 1 point per `loyalty_rate` rupees (default 100). 0 turns earning off.
+      const earnRate = Number(getSetting(tenantId, "loyalty_rate", "100")) || 0;
       run("UPDATE customers SET last_visit_at=?, loyalty_points = loyalty_points + ? WHERE id=?",
-        ts, points ? -points : Math.floor(amount / 100), customer.id);
+        ts, points ? -points : earnRate > 0 ? Math.floor(amount / earnRate) : 0, customer.id);
       if (points) run("INSERT INTO loyalty_redemptions (tenant_id,customer_id,points,sale_id,created_at) VALUES (?,?,?,?,?)", tenantId, customer.id, points, id, ts);
       if (s.payment_method === "khata") {
         // the khata is billed the fuel + the whole baqi (parchi) value; the slip litres = pumped + the baqi litres,

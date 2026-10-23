@@ -856,7 +856,14 @@ function Handover() {
           const diff = Math.round((s.handed_amount ?? 0) - (s.cash_actual ?? 0));
           return (
             <li key={s.id} className="flex items-center gap-2 px-4 py-2 text-sm">
-              <span className="min-w-0 flex-1"><b>{s.attendant}</b> · #{s.id}<span className="block text-xs text-slate-500">{dt(s.handed_at)} · {s.handed_to}{s.handover_note ? ` · ${s.handover_note}` : ""}</span></span>
+              <span className="min-w-0 flex-1"><b>{s.attendant}</b> · #{s.id}<span className="block text-xs text-slate-500">{dt(s.handed_at)} · {s.handed_to}{s.handover_note ? ` · ${s.handover_note}` : ""}</span>
+                {s.handover_ack_at
+                  ? <span className="mt-0.5 block text-xs font-medium text-emerald-700">✓ {s.attendant} ne sign kiya · <Ur>تصدیق شدہ</Ur></span>
+                  : <span className="mt-0.5 flex flex-wrap gap-1.5">
+                      <button className="rounded-md bg-emerald-600 px-2 py-0.5 text-xs font-semibold text-white" onClick={() => { if (confirm(`${s.attendant}: aap taeed karte hain ke aap ne ${pkr(s.handed_amount)} diye?`)) run(() => api(`/cashier/handovers/${s.id}/confirm`, { body: { agree: true } }), "Sign ho gaya").then(reload); }}>Theek hai, sign</button>
+                      <button className="rounded-md bg-rose-100 px-2 py-0.5 text-xs font-semibold text-rose-700" onClick={() => { const n = prompt("Ikhtilaf — kitna diya tha / kya masla hai?") ?? ""; run(() => api(`/cashier/handovers/${s.id}/confirm`, { body: { agree: false, note: n || null } }), "Ikhtilaf darj — manager ko bheja").then(reload).catch(() => reload()); }}>Ikhtilaf</button>
+                    </span>}
+              </span>
               <span className="shrink-0 text-right"><b className="tabular-nums">{pkr(s.handed_amount)}</b>{diff !== 0 && <span className={`block text-xs ${diff < 0 ? "text-red-600" : "text-emerald-700"}`}>{diff < 0 ? "short" : "over"} {pkr(Math.abs(diff))}</span>}</span>
             </li>
           );

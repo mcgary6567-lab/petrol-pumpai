@@ -191,27 +191,60 @@ backoffice.get("/stock/order-suggestion/:tankId", requirePerm("stock.manage"), h
   return { tank, supplier_id: last?.supplier_id ?? null, litres: Math.max(0, Math.min(room, 40_000)), room: Math.round(tank.capacity_l - tank.current_l) };
 }));
 
+/** The supplier WhatsApp text for a tanker order (also used by the auto-draft job). */
+function tankerOrderMsg(t: number, order: any, tank: any, by: string) {
+  const biz = get("SELECT name FROM tenants WHERE id=?", t)!.name;
+  return `🛢️ Tanker order #${order.id} — ${biz}\n${PRODUCTS[tank.product]}: ${Number(order.litres).toLocaleString()} L\nDeliver to: ${tank.station_name}${tank.address ? `, ${tank.address}` : ""}\n` +
+    `${order.note ? `${order.note}\n` : ""}Ordered by ${by}. Please confirm the dispatch time and tanker number.`;
+}
 backoffice.post("/stock/orders", requirePerm("stock.manage"), h(async (req) => {
   const t = tid(req);
-  const b = parse(z.object({ tank_id: z.number(), supplier_id: z.number(), litres: z.number().positive().max(100_000), note: z.string().max(200).optional().nullable() }), req.body);
+  const b = parse(z.object({ tank_id: z.number(), supplier_id: z.number(), litres: z.number().positive().max(100_000), note: z.string().max(200).optional().nullable(), draft: z.boolean().optional() }), req.body);
   const tank = get("SELECT t.*, s.name station_name, s.address FROM tanks t JOIN stations s ON s.id=t.station_id WHERE t.id=? AND s.tenant_id=?", b.tank_id, t);
   if (!tank) throw new AppError(404, "Tank not found");
   const sup = get("SELECT * FROM suppliers WHERE id=? AND tenant_id=?", b.supplier_id, t);
   if (!sup) throw new AppError(404, "Supplier not found");
   if (b.litres > tank.capacity_l - tank.current_l + 1) throw new AppError(400, `${tank.name} has space for ${Math.round(tank.capacity_l - tank.current_l).toLocaleString()} L only`);
   const { id } = run("INSERT INTO purchase_orders (tenant_id,supplier_id,station_id,tank_id,product,litres,status,note,ordered_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
-    t, sup.id, tank.station_id, tank.id, tank.product, b.litres, "ordered", b.note ?? null, req.user!.name, now());
-  const biz = get("SELECT name FROM tenants WHERE id=?", t)!.name;
-  const sent = await sendDirect(t, sup, "tanker_order", `po:${id}`,
-    `🛢️ Tanker order #${id} — ${biz}\n${PRODUCTS[tank.product]}: ${b.litres.toLocaleString()} L\nDeliver to: ${tank.station_name}${tank.address ? `, ${tank.address}` : ""}\n` +
-    `${b.note ? `${b.note}\n` : ""}Ordered by ${req.user!.name}. Please confirm the dispatch time and tanker number.`);
-  return { order: get("SELECT * FROM purchase_orders WHERE id=?", id), whatsapp: sent ? "sent" : "no phone" };
+    t, sup.id, tank.station_id, tank.id, tank.product, b.litres, b.draft ? "draft" : "ordered", b.note ?? null, req.user!.name, now());
+  const order = get("SELECT * FROM purchase_orders WHERE id=?", id)!;
+  if (b.draft) return { order, whatsapp: "draft" }; // saved, owner reviews and sends later
+  const sent = await sendDirect(t, sup, "tanker_order", `po:${id}`, tankerOrderMsg(t, order, tank, req.user!.name));
+  return { order, whatsapp: sent ? "sent" : "no phone" };
+}));
+
+/** Send a draft tanker order to the supplier (owner reviewed it first). Optional last-minute litres / note edit. */
+backoffice.post("/stock/orders/:id/send", requirePerm("stock.manage"), h(async (req) => {
+  const t = tid(req);
+  const b = parse(z.object({ litres: z.number().positive().max(100_000).optional(), note: z.string().max(200).optional().nullable() }), req.body);
+  const order = get("SELECT * FROM purchase_orders WHERE id=? AND tenant_id=? AND status='draft'", Number(req.params.id), t);
+  if (!order) throw new AppError(404, "Draft order not found");
+  const tank = get("SELECT t.*, s.name station_name, s.address FROM tanks t JOIN stations s ON s.id=t.station_id WHERE t.id=? AND s.tenant_id=?", order.tank_id, t);
+  const sup = get("SELECT * FROM suppliers WHERE id=? AND tenant_id=?", order.supplier_id, t);
+  if (!tank || !sup) throw new AppError(404, "Tank or supplier missing");
+  const litres = b.litres ?? order.litres, note = b.note !== undefined ? b.note : order.note;
+  if (litres > tank.capacity_l - tank.current_l + 1) throw new AppError(400, `${tank.name} has space for ${Math.round(tank.capacity_l - tank.current_l).toLocaleString()} L only`);
+  run("UPDATE purchase_orders SET status='ordered', litres=?, note=?, ordered_by=?, created_at=? WHERE id=?", litres, note ?? null, req.user!.name, now(), order.id);
+  const fresh = get("SELECT * FROM purchase_orders WHERE id=?", order.id)!;
+  const sent = await sendDirect(t, sup, "tanker_order", `po:${order.id}`, tankerOrderMsg(t, fresh, tank, req.user!.name));
+  return { order: fresh, whatsapp: sent ? "sent" : "no phone" };
 }));
 
 backoffice.post("/stock/orders/:id/cancel", requirePerm("stock.manage"), h((req) => {
-  run("UPDATE purchase_orders SET status='cancelled' WHERE id=? AND tenant_id=? AND status='ordered'", Number(req.params.id), tid(req));
+  run("UPDATE purchase_orders SET status='cancelled' WHERE id=? AND tenant_id=? AND status IN ('ordered','draft')", Number(req.params.id), tid(req));
   return { ok: true };
 }));
+
+/** Auto-create a ready-to-send DRAFT tanker order for a low tank (last supplier, suggested litres) if none is open. */
+export function ensureDraftOrder(t: number, tank: { id: number; station_id: number; product: string; suggested_order_l: number }) {
+  const open = get("SELECT id FROM purchase_orders WHERE tenant_id=? AND tank_id=? AND status IN ('draft','ordered')", t, tank.id);
+  if (open || tank.suggested_order_l <= 0) return null;
+  const last = get("SELECT d.supplier_id FROM deliveries d JOIN tanks tk ON tk.id=d.tank_id WHERE tk.product=? AND d.supplier_id IS NOT NULL ORDER BY d.id DESC LIMIT 1", tank.product);
+  if (!last?.supplier_id) return null; // no supplier history → leave it to the owner to pick
+  const { id } = run("INSERT INTO purchase_orders (tenant_id,supplier_id,station_id,tank_id,product,litres,status,note,ordered_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+    t, last.supplier_id, tank.station_id, tank.id, tank.product, tank.suggested_order_l, "draft", "Auto-draft (low stock)", "PumpAI", now());
+  return id as number;
+}
 
 /** Called when a tanker is received: closes the oldest open order for that supplier and tank. */
 export function closeOrderOnDelivery(t: number, supplierId: number | null, tankId: number, deliveryId: number) {

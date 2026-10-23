@@ -9,7 +9,7 @@ import { askBusiness, writeCampaign } from "../ai/agent.js";
 import { aiEnabled } from "../config.js";
 import { notify, staff, shiftUser } from "../notifications.js";
 import { monthlyBills } from "../billing.js";
-import { closeDay } from "../routes/backoffice.js";
+import { closeDay, ensureDraftOrder } from "../routes/backoffice.js";
 import { licenceWatch, checklistWatch, attendanceWatch } from "../routes/compliance.js";
 import { weeklyStaffRisk } from "../routes/analysis.js";
 import { khataOverdue, khataLateFees, bookingReminders, serviceDue } from "../routes/customerCare.js";
@@ -86,7 +86,8 @@ export const JOBS: Job[] = [
           });
           if (a) {
             n++;
-            await notifyOwner(t, `⛽ Tanker order needed: ${a.title}\n${a.body}`);
+            const draftId = ensureDraftOrder(t, tank); // a ready-to-send draft the owner just reviews and taps "Send"
+            await notifyOwner(t, `⛽ Tanker order needed: ${a.title}\n${a.body}${draftId ? `\n📝 Draft order #${draftId} tayyar hai — Stock page se review kar ke Send dabayein.` : ""}`);
           }
         }
       }

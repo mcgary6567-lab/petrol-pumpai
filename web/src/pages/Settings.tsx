@@ -22,7 +22,7 @@ export default function SettingsPage() {
       <BusinessProfile />
       <AutoSwitches values={data.automation ?? {}} review={data.google_review_url} onSaved={reload} />
       <KhataRules r={data.khata_rules} onSaved={reload} />
-      <Limits l={data.limits} onSaved={reload} />
+      <Limits l={data.limits} loyaltyRate={data.loyalty_rate} onSaved={reload} />
       <AlertSensitivity s={data.sensitivity} onSaved={reload} />
       <Safety twofa={data.admin_2fa} onTwofa={reload} />
       {account.saas ? <SaasBackupsNote /> : <BackupsPanel request={(p, i) => api(p, i as any)} base="/backups" downloadUrl={(n) => `/api/backups/${n}?token=${linkToken()}`} canRestart />}
@@ -147,11 +147,11 @@ function Meters({ nozzles, onSaved }: { nozzles: any[]; onSaved: () => void }) {
 }
 
 /** Operating limits that used to be fixed in the code. */
-function Limits({ l, onSaved }: { l?: Record<string, any>; onSaved: () => void }) {
-  const [f, setF] = useState({ test_limit_l: String(l?.test_limit_l ?? 10), shortage_min: String(l?.shortage_min ?? 100), utility_alert_pct: String(l?.utility_alert_pct ?? 15), shortage_tolerance_pct: String(l?.shortage_tolerance_pct ?? 0.2), shift_hours: String(l?.shift_hours ?? 24), khata_discount_max: String(l?.khata_discount_max ?? 500), direct_discount_max: String(l?.direct_discount_max ?? 5000), direct_discount_alert: String(l?.direct_discount_alert ?? 10000), attend_max_m: String(l?.attend_max_m ?? 0), pin_admin: Boolean(l?.pin_admin) });
+function Limits({ l, loyaltyRate, onSaved }: { l?: Record<string, any>; loyaltyRate?: number; onSaved: () => void }) {
+  const [f, setF] = useState({ test_limit_l: String(l?.test_limit_l ?? 10), shortage_min: String(l?.shortage_min ?? 100), utility_alert_pct: String(l?.utility_alert_pct ?? 15), shortage_tolerance_pct: String(l?.shortage_tolerance_pct ?? 0.2), shift_hours: String(l?.shift_hours ?? 24), khata_discount_max: String(l?.khata_discount_max ?? 500), direct_discount_max: String(l?.direct_discount_max ?? 5000), direct_discount_alert: String(l?.direct_discount_alert ?? 10000), attend_max_m: String(l?.attend_max_m ?? 0), loyalty_rate: String(loyaltyRate ?? 100), pin_admin: Boolean(l?.pin_admin) });
   const { busy, run } = useAction();
   return (
-    <form className="card grid grid-cols-1 gap-3 p-4 sm:grid-cols-2" onSubmit={(e) => { e.preventDefault(); run(() => api("/settings", { method: "PUT", body: { limits: { test_limit_l: Number(f.test_limit_l), shortage_min: Number(f.shortage_min), utility_alert_pct: Number(f.utility_alert_pct), shortage_tolerance_pct: Number(f.shortage_tolerance_pct), shift_hours: Number(f.shift_hours), khata_discount_max: Number(f.khata_discount_max), direct_discount_max: Number(f.direct_discount_max), direct_discount_alert: Number(f.direct_discount_alert), attend_max_m: Number(f.attend_max_m), pin_admin: f.pin_admin } } }), "Limits saved").then(onSaved); }}>
+    <form className="card grid grid-cols-1 gap-3 p-4 sm:grid-cols-2" onSubmit={(e) => { e.preventDefault(); run(() => api("/settings", { method: "PUT", body: { loyalty_rate: Number(f.loyalty_rate), limits: { test_limit_l: Number(f.test_limit_l), shortage_min: Number(f.shortage_min), utility_alert_pct: Number(f.utility_alert_pct), shortage_tolerance_pct: Number(f.shortage_tolerance_pct), shift_hours: Number(f.shift_hours), khata_discount_max: Number(f.khata_discount_max), direct_discount_max: Number(f.direct_discount_max), direct_discount_alert: Number(f.direct_discount_alert), attend_max_m: Number(f.attend_max_m), pin_admin: f.pin_admin } } }), "Limits saved").then(onSaved); }}>
       <h2 className="font-semibold sm:col-span-2">Limits & tolerances</h2>
       <div className="sm:col-span-2">
         <span className="label">Shift length — reminder to close fires after this. Set it to how long one salesman's shift runs.</span>
@@ -173,6 +173,7 @@ function Limits({ l, onSaved }: { l?: Record<string, any>; onSaved: () => void }
       <label className="block"><span className="label">Direct (walk-in) discount a salesman can give per sale (Rs) — more needs the manager / CEO</span><input className="input" type="number" inputMode="decimal" min={0} value={f.direct_discount_max} onChange={(e) => setF({ ...f, direct_discount_max: e.target.value })} /></label>
       <label className="block"><span className="label">Alert the manager when one shift's direct discounts reach (Rs)</span><input className="input" type="number" inputMode="decimal" min={0} value={f.direct_discount_alert} onChange={(e) => setF({ ...f, direct_discount_alert: e.target.value })} /></label>
       <label className="block sm:col-span-2"><span className="label">QR attendance geofence — a worker's QR check-in is blocked beyond this many metres from the station (0 = off, location still recorded)</span><input className="input" type="number" inputMode="decimal" min={0} max={100000} value={f.attend_max_m} onChange={(e) => setF({ ...f, attend_max_m: e.target.value })} /></label>
+      <label className="block"><span className="label">Loyalty: 1 point per this many rupees of fuel (0 = loyalty off)</span><input className="input" type="number" inputMode="decimal" min={0} max={100000} value={f.loyalty_rate} onChange={(e) => setF({ ...f, loyalty_rate: e.target.value })} /></label>
       <label className="flex items-center gap-2 text-sm sm:col-span-2"><input type="checkbox" checked={f.pin_admin} onChange={(e) => setF({ ...f, pin_admin: e.target.checked })} /> Let the owner (admin) also sign in with a 4-digit PIN on the pump tablet</label>
       <div className="sm:col-span-2"><button className="btn-primary" disabled={busy}>Save</button></div>
     </form>

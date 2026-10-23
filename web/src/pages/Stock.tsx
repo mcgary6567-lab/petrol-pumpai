@@ -62,10 +62,17 @@ export default function Stock() {
             <div className={`mt-1 text-center text-xs ${t.days_to_reorder <= 1.5 ? "font-medium text-red-600" : "text-slate-500"}`}>Empty in {t.days_to_empty} d</div>
             {(() => {
               const open = (orders.data ?? []).find((o: any) => o.tank_id === t.id && o.status === "ordered");
-              return open
-                ? <div className="mt-2 rounded-lg bg-blue-50 p-1.5 text-center text-xs text-blue-800">🚛 Ordered {num(open.litres)} L</div>
-                : <button className={`mt-2 min-h-9 w-full rounded-lg py-1.5 text-xs font-semibold ${t.days_to_reorder <= 1.5 ? "bg-red-600 text-white" : "bg-slate-100 text-slate-700"}`}
-                    onClick={() => api(`/stock/order-suggestion/${t.id}`).then(setOrder)}>Order tanker</button>;
+              const draft = (orders.data ?? []).find((o: any) => o.tank_id === t.id && o.status === "draft");
+              if (open) return <div className="mt-2 rounded-lg bg-blue-50 p-1.5 text-center text-xs text-blue-800">🚛 Ordered {num(open.litres)} L</div>;
+              if (draft) return (
+                <div className="mt-2 rounded-lg bg-amber-50 p-1.5 text-center text-xs text-amber-800">
+                  📝 Draft: {num(draft.litres)} L {draft.supplier_name ? `· ${draft.supplier_name}` : ""}
+                  <button className="mt-1 min-h-8 w-full rounded-lg bg-emerald-600 py-1 font-semibold text-white"
+                    onClick={() => { if (confirm(`${draft.supplier_name ?? "Supplier"} ko ${num(draft.litres)} L ka order bhejein?`)) run(() => api(`/stock/orders/${draft.id}/send`, { body: {} }), "Order bhej diya").then(() => { orders.reload(); refresh(); }); }}>Send order</button>
+                </div>
+              );
+              return <button className={`mt-2 min-h-9 w-full rounded-lg py-1.5 text-xs font-semibold ${t.days_to_reorder <= 1.5 ? "bg-red-600 text-white" : "bg-slate-100 text-slate-700"}`}
+                onClick={() => api(`/stock/order-suggestion/${t.id}`).then(setOrder)}>Order tanker</button>;
             })()}
           </div>
         ))}

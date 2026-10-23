@@ -13,7 +13,7 @@ import crypto from "node:crypto";
 import jwt from "jsonwebtoken";
 import { get, run, now, pkDate } from "../db.js";
 import { h, tid, requirePerm } from "../auth.js";
-import { AppError, normalizePhone, currentPrices, paymentLink } from "../services.js";
+import { AppError, normalizePhone, currentPrices, paymentLink, createAlert } from "../services.js";
 import { config, PRODUCTS } from "../config.js";
 import { statement, rateCard, clientDue } from "./wholesale.js";
 import { clientRequests, placeClientRequest, editClientRequest } from "./wholesaleDesk.js";
@@ -241,7 +241,7 @@ ${orderCard(c, code, flash)}
 }
 
 /** Khata customer's page: same look as the wholesale page — balance, pay, rate, every fill and payment. */
-function khataBody(c: any, month: string | null, code: string): string {
+function khataBody(c: any, month: string | null, code: string, flash: string | null = null): string {
   const t = c.tenant_id;
   const from = month ? `${month}-01` : pkDate(Date.now() - 60 * DAYMS);
   const to = month ? new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).toISOString().slice(0, 10) : undefined;
@@ -291,7 +291,12 @@ ${byVehicle.length > 1 ? `<div class=c><b>By vehicle · <span class=ur>گاڑی 
 <div class=m>⛽ fuel taken (+) · 💵 payment (−) · <span class=ur>باقی</span> = balance after each entry</div>
 <div class=sum style="border-top:0;border-bottom:1px solid #e2e8f0;font-weight:600"><span>Opening · <span class=ur>شروع کا باقی</span></span><span>${n2(s.opening_balance)}</span></div>
 <div class=ent>${rows || `<p class=m style="text-align:center;padding:16px">No entries in this period · <span class=ur>اس دوران کوئی اندراج نہیں</span></p>`}</div>
-<div class=sum><span>Closing · <span class=ur>آخری باقی</span></span><span>${n2(s.closing_balance)}</span></div></div>`;
+<div class=sum><span>Closing · <span class=ur>آخری باقی</span></span><span>${n2(s.closing_balance)}</span></div></div>
+<div class=c><b>Message / call-back · <span class=ur>پیغام یا رابطہ</span></b>
+${flash === "sent" ? `<div class="hero ok" style="margin-top:10px"><div class=lbl>✅ Mil gaya — pump aap se raabta karega · <span class=ur>پیغام موصول ہوگیا</span></div></div>`
+  : `<div class=m style="margin:6px 0">Koi sawal ya ghalti? Pump ko batayein (payment pooch-gach, ghalat entry, raabta).</div>
+<form method=post action="${esc(code)}/message"><textarea name=msg maxlength=300 required rows=3 style="width:100%;box-sizing:border-box;border:1px solid #cbd5e1;border-radius:10px;padding:10px;font:inherit" placeholder="Apna paigham likhein..."></textarea>
+<button class="b np" style="margin-top:8px" type=submit>📩 Bhejein · <span class=ur>بھیجیں</span></button></form>`}</div>`;
 }
 
 /** Photos kept with an entry (khata slip / parchi, delivery challan, cheque or receipt), shown under it; they open full size from this page only. */
@@ -303,7 +308,7 @@ function photoThumbs(code: string, ids: unknown, en: string, ur: string) {
 
 function khataPage(kind: Kind, c: any, code: string, month: string | null, flash: string | null = null) {
   const bill = billLink(c.tenant_id, kind, c.id, month ?? pkDate().slice(0, 7));
-  return page(`${c.name} — khata`, (kind === "w" ? wholesaleBody(c, month, code, flash) : khataBody(c, month, code)) +
+  return page(`${c.name} — khata`, (kind === "w" ? wholesaleBody(c, month, code, flash) : khataBody(c, month, code, flash)) +
     `<div class=m style="text-align:center;margin:8px 0 20px">Updated · <span class=ur>تازہ ترین</span> ${esc(new Date().toLocaleString("en-PK", { timeZone: "Asia/Karachi" }))}</div>`, c.tenant_id, topBar(c, code, bill));
 }
 
@@ -322,7 +327,7 @@ for (const kind of ["w", "k"] as const) {
     const r = fromCode(kind, req.params.code);
     if (!r) return gone(res);
     res.setHeader("cache-control", "no-store");
-    if (remembered(req, kind, r.c, r.v)) { seen(kind, r.c.id); return res.type("html").send(khataPage(kind, r.c, req.params.code, monthQ(req), String(req.query.ordered ?? "") === "1" ? "ok" : String(req.query.ordererr ?? "") === "1" ? "err" : null)); }
+    if (remembered(req, kind, r.c, r.v)) { seen(kind, r.c.id); return res.type("html").send(khataPage(kind, r.c, req.params.code, monthQ(req), String(req.query.sent ?? "") === "1" ? "sent" : String(req.query.ordered ?? "") === "1" ? "ok" : String(req.query.ordererr ?? "") === "1" ? "err" : null)); }
     res.type("html").send(pinForm(r.c));
   });
   pinPortalPublic.post(`/${kind}/:code`, express.urlencoded({ extended: false, limit: "2kb" }), (req, res) => {
@@ -369,6 +374,22 @@ for (const kind of ["w", "k"] as const) {
     res.redirect(303, `/${kind}/${req.params.code}`);
   });
 }
+// a khata customer sends a message / call-back request from their own link — pure communication, raises an owner alert
+pinPortalPublic.post("/k/:code/message", express.urlencoded({ extended: false, limit: "2kb" }), (req, res) => {
+  const r = fromCode("k", req.params.code);
+  if (!r || !remembered(req, "k", r.c, r.v)) return gone(res);
+  const back = (q: string) => res.redirect(303, `/k/${req.params.code}${q}`);
+  const msg = String(req.body?.msg ?? "").trim().slice(0, 300);
+  if (!msg) return back("");
+  // one message per 2 minutes per customer, so a stuck tap can't flood the owner (each message is its own alert)
+  const recent = get("SELECT created_at FROM alerts WHERE tenant_id=? AND type='khata_message' AND dedupe_key LIKE ? AND created_at > ?", r.c.tenant_id, `kmsg-${r.c.id}-%`, new Date(Date.now() - 120_000).toISOString());
+  if (!recent) {
+    createAlert(r.c.tenant_id, { type: "khata_message", severity: "info",
+      title: `Khata paigham — ${r.c.name}`, body: `${msg}${r.c.phone ? `\n📞 ${r.c.phone}` : ""}`, dedupe_key: `kmsg-${r.c.id}-${Date.now()}` });
+  }
+  seen("k", r.c.id);
+  back("?sent=1");
+});
 // a wholesale client places a supply request from their own link (behind the PIN) — pure communication, no ledger entry
 pinPortalPublic.post("/w/:code/order", express.urlencoded({ extended: false, limit: "2kb" }), async (req, res) => {
   const r = fromCode("w", req.params.code);
