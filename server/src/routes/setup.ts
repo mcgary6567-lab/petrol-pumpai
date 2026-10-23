@@ -216,18 +216,21 @@ export function applyStoredConfig() {
   }
 }
 const mask = (v: string) => (v ? `${"•".repeat(8)}${v.slice(-4)}` : "");
-business.get("/integrations", requirePerm("settings.manage"), h(() => ({
-  values: {
-    anthropic_key: mask(config.anthropicKey), ai_model: config.aiModel, gemini_key: mask(config.geminiKey), gemini_model: config.geminiModel, wa_token: mask(config.wa.token), wa_phone_number_id: config.wa.phoneNumberId,
-    wa_verify_token: config.wa.verifyToken, wa_app_secret: mask(config.wa.appSecret), wa_template: config.wa.templateName, public_url: config.publicUrl, payment_link_base: config.paymentLinkBase,
-    google_client_id: config.oauth.googleClientId, google_client_secret: mask(config.oauth.googleClientSecret), dropbox_app_key: config.oauth.dropboxAppKey, dropbox_app_secret: mask(config.oauth.dropboxAppSecret),
-  },
-  webhook_url: `${config.publicUrl}/webhooks/whatsapp`,
-  version: APP_VERSION, vendor: config.vendor, installed_at: null as string | null,
-})));
-business.put("/integrations", requirePerm("settings.manage"), h((req) => {
-  const b = parse(z.record(z.enum(Object.keys(CFG) as [string, ...string[]]), z.string().max(400)), req.body);
-  // a live WhatsApp number must have its app secret, or anyone could post fake messages to the webhook
+/** The install-wide integration settings (masked) — shared by the pump owner's Settings and the platform panel. */
+export function integrationsValues() {
+  return {
+    values: {
+      anthropic_key: mask(config.anthropicKey), ai_model: config.aiModel, gemini_key: mask(config.geminiKey), gemini_model: config.geminiModel, wa_token: mask(config.wa.token), wa_phone_number_id: config.wa.phoneNumberId,
+      wa_verify_token: config.wa.verifyToken, wa_app_secret: mask(config.wa.appSecret), wa_template: config.wa.templateName, public_url: config.publicUrl, payment_link_base: config.paymentLinkBase,
+      google_client_id: config.oauth.googleClientId, google_client_secret: mask(config.oauth.googleClientSecret), dropbox_app_key: config.oauth.dropboxAppKey, dropbox_app_secret: mask(config.oauth.dropboxAppSecret),
+    },
+    webhook_url: `${config.publicUrl}/webhooks/whatsapp`,
+    version: APP_VERSION, vendor: config.vendor, installed_at: null as string | null,
+  };
+}
+/** Apply + persist integration settings; skips unchanged masked secrets. Returns the keys that changed. */
+export function applyIntegrations(body: unknown): string[] {
+  const b = parse(z.record(z.enum(Object.keys(CFG) as [string, ...string[]]), z.string().max(400)), body);
   const token = b.wa_token !== undefined && !b.wa_token.startsWith("•") ? b.wa_token.trim() : config.wa.token;
   const secret = b.wa_app_secret !== undefined && !b.wa_app_secret.startsWith("•") ? b.wa_app_secret.trim() : config.wa.appSecret;
   if (token && !secret) throw new AppError(400, "Add the WhatsApp App Secret too (Meta app → Settings → Basic) — it proves messages really come from WhatsApp");
@@ -239,6 +242,11 @@ business.put("/integrations", requirePerm("settings.manage"), h((req) => {
     CFG[k].set(v.trim());
     changed.push(k);
   }
+  return changed;
+}
+business.get("/integrations", requirePerm("settings.manage"), h(() => integrationsValues()));
+business.put("/integrations", requirePerm("settings.manage"), h((req) => {
+  const changed = applyIntegrations(req.body);
   audit(tid(req), req.user!, "integrations_changed", "settings", { changed });
   return { ok: true, changed };
 }));
