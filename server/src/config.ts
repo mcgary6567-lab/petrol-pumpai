@@ -58,6 +58,14 @@ export const config = {
     templateLang: process.env.WA_TEMPLATE_LANG ?? "en",
     graphVersion: process.env.WA_GRAPH_VERSION ?? "v21.0",
   },
+  // Platform-level OAuth *app* credentials, set once by the super-admin. Each pump then one-click "Connect"s its own
+  // Google Drive / Dropbox for backups — the pump never sees these secrets. Empty = fall back to the manual setup.
+  oauth: {
+    googleClientId: process.env.GOOGLE_CLIENT_ID ?? "",
+    googleClientSecret: process.env.GOOGLE_CLIENT_SECRET ?? "",
+    dropboxAppKey: process.env.DROPBOX_APP_KEY ?? "",
+    dropboxAppSecret: process.env.DROPBOX_APP_SECRET ?? "",
+  },
   // the pump's own online payment page (e.g. a bank / JazzCash merchant link); empty = no "pay online" line in messages
   paymentLinkBase: process.env.PAYMENT_LINK_BASE ?? "",
   timezone: process.env.TZ_NAME ?? "Asia/Karachi",

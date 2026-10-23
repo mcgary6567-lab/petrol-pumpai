@@ -202,6 +202,11 @@ const CFG: Record<string, { set: (v: string) => void; secret?: boolean }> = {
   wa_template: { set: (v) => { config.wa.templateName = v || "general_update"; } },
   public_url: { set: (v) => { config.publicUrl = v.replace(/\/$/, ""); } },
   payment_link_base: { set: (v) => { config.paymentLinkBase = v; } },
+  // platform OAuth app credentials (super-admin, set once) — pumps one-click Connect their own Drive/Dropbox
+  google_client_id: { set: (v) => { config.oauth.googleClientId = v; } },
+  google_client_secret: { set: (v) => { config.oauth.googleClientSecret = v; }, secret: true },
+  dropbox_app_key: { set: (v) => { config.oauth.dropboxAppKey = v; } },
+  dropbox_app_secret: { set: (v) => { config.oauth.dropboxAppSecret = v; }, secret: true },
 };
 /** Values saved from Settings → Integrations win over the .env file (tenant 0 = whole install). */
 export function applyStoredConfig() {
@@ -215,6 +220,7 @@ business.get("/integrations", requirePerm("settings.manage"), h(() => ({
   values: {
     anthropic_key: mask(config.anthropicKey), ai_model: config.aiModel, gemini_key: mask(config.geminiKey), gemini_model: config.geminiModel, wa_token: mask(config.wa.token), wa_phone_number_id: config.wa.phoneNumberId,
     wa_verify_token: config.wa.verifyToken, wa_app_secret: mask(config.wa.appSecret), wa_template: config.wa.templateName, public_url: config.publicUrl, payment_link_base: config.paymentLinkBase,
+    google_client_id: config.oauth.googleClientId, google_client_secret: mask(config.oauth.googleClientSecret), dropbox_app_key: config.oauth.dropboxAppKey, dropbox_app_secret: mask(config.oauth.dropboxAppSecret),
   },
   webhook_url: `${config.publicUrl}/webhooks/whatsapp`,
   version: APP_VERSION, vendor: config.vendor, installed_at: null as string | null,

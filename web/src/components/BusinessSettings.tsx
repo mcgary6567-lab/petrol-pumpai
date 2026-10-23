@@ -112,6 +112,18 @@ export function Integrations({ ai, provider, wa }: { ai: boolean; provider?: "cl
         </div>
         <button className="btn-primary" disabled={busy} onClick={save}>Save</button>
       </div>
+      <div className="card space-y-2 p-4">
+        <h2 className="font-semibold">Cloud backup apps · <span className="font-urdu" lang="ur" dir="rtl">کلاؤڈ بیک اپ</span> <span className="text-xs font-normal text-slate-500">(super-admin — ek dafa)</span></h2>
+        <p className="text-sm text-slate-600">Yahan ek dafa OAuth app credentials daalein. Phir har pump Settings → Backups se <b>ek click</b> mein apni Google Drive / Dropbox connect kar lega — unhein koi key/secret copy nahi karni paregi.</p>
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          {inp("google_client_id", "Google OAuth client ID", "…apps.googleusercontent.com")}
+          {inp("google_client_secret", "Google OAuth client secret", "", true)}
+          {inp("dropbox_app_key", "Dropbox app key")}
+          {inp("dropbox_app_secret", "Dropbox app secret", "", true)}
+        </div>
+        <p className="text-[11px] text-slate-400">Google: Cloud Console → OAuth consent + Credentials → OAuth client (Web) → Authorized redirect URI: <span className="break-all font-mono">{String(data.webhook_url || "").replace(/\/webhooks\/whatsapp$/, "")}/api/cloud/google/callback</span>. Dropbox: developers/apps → Scoped app → app key & secret.</p>
+        <button className="btn-primary" disabled={busy} onClick={save}>Save</button>
+      </div>
     </div>
   );
 }

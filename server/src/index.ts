@@ -45,7 +45,7 @@ import { shop } from "./routes/shop.js";
 import { compliance, attendPublic } from "./routes/compliance.js";
 import { analysis } from "./routes/analysis.js";
 import { care, portalFromOldToken } from "./routes/customerCare.js";
-import { system } from "./routes/system.js";
+import { system, cloudPublic } from "./routes/system.js";
 import { renderReceipt } from "./billing.js";
 import { prepaid } from "./routes/prepaid.js";
 import { approvals } from "./routes/approvals.js";
@@ -123,6 +123,7 @@ app.get("/api/health", (_req, res) => {
 });
 app.use("/api/attend", rateLimit("attend", 40, 10 * 60_000)); // QR self check-in: stop code guessing
 app.use("/api", attendPublic); // non-login workers' QR + 4-digit self check-in (no login)
+app.use("/api", cloudPublic); // Google Drive OAuth callback (browser redirect, no auth header — guarded by state nonce)
 app.use("/api", setupPublic); // setup wizard + branding (no login)
 app.use("/api", saasPublic); // SaaS mode: public sign-up + platform owner panel (no login)
 // business logo (login page, receipts, bills, TV board, app icon)

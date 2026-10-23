@@ -10,6 +10,7 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import { getSetting, setSetting } from "./db.js";
+import { config } from "./config.js";
 
 export const PROVIDERS = ["gdrive", "dropbox"] as const;
 export type Provider = (typeof PROVIDERS)[number];
@@ -18,7 +19,8 @@ const FOLDER_NAME = "PumpAI backups";
 const NAME = /^pumpai-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.db$/;
 
 const readJson = <T,>(key: string): T | null => { try { return JSON.parse(getSetting(0, key, "null")); } catch { return null; } };
-type GdriveCfg = { client_email: string; private_key: string; folder_id: string };
+// Drive: either a service-account key (manual, folder shared with it) or a one-click user-OAuth connection (kind:"oauth").
+type GdriveCfg = { kind?: "oauth"; client_email?: string; private_key?: string; refresh_token?: string; email?: string; folder_id: string };
 type DropboxCfg = { app_key: string; app_secret: string; refresh_token: string; account?: string | null };
 export const gdriveCfg = () => readJson<GdriveCfg>("cloud_gdrive");
 export const dropboxCfg = () => readJson<DropboxCfg>("cloud_dropbox");
@@ -43,14 +45,43 @@ export function parseServiceAccount(json: string): { client_email: string; priva
   try { crypto.createPrivateKey(o.private_key); } catch { throw new Error("The private_key in the JSON is not valid"); }
   return { client_email: o.client_email, private_key: o.private_key };
 }
-async function gdriveToken(cfg: { client_email: string; private_key: string }) {
+async function gdriveToken(cfg: GdriveCfg): Promise<string> {
+  // one-click user connection: refresh token minted against the platform's Google OAuth app
+  if (cfg.kind === "oauth" && cfg.refresh_token) {
+    const body = new URLSearchParams({ grant_type: "refresh_token", refresh_token: cfg.refresh_token, client_id: config.oauth.googleClientId, client_secret: config.oauth.googleClientSecret });
+    const d = await fetchJson("https://oauth2.googleapis.com/token", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body }, "Google sign-in");
+    return d.access_token as string;
+  }
+  // manual service-account key
   const now = Math.floor(Date.now() / 1000);
   const header = b64url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
   const claims = b64url(JSON.stringify({ iss: cfg.client_email, scope: "https://www.googleapis.com/auth/drive", aud: "https://oauth2.googleapis.com/token", iat: now, exp: now + 3600 }));
-  const sig = crypto.createSign("RSA-SHA256").update(`${header}.${claims}`).sign(cfg.private_key);
+  const sig = crypto.createSign("RSA-SHA256").update(`${header}.${claims}`).sign(cfg.private_key!);
   const body = new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion: `${header}.${claims}.${b64url(sig)}` });
   const d = await fetchJson("https://oauth2.googleapis.com/token", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body }, "Google sign-in");
   return d.access_token as string;
+}
+
+/* --- Google Drive one-click connect (user OAuth against the platform's app) --- */
+export const googleConfigured = () => Boolean(config.oauth.googleClientId && config.oauth.googleClientSecret);
+export const googleAuthUrl = (redirect: string, state: string) =>
+  `https://accounts.google.com/o/oauth2/v2/auth?${new URLSearchParams({
+    client_id: config.oauth.googleClientId, redirect_uri: redirect, response_type: "code", access_type: "offline", prompt: "consent",
+    scope: "https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.email", state,
+  })}`;
+/** Swap the OAuth code for a refresh token, learn the account email, and make/find the backups folder. */
+export async function googleConnect(code: string, redirect: string): Promise<GdriveCfg> {
+  const body = new URLSearchParams({ code, grant_type: "authorization_code", redirect_uri: redirect, client_id: config.oauth.googleClientId, client_secret: config.oauth.googleClientSecret });
+  const d = await fetchJson("https://oauth2.googleapis.com/token", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body }, "Google connect");
+  if (!d.refresh_token) throw new Error("Google did not return a refresh token — remove PumpAI from your Google account's connected apps and connect again");
+  const tok = d.access_token as string, auth = { authorization: `Bearer ${tok}` };
+  let email: string | null = null;
+  try { email = (await fetchJson("https://www.googleapis.com/oauth2/v2/userinfo", { headers: auth }, "Google account"))?.email ?? null; } catch { /* cosmetic */ }
+  // find or create the "PumpAI backups" folder in the user's own Drive
+  const q = encodeURIComponent(`name='${FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder' and trashed=false`);
+  const found = await fetchJson(`${G}/files?q=${q}&fields=files(id,name)&spaces=drive`, { headers: auth }, "Drive folder");
+  const folder_id = found.files?.[0]?.id ?? (await fetchJson(`${G}/files?fields=id`, { method: "POST", headers: { ...auth, "content-type": "application/json" }, body: JSON.stringify({ name: FOLDER_NAME, mimeType: "application/vnd.google-apps.folder" }) }, "Drive folder create")).id;
+  return { kind: "oauth", refresh_token: d.refresh_token, email: email ?? undefined, folder_id };
 }
 const G = "https://www.googleapis.com/drive/v3";
 /** Check the key works and the folder is reachable (shared with the service account). */
@@ -135,7 +166,9 @@ export async function cloudPushAll(file: string) {
 export function cloudStatus() {
   const g = gdriveCfg(), d = dropboxCfg();
   return {
-    gdrive: { configured: Boolean(g?.folder_id), email: g?.client_email ?? null, folder_id: g?.folder_id ?? null, last: lastOf("gdrive") },
+    // one-click available when the platform (super-admin) has set the OAuth app credentials
+    oneclick: { gdrive: Boolean(config.oauth.googleClientId && config.oauth.googleClientSecret), dropbox: Boolean(config.oauth.dropboxAppKey && config.oauth.dropboxAppSecret) },
+    gdrive: { configured: Boolean(g?.folder_id), kind: g?.kind ?? "sa", email: g?.email ?? g?.client_email ?? null, folder_id: g?.folder_id ?? null, last: lastOf("gdrive") },
     dropbox: { configured: Boolean(d?.refresh_token), app_key: d?.app_key ?? null, account: d?.account ?? null, last: lastOf("dropbox") },
   };
 }

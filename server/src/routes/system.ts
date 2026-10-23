@@ -12,7 +12,8 @@ import { h, parse, tid, requirePerm } from "../auth.js";
 import { AppError, audit } from "../services.js";
 import { config } from "../config.js";
 import { vapidPublicKey, saveSubscription, removeSubscription, subscriptionCount, pushToUser } from "../push.js";
-import { PROVIDERS, cloudStatus, cloudPush, cloudPushAll, cloudConfigured, parseServiceAccount, gdriveCheck, dropboxAuthUrl, dropboxConnect, dropboxCheck, type Provider } from "../backupCloud.js";
+import { PROVIDERS, cloudStatus, cloudPush, cloudPushAll, cloudConfigured, parseServiceAccount, gdriveCheck, dropboxAuthUrl, dropboxConnect, dropboxCheck, googleAuthUrl, googleConnect, googleConfigured, type Provider } from "../backupCloud.js";
+import { randomBytes } from "node:crypto";
 
 export const system = Router();
 
@@ -77,17 +78,27 @@ export function mountBackupRoutes(r: Router, guard: import("express").RequestHan
     audit(actor(req).t, actor(req).user, "backup_cloud_connected", "gdrive", { email: key.client_email, folder: check.folder });
     return { ok: true, folder: check.folder, email: key.client_email, cloud: cloudStatus() };
   }));
-  /** Dropbox step 1: the link the owner opens to get a one-time code (offline access → refresh token). */
+  /** Google Drive one-click: the owner's browser opens this URL, signs in, and Google sends the code to our callback. */
+  r.get("/backups/cloud/gdrive/auth-url", guard, h(() => {
+    if (!googleConfigured()) throw new AppError(400, "Google Drive one-click is not set up by the platform yet. (Super-admin: Settings → Integrations)");
+    const nonce = randomBytes(16).toString("hex");
+    setSetting(0, "oauth_state_gdrive", JSON.stringify({ nonce, at: Date.now() }));
+    return { url: googleAuthUrl(`${config.publicUrl}/api/cloud/google/callback`, nonce) };
+  }));
+  /** Dropbox one-click step 1: open this to approve offline access and get a one-time code (uses the platform app key). */
   r.get("/backups/cloud/dropbox/auth-url", guard, h((req) => {
-    const k = String(req.query.app_key ?? "").trim();
-    if (k.length < 5) throw new AppError(400, "Enter the Dropbox app key first");
+    const k = (config.oauth.dropboxAppKey || String(req.query.app_key ?? "")).trim();
+    if (k.length < 5) throw new AppError(400, "Dropbox one-click is not set up by the platform yet. (Super-admin: Settings → Integrations)");
     return { url: dropboxAuthUrl(k) };
   }));
-  /** Dropbox step 2: app key + secret + that code → refresh token, kept here. */
+  /** Dropbox one-click step 2: the code → refresh token. App key/secret come from the platform (owner needn't enter them). */
   r.post("/backups/cloud/dropbox/connect", guard, h(async (req) => {
-    const b = parse(z.object({ app_key: z.string().trim().min(5).max(100), app_secret: z.string().trim().min(5).max(100), code: z.string().trim().min(5).max(200) }), req.body);
+    const b = parse(z.object({ app_key: z.string().trim().max(100).optional(), app_secret: z.string().trim().max(100).optional(), code: z.string().trim().min(5).max(200) }), req.body);
+    const appKey = (config.oauth.dropboxAppKey || b.app_key || "").trim();
+    const appSecret = (config.oauth.dropboxAppSecret || b.app_secret || "").trim();
+    if (!appKey || !appSecret) throw new AppError(400, "Dropbox app key/secret missing — platform owner sets it once in Settings → Integrations");
     let cfg;
-    try { cfg = await dropboxConnect(b.app_key, b.app_secret, b.code); } catch (e: any) { throw new AppError(400, e.message); }
+    try { cfg = await dropboxConnect(appKey, appSecret, b.code); } catch (e: any) { throw new AppError(400, e.message); }
     setSetting(0, "cloud_dropbox", JSON.stringify(cfg));
     audit(actor(req).t, actor(req).user, "backup_cloud_connected", "dropbox", { account: cfg.account });
     return { ok: true, account: cfg.account, cloud: cloudStatus() };
@@ -190,3 +201,23 @@ system.put("/safety", requirePerm("settings.manage"), h((req) => {
   setSetting(tid(req), "price_approval", b.price_approval ? "1" : "0");
   return { price_approval: b.price_approval };
 }));
+
+/**
+ * Public Google Drive OAuth callback (the browser is redirected here by Google, so no app auth header).
+ * Protected by the one-time state nonce we stored when the owner clicked "Connect Google Drive".
+ */
+export const cloudPublic = Router();
+cloudPublic.get("/cloud/google/callback", async (req, res) => {
+  const page = (title: string, body: string) => res.send(`<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><body style="font-family:system-ui,sans-serif;text-align:center;padding:40px;color:#0f172a"><h2>${title}</h2><p style="color:#475569">${body}</p><p><a href="/settings">Settings → Backups</a></p></body>`);
+  try {
+    const code = String(req.query.code ?? ""), state = String(req.query.state ?? "");
+    if (!code) return page("Connect cancelled", "Google Drive connect cancel ho gaya.");
+    let saved: { nonce: string; at: number } | null = null;
+    try { saved = JSON.parse(getSetting(0, "oauth_state_gdrive", "null")); } catch { saved = null; }
+    if (!saved || saved.nonce !== state || Date.now() - saved.at > 10 * 60_000) return page("Link purana ho gaya", "Dobara 'Connect Google Drive' dabayein.");
+    setSetting(0, "oauth_state_gdrive", "null");
+    const cfg = await googleConnect(code, `${config.publicUrl}/api/cloud/google/callback`);
+    setSetting(0, "cloud_gdrive", JSON.stringify(cfg));
+    return page("✓ Google Drive connect ho gaya", `Account: ${cfg.email ?? "—"}. Ab har raat ka backup khud-ba-khud yahan jayega. Yeh tab band kar dein.`);
+  } catch (e: any) { return page("Nahi ho saka", String(e?.message ?? e).slice(0, 200)); }
+});

@@ -66,6 +66,12 @@ function CloudBackups({ cloud, reload, request, base }: { cloud: any; reload: ()
               <Status last={cloud.gdrive.last} />
               <Actions p="gdrive" />
             </div>
+          ) : cloud?.oneclick?.gdrive ? (
+            <div className="space-y-2 text-sm">
+              <p className="text-xs text-slate-600">Ek click mein apni Google Drive connect karein — koi JSON/key copy nahi.</p>
+              <button className="btn-primary !py-1.5 text-sm" disabled={busy} onClick={() => run(() => request(`${base}/cloud/gdrive/auth-url`), "Google khul raha hai — allow karein, phir wapas aa kar Refresh").then((r: any) => { if (r?.url) window.open(r.url, "_blank", "noopener"); })}>Connect Google Drive</button>
+              <button className="btn-secondary !py-1 text-xs" disabled={busy} onClick={reload}>Connect ho gaya? Refresh</button>
+            </div>
           ) : (
             <div className="space-y-2 text-sm">
               <ol className="list-decimal space-y-0.5 pl-4 text-xs text-slate-600">
@@ -87,6 +93,16 @@ function CloudBackups({ cloud, reload, request, base }: { cloud: any; reload: ()
               <div className="text-xs text-slate-600">Account: {cloud.dropbox.account ?? "—"} · folder <span className="font-mono">/PumpAI backups</span></div>
               <Status last={cloud.dropbox.last} />
               <Actions p="dropbox" />
+            </div>
+          ) : cloud?.oneclick?.dropbox ? (
+            <div className="space-y-2 text-sm">
+              <p className="text-xs text-slate-600">1) "Get code" dabayein → Dropbox par <b>Allow</b> → jo code mile woh copy karein. 2) Neeche paste kar ke Connect.</p>
+              <div className="flex flex-wrap items-center gap-2">
+                <button className="btn-secondary !py-1 text-xs" disabled={busy} onClick={() => run(() => request(`${base}/cloud/dropbox/auth-url`), "Dropbox khul raha hai — allow kar ke code copy karein").then((r: any) => { if (r?.url) { setAuthUrl(r.url); window.open(r.url, "_blank", "noopener"); } })}>Get code from Dropbox</button>
+                {authUrl && <a className="text-xs underline" href={authUrl} target="_blank" rel="noreferrer">link dobara kholein</a>}
+              </div>
+              <input className="input w-full font-mono" placeholder="Dropbox ka code yahan paste karein" value={dCode} onChange={(e) => setDCode(e.target.value)} />
+              <button className="btn-primary !py-1.5 text-sm" disabled={busy || dCode.trim().length < 5} onClick={() => run(() => request(`${base}/cloud/dropbox/connect`, { body: { code: dCode.trim() } }), (r: any) => `Dropbox connected${r.account ? ` · ${r.account}` : ""}`).then((r) => { if (r) { setDCode(""); reload(); } })}>Connect</button>
             </div>
           ) : (
             <div className="space-y-2 text-sm">
