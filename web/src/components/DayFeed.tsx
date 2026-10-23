@@ -36,7 +36,7 @@ export function DayFeed({ title = "Aaj ki saari entries", scope = "all" }: { tit
   const [q, setQ] = useState("");
   const [people, setPeople] = useState(false);
   const rows = useListFilter<any>(data?.rows, { q, text: (r) => [r.label, r.party, r.who, KIND[r.kind]?.en, Math.round(r.amount)].filter(Boolean).join(" ") });
-  const paged = usePaged(rows, 10);
+  const paged = usePaged(rows, 5);
 
   return (
     <div className="card p-4">
