@@ -6,6 +6,7 @@ import { Field, ListTools, Loading, Modal, useAction, useListFilter } from "./ui
 import { d, dt, pkr } from "../lib/format";
 import { PK_BANKS, ALL_PK_BANKS, bankInfo, logoUrl } from "../lib/banks";
 import { ProofPhotos, ProofThumbs } from "./Capture";
+import { PrintListButton } from "./PrintList";
 import { useAuth } from "../App";
 
 const Ur = ({ children }: { children: React.ReactNode }) => <span lang="ur" dir="rtl" className="font-urdu">{children}</span>;
@@ -331,7 +332,19 @@ function Statement({ acc, manage, onEdit, onClose, onChanged }: { acc: any; mana
           <Field label="From"><input className="input" type="date" value={range.from} onChange={(e) => setRange({ ...range, from: e.target.value })} /></Field>
           <Field label="To"><input className="input" type="date" value={range.to} onChange={(e) => setRange({ ...range, to: e.target.value })} /></Field>
           <span className="hidden flex-1 sm:block" />
-          <button className="btn-secondary" onClick={() => window.print()}><Printer size={15} /> Print</button>
+          {data && <PrintListButton
+            title={`${acc.bank} — account statement`}
+            subtitle={[acc.title, acc.account_no && `A/C ${acc.account_no}`, `${d(range.from)} → ${d(range.to)}`].filter(Boolean).join(" · ")}
+            label="Report / Print"
+            note={`Opening ${pkr(data.opening)} · Money in ${pkr(data.money_in)} · Money out ${pkr(data.money_out)} · Closing ${pkr(data.closing)} · ${data.lines.length} entries`}
+            rows={[{ __open: true, at: range.from, balance: data.opening } as any, ...[...data.lines].reverse()]}
+            columns={[
+              { label: "Date", v: (l: any) => (l.__open ? d(range.from) : new Date(l.at).toLocaleString("en-PK", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })) },
+              { label: "Details", v: (l: any) => (l.__open ? "Opening balance" : [KIND_TAG[l.kind] ?? l.kind, l.text, l.who].filter(Boolean).join(" · ")), total: () => `${data.lines.length} entries` },
+              { label: "Credit (aaya)", r: true, v: (l: any) => (!l.__open && l.amount > 0 ? pkr(l.amount) : ""), tone: () => "pos" as const, total: () => pkr(data.money_in), totalTone: "pos" as const },
+              { label: "Debit (gaya)", r: true, v: (l: any) => (!l.__open && l.amount < 0 ? pkr(-l.amount) : ""), tone: () => "neg" as const, total: () => pkr(data.money_out), totalTone: "neg" as const },
+              { label: "Balance", r: true, v: (l: any) => pkr(l.balance), total: () => pkr(data.closing) },
+            ]} />}
           {manage && <button className="btn-secondary" onClick={onEdit}><Pencil size={15} /> Edit account</button>}
         </div>
         {!data ? <Loading /> : <>
@@ -339,28 +352,6 @@ function Statement({ acc, manage, onEdit, onClose, onChanged }: { acc: any; mana
             {[["Opening", data.opening, ""], ["Money in", data.money_in, "text-emerald-700"], ["Money out", data.money_out, "text-red-600"], ["Closing", data.closing, "font-bold"]].map(([l, v, c]) => (
               <div key={l as string} className="min-w-0 rounded-xl bg-slate-50 p-3"><div className="text-xs text-slate-500">{l}</div><div className={`whitespace-nowrap text-base tabular-nums sm:text-lg ${c}`}>{pkr(v as number)}</div></div>
             ))}
-          </div>
-          {/* on paper: like a bank statement — the period, opening on top, oldest entry first, closing at the end */}
-          <div className="own-title hidden print:block">
-            <div className="mb-1 text-sm">Statement from <b>{d(range.from)}</b> to <b>{d(range.to)}</b></div>
-            <table className="w-full">
-              <thead><tr><th className="th">Date</th><th className="th">Details</th><th className="th text-right">In</th><th className="th text-right">Out</th><th className="th text-right">Balance</th></tr></thead>
-              <tbody>
-                <tr><td className="td whitespace-nowrap">{d(range.from)}</td><td className="td font-semibold">Opening balance</td><td className="td" /><td className="td" /><td className="td whitespace-nowrap text-right tabular-nums">{pkr(data.opening)}</td></tr>
-                {[...data.lines].reverse().map((l: any, i: number) => (
-                  <tr key={i}>
-                    <td className="td whitespace-nowrap">{new Date(l.at).toLocaleString("en-PK", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}</td>
-                    <td className="td"><b className="font-medium">{KIND_TAG[l.kind] ?? l.kind}</b> · {l.text}{l.who ? <span className="text-[10px] text-slate-500"> · {l.who}</span> : null}</td>
-                    <td className="td whitespace-nowrap text-right tabular-nums">{l.amount > 0 ? pkr(l.amount) : ""}</td>
-                    <td className="td whitespace-nowrap text-right tabular-nums">{l.amount < 0 ? pkr(-l.amount) : ""}</td>
-                    <td className="td whitespace-nowrap text-right tabular-nums">{pkr(l.balance)}</td>
-                  </tr>))}
-                <tr className="font-bold"><td className="td border-t-2 border-slate-800" colSpan={2}>Closing balance</td>
-                  <td className="td border-t-2 border-slate-800 whitespace-nowrap text-right tabular-nums">{pkr(data.money_in)}</td>
-                  <td className="td border-t-2 border-slate-800 whitespace-nowrap text-right tabular-nums">{pkr(data.money_out)}</td>
-                  <td className="td border-t-2 border-slate-800 whitespace-nowrap text-right tabular-nums">{pkr(data.closing)}</td></tr>
-              </tbody>
-            </table>
           </div>
           <ListTools q={q} onQ={setQ} placeholder="Party / ref / note / amount… · تلاش" chips={kindChips} chip={kind} onChip={setKind} shown={lines.length} total={allLines.length} />
           {/* phone: one card per line */}
