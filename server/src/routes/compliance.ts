@@ -10,6 +10,7 @@ import { randomBytes } from "node:crypto";
 import { all, get, run, now, pkDate } from "../db.js";
 import { h, parse, tid, requirePerm, requireAny, can, scopedStation } from "../auth.js";
 import { AppError, round2, createAlert, audit } from "../services.js";
+import { faceMatch } from "../ai/vision.js";
 import { notify, staff } from "../notifications.js";
 import { linkPhotos } from "./capture.js";
 import { sendDirect } from "../whatsapp/cloud.js";
@@ -177,6 +178,8 @@ export function checkIn(t: number, user: { id: number; name: string }, o: { stat
   const { id } = run("INSERT INTO attendance (tenant_id,user_id,station_id,day,check_in,in_lat,in_lng,in_acc,away_m,late_minutes,source) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
     t, user.id, st?.id ?? null, day, now(), o.lat ?? null, o.lng ?? null, o.accuracy ?? null, away, late, o.source);
   if (o.photo_id && linkPhotos(t, [o.photo_id], `attend-in:${id}`)) run("UPDATE attendance SET in_photo_id=? WHERE id=?", o.photo_id, id);
+  // opt-in, flag-only face check: never blocks the check-in, just alerts the owner if the selfie looks like someone else
+  if (o.photo_id && getSetting(t, "attend_face_match", "0") === "1") void faceCheckAttendance(t, { id: user.id, name: user.name }, o.photo_id);
   if (away != null && away > (maxM > 0 ? maxM : 300))
     createAlert(t, { station_id: st?.id, type: "attendance_away", severity: "warning", title: `${user.name} checked in ${away.toLocaleString()} m away from ${st!.name}`, dedupe_key: `away-${id}` });
   return get("SELECT * FROM attendance WHERE id=?", id);
@@ -290,12 +293,29 @@ function attendBad(t: number, token: string) {
   attendFails.set(token, f);
 }
 function attendOk(token: string) { attendFails.delete(token); }
-const attendWorker = (t: number, id: number) => get(`SELECT id, name, role, job_title, duty_start, station_id, attend_code FROM users WHERE id=? AND tenant_id=? AND active=1 AND role IN ${ATTENDANCE_ROLES}`, id, t);
+const attendWorker = (t: number, id: number) => get(`SELECT id, name, role, job_title, duty_start, station_id, attend_code, face_ref_photo_id FROM users WHERE id=? AND tenant_id=? AND active=1 AND role IN ${ATTENDANCE_ROLES}`, id, t);
+
+/** Compare an attendance selfie to the worker's enrolled reference face (opt-in). Flag-only: alerts, never blocks. */
+async function faceCheckAttendance(t: number, user: { id: number; name: string }, selfieId: number) {
+  try {
+    const u = get("SELECT face_ref_photo_id FROM users WHERE id=?", user.id);
+    if (!u?.face_ref_photo_id) return; // no reference enrolled → nothing to compare
+    const ref = get("SELECT data, mime FROM photos WHERE id=?", u.face_ref_photo_id);
+    const self = get("SELECT data, mime FROM photos WHERE id=?", selfieId);
+    if (!ref?.data || !self?.data) return;
+    const r = await faceMatch(Buffer.from(ref.data as Uint8Array).toString("base64"), ref.mime, Buffer.from(self.data as Uint8Array).toString("base64"), self.mime);
+    if (r && (!r.same_person || r.confidence < 55)) {
+      createAlert(t, { type: "attend_face_mismatch", severity: "warning", title: `Attendance selfie chehra match nahi — ${user.name}`,
+        body: `AI ko shak hai ke selfie ${user.name} ki nahi (confidence ${r.confidence}%). Khud dekh kar tasdeeq karein.`, dedupe_key: `face-${user.id}-${pkDate()}` });
+      audit(t, { id: user.id, name: user.name }, "security:Attendance face mismatch", "attend", { confidence: r.confidence, same_person: r.same_person });
+    }
+  } catch { /* flag-only — a face-check failure must never affect attendance */ }
+}
 
 // Admin: the printable QR link for this pump, and the workers with their codes.
 compliance.get("/attendance/qr", requirePerm("staff.manage"), h((req) => {
   const t = tid(req), tok = ensureAttendToken(t), today = pkDate();
-  const workers = all(`SELECT id, name, role, job_title, attend_code FROM users WHERE tenant_id=? AND active=1 AND role IN ${ATTENDANCE_ROLES} ORDER BY CASE role WHEN 'salesman' THEN 0 ELSE 1 END, name`, t)
+  const workers = all(`SELECT id, name, role, job_title, attend_code, face_ref_photo_id FROM users WHERE tenant_id=? AND active=1 AND role IN ${ATTENDANCE_ROLES} ORDER BY CASE role WHEN 'salesman' THEN 0 ELSE 1 END, name`, t)
     .map((u) => { const a = get("SELECT check_in, check_out FROM attendance WHERE user_id=? AND day=?", u.id, today); return { ...u, checked_in: Boolean(a?.check_in), checked_out: Boolean(a?.check_out) }; });
   return { url: `${config.publicUrl}/a/${tok}`, pump: get("SELECT name FROM tenants WHERE id=?", t)?.name ?? "", workers };
 }));
@@ -316,6 +336,18 @@ compliance.post("/attendance/workers/:id/code", requirePerm("staff.manage"), h((
   else { do { code = String(Math.floor(100000 + Math.random() * 900000)); } while (taken(code)); }
   run("UPDATE users SET attend_code=? WHERE id=? AND tenant_id=?", code, id, t);
   return { id, code };
+}));
+// Admin: enroll (or clear) a worker's reference face for the opt-in attendance selfie match.
+compliance.post("/attendance/workers/:id/face", requirePerm("staff.manage"), h((req) => {
+  const t = tid(req), id = Number(req.params.id);
+  if (!attendWorker(t, id)) throw new AppError(400, "Only salesmen and non-login staff get a face reference");
+  const b = parse(z.object({ photo_id: z.number().int().nullable() }), req.body);
+  if (b.photo_id === null) { run("UPDATE users SET face_ref_photo_id=NULL WHERE id=? AND tenant_id=?", id, t); return { id, face: null }; }
+  const p = get("SELECT id FROM photos WHERE id=? AND tenant_id=?", b.photo_id, t);
+  if (!p) throw new AppError(404, "Photo not found");
+  linkPhotos(t, [b.photo_id], `face-ref:${id}`);
+  run("UPDATE users SET face_ref_photo_id=? WHERE id=? AND tenant_id=?", b.photo_id, id, t);
+  return { id, face: b.photo_id };
 }));
 
 const attendTenant = (token: string) => get("SELECT tenant_id FROM settings WHERE key='attend_token' AND value=?", token)?.tenant_id as number | undefined;

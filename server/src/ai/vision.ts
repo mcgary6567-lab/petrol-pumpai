@@ -149,6 +149,28 @@ export async function readPhoto(kind: PhotoKind, base64: string, mediaType: stri
   }
 }
 
+/**
+ * Compare an attendance selfie to the worker's enrolled reference photo. Opt-in and flag-only: the caller never
+ * blocks a check-in on this — a mismatch raises an alert for the owner to review, since face comparison is not
+ * reliable enough to lock a worker out. Returns null if AI is off or the call fails.
+ */
+export async function faceMatch(refBase64: string, refMime: string, selfieBase64: string, selfieMime: string): Promise<{ same_person: boolean; confidence: number } | null> {
+  if (!aiEnabled()) return null;
+  try {
+    return await record<{ same_person: boolean; confidence: number }>([
+      { text: "Image A is a worker's reference photo on file. Image B is a live attendance selfie just taken. Do they show the SAME person? Judge by stable facial features, not lighting, angle, beard length or clothing. Be conservative: only say not-same when you are clearly confident they are different people." },
+      { image: { mediaType: refMime, data: refBase64 } },
+      { image: { mediaType: selfieMime, data: selfieBase64 } },
+    ], "Record whether the two photos are the same person, with a 0–100 confidence.", {
+      properties: { same_person: { type: "boolean" }, confidence: { type: "number" } },
+      required: ["same_person", "confidence"],
+    });
+  } catch (e) {
+    console.error("[vision/face]", (e as Error).message);
+    return null;
+  }
+}
+
 /** Spoken sentence → sale. Rules first (instant, offline-safe); Claude refines it when available. */
 export async function parseSale(text: string, accounts: { id: number; name: string }[]): Promise<ParsedSale> {
   const rules = parseSaleText(text, accounts);

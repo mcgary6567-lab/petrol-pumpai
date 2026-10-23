@@ -74,6 +74,9 @@ function QrAttendance() {
   useEffect(() => { if (data?.url) QRCode.toDataURL(data.url, { margin: 1, width: 300 }).then(setSrc); }, [data?.url]);
   const newCode = (id: number) => run(() => api(`/attendance/workers/${id}/code`, { body: {} }), "Naya code ban gaya").then(reload);
   const rotate = () => { if (!confirm("Naya QR banayein? Purana chaspa kiya hua QR foran band ho jayega — naya print karna hoga.")) return; run(() => api("/attendance/qr/rotate", { body: {} }), "Naya QR ban gaya — ab print karein").then(reload); };
+  const [faceFor, setFaceFor] = useState<number | null>(null);
+  const enrollFace = async (id: number, p: { photo_id: number }) => { setFaceFor(null); await run(() => api(`/attendance/workers/${id}/face`, { body: { photo_id: p.photo_id } }), "Chehra save ho gaya"); reload(); };
+  const clearFace = (id: number) => { if (confirm("Is bande ka saved chehra hata dein?")) run(() => api(`/attendance/workers/${id}/face`, { body: { photo_id: null } }), "Chehra hata diya").then(reload); };
   const print = () => {
     const w = window.open("", "_blank"); if (!w || !src) return;
     w.document.write(`<html><head><title>Haazri QR</title><style>body{font-family:system-ui,sans-serif;text-align:center;padding:24px;color:#0f172a}h1{margin:0 0 4px}.ur{direction:rtl;font-size:20px;color:#334155}img{width:320px;height:320px;margin:16px auto}ol{display:inline-block;text-align:right;direction:rtl;font-size:20px;line-height:2}</style></head><body>
@@ -107,15 +110,17 @@ function QrAttendance() {
                   <span className="flex shrink-0 items-center gap-2">
                     <span className="rounded-lg bg-slate-100 px-2 py-1 font-mono text-base tracking-widest">{w.attend_code ?? "— — — —"}</span>
                     <button className="btn-secondary !px-2 !py-1 text-xs" disabled={busy} onClick={() => newCode(w.id)} title={w.attend_code ? "Naya code" : "Code banayein"}><RefreshCw size={13} /></button>
+                    <button className={`!px-2 !py-1 text-xs ${w.face_ref_photo_id ? "btn-primary" : "btn-secondary"}`} disabled={busy} onClick={() => (w.face_ref_photo_id ? clearFace(w.id) : setFaceFor(w.id))} title={w.face_ref_photo_id ? "Chehra saved — hatane ke liye dabayein" : "Chehra save karein (selfie match)"}><Camera size={13} />{w.face_ref_photo_id ? " ✓" : ""}</button>
                   </span>
                 </li>
               ))}
               {!data.workers.length && <li className="px-3 py-4 text-center text-sm text-slate-500">Koi staff nahi. Staff page se add karein.</li>}
             </ul>
-            <p className="mt-1 text-[11px] text-slate-400">Har bande ko uska code bata dein. Code badalना ho to 🔄 dabayein.</p>
+            <p className="mt-1 text-[11px] text-slate-400">Har bande ko uska code bata dein. Code badalна ho to 🔄 dabayein. 📷 = chehra save (selfie match on karne par).</p>
           </div>
         </div>
       )}
+      <LiveSelfie open={faceFor !== null} title="Reference chehra — saaf selfie lein" onClose={() => setFaceFor(null)} onDone={(p) => enrollFace(faceFor!, p)} />
     </div>
   );
 }
