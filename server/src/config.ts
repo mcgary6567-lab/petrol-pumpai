@@ -80,7 +80,7 @@ export const config = {
   // SAAS_MODE=1 turns on public sign-up + the free trial + the activation gate + the platform admin.
   // Off (default) = the classic single-pump install (first-run setup wizard, one tenant).
   saas: process.env.SAAS_MODE === "1",
-  trialDays: Number(process.env.TRIAL_DAYS ?? 7),
+  trialDays: Number(process.env.TRIAL_DAYS ?? 30),
   // the platform owner (you) — a super-admin above all pumps. Set these in SaaS mode to manage pumps + activation.
   platformEmail: (process.env.PLATFORM_ADMIN_EMAIL ?? "").toLowerCase(),
   platformPassword: process.env.PLATFORM_ADMIN_PASSWORD ?? "",
