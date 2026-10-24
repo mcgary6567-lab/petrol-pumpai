@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { Download, ChevronDown, ChevronRight, ShieldCheck, Scale, CheckCircle2, AlertTriangle, Loader2, Package } from "lucide-react";
 import { api, linkToken, useApi } from "../lib/api";
 import { Badge, Empty, Field, Loading, PageHeader } from "../components/ui";
@@ -11,7 +11,8 @@ const KINDS: [string, string, string][] = [
 const tone = (k: string) => KINDS.find((x) => x[0] === k)?.[2] ?? "slate";
 const show = (v: unknown) => (v === null || v === undefined || v === "" ? "—" : typeof v === "object" ? JSON.stringify(v) : String(v));
 
-type CheckRow = { advisory?: boolean; label: string; book: number; ledger: number; diff: number; ok: boolean; note?: string };
+type DetailRow = { label: string; value: number; sub?: string; bad?: boolean };
+type CheckRow = { advisory?: boolean; label: string; book: number; ledger: number; diff: number; ok: boolean; note?: string; detail?: DetailRow[]; hint?: string };
 type CheckResult = { ok: boolean; checked_at: string; max_diff: number; checks: CheckRow[]; failed: string[] };
 
 /** CEO-only "Hisaab check" — one button re-runs the whole-system reconciliation live and proves everything tallies to 0 rupee. */
@@ -21,6 +22,7 @@ function BooksCheck() {
   const [err, setErr] = useState("");
   const [booking, setBooking] = useState(false);
   const [booked, setBooked] = useState<{ booked: number; items: { name: string; amount: number }[] } | null>(null);
+  const [open, setOpen] = useState<Record<string, boolean>>({});
   const shopGap = res?.checks.find((c) => c.advisory && !c.ok && /shop stock/i.test(c.label));
   const bookShop = async () => {
     if (!shopGap) return;
@@ -68,15 +70,45 @@ function BooksCheck() {
             <table className="w-full text-sm">
               <thead className="text-left text-xs text-slate-500"><tr><th className="py-1.5">Mad</th><th className="text-right">Book</th><th className="text-right">Ledger</th><th className="text-right">Farq</th><th className="py-1.5 pl-3">Haalat</th></tr></thead>
               <tbody>
-                {res.checks.map((c) => (
-                  <tr key={c.label} className="border-t border-slate-100">
-                    <td className="py-1.5 pr-3">{c.label}{c.note && <span className="block text-[11px] text-amber-600">{c.note}</span>}</td>
-                    <td className="text-right tabular-nums">{pkr(c.book)}</td>
-                    <td className="text-right tabular-nums">{pkr(c.ledger)}</td>
-                    <td className={`text-right tabular-nums ${Math.abs(c.diff) > 1 ? "font-semibold text-red-700" : "text-slate-400"}`}>{pkr(c.diff)}</td>
-                    <td className="py-1.5 pl-3">{c.ok ? <Badge tone="green">OK</Badge> : c.advisory ? <Badge tone="amber">Advisory</Badge> : <Badge tone="red">Farq</Badge>}</td>
-                  </tr>
-                ))}
+                {res.checks.map((c) => {
+                  const drill = (c.detail && c.detail.length > 0) || Boolean(c.hint);
+                  const isOpen = open[c.label];
+                  return (
+                  <Fragment key={c.label}>
+                    <tr className={`border-t border-slate-100 ${drill ? "cursor-pointer hover:bg-slate-50" : ""}`}
+                      onClick={() => drill && setOpen((o) => ({ ...o, [c.label]: !o[c.label] }))}>
+                      <td className="py-1.5 pr-3">
+                        <span className="flex items-center gap-1">
+                          {drill && (isOpen ? <ChevronDown size={14} className="text-slate-400" /> : <ChevronRight size={14} className="text-slate-400" />)}
+                          <span>{c.label}</span>
+                          {drill && !isOpen && <span className="text-[11px] font-medium text-red-600">— kahan? dekhein</span>}
+                        </span>
+                        {c.note && <span className="block text-[11px] text-amber-600">{c.note}</span>}
+                      </td>
+                      <td className="text-right tabular-nums">{pkr(c.book)}</td>
+                      <td className="text-right tabular-nums">{pkr(c.ledger)}</td>
+                      <td className={`text-right tabular-nums ${Math.abs(c.diff) > 1 ? "font-semibold text-red-700" : "text-slate-400"}`}>{pkr(c.diff)}</td>
+                      <td className="py-1.5 pl-3">{c.ok ? <Badge tone="green">OK</Badge> : c.advisory ? <Badge tone="amber">Advisory</Badge> : <Badge tone="red">Farq</Badge>}</td>
+                    </tr>
+                    {drill && isOpen && (
+                      <tr className="bg-amber-50/60">
+                        <td colSpan={5} className="px-3 py-2">
+                          {c.hint && <div className="mb-2 flex items-start gap-1.5 text-xs text-amber-800"><AlertTriangle size={13} className="mt-0.5 shrink-0" /><span>{c.hint}</span></div>}
+                          {c.detail && c.detail.length > 0 && (
+                            <ul className="divide-y divide-amber-100 rounded-lg bg-white ring-1 ring-amber-100">
+                              {c.detail.map((d, i) => (
+                                <li key={i} className="flex items-center justify-between gap-3 px-3 py-1.5 text-sm">
+                                  <span className="min-w-0"><span className={d.bad ? "font-semibold text-red-700" : "font-medium"}>{d.label}</span>{d.sub && <span className="block text-[11px] text-slate-500">{d.sub}</span>}</span>
+                                  <span className={`shrink-0 tabular-nums ${d.bad ? "font-semibold text-red-700" : "text-slate-700"}`}>{pkr(d.value)}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                );})}
               </tbody>
             </table>
           </div>
