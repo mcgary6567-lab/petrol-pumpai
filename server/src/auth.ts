@@ -5,7 +5,7 @@ import bcrypt from "bcryptjs";
 import { z, ZodError } from "zod";
 import { config, waLive } from "./config.js";
 import { all, get, run, getSetting, type Row } from "./db.js";
-import { AppError } from "./services.js";
+import { AppError, createAlert } from "./services.js";
 /** Set by serverStatus.ts at start-up: records 500s in the platform's error log (late-bound to avoid an import cycle). */
 export let onServerError: ((message: string, extra: { stack?: string | null; method?: string; path?: string; status?: number }) => void) | null = null;
 export const setServerErrorHook = (fn: typeof onServerError) => { onServerError = fn; };
@@ -138,11 +138,35 @@ declare global {
 }
 
 export type SessionMeta = { ua?: string | null; ip?: string | null; how?: string };
+
+const pkToday = () => new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 10);
+const ownerPhone = (tenantId: number) =>
+  (get("SELECT value FROM settings WHERE tenant_id=? AND key='owner_phone'", tenantId)?.value as string | undefined)
+  || (get("SELECT owner_phone FROM tenants WHERE id=?", tenantId)?.owner_phone as string | undefined) || null;
+/** Best-effort security alert: an in-app alert for the owner, plus a WhatsApp if a number is given. Never throws. */
+function securityNotify(tenantId: number, title: string, body: string, phone: string | null, dedupe: string) {
+  try { createAlert(tenantId, { type: "security", severity: "warning", title, body, dedupe_key: dedupe }); } catch { /* alerts are best-effort */ }
+  if (phone) import("./whatsapp/cloud.js").then((m) => m.sendToPhone(phone, `🔐 ${title}\n${body}`)).catch(() => { /* delivery is best-effort */ });
+}
+/** A money-sensitive account (admin/manager) signing in from a device/IP never seen before → tell the account holder. */
+function noteNewDevice(u: { id: number; tenant_id: number; name: string; role: string }, meta: SessionMeta) {
+  if (!meta.ip || !["admin", "manager"].includes(u.role) || meta.how === "PIN") return; // need an IP to judge; PIN = shared tablet
+  const prior = get("SELECT COUNT(*) n FROM sessions WHERE user_id=?", u.id)?.n as number ?? 0;
+  if (prior === 0) return; // first-ever login is not a new-device event
+  const known = get("SELECT 1 FROM sessions WHERE user_id=? AND ip=? LIMIT 1", u.id, meta.ip ?? null);
+  if (known) return;
+  const dev = meta.ua ? String(meta.ua).slice(0, 80) : "unknown device";
+  const phone = get("SELECT phone FROM users WHERE id=?", u.id)?.phone as string | undefined;
+  securityNotify(u.tenant_id, `Naye device se login — ${u.name}`,
+    `Device: ${dev}\nIP: ${meta.ip ?? "?"}\nWaqt: ${new Date().toLocaleString("en-PK", { timeZone: "Asia/Karachi" })}\nAgar yeh aap nahi the to foran apna password badlein aur doosre devices sign-out karein.`,
+    phone ?? null, `newdev-${u.id}-${meta.ip ?? "?"}-${pkToday()}`);
+}
 /** A signed 7-day session. Each token carries a session id, so the owner can see every signed-in device and sign one out. */
 export function signToken(u: AuthUser, meta: SessionMeta = {}) {
   const tv = get("SELECT token_version v FROM users WHERE id=?", u.id)?.v ?? 0;
   const sid = crypto.randomUUID();
   const ts = new Date().toISOString();
+  try { noteNewDevice(u as { id: number; tenant_id: number; name: string; role: string; phone?: string | null }, meta); } catch { /* never block sign-in on the alert */ }
   run("INSERT INTO sessions (tenant_id,user_id,sid,user_agent,ip,how,created_at,last_seen_at) VALUES (?,?,?,?,?,?,?,?)", u.tenant_id, u.id, sid, (meta.ua ?? "").slice(0, 300) || null, meta.ip ?? null, meta.how ?? null, ts, ts);
   return jwt.sign({ sub: u.id, tv, sid }, config.jwtSecret, { expiresIn: "7d" });
 }
@@ -210,6 +234,9 @@ export function pinLogin(device: string | undefined, userId: number, pin: string
     run("UPDATE users SET pin_fails=?, pin_locked_until=? WHERE id=?", fails >= PIN_TRIES ? 0 : fails,
       fails >= PIN_TRIES ? new Date(Date.now() + PIN_LOCK_MIN * 60000).toISOString() : null, u.id);
     auditLogin(u, false, fails >= PIN_TRIES ? "PIN — locked for 10 minutes" : "PIN", meta);
+    if (fails >= PIN_TRIES) securityNotify(u.tenant_id, `PIN lock — baar-baar ghalat PIN — ${u.name}`,
+      `${PIN_TRIES} ghalat PIN; ${PIN_LOCK_MIN} minute ke liye lock. Tablet par koi ghalat PIN daal raha hai — dekh lein.`,
+      ownerPhone(u.tenant_id), `pinlock-${u.id}-${pkToday()}`);
     throw new AppError(401, fails >= PIN_TRIES ? `Wrong PIN. Locked for ${PIN_LOCK_MIN} minutes — forgot it? Ask the admin to reset it.` : `Wrong PIN (${PIN_TRIES - fails} tries left)`);
   }
   run("UPDATE users SET pin_fails=0, pin_locked_until=NULL WHERE id=?", u.id);
@@ -242,6 +269,9 @@ export function authenticate(login: string, password: string, tenantScope?: numb
       const fails = (u.pw_fails ?? 0) + 1;
       run("UPDATE users SET pw_fails=?, pw_locked_until=? WHERE id=?", fails >= PW_TRIES ? 0 : fails, fails >= PW_TRIES ? new Date(Date.now() + PW_LOCK_MIN * 60000).toISOString() : null, u.id);
       auditLogin(u, false, fails >= PW_TRIES ? "password — locked for 15 minutes" : "password");
+      if (fails >= PW_TRIES) securityNotify(u.tenant_id, `Account lock — baar-baar ghalat password — ${u.name}`,
+        `${PW_TRIES} ghalat koshishein; account ${PW_LOCK_MIN} minute ke liye lock ho gaya. Agar yeh aap nahi the to kisi ne tod-phod ki koshish ki — password mazboot rakhein.`,
+        ownerPhone(u.tenant_id), `lock-${u.id}-${pkToday()}`);
     }
     throw new AppError(401, "Invalid email or password");
   }

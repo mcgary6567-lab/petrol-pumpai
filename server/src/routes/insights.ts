@@ -6,7 +6,8 @@ import { kpis, forecast, tankOutlook, insights, dailySeries, scoreCustomers, sen
 import { askBusiness } from "../ai/agent.js";
 import { runJob, ensureAutomations } from "../automation/scheduler.js";
 import { buildDailyBrief } from "../automation/jobs.js";
-import { bus } from "../whatsapp/cloud.js";
+import { bus, sendToPhone } from "../whatsapp/cloud.js";
+import { createAlert } from "../services.js";
 import { aiEnabled, aiProvider, aiModelName, waLive, config } from "../config.js";
 import { normalizePhone } from "../services.js";
 import { dayBook } from "./reports.js";
@@ -125,7 +126,16 @@ insightsRouter.put("/settings", requirePerm("settings.manage"), h((req) => {
       cash_short_warn: z.number().min(0).max(1_000_000).optional(), cash_short_crit: z.number().min(0).max(1_000_000).optional(), sales_drop_pct: z.number().min(0).max(100).optional(), low_stock_days: z.number().min(0).max(30).optional(), shift_dip_alert_l: z.number().min(0).max(100_000).optional() }).optional() }), req.body);
   if (b.sensitivity) for (const [k, v] of Object.entries(b.sensitivity)) if (v !== undefined) setSetting(tid(req), `sens_${k}`, String(v));
   if (b.google_review_url !== undefined) setSetting(tid(req), "google_review_url", b.google_review_url);
-  if (b.admin_2fa !== undefined) setSetting(tid(req), "admin_2fa", b.admin_2fa ? "1" : "0");
+  if (b.admin_2fa !== undefined) {
+    setSetting(tid(req), "admin_2fa", b.admin_2fa ? "1" : "0");
+    // disabling 2FA is the single most security-critical toggle — if an intruder did it, warn the owner on WhatsApp
+    if (!b.admin_2fa) {
+      const t = tid(req);
+      createAlert(t, { type: "security", severity: "warning", title: "Two-factor login BAND kar diya gaya", body: `${req.user!.name} ne owner 2FA off kiya. Agar yeh aap ne nahi kiya to foran dobara on karein aur password badlein.`, dedupe_key: `2fa-off-${t}-${new Date().toISOString().slice(0, 10)}` });
+      const owner = (get("SELECT value v FROM settings WHERE tenant_id=? AND key='owner_phone'", t)?.v as string | undefined) || (get("SELECT owner_phone FROM tenants WHERE id=?", t)?.owner_phone as string | undefined);
+      if (owner) sendToPhone(owner, `🔐 Two-factor login BAND kar diya gaya (${req.user!.name}). Agar yeh aap ne nahi kiya to foran Settings → Safety se dobara on karein.`).catch(() => { /* best-effort */ });
+    }
+  }
   if (b.loyalty_rate !== undefined) setSetting(tid(req), "loyalty_rate", String(b.loyalty_rate));
   if (b.attend_face_match !== undefined) setSetting(tid(req), "attend_face_match", b.attend_face_match ? "1" : "0");
   if (b.limits) {

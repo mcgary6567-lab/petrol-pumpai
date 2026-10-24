@@ -4,7 +4,8 @@ import bcrypt from "bcryptjs";
 import { all, get, run, now } from "../db.js";
 import { h, parse, tid, requirePerm, ROLES, PERMISSIONS, permissionMatrix, forgetRoleOverrides, revokeSessions, revokeSession, unlinkDevices, type Permission } from "../auth.js";
 import crypto from "node:crypto";
-import { AppError, normalizePhone, audit } from "../services.js";
+import { AppError, normalizePhone, audit, createAlert } from "../services.js";
+import { sendToPhone } from "../whatsapp/cloud.js";
 
 /** Admin-only user management. */
 export const users = Router();
@@ -59,8 +60,17 @@ users.post("/users", h((req) => {
   const { id } = run("INSERT INTO users (tenant_id,name,email,password_hash,role,station_id,phone,duty_start,active,created_at) VALUES (?,?,?,?,?,?,?,?,1,?)",
     tid(req), b.name, email, bcrypt.hashSync(b.password, 10), b.role, b.role === "salesman" ? b.station_id! : b.station_id ?? null, b.phone ? normalizePhone(b.phone) : null, b.role === "salesman" ? "08:00" : null, now());
   if (b.pin) run("UPDATE users SET pin_hash=? WHERE id=?", bcrypt.hashSync(b.pin, 10), id);
+  if (b.role === "admin") alertAdminGrant(tid(req), b.name, req.user!.name);
   return list(tid(req)).find((u) => u.id === id);
 }));
+
+/** Privilege-escalation warning: someone made a user a full admin — tell the owner (deliberate, or an intruder). */
+function alertAdminGrant(tenantId: number, name: string, by: string) {
+  createAlert(tenantId, { type: "security", severity: "warning", title: `Naya admin banaya gaya — ${name}`,
+    body: `${by} ne ${name} ko admin (full access) bana diya. Agar yeh aap ne nahi kiya to foran role wapas badlein.`, dedupe_key: `admingrant-${tenantId}-${name}-${new Date().toISOString().slice(0, 10)}` });
+  const owner = (get("SELECT value v FROM settings WHERE tenant_id=? AND key='owner_phone'", tenantId)?.v as string | undefined) || (get("SELECT owner_phone FROM tenants WHERE id=?", tenantId)?.owner_phone as string | undefined);
+  if (owner) sendToPhone(owner, `🔐 Naya admin: ${name} (by ${by}). Agar ghalat hai to Users page se role badlein.`).catch(() => { /* best-effort */ });
+}
 
 function ownUser(tenantId: number, id: number) {
   const u = get("SELECT * FROM users WHERE id=? AND tenant_id=?", id, tenantId);
@@ -91,6 +101,7 @@ users.patch("/users/:id", h((req) => {
   // a new password, a role change or a disabled account signs that person out of every phone
   if (b.password || (b.role && b.role !== u.role) || (b.active === false && u.active)) revokeSessions(u.id);
   if (b.pin !== undefined) run("UPDATE users SET pin_hash=?, pin_fails=0, pin_locked_until=NULL WHERE id=?", b.pin ? bcrypt.hashSync(b.pin, 10) : null, u.id);
+  if (role === "admin" && u.role !== "admin") alertAdminGrant(tid(req), b.name ?? u.name, req.user!.name);
   return list(tid(req)).find((x) => x.id === u.id);
 }));
 
