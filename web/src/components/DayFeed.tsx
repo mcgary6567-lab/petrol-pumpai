@@ -95,7 +95,7 @@ export function DayFeed({ title = "Aaj ki saari entries", scope = "all" }: { tit
               { label: "Kis ne", v: (r: any) => r.who ?? "—" },
               { label: "Party", v: (r: any) => r.party ?? "—", total: (rs: any[]) => `${rs.length} entries` },
               { label: "Tafseel", v: (r: any) => r.label ?? "" },
-              { label: "Litre", r: true, v: (r: any) => (r.litres ? `${num(r.litres)} L` : "") },
+              { label: "Litre", r: true, v: (r: any) => (r.litres ? `${num(r.litres, r.litres % 1 ? 2 : 0)} L` : "") },
               { label: "Rs/litre", r: true, v: (r: any) => (r.rate ? `Rs ${num(r.rate, 2)}` : "") },
               { label: "Credit (aaya)", r: true, v: (r: any) => (r.dir === "in" ? pkr(r.amount) : ""), tone: () => "pos" as const, total: (rs: any[]) => pkr(sumDir(rs, "in")), totalTone: "pos" as const },
               { label: "Debit (gaya)", r: true, v: (r: any) => (isDebitRow(r) ? pkr(r.amount) : ""), tone: () => "neg" as const, total: (rs: any[]) => pkr(sumDebit(rs)), totalTone: "neg" as const },
@@ -144,7 +144,7 @@ export function DayFeed({ title = "Aaj ki saari entries", scope = "all" }: { tit
                   <span className="block truncate">{r.party ? <b>{r.party}</b> : null}{r.party ? " · " : ""}{r.label}</span>
                   <span className="text-xs text-slate-500">
                     {t12(r.at)}{r.who ? ` · ${r.who}` : ""}
-                    {r.litres ? <> · <span className="font-medium text-slate-600">{num(r.litres)} L</span></> : null}
+                    {r.litres ? <> · <span className="font-medium text-slate-600">{num(r.litres, r.litres % 1 ? 2 : 0)} L</span></> : null}
                     {r.rate ? <> · <span className="font-medium text-slate-600">Rs {num(r.rate, 2)}/L</span></> : null}
                   </span>
                 </span>
