@@ -50,6 +50,7 @@ const Team = lazy(() => import("./pages/Team"));
 const Accounts = lazy(() => import("./pages/Accounts"));
 const Setup = lazy(() => import("./pages/Setup"));
 const Audit = lazy(() => import("./pages/Audit"));
+const SecurityScore = lazy(() => import("./pages/SecurityScore"));
 const Machines = lazy(() => import("./pages/Machines"));
 const Cashier = lazy(() => import("./pages/Cashier"));
 const Suggestions = lazy(() => import("./pages/Suggestions"));
@@ -232,6 +233,7 @@ export default function App() {
               <Route path="team" element={<Need perm="staff.manage"><Team /></Need>} />
               <Route path="accounts" element={<Need perm="reports.view"><Accounts /></Need>} />
               <Route path="audit" element={<Need perm="audit.view"><Audit /></Need>} />
+              <Route path="security" element={<Need perm="settings.manage"><SecurityScore /></Need>} />
               <Route path="machines" element={<Need perm="sales.create"><Machines /></Need>} />
             </Route>
             <Route path="/cards/:id" element={<Protected><Need perm="khata.manage"><Cards /></Need></Protected>} />

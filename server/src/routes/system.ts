@@ -6,12 +6,12 @@ import { Router } from "express";
 import { z } from "zod";
 import fs from "node:fs";
 import path from "node:path";
-import { db, get, getSetting, setSetting, closeDb } from "../db.js";
+import { db, get, all, getSetting, setSetting, closeDb } from "../db.js";
 import { execFile } from "node:child_process";
 import { h, parse, tid, requirePerm } from "../auth.js";
 import { AppError, audit, createAlert } from "../services.js";
 import { sendToPhone } from "../whatsapp/cloud.js";
-import { config } from "../config.js";
+import { config, waLive, aiEnabled } from "../config.js";
 import { vapidPublicKey, saveSubscription, removeSubscription, subscriptionCount, pushToUser } from "../push.js";
 import { PROVIDERS, cloudStatus, cloudPush, cloudPushAll, cloudConfigured, parseServiceAccount, gdriveCheck, gdriveCfg, dropboxCfg, saveCloud, dropboxAuthUrl, dropboxConnect, dropboxCheck, googleAuthUrl, googleConnect, googleConfigured, type Provider } from "../backupCloud.js";
 import { randomBytes, pbkdf2Sync, createCipheriv } from "node:crypto";
@@ -234,6 +234,66 @@ system.put("/safety", requirePerm("settings.manage"), h((req) => {
   const b = parse(z.object({ price_approval: z.boolean() }), req.body);
   setSetting(tid(req), "price_approval", b.price_approval ? "1" : "0");
   return { price_approval: b.price_approval };
+}));
+
+/**
+ * Security score: a plain-language checklist that scores how locked-down this pump is and tells the owner exactly
+ * what to switch on next. Core checks make up the 0–100 score; "extras" are optional hardening shown separately.
+ */
+system.get("/security/score", requirePerm("settings.manage"), h((req) => {
+  const t = tid(req);
+  const g = (k: string, d = "") => getSetting(t, k, d);
+  const admins = all("SELECT phone FROM users WHERE tenant_id=? AND role='admin' AND active=1", t);
+  const adminsWithoutPhone = admins.filter((u) => !u.phone).length;
+  const twoFaSet = g("admin_2fa", "");
+  const twoFaOn = twoFaSet === "1" || (twoFaSet === "" && waLive());
+  const cloudOn = cloudConfigured("gdrive") || cloudConfigured("dropbox");
+  const offsite = Boolean(process.env.BACKUP_COPY_CMD);
+  const hasBackups = listBackups().length > 0;
+  const openSec = Number(get("SELECT COUNT(*) n FROM alerts WHERE tenant_id=? AND type='security' AND acknowledged=0 AND created_at >= ?", t, new Date(Date.now() - 7 * 86_400_000).toISOString())?.n ?? 0);
+  const idleH = Number(g("session_idle_hours", "12")) || 0;
+
+  type S = "ok" | "warn" | "off";
+  const core: { key: string; en: string; ur: string; status: S; weight: number; detail: string; fix: string }[] = [
+    { key: "twofa", en: "Two-factor login for the owner", ur: "اونر ٹو-فیکٹر لاگ اِن", weight: 25,
+      status: twoFaOn && adminsWithoutPhone === 0 ? "ok" : twoFaOn ? "warn" : "off",
+      detail: twoFaOn ? (adminsWithoutPhone ? `On, par ${adminsWithoutPhone} admin ke paas phone nahi` : "On aur sab admins ke paas phone") : "Off",
+      fix: "Settings → Safety me 2FA on karein aur har admin ka WhatsApp number Users page par daalein." },
+    { key: "backups", en: "Off-site / cloud backups", ur: "آف-سائٹ بیک اپ", weight: 20,
+      status: cloudOn || offsite ? "ok" : hasBackups ? "warn" : "off",
+      detail: cloudOn ? "Cloud (Drive/Dropbox) connected" : offsite ? "Off-site copy on" : hasBackups ? "Sirf is server par — server gaya to backup bhi gaya" : "Koi backup nahi",
+      fix: "Settings → Backups me Google Drive ya Dropbox connect karein (one-click)." },
+    { key: "no_open_alerts", en: "No open security alerts", ur: "کوئی کھلا سیکیورٹی الرٹ نہیں", weight: 15,
+      status: openSec === 0 ? "ok" : "warn", detail: openSec === 0 ? "Pichle hafte koi nahi" : `${openSec} open security alert`,
+      fix: "Alerts page kholein aur har security alert dekh kar acknowledge karein." },
+    { key: "admins_phone", en: "Every admin has a WhatsApp number", ur: "ہر ایڈمن کا واٹس ایپ", weight: 10,
+      status: adminsWithoutPhone === 0 ? "ok" : "off", detail: adminsWithoutPhone === 0 ? "Sab ke paas hai" : `${adminsWithoutPhone} ke paas nahi`,
+      fix: "Users page par har admin ka phone number add karein (OTP + alerts ke liye)." },
+    { key: "whatsapp", en: "WhatsApp connected (for OTP & alerts)", ur: "واٹس ایپ کنیکٹڈ", weight: 10,
+      status: waLive() ? "ok" : "off", detail: waLive() ? "Live" : "Connected nahi — OTP/alerts simulate honge",
+      fix: "Settings → Integrations me WhatsApp number connect karein." },
+    { key: "idle", en: "Auto sign-out on idle", ur: "آئیڈل پر خودکار سائن آؤٹ", weight: 10,
+      status: idleH > 0 ? "ok" : "off", detail: idleH > 0 ? `${idleH} ghante` : "Off",
+      fix: "Settings → Safety me idle hours set karein (12 behtareen)." },
+    { key: "price_approval", en: "Two-person approval for price changes", ur: "قیمت پر دو افراد کی منظوری", weight: 10,
+      status: g("price_approval", "0") === "1" ? "ok" : "off", detail: g("price_approval", "0") === "1" ? "On" : "Off",
+      fix: "Settings → Safety me 'Two-person approval for price changes' on karein." },
+  ];
+  const extras = [
+    { key: "geofence", en: "Attendance geofence", ur: "حاضری جیو فینس", on: Number(g("attend_max_m", "0")) > 0, fix: "Settings → Limits me QR attendance geofence (metres) set karein." },
+    { key: "ip_allowlist", en: "Login IP allow-list", ur: "لاگ اِن IP لسٹ", on: Boolean(g("login_allowed_ips", "").trim()), fix: "Settings → Safety me apni IP allow-list banayein." },
+    { key: "face_match", en: "Attendance selfie face-match", ur: "سیلفی چہرہ میچ", on: g("attend_face_match", "0") === "1", fix: "Settings → Safety me face-match on karein (AI chahiye)." },
+    { key: "secrets_encrypted", en: "Secrets encrypted at rest", ur: "سیکرٹ انکرپٹڈ", on: true, fix: "" },
+  ];
+  const pts = (s: S) => (s === "ok" ? 1 : s === "warn" ? 0.5 : 0);
+  const earned = core.reduce((a, c) => a + c.weight * pts(c.status), 0);
+  const total = core.reduce((a, c) => a + c.weight, 0);
+  const score = Math.round((earned / total) * 100);
+  const grade = score >= 90 ? { label: "Bohat behtareen", en: "Excellent", tone: "green" }
+    : score >= 75 ? { label: "Achha", en: "Good", tone: "green" }
+    : score >= 50 ? { label: "Behtar karein", en: "Needs work", tone: "amber" }
+    : { label: "Kamzor — abhi theek karein", en: "Weak", tone: "red" };
+  return { score, grade, core, extras, ai: aiEnabled() };
 }));
 
 /**

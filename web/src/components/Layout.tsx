@@ -43,7 +43,7 @@ const NAV_UR: Record<string, string> = {
   "/wholesale": "ہول سیل", "/carriage": "کرایہ", "/cashier": "کیشیئر", "/expenses": "خرچے", "/cash": "کیش بک", "/accounts": "اکاؤنٹس و ٹیکس", "/suppliers": "سپلائر", "/property": "جائیداد و کرایہ",
   "/orders": "آرڈر", "/complaints": "شکایات", "/campaigns": "مہم", "/stock": "ٹینک و اسٹاک", "/dip-charts": "ڈپ چارٹ", "/register": "اسٹاک رجسٹر", "/shop": "شاپ", "/prices": "ریٹ", "/alerts": "الرٹ",
   "/automations": "آٹومیشن", "/staff": "عملہ کھاتہ", "/kiosk": "حاضری", "/roster": "ڈیوٹی روسٹر", "/team": "ریٹنگ و کمیشن", "/checklist": "روزانہ چیک", "/compliance": "لائسنس",
-  "/machines": "مشینیں", "/my-account": "میرا حساب", "/help": "رہنمائی", "/users": "صارفین", "/audit": "آڈٹ لاگ", "/corrections": "درستگی", "/opening-balances": "پرانا حساب", "/go-live": "گو لائیو چیک لسٹ", "/lists": "لسٹیں", "/settings": "سیٹنگز",
+  "/machines": "مشینیں", "/my-account": "میرا حساب", "/help": "رہنمائی", "/users": "صارفین", "/audit": "آڈٹ لاگ", "/security": "سیکیورٹی اسکور", "/corrections": "درستگی", "/opening-balances": "پرانا حساب", "/go-live": "گو لائیو چیک لسٹ", "/lists": "لسٹیں", "/settings": "سیٹنگز",
 };
 /** Manager / owner menu groups (other roles have short menus and see them flat). */
 const GROUPS: { key: string; label: string; ur: string; icon: any; items: string[] }[] = [
@@ -55,7 +55,7 @@ const GROUPS: { key: string; label: string; ur: string; icon: any; items: string
   { key: "reports", label: "Reports & profit", ur: "رپورٹ و منافع", icon: FileBarChart, items: ["/reports", "/sales-history", "/insights", "/owner-report", "/profit", "/margins", "/discounts-report", "/suggestions"] },
   { key: "staff", label: "Staff", ur: "عملہ", icon: Wallet, items: ["/staff", "/kiosk", "/roster", "/team", "/my-account"] },
   { key: "safety", label: "Safety & machines", ur: "حفاظت و مشینیں", icon: ShieldCheck, items: ["/compliance", "/checklist", "/machines"] },
-  { key: "system", label: "System & setup", ur: "سسٹم و سیٹ اپ", icon: Settings, items: ["/go-live", "/settings", "/users", "/lists", "/automations", "/opening-balances", "/corrections", "/audit"] },
+  { key: "system", label: "System & setup", ur: "سسٹم و سیٹ اپ", icon: Settings, items: ["/go-live", "/settings", "/users", "/lists", "/automations", "/opening-balances", "/corrections", "/audit", "/security"] },
 ];
 /** Always on top of the grouped menu (daily first look), and always at the bottom. */
 const TOP = ["/", "/inbox", "/alerts"], BOTTOM = ["/help"];
@@ -252,6 +252,7 @@ const NAV = [
   { to: "/help", label: "User guide", icon: BookOpenText, perm: "" },
   { to: "/users", label: "Users & Roles", icon: UserCog, perm: "users.manage" },
   { to: "/audit", label: "Audit log", icon: History, perm: "audit.view" },
+  { to: "/security", label: "Security score", icon: ShieldCheck, perm: "settings.manage" },
   { to: "/corrections", label: "Corrections (void)", icon: Ban, perm: "corrections.manage" },
   { to: "/go-live", label: "Go-live checklist", icon: Rocket, perm: "settings.manage" },
   { to: "/opening-balances", label: "Opening balances (go-live)", icon: BookOpenCheck, perm: "opening.manage" },
