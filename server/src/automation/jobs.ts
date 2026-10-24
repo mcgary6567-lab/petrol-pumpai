@@ -338,7 +338,36 @@ export const JOBS: Job[] = [
       return `${r.month}: ${r.khata} khata bills, ${r.wholesale} wholesale statements sent`;
     },
   },
+  {
+    key: "security_digest",
+    name: "Weekly security digest",
+    description: "Monday 8am: the owner gets a WhatsApp summary of the week's sign-ins, new devices, locked accounts and security alerts — so nothing odd goes unnoticed.",
+    cron: "0 8 * * 1",
+    run: async (t) => { const sent = await sendSecurityDigest(t); return sent ? "digest sent" : "no owner phone / nothing to report"; },
+  },
 ];
+
+/** Weekly security summary for the owner: sign-ins, new devices, lockouts and security alerts in the last 7 days. */
+export async function sendSecurityDigest(t: number): Promise<boolean> {
+  const since = new Date(Date.now() - 7 * 86_400_000).toISOString();
+  const n = (sql: string, ...a: unknown[]) => Number(get(sql, ...(a as []))?.n ?? 0);
+  const logins = n("SELECT COUNT(*) n FROM audit_log WHERE tenant_id=? AND action LIKE 'login:Signed in%' AND created_at>=?", t, since);
+  const wrong = n("SELECT COUNT(*) n FROM audit_log WHERE tenant_id=? AND action LIKE 'login:Wrong%' AND created_at>=?", t, since);
+  const locked = n("SELECT COUNT(*) n FROM audit_log WHERE tenant_id=? AND action LIKE '%locked%' AND created_at>=?", t, since);
+  const secAlerts = all("SELECT title FROM alerts WHERE tenant_id=? AND type='security' AND created_at>=? ORDER BY id DESC LIMIT 5", t, since);
+  const devices = n("SELECT COUNT(DISTINCT ip) n FROM sessions WHERE tenant_id=? AND created_at>=? AND ip IS NOT NULL", t, since);
+  const phone = ownerPhone(t);
+  if (!phone) return false;
+  const lines = [
+    `🔐 Haftawaar security report — ${pkDate()}`,
+    `✅ Sign-ins: ${logins} · devices/IP: ${devices}`,
+    `❌ Ghalat koshishein: ${wrong}${locked ? ` · lock: ${locked}` : ""}`,
+    ...(secAlerts.length ? ["⚠️ Security alerts:", ...secAlerts.map((a: Row) => `• ${a.title}`)] : ["👍 Koi security alert nahi"]),
+    `Tafseel: Audit page par.`,
+  ];
+  await sendToPhone(phone, lines.join("\n"));
+  return true;
+}
 
 export async function buildDailyBrief(t: number) {
   if (aiEnabled()) {

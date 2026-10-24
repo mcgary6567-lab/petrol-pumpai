@@ -148,6 +148,30 @@ function securityNotify(tenantId: number, title: string, body: string, phone: st
   try { createAlert(tenantId, { type: "security", severity: "warning", title, body, dedupe_key: dedupe }); } catch { /* alerts are best-effort */ }
   if (phone) import("./whatsapp/cloud.js").then((m) => m.sendToPhone(phone, `🔐 ${title}\n${body}`)).catch(() => { /* delivery is best-effort */ });
 }
+/** Does an IP fall inside an allow-list entry (exact IP, or an IPv4 CIDR like 1.2.3.0/24)? */
+function ipMatch(ip: string, entry: string): boolean {
+  const norm = (s: string) => s.replace(/^::ffff:/, "").trim();
+  const a = norm(ip), e = norm(entry);
+  if (!e) return false;
+  if (!e.includes("/")) return a === e;
+  const [net, bitsStr] = e.split("/"); const bits = Number(bitsStr);
+  const toInt = (s: string) => { const p = s.split("."); if (p.length !== 4) return null; let n = 0; for (const o of p) { const v = Number(o); if (!(v >= 0 && v <= 255)) return null; n = (n << 8) | v; } return n >>> 0; };
+  const ai = toInt(a), ni = toInt(net);
+  if (ai == null || ni == null || !(bits >= 0 && bits <= 32)) return false;
+  const mask = bits === 0 ? 0 : (0xffffffff << (32 - bits)) >>> 0;
+  return (ai & mask) === (ni & mask);
+}
+/** Optional IP allow-list: if the owner set one, admin/manager sign-in is refused from any other IP (staff unaffected). */
+function enforceIpAllowed(u: { id: number; tenant_id: number; name: string; role: string }, ip?: string | null) {
+  const raw = get("SELECT value FROM settings WHERE tenant_id=? AND key='login_allowed_ips'", u.tenant_id)?.value as string | undefined;
+  if (!raw || !raw.trim() || !["admin", "manager"].includes(u.role) || !ip) return; // off / not restricted / unknown IP → allow
+  const list = raw.split(/[,\s]+/).filter(Boolean);
+  if (!list.some((c) => ipMatch(ip, c))) {
+    securityNotify(u.tenant_id, `IP allow-list ne login roka — ${u.name}`,
+      `IP ${ip} allow-list mein nahi. Agar yeh aap the to Settings → Safety mein apni IP add karein.`, ownerPhone(u.tenant_id), `ipblock-${u.id}-${ip}-${pkToday()}`);
+    throw new AppError(403, "Yeh network/IP allow-list mein nahi hai. Owner ko Settings → Safety mein yeh IP add karni hogi.");
+  }
+}
 /** A money-sensitive account (admin/manager) signing in from a device/IP never seen before → tell the account holder. */
 function noteNewDevice(u: { id: number; tenant_id: number; name: string; role: string }, meta: SessionMeta) {
   if (!meta.ip || !["admin", "manager"].includes(u.role) || meta.how === "PIN") return; // need an IP to judge; PIN = shared tablet
@@ -166,6 +190,7 @@ export function signToken(u: AuthUser, meta: SessionMeta = {}) {
   const tv = get("SELECT token_version v FROM users WHERE id=?", u.id)?.v ?? 0;
   const sid = crypto.randomUUID();
   const ts = new Date().toISOString();
+  enforceIpAllowed(u as { id: number; tenant_id: number; name: string; role: string }, meta.ip); // throws 403 if the IP is blocked
   try { noteNewDevice(u as { id: number; tenant_id: number; name: string; role: string; phone?: string | null }, meta); } catch { /* never block sign-in on the alert */ }
   run("INSERT INTO sessions (tenant_id,user_id,sid,user_agent,ip,how,created_at,last_seen_at) VALUES (?,?,?,?,?,?,?,?)", u.tenant_id, u.id, sid, (meta.ua ?? "").slice(0, 300) || null, meta.ip ?? null, meta.how ?? null, ts, ts);
   return jwt.sign({ sub: u.id, tv, sid }, config.jwtSecret, { expiresIn: "7d" });
@@ -176,8 +201,15 @@ export function revokeSession(tenantId: number, sessionId: number, by: string) {
 }
 const seenAt = new Map<string, number>();
 function touchSession(sid: string): boolean {
-  const s = get("SELECT id, revoked_at FROM sessions WHERE sid=?", sid);
+  const s = get("SELECT id, tenant_id, revoked_at, last_seen_at FROM sessions WHERE sid=?", sid);
   if (!s || s.revoked_at) return false;
+  // idle timeout: no request for N hours signs the device out (0 = off; default 12). Protects a forgotten open session.
+  const idleH = Number(get("SELECT value FROM settings WHERE tenant_id=? AND key='session_idle_hours'", s.tenant_id)?.value ?? "12") || 0;
+  if (idleH > 0 && s.last_seen_at && Date.now() - Date.parse(s.last_seen_at) > idleH * 3600_000) {
+    run("UPDATE sessions SET revoked_at=?, revoked_by='idle timeout' WHERE id=? AND revoked_at IS NULL", new Date().toISOString(), s.id);
+    seenAt.delete(sid);
+    return false;
+  }
   const last = seenAt.get(sid) ?? 0;
   if (Date.now() - last > 60_000) { seenAt.set(sid, Date.now()); run("UPDATE sessions SET last_seen_at=? WHERE id=?", new Date().toISOString(), s.id); }
   return true;

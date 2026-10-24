@@ -24,7 +24,7 @@ export default function SettingsPage() {
       <KhataRules r={data.khata_rules} onSaved={reload} />
       <Limits l={data.limits} loyaltyRate={data.loyalty_rate} onSaved={reload} />
       <AlertSensitivity s={data.sensitivity} onSaved={reload} />
-      <Safety twofa={data.admin_2fa} faceMatch={data.attend_face_match} onTwofa={reload} />
+      <Safety twofa={data.admin_2fa} faceMatch={data.attend_face_match} idleHours={data.session_idle_hours} allowedIps={data.login_allowed_ips} yourIp={data.your_ip} onTwofa={reload} />
       {account.saas ? <SaasBackupsNote /> : <BackupsPanel request={(p, i) => api(p, i as any)} base="/backups" downloadUrl={(n) => `/api/backups/${n}?token=${linkToken()}`} canRestart />}
       <Hardware />
       <Integrations ai={i.claude.connected} provider={i.claude.provider} wa={i.whatsapp.connected} />
@@ -225,9 +225,11 @@ function KhataRules({ r, onSaved }: { r?: { block_days: number; block_institutio
   );
 }
 
-function Safety({ twofa, faceMatch, onTwofa }: { twofa?: boolean; faceMatch?: boolean; onTwofa?: () => void }) {
+function Safety({ twofa, faceMatch, idleHours, allowedIps, yourIp, onTwofa }: { twofa?: boolean; faceMatch?: boolean; idleHours?: number; allowedIps?: string; yourIp?: string; onTwofa?: () => void }) {
   const { data, reload } = useApi<any>("/safety");
   const { run } = useAction();
+  const [idle, setIdle] = useState(String(idleHours ?? 12));
+  const [ips, setIps] = useState(allowedIps ?? "");
   if (!data) return null;
   return (
     <div className="card space-y-3 p-4">
@@ -241,6 +243,20 @@ function Safety({ twofa, faceMatch, onTwofa }: { twofa?: boolean; faceMatch?: bo
       <label className="flex items-start gap-3"><input type="checkbox" className="mt-1 h-5 w-5" defaultChecked={faceMatch}
         onChange={(e) => run(() => api("/settings", { method: "PUT", body: { attend_face_match: e.target.checked } }), e.target.checked ? "Face match on" : "Face match off").then(() => onTwofa?.())} />
         <span><span className="block font-medium">Attendance selfie face-match (AI)</span><span className="text-sm text-slate-600">Needs Claude AI on. Each check-in selfie is compared to the worker's saved face (set it with the 📷 button on the Kiosk QR card). A mismatch only raises an alert for you to review — it never blocks the worker, so no one is wrongly locked out.</span></span></label>
+      <form className="border-t border-slate-100 pt-3" onSubmit={(e) => { e.preventDefault(); run(() => api("/settings", { method: "PUT", body: { session_idle_hours: Number(idle) } }), "Saved"); }}>
+        <label className="block"><span className="label">Auto sign-out after idle hours (0 = off) — a forgotten open session signs out by itself</span>
+          <span className="mt-1 flex items-center gap-2"><input className="input w-28" type="number" inputMode="numeric" min={0} max={168} value={idle} onChange={(e) => setIdle(e.target.value)} /><span className="text-sm text-slate-500">hours</span><button className="btn-secondary">Save</button></span></label>
+      </form>
+      <form className="border-t border-slate-100 pt-3" onSubmit={(e) => { e.preventDefault(); run(() => api("/settings", { method: "PUT", body: { login_allowed_ips: ips } }), "Saved").then(() => onTwofa?.()); }}>
+        <label className="block"><span className="label">Login IP allow-list (admin / manager only) — leave empty for no restriction</span>
+          <input className="input mt-1" placeholder="e.g. 39.50.0.0/16, 203.0.113.5" value={ips} onChange={(e) => setIps(e.target.value)} /></label>
+        <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-slate-600">
+          <span>Aap ki abhi ki IP: <b className="font-mono">{yourIp ?? "?"}</b></span>
+          {yourIp && <button type="button" className="rounded-md bg-slate-100 px-2 py-0.5 text-xs font-semibold" onClick={() => setIps(ips.trim() ? `${ips.trim()}, ${yourIp}` : yourIp)}>+ meri IP add karein</button>}
+          <button className="btn-secondary ml-auto">Save</button>
+        </div>
+        <p className="mt-1 text-[11px] text-amber-700">Dhyan: ghalat IP daalne par aap khud bhi lock ho sakte hain. Pehle apni IP add karein. Staff/PIN login par asar nahi.</p>
+      </form>
     </div>
   );
 }

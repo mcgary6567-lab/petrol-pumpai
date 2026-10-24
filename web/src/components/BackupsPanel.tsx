@@ -24,10 +24,16 @@ export function BackupsPanel({ request, base, downloadUrl, canRestart = false, t
         <li key={b.name} className="flex flex-wrap items-center gap-2 py-1.5">
           <span className="flex-1 font-mono text-xs">{b.name}</span><span className="text-xs text-slate-500">{Math.round(b.bytes / 1024).toLocaleString()} KB</span>
           <a className="btn-secondary !py-1 text-xs" href={downloadUrl(b.name)}>Download</a>
+          <button className="btn-secondary !py-1 text-xs" title="Password se encrypt kar ke download (safe off-site copy)" onClick={() => {
+            const pass = prompt("Backup encrypt karne ke liye password (kam az kam 8 characters). Ise sambhaal kar rakhein — bhoolne par backup khul nahi sakta:") ?? "";
+            if (pass.length < 8) { if (pass) alert("Password kam az kam 8 characters ka hona chahiye."); return; }
+            const u = downloadUrl(b.name); const [p, q] = u.split("?");
+            window.open(`${p}/enc?${q ? q + "&" : ""}pass=${encodeURIComponent(pass)}`, "_blank");
+          }}>🔒 Encrypted</button>
           <button className="btn-secondary !py-1 text-xs" onClick={() => confirm(`Restore ${b.name}? Today's data is backed up first; the restore finishes when the app restarts.`) && run(() => request(`${base}/${b.name}/restore`, { body: {} }), (r: any) => r.message).then(reload)}>Restore</button>
         </li>
       ))}{!data.backups.length && <li className="py-2 text-slate-500">No backups yet — the first one is made tonight.</li>}</ul>
-      <p className="mt-2 text-xs text-slate-500">Tip: download a backup every week and keep it on another computer or USB, or set BACKUP_DIR to a cloud-synced folder.</p>
+      <p className="mt-2 text-xs text-slate-500">Tip: download a backup every week and keep it on another computer or USB, or set BACKUP_DIR to a cloud-synced folder. 🔒 Encrypted copy ko kisi bhi computer par kholne ke liye: <code className="font-mono">openssl enc -d -aes-256-cbc -pbkdf2 -md sha256 -in file.enc -out backup.db -k 'password'</code></p>
       <CloudBackups cloud={data.cloud} reload={reload} request={request} base={base} />
     </div>
   );

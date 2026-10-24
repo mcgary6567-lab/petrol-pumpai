@@ -6,14 +6,15 @@ import { Router } from "express";
 import { z } from "zod";
 import fs from "node:fs";
 import path from "node:path";
-import { db, getSetting, setSetting, closeDb } from "../db.js";
+import { db, get, getSetting, setSetting, closeDb } from "../db.js";
 import { execFile } from "node:child_process";
 import { h, parse, tid, requirePerm } from "../auth.js";
-import { AppError, audit } from "../services.js";
+import { AppError, audit, createAlert } from "../services.js";
+import { sendToPhone } from "../whatsapp/cloud.js";
 import { config } from "../config.js";
 import { vapidPublicKey, saveSubscription, removeSubscription, subscriptionCount, pushToUser } from "../push.js";
 import { PROVIDERS, cloudStatus, cloudPush, cloudPushAll, cloudConfigured, parseServiceAccount, gdriveCheck, gdriveCfg, dropboxCfg, saveCloud, dropboxAuthUrl, dropboxConnect, dropboxCheck, googleAuthUrl, googleConnect, googleConfigured, type Provider } from "../backupCloud.js";
-import { randomBytes } from "node:crypto";
+import { randomBytes, pbkdf2Sync, createCipheriv } from "node:crypto";
 
 export const system = Router();
 
@@ -137,6 +138,32 @@ export function mountBackupRoutes(r: Router, guard: import("express").RequestHan
       res.download(file);
     } catch (e) { next(e); }
   });
+  /**
+   * Encrypted download for safe off-site storage: AES-256-CBC with a password-derived key (PBKDF2), in OpenSSL's
+   * "Salted__" format so it can always be decrypted anywhere with:
+   *   openssl enc -d -aes-256-cbc -pbkdf2 -md sha256 -in FILE.db.enc -out backup.db -k 'YOUR-PASSWORD'
+   * A leaked Drive / phone copy is then useless without the password.
+   */
+  r.get("/backups/:name/enc", guard, (req, res, next) => {
+    try {
+      if (!NAME.test(req.params.name)) throw new AppError(400, "Bad backup name");
+      const pass = String(req.query.pass ?? "");
+      if (pass.length < 8) throw new AppError(400, "Backup password kam az kam 8 characters ka hona chahiye");
+      const file = path.join(backupDir(), req.params.name);
+      if (!fs.existsSync(file)) throw new AppError(404, "Backup not found");
+      const data = fs.readFileSync(file);
+      const salt = randomBytes(8);
+      const keyIv = pbkdf2Sync(pass, salt, 10000, 48, "sha256"); // 32-byte key + 16-byte IV, matching `openssl -pbkdf2`
+      const cipher = createCipheriv("aes-256-cbc", keyIv.subarray(0, 32), keyIv.subarray(32, 48));
+      const enc = Buffer.concat([Buffer.from("Salted__", "latin1"), salt, cipher.update(data), cipher.final()]);
+      const { t, user } = actor(req);
+      audit(t, user, "Encrypted backup downloaded", req.params.name, { bytes: enc.length });
+      res.setHeader("Content-Type", "application/octet-stream");
+      res.setHeader("Content-Disposition", `attachment; filename="${req.params.name}.enc"`);
+      res.setHeader("X-Decrypt-Hint", "openssl enc -d -aes-256-cbc -pbkdf2 -md sha256 -in FILE.enc -out backup.db -k 'YOUR-PASSWORD'");
+      res.end(enc);
+    } catch (e) { next(e); }
+  });
   /** Restore is staged and swapped in at the next start, so the running database is never overwritten. */
   r.post("/backups/:name/restore", guard, h((req) => {
     if (!NAME.test(req.params.name)) throw new AppError(400, "Bad backup name");
@@ -144,6 +171,13 @@ export function mountBackupRoutes(r: Router, guard: import("express").RequestHan
     if (!fs.existsSync(file)) throw new AppError(404, "Backup not found");
     makeBackup(); // safety copy of today's data first
     fs.copyFileSync(file, `${config.dbPath}.restore`);
+    // restoring the whole database is a high-impact action — alert the owner in case it was not them
+    try {
+      const { t, user } = actor(req);
+      createAlert(t, { type: "security", severity: "critical", title: "Database RESTORE stage kiya gaya", body: `${user.name} ne backup "${req.params.name}" se restore shuru kiya. App restart par apply hoga. Agar yeh aap ne nahi kiya to foran dekh lein.`, dedupe_key: `restore-${t}-${Date.now()}` });
+      const owner = (getSetting(t, "owner_phone", "") || (get("SELECT owner_phone FROM tenants WHERE id=?", t)?.owner_phone as string | undefined)) as string | undefined;
+      if (owner) sendToPhone(owner, `🔐 Database RESTORE stage kiya gaya by ${user.name} (backup: ${req.params.name}). Agar yeh aap ne nahi kiya to foran raabta karein.`).catch(() => { /* best-effort */ });
+    } catch { /* alerting must never block a restore */ }
     return { ok: true, message: "Restart the app to finish the restore. The current data is kept as a backup." };
   }));
   r.delete("/backups/restore", guard, h(() => { fs.rmSync(`${config.dbPath}.restore`, { force: true }); return { ok: true }; }));
