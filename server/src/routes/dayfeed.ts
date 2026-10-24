@@ -71,13 +71,14 @@ dayfeed.get("/day-feed", requireAny("dashboard.view", "cashier.desk", "reports.v
   }
 
   // wholesale client dealings (supply / return / payment / adjustment) — the wholesale dashboard's own feed
-  if (scope === "wholesale") for (const w of all(`SELECT w.id, w.created_at, w.type, w.product, w.litres, w.amount, w.method, w.vehicle_no, w.created_by who, c.name client
+  if (scope === "wholesale") for (const w of all(`SELECT w.id, w.created_at, w.type, w.product, w.litres, w.rate, w.amount, w.method, w.vehicle_no, w.created_by who, c.name client
        FROM wholesale_txns w JOIN wholesale_clients c ON c.id=w.client_id WHERE w.tenant_id=? AND COALESCE(w.voided,0)=0 AND w.created_at>=? AND w.created_at<?`, ...P)) {
     const kind = w.type === "payment" ? "khata_in" : w.type === "supply" ? "ws_supply" : w.type === "return" ? "ws_return" : "adjust";
     const dir: Dir = w.type === "payment" ? "in" : w.type === "return" ? "out" : "neutral";
+    const rateTxt = w.rate ? ` @ Rs ${round2(w.rate)}` : ""; // per-litre price so the print shows the rate, not just litres
     const label = w.type === "payment" ? `Payment aayi${w.method ? ` · ${w.method}` : ""}`
-      : w.type === "supply" ? `Supply di${w.product ? ` · ${PRODUCTS[w.product] ?? w.product}` : ""}${w.litres ? ` ${round2(w.litres)} L` : ""}${w.vehicle_no ? ` · ${w.vehicle_no}` : ""}`
-      : w.type === "return" ? `Wapas aaya${w.litres ? ` · ${round2(w.litres)} L` : ""}` : "Adjustment";
+      : w.type === "supply" ? `Supply di${w.product ? ` · ${PRODUCTS[w.product] ?? w.product}` : ""}${w.litres ? ` ${round2(w.litres)} L` : ""}${rateTxt}${w.vehicle_no ? ` · ${w.vehicle_no}` : ""}`
+      : w.type === "return" ? `Wapas aaya${w.litres ? ` · ${round2(w.litres)} L` : ""}${rateTxt}` : "Adjustment";
     rows.push({ id: `wtx-${w.id}`, at: w.created_at, kind, who: w.who ?? null, party: w.client ?? null, label, amount: round2(w.amount ?? 0), dir, ref: null });
   }
 

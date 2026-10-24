@@ -15,6 +15,9 @@ const today = () => new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 1
 const daysAgo = (n: number) => new Date(Date.now() + 5 * 3600_000 - n * 86_400_000).toISOString().slice(0, 10);
 /** sum of the shown rows that move money one way — "in" = credit (aaya), "out" = debit (gaya). */
 const sumDir = (rs: any[], dir: "in" | "out") => rs.reduce((a, r) => a + (r.dir === dir ? r.amount : 0), 0);
+/** a row that belongs in the Debit (gaya) column of a print: money out, OR credit maal gaya (wholesale supply / supplier udhaar bill). */
+const isDebitRow = (r: any) => r.dir === "out" || r.kind === "ws_supply" || r.kind === "supply_bill";
+const sumDebit = (rs: any[]) => rs.reduce((a, r) => a + (isDebitRow(r) ? r.amount : 0), 0);
 /** share the day's summary (totals + count) on WhatsApp — opens the share sheet so any contact can be picked. */
 function shareWhatsApp(title: string, data: any) {
   const T = data.totals;
@@ -92,7 +95,7 @@ export function DayFeed({ title = "Aaj ki saari entries", scope = "all" }: { tit
               { label: "Kis ne", v: (r: any) => r.who ?? "—" },
               { label: "Party / detail", v: (r: any) => [r.party, r.label].filter(Boolean).join(" · "), total: (rs: any[]) => `${rs.length} entries` },
               { label: "Credit (aaya)", r: true, v: (r: any) => (r.dir === "in" ? pkr(r.amount) : ""), tone: () => "pos" as const, total: (rs: any[]) => pkr(sumDir(rs, "in")), totalTone: "pos" as const },
-              { label: "Debit (gaya)", r: true, v: (r: any) => (r.dir === "out" ? pkr(r.amount) : ""), tone: () => "neg" as const, total: (rs: any[]) => pkr(sumDir(rs, "out")), totalTone: "neg" as const },
+              { label: "Debit (gaya)", r: true, v: (r: any) => (isDebitRow(r) ? pkr(r.amount) : ""), tone: () => "neg" as const, total: (rs: any[]) => pkr(sumDebit(rs)), totalTone: "neg" as const },
             ]} />}
         </div>
       </div>
