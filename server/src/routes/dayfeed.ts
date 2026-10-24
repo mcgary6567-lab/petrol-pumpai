@@ -44,7 +44,12 @@ dayfeed.get("/day-feed", requireAny("dashboard.view", "cashier.desk", "reports.v
     rows.push({ id: `exp-${e.id}`, at: e.created_at, kind: "expense", who: e.who ?? null, party: e.paid_to ?? null,
       label: `${e.category}${e.paid_to ? ` · ${e.paid_to}` : ""} · ${e.method}${e.status === "pending" ? " (approval me)" : ""}`, amount: round2(e.amount), dir: "out", ref: null });
   // cashier counter vouchers (receive / pay) — not voided
-  if (scope === "all" || scope === "cashier") for (const v of all(`SELECT id, created_at, direction, party_type, party_name, amount, method, category, note, created_by who, voided, src FROM cashier_vouchers WHERE tenant_id=? AND created_at>=? AND created_at<? AND COALESCE(voided,0)=0`, ...P))
+  // the Cashier tab shows only the cashier's OWN counter entries — payments that belong to a party module
+  // (khata customer, wholesale client, supplier, staff) are shown in THAT module, not mixed in here.
+  const cashierOnly = scope === "cashier"
+    ? " AND COALESCE(src,'') NOT LIKE 'khata:%' AND COALESCE(src,'') NOT LIKE 'wtx:%' AND COALESCE(src,'') NOT LIKE 'stx:%' AND COALESCE(src,'') NOT LIKE 'staff:%'"
+    : "";
+  if (scope === "all" || scope === "cashier") for (const v of all(`SELECT id, created_at, direction, party_type, party_name, amount, method, category, note, created_by who, voided, src FROM cashier_vouchers WHERE tenant_id=? AND created_at>=? AND created_at<? AND COALESCE(voided,0)=0${cashierOnly}`, ...P))
     rows.push({ id: `cv-${v.id}`, at: v.created_at, kind: v.direction === "in" ? "receive" : "pay", who: v.who ?? null, party: v.party_name ?? null,
       label: `${v.direction === "in" ? "Received" : "Paid"} · ${v.party_type}${v.category ? ` · ${v.category}` : ""} · ${v.method}`, amount: round2(v.amount), dir: v.direction === "in" ? "in" : "out", ref: v.src ?? null });
   // manual khata charges / payments that are NOT a sale and NOT mirrored by a cashier voucher (so nothing shows twice)
