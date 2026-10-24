@@ -88,6 +88,22 @@ dayfeed.get("/day-feed", requireAny("dashboard.view", "cashier.desk", "reports.v
     rows.push({ id: `wtx-${w.id}`, at: w.created_at, kind, who: w.who ?? null, party: w.client ?? null, label, amount: round2(w.amount ?? 0), dir, ref: null });
   }
 
+  // fuel the wholesale officer BUYS from a supplier (bypass purchases — supplier se maal liya, seedha clients ko) + usay di gayi payments
+  if (scope === "wholesale") {
+    for (const p of all(`SELECT p.id, p.created_at, p.product, p.litres, p.cost_rate, p.amount, p.ref, p.created_by who, s.name supplier
+         FROM bypass_purchases p JOIN suppliers s ON s.id=p.supplier_id WHERE p.tenant_id=? AND COALESCE(p.voided,0)=0 AND p.created_at>=? AND p.created_at<?`, ...P)) {
+      const rateTxt = p.cost_rate ? ` @ Rs ${round2(p.cost_rate)}` : "";
+      rows.push({ id: `bpur-${p.id}`, at: p.created_at, kind: "supply_bill", who: p.who ?? null, party: p.supplier ?? null,
+        label: `Supplier se maal liya${p.product ? ` · ${PRODUCTS[p.product] ?? p.product}` : ""}${p.litres ? ` ${round2(p.litres)} L` : ""}${rateTxt}`,
+        amount: round2(p.amount ?? 0), dir: "neutral", ref: p.ref ?? null });
+    }
+    for (const sp of all(`SELECT sp.id, sp.created_at, sp.amount, sp.method, sp.created_by who, s.name supplier
+         FROM bypass_supplier_payments sp JOIN suppliers s ON s.id=sp.supplier_id WHERE sp.tenant_id=? AND COALESCE(sp.voided,0)=0 AND sp.mode<>'client_direct' AND sp.created_at>=? AND sp.created_at<?`, ...P)) {
+      rows.push({ id: `bspay-${sp.id}`, at: sp.created_at, kind: "pay", who: sp.who ?? null, party: sp.supplier ?? null,
+        label: `Supplier ko diya${sp.method ? ` · ${sp.method}` : ""}`, amount: round2(sp.amount ?? 0), dir: "out", ref: null });
+    }
+  }
+
   rows.sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0)); // newest first
 
   // per-person roll-up (who entered what) — the salesman / cashier daily report
