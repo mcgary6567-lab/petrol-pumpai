@@ -76,8 +76,9 @@ dayfeed.get("/day-feed", requireAny("dashboard.view", "cashier.desk", "reports.v
   }
 
   // wholesale client dealings (supply / return / payment / adjustment) — the wholesale dashboard's own feed
+  // only the Wholesale desk's OWN entries — a supply billed through POS (wt.sale_id set) belongs to POS, not here
   if (scope === "wholesale") for (const w of all(`SELECT w.id, w.created_at, w.type, w.product, w.litres, w.rate, w.amount, w.method, w.vehicle_no, w.created_by who, c.name client
-       FROM wholesale_txns w JOIN wholesale_clients c ON c.id=w.client_id WHERE w.tenant_id=? AND COALESCE(w.voided,0)=0 AND w.created_at>=? AND w.created_at<?`, ...P)) {
+       FROM wholesale_txns w JOIN wholesale_clients c ON c.id=w.client_id WHERE w.tenant_id=? AND COALESCE(w.voided,0)=0 AND w.sale_id IS NULL AND w.created_at>=? AND w.created_at<?`, ...P)) {
     const kind = w.type === "payment" ? "khata_in" : w.type === "supply" ? "ws_supply" : w.type === "return" ? "ws_return" : "adjust";
     const dir: Dir = w.type === "payment" ? "in" : w.type === "return" ? "out" : "neutral";
     const rateTxt = w.rate ? ` @ Rs ${round2(w.rate)}` : ""; // per-litre price so the print shows the rate, not just litres
