@@ -93,7 +93,10 @@ export function DayFeed({ title = "Aaj ki saari entries", scope = "all" }: { tit
               { label: "Waqt", v: (r: any) => t12(r.at) },
               { label: "Kism", v: (r: any) => KIND[r.kind]?.en ?? r.kind },
               { label: "Kis ne", v: (r: any) => r.who ?? "—" },
-              { label: "Party / detail", v: (r: any) => [r.party, r.label].filter(Boolean).join(" · "), total: (rs: any[]) => `${rs.length} entries` },
+              { label: "Party", v: (r: any) => r.party ?? "—", total: (rs: any[]) => `${rs.length} entries` },
+              { label: "Tafseel", v: (r: any) => r.label ?? "" },
+              { label: "Litre", r: true, v: (r: any) => (r.litres ? `${num(r.litres)} L` : "") },
+              { label: "Rs/litre", r: true, v: (r: any) => (r.rate ? `Rs ${num(r.rate, 2)}` : "") },
               { label: "Credit (aaya)", r: true, v: (r: any) => (r.dir === "in" ? pkr(r.amount) : ""), tone: () => "pos" as const, total: (rs: any[]) => pkr(sumDir(rs, "in")), totalTone: "pos" as const },
               { label: "Debit (gaya)", r: true, v: (r: any) => (isDebitRow(r) ? pkr(r.amount) : ""), tone: () => "neg" as const, total: (rs: any[]) => pkr(sumDebit(rs)), totalTone: "neg" as const },
             ]} />}
@@ -139,7 +142,11 @@ export function DayFeed({ title = "Aaj ki saari entries", scope = "all" }: { tit
                 <span className={`shrink-0 rounded-md px-1.5 py-0.5 text-[11px] font-semibold ${KIND[r.kind]?.cls ?? "bg-slate-100 text-slate-600"}`}>{KIND[r.kind]?.en ?? r.kind}</span>
                 <span className="min-w-0 flex-1">
                   <span className="block truncate">{r.party ? <b>{r.party}</b> : null}{r.party ? " · " : ""}{r.label}</span>
-                  <span className="text-xs text-slate-500">{t12(r.at)}{r.who ? ` · ${r.who}` : ""}</span>
+                  <span className="text-xs text-slate-500">
+                    {t12(r.at)}{r.who ? ` · ${r.who}` : ""}
+                    {r.litres ? <> · <span className="font-medium text-slate-600">{num(r.litres)} L</span></> : null}
+                    {r.rate ? <> · <span className="font-medium text-slate-600">Rs {num(r.rate, 2)}/L</span></> : null}
+                  </span>
                 </span>
                 <span className={`shrink-0 font-semibold tabular-nums ${amtCls(r.dir)}`}>{sign(r.dir)}{pkr(r.amount)}</span>
               </li>
