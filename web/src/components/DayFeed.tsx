@@ -147,7 +147,7 @@ export function DayFeed({ title = "Aaj ki saari entries", scope = "all" }: { tit
             {!rows.length && <li className="p-4 text-center text-sm text-slate-500">{q ? "Kuch nahi mila" : "Is din koi entry nahi"}</li>}
           </ul>
           <div className="pt-2"><Pager {...paged} /></div>
-          <p className="mt-1 text-[11px] text-slate-400">Sirf dekhne ke liye — {num(data.totals.count)} entries. {scope === "pos" ? "Sirf POS ki sale aur kharch entries." : scope === "cashier" ? "Sirf cashier counter ki receive/pay entries." : scope === "supplier" ? "Sirf supplier ki supply, bill aur payment entries." : scope === "wholesale" ? "Sirf wholesale clients ki supply, wapsi aur payment entries." : "Sale = pump + khata + wholesale; counter receive/pay, khata, supply sab yahan."}</p>
+          <p className="mt-1 text-[11px] text-slate-400">Sirf dekhne ke liye — {num(data.totals.count)} entries. {scope === "pos" ? "Sirf POS ki sale aur kharch entries." : scope === "cashier" ? "Sirf cashier counter ki receive/pay entries." : scope === "supplier" ? "Sirf supplier ki supply, bill aur payment entries." : scope === "wholesale" ? "Wholesale desk ki apni entries — clients ki supply/wapsi/payment aur supplier se liya maal + uski payment." : "Sale = pump + khata + wholesale; counter receive/pay, khata, supply sab yahan."}</p>
         </>
       )}
     </div>
