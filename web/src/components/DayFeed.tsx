@@ -49,6 +49,8 @@ const KIND: Record<string, { en: string; cls: string }> = {
 const amtCls = (dir: string) => (dir === "in" ? "text-emerald-700" : dir === "out" ? "text-rose-700" : "text-slate-700");
 const sign = (dir: string) => (dir === "in" ? "+" : dir === "out" ? "−" : "");
 const t12 = (s: string) => new Date(s).toLocaleTimeString("en-PK", { hour: "2-digit", minute: "2-digit" });
+/** time, plus the day when the list spans more than one day (7/15 din, custom range) */
+const when = (s: string, multiDay: boolean) => multiDay ? `${new Date(s).toLocaleDateString("en-PK", { day: "2-digit", month: "short" })} ${t12(s)}` : t12(s);
 
 const RANGES = [{ k: "today", en: "Aaj", ur: "آج", span: 0 }, { k: "7d", en: "7 din", ur: "7 دن", span: 6 }, { k: "15d", en: "15 din", ur: "15 دن", span: 14 }, { k: "custom", en: "Custom", ur: "تاریخ", span: -1 }] as const;
 
@@ -90,7 +92,7 @@ export function DayFeed({ title = "Aaj ki saari entries", scope = "all" }: { tit
           {data && <PrintListButton title={`${title} — ${data.date}`} subtitle={data.is_today ? "aaj (abhi tak)" : data.date} rows={rows} label="Report / Print"
             note={`Sales ${pkr(data.totals.sales)} · Kharcha ${pkr(data.totals.expenses)} · Aur aaya ${pkr(data.totals.received)} · Aur gaya ${pkr(data.totals.paid)} · ${data.totals.count} entries`}
             columns={[
-              { label: "Waqt", v: (r: any) => t12(r.at) },
+              { label: "Waqt", v: (r: any) => when(r.at, data.from !== data.to) },
               { label: "Kism", v: (r: any) => KIND[r.kind]?.en ?? r.kind },
               { label: "Kis ne", v: (r: any) => r.who ?? "—" },
               { label: "Party", v: (r: any) => r.party ?? "—", total: (rs: any[]) => `${rs.length} entries` },
@@ -146,7 +148,7 @@ export function DayFeed({ title = "Aaj ki saari entries", scope = "all" }: { tit
                 <span className="min-w-0 flex-1">
                   <span className="block truncate">{r.party ? <b>{r.party}</b> : null}{r.party ? " · " : ""}{r.label}</span>
                   <span className="text-xs text-slate-500">
-                    {t12(r.at)}{r.who ? ` · ${r.who}` : ""}
+                    {when(r.at, data.from !== data.to)}{r.who ? ` · ${r.who}` : ""}
                     {r.litres ? <> · <span className="font-medium text-slate-600">{num(r.litres, r.litres % 1 ? 2 : 0)} L</span></> : null}
                     {r.rate ? <> · <span className="font-medium text-slate-600">Rs {num(r.rate, 2)}/L</span></> : null}
                   </span>

@@ -44,7 +44,7 @@ dayfeed.get("/day-feed", requireAny("dashboard.view", "cashier.desk", "reports.v
   // expenses (approved + pending)
   if (scope === "all" || scope === "pos") for (const e of all(`SELECT id, created_at, category, paid_to, method, amount, status, created_by who FROM expenses WHERE tenant_id=? AND created_at>=? AND created_at<?`, ...P))
     rows.push({ id: `exp-${e.id}`, at: e.created_at, kind: "expense", who: e.who ?? null, party: e.paid_to ?? null,
-      label: `${e.category}${e.paid_to ? ` · ${e.paid_to}` : ""} · ${e.method}${e.status === "pending" ? " (approval me)" : ""}`, amount: round2(e.amount), dir: "out", ref: null });
+      label: `${e.category} · ${e.method}${e.status === "pending" ? " (approval me)" : ""}`, amount: round2(e.amount), dir: "out", ref: null });
   // cashier counter vouchers (receive / pay) — not voided
   // the Cashier tab shows only the cashier's OWN counter entries — payments that belong to a party module
   // (khata customer, wholesale client, supplier, staff) are shown in THAT module, not mixed in here.
@@ -60,7 +60,7 @@ dayfeed.get("/day-feed", requireAny("dashboard.view", "cashier.desk", "reports.v
        AND NOT EXISTS (SELECT 1 FROM cashier_vouchers v WHERE v.tenant_id=? AND v.src='khata:'||k.id AND COALESCE(v.voided,0)=0)`, t, from, to, t)) {
     const refund = String(k.ref ?? "").startsWith("refund:");
     rows.push({ id: `khata-${k.id}`, at: k.created_at, kind: refund ? "refund" : k.type === "credit" ? "khata_in" : "khata_charge", who: null, party: k.cust ?? null,
-      label: refund ? `Advance wapas · ${k.cust}` : k.type === "credit" ? `Khata payment · ${k.cust}` : `Khata charge · ${k.cust}`, amount: round2(k.amount), dir: refund ? "out" : k.type === "credit" ? "in" : "neutral", ref: `khata:${k.id}`, ledger_id: k.id });
+      label: refund ? "Advance wapas" : k.type === "credit" ? "Khata payment" : "Khata charge", amount: round2(k.amount), dir: refund ? "out" : k.type === "credit" ? "in" : "neutral", ref: `khata:${k.id}`, ledger_id: k.id });
   }
   // tanker deliveries (stock received)
   if (scope === "all" || scope === "supplier") for (const d of all(`SELECT d.id, d.created_at, d.received_l, d.purchase_rate, k.product, s.name supplier FROM deliveries d JOIN tanks k ON k.id=d.tank_id JOIN stations st ON st.id=k.station_id
