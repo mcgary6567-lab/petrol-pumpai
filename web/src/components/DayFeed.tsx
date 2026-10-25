@@ -95,8 +95,11 @@ export function DayFeed({ title = "Aaj ki saari entries", scope = "all" }: { tit
               { label: "Kis ne", v: (r: any) => r.who ?? "—" },
               { label: "Party", v: (r: any) => r.party ?? "—", total: (rs: any[]) => `${rs.length} entries` },
               { label: "Tafseel", v: (r: any) => r.label ?? "" },
-              { label: "Litre", r: true, v: (r: any) => (r.litres ? `${num(r.litres, r.litres % 1 ? 2 : 0)} L` : "") },
-              { label: "Rs/litre", r: true, v: (r: any) => (r.rate ? `Rs ${num(r.rate, 2)}` : "") },
+              // Litre / Rs-per-litre only when the list has fuel rows (cashier counter entries are money only)
+              ...(rows.some((r: any) => r.litres || r.rate) ? [
+                { label: "Litre", r: true, v: (r: any) => (r.litres ? `${num(r.litres, r.litres % 1 ? 2 : 0)} L` : "") },
+                { label: "Rs/litre", r: true, v: (r: any) => (r.rate ? `Rs ${num(r.rate, 2)}` : "") },
+              ] : []),
               { label: "Credit (aaya)", r: true, v: (r: any) => (r.dir === "in" ? pkr(r.amount) : ""), tone: () => "pos" as const, total: (rs: any[]) => pkr(sumDir(rs, "in")), totalTone: "pos" as const },
               { label: "Debit (gaya)", r: true, v: (r: any) => (isDebitRow(r) ? pkr(r.amount) : ""), tone: () => "neg" as const, total: (rs: any[]) => pkr(sumDebit(rs)), totalTone: "neg" as const },
             ]} />}

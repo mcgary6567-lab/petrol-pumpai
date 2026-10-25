@@ -66,15 +66,17 @@ dayfeed.get("/day-feed", requireAny("dashboard.view", "cashier.desk", "reports.v
   if (scope === "all" || scope === "supplier") for (const d of all(`SELECT d.id, d.created_at, d.received_l, d.purchase_rate, k.product, s.name supplier FROM deliveries d JOIN tanks k ON k.id=d.tank_id JOIN stations st ON st.id=k.station_id
        LEFT JOIN suppliers s ON s.id=d.supplier_id WHERE st.tenant_id=? AND d.created_at>=? AND d.created_at<?`, ...P))
     rows.push({ id: `dlv-${d.id}`, at: d.created_at, kind: "supply", who: null, party: d.supplier ?? null,
-      label: `Supply aayi · ${PRODUCTS[d.product] ?? d.product} ${round2(d.received_l ?? 0)} L${d.supplier ? ` · ${d.supplier}` : ""}`, amount: round2((d.received_l ?? 0) * (d.purchase_rate ?? 0)), dir: "neutral", ref: null });
+      label: `Supply aayi · ${PRODUCTS[d.product] ?? d.product}`, amount: round2((d.received_l ?? 0) * (d.purchase_rate ?? 0)), dir: "neutral", ref: null,
+      litres: d.received_l ? round2(d.received_l) : undefined, rate: d.purchase_rate ? round2(d.purchase_rate) : undefined });
 
   // supplier dealings (purchases on account, payments to suppliers, adjustments) — supplier page feed only; deliveries above cover stock-in
   if (scope === "supplier") for (const x of all(`SELECT x.id, x.created_at, x.type, x.product, x.litres, x.rate, x.amount, x.method, x.note, x.created_by who, s.name supplier
        FROM supplier_txns x JOIN suppliers s ON s.id=x.supplier_id WHERE x.tenant_id=? AND x.created_at>=? AND x.created_at<?`, ...P)) {
     const pay = x.type === "payment";
     rows.push({ id: `stx-${x.id}`, at: x.created_at, kind: pay ? "pay" : x.type === "purchase" ? "supply_bill" : "adjust", who: x.who ?? null, party: x.supplier ?? null,
-      label: pay ? `Supplier ko diya${x.method ? ` · ${x.method}` : ""}` : x.type === "purchase" ? `Udhaar maal${x.product ? ` · ${PRODUCTS[x.product] ?? x.product}` : ""}${x.litres ? ` ${round2(x.litres)} L` : ""}` : `Adjustment${x.note ? ` · ${x.note}` : ""}`,
-      amount: round2(x.amount ?? 0), dir: pay ? "out" : x.type === "purchase" ? "neutral" : "neutral", ref: null });
+      label: pay ? `Supplier ko diya${x.method ? ` · ${x.method}` : ""}` : x.type === "purchase" ? `Udhaar maal${x.product ? ` · ${PRODUCTS[x.product] ?? x.product}` : ""}` : `Adjustment${x.note ? ` · ${x.note}` : ""}`,
+      amount: round2(x.amount ?? 0), dir: pay ? "out" : x.type === "purchase" ? "neutral" : "neutral", ref: null,
+      litres: !pay && x.litres ? round2(x.litres) : undefined, rate: !pay && x.rate ? round2(x.rate) : undefined });
   }
 
   // wholesale client dealings (supply / return / payment / adjustment) — the wholesale dashboard's own feed
