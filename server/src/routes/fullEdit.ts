@@ -7,8 +7,10 @@
  * follow from the rows, so nothing is counted twice; the audit log keeps before / after / reason. A cashier voucher that mirrors the
  * row is moved along with it (party, amount, method, source, day).
  *
- * Rows other flows own (a POS sale's khata line, an opening balance, a tanker-trip supply, a bypass drop / depot-direct leg, a delivery
- * purchase, a withholding-tax sibling, a cheque, a CEO other-entry) are refused with a pointer to their own editor.
+ * Rows other flows own (a POS sale's khata line, an opening balance, a tanker-trip supply, a depot-direct leg, a delivery purchase,
+ * a withholding-tax sibling, a cheque, a CEO other-entry) are refused with a pointer to their own editor.
+ * A bypass drop (client supply of a bypass delivery) IS edited here: client, day, litres, rate, ref, note and vehicle change, and its
+ * bypass_drops row follows (litres at the same unit cost); fuel and kind stay fixed and extra litres must fit in the bypass stock.
  */
 import { Router } from "express";
 import { z } from "zod";
@@ -19,6 +21,7 @@ import { bankAccountFor, DEPOT_PAY, BYPASS_PAY } from "./banks.js";
 import { insertTxn, clientDue, clientDueAll } from "./wholesale.js";
 import { supplierOwed, supplierOwedAll } from "./suppliers.js";
 import { thekedarDue, thekedarDueAll } from "./carriage.js";
+import { bypassStock } from "./bypass.js";
 import { PRODUCTS } from "../config.js";
 
 export const fullEdit = Router();
@@ -43,7 +46,6 @@ function lockedWhy(t: number, kind: Kind, x: Row): string | null {
     if (x.trip_id) return "Ye tanker-trip (bulk) ki entry hai — trip wholesale page se badlein.";
     if (x.sale_id) return "Ye POS par bechi gayi wholesale sale hai — Sale edit se badlein.";
     if (ref.startsWith("oth-")) return "Ye Other-entries (CEO) ki entry hai — wahin se badlein.";
-    if (get("SELECT 1 FROM bypass_drops WHERE tenant_id=? AND wtx_id=? AND voided=0", t, x.id)) return "Ye bypass delivery (drop) hai — Bypass page se void karke dobara daalein.";
     if (get("SELECT 1 FROM bypass_supplier_payments WHERE tenant_id=? AND wtx_id=? AND voided=0", t, x.id)) return "Is par bypass supplier payment judi hai — Bypass page se void karein.";
     if (x.method === DEPOT_PAY || x.method === BYPASS_PAY || get("SELECT 1 FROM supplier_txns WHERE tenant_id=? AND ref=?", t, `wtx:${x.id}`)) return "Ye depot-direct payment hai — void karke dobara daalein.";
     if (x.type === "carriage") return "Ye kiraya entry hai — thekedar page se badlein.";
@@ -63,6 +65,10 @@ function lockedWhy(t: number, kind: Kind, x: Row): string | null {
   }
   return null;
 }
+
+/** The live bypass drop a wholesale supply row belongs to (null for an ordinary supply). */
+const dropOf = (t: number, kind: Kind, wtxId: number) =>
+  kind === "wholesale" ? get("SELECT * FROM bypass_drops WHERE tenant_id=? AND wtx_id=? AND voided=0 AND tank_id IS NULL", t, wtxId) ?? null : null;
 
 /** The row behind a kind + id, with the fields every kind shares. */
 function load(t: number, kind: Kind, id: number) {
@@ -143,6 +149,7 @@ fullEdit.get("/corrections/entry/:kind/:id", requirePerm("entries.edit"), h((req
     parties: parties(t, kind), types: TYPES[kind], products: Object.entries(PRODUCTS).map(([k, v]) => ({ key: k, label: v })),
     accounts: all("SELECT id, bank, title, account_no FROM bank_accounts WHERE tenant_id=? AND active=1 ORDER BY bank", t).map((a) => ({ id: a.id, label: `${a.bank}${a.title ? ` · ${a.title}` : ""}${a.account_no ? ` ·${String(a.account_no).slice(-4)}` : ""}` })),
     locked, created_by: entry.created_by,
+    bypass_drop: (() => { const d = dropOf(t, kind, id); return d ? { delivery_id: d.delivery_id, litres: d.litres, stock_litres: bypassStock(t, d.product).litres } : null; })(),
   };
 }));
 
@@ -182,6 +189,15 @@ fullEdit.post("/corrections/entry/:kind/:id/full-edit", requirePerm("entries.edi
   const rate = withLitres && kind !== "carriage" ? (b.rate !== undefined ? b.rate : e.rate) : null;
   const product = withLitres ? (b.product !== undefined ? b.product : e.product) : null;
   let amount = b.amount != null ? round2(b.amount) : withLitres && litres && rate ? round2(litres * rate) : round2(e.amount);
+  // a bypass drop stays a supply of the same fuel; extra litres must come out of the bypass stock still on hand
+  const drop = dropOf(t, kind, x.id);
+  if (drop) {
+    if (type !== "supply") throw new AppError(400, "Bypass drop ki kism nahi badalti — ye supply hi rahegi (hatana ho to Void karein).");
+    if (product !== drop.product) throw new AppError(400, "Bypass drop ka fuel nahi badalta — Void karke sahi fuel ki delivery daalein.");
+    if (!litres || litres <= 0) throw new AppError(400, "Litre daalein");
+    const extra = round2(litres - drop.litres), held = bypassStock(t, drop.product).litres;
+    if (extra > held + 0.01) throw new AppError(400, `${PRODUCTS[drop.product] ?? drop.product}: bypass stock me sirf ${held} L bacha hai — ${extra} L zyada nahi diye ja sakte.`);
+  }
   if (type === "adjustment" ? amount === 0 : amount <= 0) throw new AppError(400, "Amount theek nahi");
   // a khata "advance wapas" refund (debit, ref refund:<method>) is a money row too — keep it one unless the type changes
   const wasRefund = kind === "khata" && x.type === "debit" && String(x.ref ?? "").startsWith("refund:");
@@ -220,6 +236,9 @@ fullEdit.post("/corrections/entry/:kind/:id/full-edit", requirePerm("entries.edi
         vehicle_no: vehicle, ref, note, txn_date: stamp, account_id: account, location: x.location ?? null, tanker_id: x.tanker_id ?? null, driver_id: x.driver_id ?? null, driver_name: x.driver_name ?? null, silent: true });
       newId = r.id as number;
       run("UPDATE wholesale_txns SET created_at=? WHERE id=?", x.created_at ?? now(), newId);
+      // the bypass drop and any order closed by this supply point at the corrected row
+      if (drop) run("UPDATE bypass_drops SET wtx_id=?, client_id=?, litres=?, cost_amount=?, txn_date=? WHERE id=?", newId, partyId, round2(litres!), round2(litres! * drop.unit_cost), stamp, drop.id);
+      run("UPDATE wholesale_orders SET txn_id=? WHERE tenant_id=? AND txn_id=?", newId, t, x.id);
       run("UPDATE photos SET ref=? WHERE tenant_id=? AND ref=?", `wtx:${newId}`, t, `wtx:${x.id}`);
     } else if (kind === "supplier") {
       run("DELETE FROM supplier_txns WHERE id=? AND tenant_id=?", x.id, t);

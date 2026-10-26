@@ -56,12 +56,15 @@ export function FullEditEntry({ kind, id, onClose, onDone }: { kind: FullEditKin
     product: withLitres ? f.product || null : null, method: moneyRow ? f.method : null, account_id: moneyRow && !isCash ? f.account_id : null,
     ref: f.ref || null, note: f.note || null, vehicle_no: f.vehicle_no || null, slip_no: f.slip_no || null,
   } }), "Entry theek ho gayi — poore system me update, books tally").then((r) => { if (r) { onDone(); onClose(); } });
-  const doVoid = () => run(() => api(VOID_URL[kind](id), { body: { reason: reason.trim() } }), "Entry void ho gayi — books tally").then((r) => { if (r) { onDone(); onClose(); } });
+  // a bypass drop is voided through the bypass flow (its litres go back to the bypass stock)
+  const voidUrl = data?.bypass_drop ? `/bypass/drops/${data.id}/void` : VOID_URL[kind](id);
+  const doVoid = () => run(() => api(voidUrl, { body: { reason: reason.trim() } }), "Entry void ho gayi — books tally").then((r) => { if (r) { onDone(); onClose(); } });
   const canSave = reason.trim().length >= 3 && (f.type === "adjustment" ? amount !== 0 : amount > 0) && !!party;
   return (
     <Modal open onClose={onClose} title={`Entry poori edit karein — CEO`} wide>
       <div className="space-y-3">
         <div className="text-xs text-slate-500">{data.party_label} {e.type} #{e.x_id ?? id}{data.voucher ? ` · voucher ${data.voucher.no}` : ""}{data.created_by ? ` · banaya: ${data.created_by}` : ""}</div>
+        {data.bypass_drop && <div className="rounded-xl bg-blue-50 p-2.5 text-xs text-blue-900">Ye <b>Bypass delivery #{data.bypass_drop.delivery_id}</b> ki drop hai — client, tareekh, litre, rate, gaari sab yahin se badlein. Fuel aur kism nahi badalti. Litre badhane ki gunjaish: bypass stock me {data.bypass_drop.stock_litres} L.</div>}
         {/* before → after */}
         <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs">
           <div className="text-slate-500"><b className="block text-[13px] text-slate-700">Pehle</b>{e.party_name} · {typeLabel(e.type)} · {pkr(e.amount)}<br />{dayLabel(e.day)}{e.method ? ` · ${e.method}` : ""}{e.ref ? ` · ref ${e.ref}` : ""}</div>
@@ -81,12 +84,12 @@ export function FullEditEntry({ kind, id, onClose, onDone }: { kind: FullEditKin
           <p className="mt-1 text-[11px] text-slate-500">Galat bande par lagi entry yahan se sahi bande par chali jati hai: pehle wale ka balance wapas, naye wale par lag jata hai.</p>
         </Field>
         <div className="grid grid-cols-2 gap-2">
-          <Field label="Kism · قسم"><select className="input" value={f.type} onChange={(ev) => changed("type", ev.target.value)}>{data.types.map((t: any) => <option key={t[0]} value={t[0]}>{t[1]}</option>)}</select></Field>
+          <Field label="Kism · قسم"><select className="input" disabled={!!data.bypass_drop} value={f.type} onChange={(ev) => changed("type", ev.target.value)}>{data.types.map((t: any) => <option key={t[0]} value={t[0]}>{t[1]}</option>)}</select></Field>
           <Field label="Tareekh · تاریخ"><input className={`input ${f.day !== e.day ? "border-emerald-500 bg-emerald-50/40" : ""}`} type="date" max={new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 10)} value={f.day} onChange={(ev) => changed("day", ev.target.value)} /></Field>
         </div>
         {withLitres && (
           <div className="grid grid-cols-3 gap-2">
-            <Field label="Fuel"><select className="input" value={f.product} onChange={(ev) => changed("product", ev.target.value)}><option value="">—</option>{data.products.map((p: any) => <option key={p.key} value={p.key}>{p.label}</option>)}</select></Field>
+            <Field label="Fuel"><select className="input" disabled={!!data.bypass_drop} value={f.product} onChange={(ev) => changed("product", ev.target.value)}><option value="">—</option>{data.products.map((p: any) => <option key={p.key} value={p.key}>{p.label}</option>)}</select></Field>
             <Field label="Litres"><input className="input" type="number" inputMode="decimal" value={f.litres} onChange={(ev) => setF((x: any) => ({ ...x, litres: ev.target.value, amountTouched: false }))} /></Field>
             {realKind !== "carriage" && <Field label="Rate (Rs/L)"><input className="input" type="number" inputMode="decimal" value={f.rate} onChange={(ev) => setF((x: any) => ({ ...x, rate: ev.target.value, amountTouched: false }))} /></Field>}
           </div>

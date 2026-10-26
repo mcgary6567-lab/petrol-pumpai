@@ -993,7 +993,17 @@ wholesale.post("/wholesale/txns/:id/void", requirePerm("wholesale.void"), h((req
   if (t.voided) throw new AppError(400, "Already voided");
   if (String(t.ref ?? "").startsWith("oth-")) throw new AppError(400, "Ye Other-entries (CEO) ki entry hai — wahin se undo karein.");
   if (get("SELECT 1 FROM bypass_supplier_payments WHERE tenant_id=? AND wtx_id=? AND voided=0", tid(req), t.id)) throw new AppError(400, "Is par bypass supplier payment judi hai — Bypass page se void karein.");
-  if (get("SELECT 1 FROM bypass_drops WHERE tenant_id=? AND wtx_id=? AND voided=0", tid(req), t.id)) throw new AppError(400, "Ye bypass delivery (drop) ki entry hai — Bypass page se void karein.");
+  // a bypass drop is voided right here too: its litres go back to the bypass stock along with the client's bill
+  const drop = get("SELECT * FROM bypass_drops WHERE tenant_id=? AND wtx_id=? AND voided=0 AND tank_id IS NULL", tid(req), t.id);
+  if (drop) {
+    if (get("SELECT 1 FROM cashier_vouchers WHERE tenant_id=? AND src=? AND voided=0", tid(req), `wtx:${t.id}`)) throw new AppError(400, "Is drop par cashier voucher bana hai — pehle woh void karein");
+    tx(() => {
+      run("UPDATE bypass_drops SET voided=1, note=COALESCE(note,'') || ? WHERE id=?", ` [void: ${b.reason}]`, drop.id);
+      run("UPDATE wholesale_txns SET voided=1, void_reason=? WHERE id=?", `${req.user!.name} (drop void): ${b.reason}`, t.id);
+    });
+    audit(tid(req), req.user!, "bypass_drop_void", `bypdrop:${drop.id}`, { reason: b.reason, litres: drop.litres, cost: drop.cost_amount, client_id: drop.client_id, wtx_id: t.id });
+    return { ok: true };
+  }
   return tx(() => {
     if (t.tank_id && t.litres) {
       if (t.type === "supply") run("UPDATE tanks SET current_l = current_l + ? WHERE id=?", t.litres, t.tank_id);

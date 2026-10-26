@@ -16,6 +16,8 @@ import { round2 } from "../services.js";
 export const dayfeed = Router();
 
 type Dir = "in" | "out" | "neutral";
+/** readable party kind for a counter voucher with no category ("other" is internal and stays out) */
+const PARTY_TYPE: Record<string, string> = { khata: "Khata customer", wholesale: "Wholesale client", supplier: "Supplier", staff: "Staff", expense: "Kharcha" }; // Kism already says Received/Paid
 interface FeedRow { id: string; at: string; kind: string; who: string | null; party: string | null; label: string; amount: number; dir: Dir; ref: string | null; ledger_id?: number; litres?: number; rate?: number }
 
 dayfeed.get("/day-feed", requireAny("dashboard.view", "cashier.desk", "reports.view"), h((req) => {
@@ -53,7 +55,7 @@ dayfeed.get("/day-feed", requireAny("dashboard.view", "cashier.desk", "reports.v
     : "";
   if (scope === "all" || scope === "cashier") for (const v of all(`SELECT id, created_at, direction, party_type, party_name, amount, method, category, note, created_by who, voided, src FROM cashier_vouchers WHERE tenant_id=? AND created_at>=? AND created_at<? AND COALESCE(voided,0)=0${cashierOnly}`, ...P))
     rows.push({ id: `cv-${v.id}`, at: v.created_at, kind: v.direction === "in" ? "receive" : "pay", who: v.who ?? null, party: v.party_name ?? null,
-      label: `${v.direction === "in" ? "Received" : "Paid"} · ${v.party_type}${v.category ? ` · ${v.category}` : ""} · ${v.method}`, amount: round2(v.amount), dir: v.direction === "in" ? "in" : "out", ref: v.src ?? null });
+      label: [v.category || PARTY_TYPE[v.party_type as string], v.method].filter(Boolean).join(" · "), amount: round2(v.amount), dir: v.direction === "in" ? "in" : "out", ref: v.src ?? null });
   // manual khata charges / payments that are NOT a sale and NOT mirrored by a cashier voucher (so nothing shows twice)
   if (scope === "all") for (const k of all(`SELECT k.id, k.created_at, k.type, k.amount, k.ref, k.note, c.name cust FROM khata_ledger k JOIN customers c ON c.id=k.customer_id
      WHERE c.tenant_id=? AND k.created_at>=? AND k.created_at<? AND k.ref NOT LIKE 'SALE-%' AND k.ref NOT LIKE 'SHOP-%' AND k.ref NOT LIKE 'LATE-%'

@@ -258,3 +258,46 @@ test("one supplier account: pump purchases and bypass purchases/payments merge i
   const rows = ov.dues.payable.filter((d: any) => d.kind === "supplier" && d.id === S.id);
   assert.equal(rows.length, 1, "one row per supplier"); assert.ok(Math.abs(rows[0].amount - list.total_owed) < 0.6, "dashboard = total");
 });
+
+test("full edit of a bypass drop from the client page: rate/litres/client change, drop row follows, stock cap holds, books tally", async () => {
+  // fresh delivery: buy 1000 L HSD, drop 600 L to W1 → 400 L held
+  const d = ok(await call("wholesale", "POST", "/api/bypass/deliveries", { station_id: st,
+    purchases: [{ supplier_id: S.id, product: "HSD", litres: 1000, cost_rate: 250 }],
+    drops: [{ client_id: W1.id, product: "HSD", litres: 600, rate: 270, override_limit: true }] }), "delivery");
+  const wtx = d.drops[0].id;
+  const info = ok(await call("admin", "GET", `/api/corrections/entry/wholesale/${wtx}`), "entry info");
+  assert.equal(info.locked, null, "drop is editable here now");
+  assert.equal(info.bypass_drop.delivery_id, d.id);
+  const held0 = ok(await call("wholesale", "GET", "/api/bypass/stock"), "s0").by_product.find((p: any) => p.product === "HSD").litres;
+  // more litres than the stock can cover → refused
+  const tooMany = await call("admin", "POST", `/api/corrections/entry/wholesale/${wtx}/full-edit`, { reason: "galat litre", litres: 600 + held0 + 50, rate: 270 });
+  assert.equal(tooMany.status, 400); assert.match(tooMany.data.error, /bypass stock/);
+  // fuel / kind can't change
+  assert.equal((await call("admin", "POST", `/api/corrections/entry/wholesale/${wtx}/full-edit`, { reason: "fuel", product: "PMG" })).status, 400);
+  assert.equal((await call("admin", "POST", `/api/corrections/entry/wholesale/${wtx}/full-edit`, { reason: "kism", type: "return" })).status, 400);
+  // move to W2, 650 L @ 275
+  const due2 = await clientDueOf(W2.id);
+  const r = ok(await call("admin", "POST", `/api/corrections/entry/wholesale/${wtx}/full-edit`, { reason: "doosre client ki thi, 650 L @275", party_id: W2.id, litres: 650, rate: 275 }), "edit drop");
+  const drop = db.get("SELECT * FROM bypass_drops WHERE delivery_id=? AND voided=0", d.id)!;
+  assert.equal(drop.wtx_id, r.new_id, "drop points at the corrected row");
+  assert.equal(drop.client_id, W2.id); near(drop.litres as number, 650); near(drop.cost_amount as number, 650 * (drop.unit_cost as number));
+  near(await clientDueOf(W2.id) - due2, 650 * 275, "W2 billed the corrected amount");
+  near(ok(await call("wholesale", "GET", "/api/bypass/stock"), "s1").by_product.find((p: any) => p.product === "HSD").litres, held0 - 50, "50 L more out of bypass stock");
+  // the edited drop can still be voided through the bypass flow
+  ok(await call("admin", "POST", `/api/bypass/drops/${r.new_id}/void`, { reason: "test void" }), "void edited drop");
+  const chk = ok(await call("admin", "GET", "/api/books/check"), "books");
+  assert.equal(chk.ok, true, `books tally: ${JSON.stringify(chk)}`);
+  const { tallyBooks } = await import("./helpers/tally.js");
+  await tallyBooks("bypass drop edit");
+});
+
+test("void a bypass drop from the client page's own Void (wholesale txn void) — stock back, books tally", async () => {
+  const d = ok(await call("wholesale", "POST", "/api/bypass/deliveries", { station_id: st,
+    purchases: [{ supplier_id: S.id, product: "HSD", litres: 500, cost_rate: 250 }],
+    drops: [{ client_id: W1.id, product: "HSD", litres: 300, rate: 270, override_limit: true }] }), "delivery");
+  const held0 = ok(await call("wholesale", "GET", "/api/bypass/stock"), "s0").by_product.find((p: any) => p.product === "HSD").litres;
+  ok(await call("admin", "POST", `/api/wholesale/txns/${d.drops[0].id}/void`, { reason: "galat entry" }), "void via client page");
+  near(ok(await call("wholesale", "GET", "/api/bypass/stock"), "s1").by_product.find((p: any) => p.product === "HSD").litres, held0 + 300, "300 L back in bypass stock");
+  assert.equal(db.get("SELECT voided FROM bypass_drops WHERE delivery_id=?", d.id)!.voided, 1);
+  assert.equal(ok(await call("admin", "GET", "/api/books/check"), "books").ok, true);
+});
