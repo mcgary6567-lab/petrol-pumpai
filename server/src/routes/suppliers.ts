@@ -139,8 +139,11 @@ suppliers.get("/suppliers/:id", h((req) => {
  * Each line says where it came from (`source`: pump | bypass). Opening balance is the pump account's.
  */
 export function supplierLines(s: { id: number; opening_balance: number }) {
-  const pump = all(`SELECT x.*, ${proofCol("'stx:'||x.id")} FROM supplier_txns x WHERE x.supplier_id=?`, s.id).map((t) => ({ ...t, source: "pump", effect: t.type === "payment" ? -t.amount : t.amount }));
-  const byPur = all("SELECT id, 'purchase' type, txn_date, created_at, product, litres, cost_rate rate, amount, ref, note, created_by FROM bypass_purchases WHERE supplier_id=? AND voided=0", s.id)
+  // the tanker that carried a purchase: the stock-in delivery, the depot-direct trip, or the bypass delivery
+  const pump = all(`SELECT x.*, ${proofCol("'stx:'||x.id")}, COALESCE(d.tanker_no, tr.vehicle_no) vehicle_no, tr.driver_name
+      FROM supplier_txns x LEFT JOIN deliveries d ON d.id=x.delivery_id LEFT JOIN wholesale_trips tr ON tr.id=x.trip_id WHERE x.supplier_id=?`, s.id).map((t) => ({ ...t, source: "pump", effect: t.type === "payment" ? -t.amount : t.amount }));
+  const byPur = all(`SELECT p.id, 'purchase' type, p.txn_date, p.created_at, p.product, p.litres, p.cost_rate rate, p.amount, p.ref, p.note, p.created_by, bd.vehicle_no, bd.driver_name
+      FROM bypass_purchases p LEFT JOIN bypass_deliveries bd ON bd.id=p.delivery_id WHERE p.supplier_id=? AND p.voided=0`, s.id)
     .map((t) => ({ ...t, id: `b${t.id}`, source: "bypass", effect: t.amount }));
   const byPay = all(`SELECT p.id, 'payment' type, p.txn_date, p.created_at, p.amount, p.mode, p.method, p.account_id, p.ref, p.note, p.created_by, c.name client_name, ${proofCol("'byp:pay:'||p.id")} FROM bypass_supplier_payments p
     LEFT JOIN wholesale_clients c ON c.id=p.client_id WHERE p.supplier_id=? AND p.voided=0`, s.id)
@@ -167,8 +170,8 @@ suppliers.get("/suppliers/:id/statement.csv", (req, res, next) => {
     const out = [
       ["Supplier statement", name].map(esc).join(","),
       ["Opening balance", s.opening_balance].map(esc).join(","),
-      ["Date", "Type", "Product", "Litres", "Rate", "Purchased (debit)", "Paid (credit)", "We owe", "Method", "Ref", "Note"].map(esc).join(","),
-      ...lines.map((t) => [String(t.txn_date).slice(0, 10), t.type, t.product ?? "", t.litres ?? "", t.rate ?? "", t.debit || "", t.credit || "", t.balance, t.method ?? "", t.ref ?? "", t.note ?? ""].map(esc).join(",")),
+      ["Date", "Type", "Vehicle", "Driver", "Product", "Litres", "Rate", "Purchased (debit)", "Paid (credit)", "We owe", "Method", "Ref", "Note"].map(esc).join(","),
+      ...lines.map((t) => [String(t.txn_date).slice(0, 10), t.type, t.vehicle_no ?? "", t.driver_name ?? "", t.product ?? "", t.litres ?? "", t.rate ?? "", t.debit || "", t.credit || "", t.balance, t.method ?? "", t.ref ?? "", t.note ?? ""].map(esc).join(",")),
       ["Closing balance (we owe — pump + bypass)", round2(supplierOwed(s.id) + bypassOwed(s.id))].map(esc).join(","),
     ].join("\n");
     res.setHeader("Content-Type", "text/csv; charset=utf-8");
