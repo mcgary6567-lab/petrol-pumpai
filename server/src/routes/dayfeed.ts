@@ -12,6 +12,7 @@ import { all, pkStart, pkEnd, pkDate } from "../db.js";
 import { h, parse, tid, requireAny } from "../auth.js";
 import { PRODUCTS } from "../config.js";
 import { round2 } from "../services.js";
+import { BYPASS_PAY } from "./banks.js";
 
 export const dayfeed = Router();
 
@@ -83,12 +84,14 @@ dayfeed.get("/day-feed", requireAny("dashboard.view", "cashier.desk", "reports.v
 
   // wholesale client dealings (supply / return / payment / adjustment) — the wholesale dashboard's own feed
   // only the Wholesale desk's OWN entries — a supply billed through POS (wt.sale_id set) belongs to POS, not here
-  if (scope === "wholesale") for (const w of all(`SELECT w.id, w.created_at, w.type, w.product, w.litres, w.rate, w.amount, w.method, w.vehicle_no, w.created_by who, c.name client
+  if (scope === "wholesale") for (const w of all(`SELECT w.id, w.created_at, w.type, w.product, w.litres, w.rate, w.amount, w.method, w.vehicle_no, w.note, w.created_by who, c.name client
        FROM wholesale_txns w JOIN wholesale_clients c ON c.id=w.client_id WHERE w.tenant_id=? AND COALESCE(w.voided,0)=0 AND w.sale_id IS NULL AND w.created_at>=? AND w.created_at<?`, ...P)) {
-    const kind = w.type === "payment" ? "khata_in" : w.type === "supply" ? "ws_supply" : w.type === "return" ? "ws_return" : "adjust";
-    const dir: Dir = w.type === "payment" ? "in" : w.type === "return" ? "out" : "neutral";
+    // settled with a supplier straight (client paid the supplier / gave us fuel): no money came to us
+    const viaSupplier = w.type === "payment" && w.method === BYPASS_PAY;
+    const kind = viaSupplier ? "adjust" : w.type === "payment" ? "khata_in" : w.type === "supply" ? "ws_supply" : w.type === "return" ? "ws_return" : "adjust";
+    const dir: Dir = viaSupplier ? "neutral" : w.type === "payment" ? "in" : w.type === "return" ? "out" : "neutral";
     // litres & rate go in their own fields (separate columns) — label keeps only the action, product and vehicle
-    const label = w.type === "payment" ? `Payment aayi${w.method ? ` · ${w.method}` : ""}`
+    const label = viaSupplier ? (w.note || "Supplier ko seedha diya") : w.type === "payment" ? `Payment aayi${w.method ? ` · ${w.method}` : ""}`
       : w.type === "supply" ? `Supply di${w.product ? ` · ${PRODUCTS[w.product] ?? w.product}` : ""}${w.vehicle_no ? ` · ${w.vehicle_no}` : ""}`
       : w.type === "return" ? "Wapas aaya" : "Adjustment";
     rows.push({ id: `wtx-${w.id}`, at: w.created_at, kind, who: w.who ?? null, party: w.client ?? null, label, amount: round2(w.amount ?? 0), dir, ref: null,

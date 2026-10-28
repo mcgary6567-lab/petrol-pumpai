@@ -108,6 +108,7 @@ insightsRouter.get("/settings", requirePerm("settings.manage"), h((req) => {
     admin_2fa: getSetting(t, "admin_2fa", waLive() ? "1" : "0") === "1", // default-on for admins when WhatsApp OTP is live
     loyalty_rate: Number(getSetting(t, "loyalty_rate", "100")), // rupees per 1 loyalty point (0 = loyalty off)
     attend_face_match: getSetting(t, "attend_face_match", "0") === "1", // opt-in attendance selfie face check (flag-only)
+    void_pin: getSetting(t, "void_pin", "1") !== "0", // cancelling (void / undo / delete) an entry needs the person's PIN
     session_idle_hours: Number(getSetting(t, "session_idle_hours", "12")), // auto sign-out after this many idle hours (0 = off)
     login_allowed_ips: getSetting(t, "login_allowed_ips", ""), // optional IP/CIDR allow-list for admin/manager login
     your_ip: req.ip, // the IP you are on now (so the owner can add it to the allow-list)
@@ -121,7 +122,7 @@ insightsRouter.get("/settings", requirePerm("settings.manage"), h((req) => {
 }));
 insightsRouter.put("/settings", requirePerm("settings.manage"), h((req) => {
   const b = parse(z.object({ business_name: z.string().min(2).optional(), owner_name: z.string().optional(), owner_phone: z.string().optional(),
-    automation: z.record(z.enum(AUTO_SETTINGS), z.boolean()).optional(), google_review_url: z.string().url().or(z.literal("")).optional(), admin_2fa: z.boolean().optional(), loyalty_rate: z.number().min(0).max(100_000).optional(), attend_face_match: z.boolean().optional(), session_idle_hours: z.number().min(0).max(168).optional(), login_allowed_ips: z.string().max(400).optional(),
+    automation: z.record(z.enum(AUTO_SETTINGS), z.boolean()).optional(), google_review_url: z.string().url().or(z.literal("")).optional(), admin_2fa: z.boolean().optional(), loyalty_rate: z.number().min(0).max(100_000).optional(), attend_face_match: z.boolean().optional(), session_idle_hours: z.number().min(0).max(168).optional(), void_pin: z.boolean().optional(), login_allowed_ips: z.string().max(400).optional(),
     khata_rules: z.object({ block_days: z.number().int().min(15).max(365).optional(), block_institutions: z.boolean().optional(), late_fee_pct: z.number().min(0).max(5).optional() }).optional(),
     limits: z.object({ test_limit_l: z.number().min(0).max(500).optional(), shortage_min: z.number().min(0).max(100_000).optional(), utility_alert_pct: z.number().min(0).max(500).optional(),
       shortage_tolerance_pct: z.number().min(0).max(2).optional(), shift_hours: z.number().min(1).max(72).optional(), khata_discount_max: z.number().min(0).max(100_000).optional(), direct_discount_max: z.number().min(0).max(100_000).optional(), direct_discount_alert: z.number().min(0).max(10_000_000).optional(), attend_max_m: z.number().min(0).max(100_000).optional(), pin_admin: z.boolean().optional() }).optional(),
@@ -142,6 +143,7 @@ insightsRouter.put("/settings", requirePerm("settings.manage"), h((req) => {
   if (b.loyalty_rate !== undefined) setSetting(tid(req), "loyalty_rate", String(b.loyalty_rate));
   if (b.attend_face_match !== undefined) setSetting(tid(req), "attend_face_match", b.attend_face_match ? "1" : "0");
   if (b.session_idle_hours !== undefined) setSetting(tid(req), "session_idle_hours", String(b.session_idle_hours));
+  if (b.void_pin !== undefined) setSetting(tid(req), "void_pin", b.void_pin ? "1" : "0");
   if (b.login_allowed_ips !== undefined) setSetting(tid(req), "login_allowed_ips", b.login_allowed_ips.trim());
   if (b.limits) {
     for (const k of ["test_limit_l", "shortage_min", "utility_alert_pct", "shortage_tolerance_pct", "shift_hours", "khata_discount_max", "direct_discount_max", "direct_discount_alert", "attend_max_m"] as const) if (b.limits[k] !== undefined) setSetting(tid(req), k, String(b.limits[k]));

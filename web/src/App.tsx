@@ -1,4 +1,5 @@
 import { createContext, lazy, Suspense, useContext, useEffect, useState, type ReactNode } from "react";
+import { PinPrompt } from "./components/PinPrompt";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { api, getToken, setToken, setMediaToken } from "./lib/api";
 import { ToastProvider, Loading } from "./components/ui";
@@ -168,6 +169,7 @@ export default function App() {
       <AuthProvider>
         <UpdateBanner />
         <LightboxHost />
+        <PinPrompt />
         <BrowserRouter>
           <Suspense fallback={<Loading />}>
           <Routes>

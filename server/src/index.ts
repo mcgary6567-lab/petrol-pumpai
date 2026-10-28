@@ -6,7 +6,7 @@ import { config, aiEnabled, aiProvider, aiModelName, waLive, APP_VERSION } from 
 import { migrate, get, run, closeDb } from "./db.js";
 import bcrypt from "bcryptjs";
 import { AppError } from "./services.js";
-import { requireAuth, errorHandler, authenticate, issueSession, twoFaRequired, create2fa, verify2fa, pinLogin, pinUsers, h, parse, permissionsOf, modulesOf, mediaToken, signToken, revokeSessions } from "./auth.js";
+import { requireAuth, cancelPinGuard, errorHandler, authenticate, issueSession, twoFaRequired, create2fa, verify2fa, pinLogin, pinUsers, h, parse, permissionsOf, modulesOf, mediaToken, signToken, revokeSessions } from "./auth.js";
 import { sendToPhone } from "./whatsapp/cloud.js";
 import { securityHeaders, rateLimit } from "./security.js";
 import { privacyPage, termsPage } from "./legal.js";
@@ -306,6 +306,7 @@ const api = express.Router();
 api.use((_req, res, next) => { res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate"); next(); });
 api.use(requireAuth);
 api.use(announceWrites); // every successful write is announced on /live so open screens refresh by themselves
+api.use(cancelPinGuard); // cancelling (void / undo / delete) an entry needs the person's own PIN
 api.use(tenantGate); // SaaS mode: a locked pump (trial over / suspended) can only reach its account + activate
 api.use(saasAuthed); // the pump owner's own account: status + activate by code
 api.use(auditTrail); // every change is written to the audit log
@@ -323,6 +324,15 @@ api.get("/me", h((req) => ({
   // for links the browser opens itself (photos, downloads, live feed): short-lived and read-only
   media_token: mediaToken(req.user!.id),
 })));
+/** Set or change your own 4-digit PIN (your password proves it is you) — used for PIN sign-in and to confirm a cancel. */
+api.post("/me/pin", rateLimit("pin-set", 10, 10 * 60_000), h((req) => {
+  const b = parse(z.object({ password: z.string().min(1, "Apna password daalein"), pin: z.string().regex(/^\d{4}$/, "PIN 4 digits ka ho") }), req.body);
+  if (/^(\d)\1{3}$/.test(b.pin) || b.pin === "1234") throw new AppError(400, "Itna aasaan PIN nahi (0000, 1111, 1234) — koi aur chunein");
+  const u = get("SELECT * FROM users WHERE id=?", req.user!.id)!;
+  if (!bcrypt.compareSync(b.password, u.password_hash)) throw new AppError(400, "Password sahi nahi");
+  run("UPDATE users SET pin_hash=?, pin_fails=0, pin_locked_until=NULL WHERE id=?", bcrypt.hashSync(b.pin, 10), u.id);
+  return { ok: true };
+}));
 /** Change your own password (the old one is needed); every other session is signed out. */
 api.post("/me/password", rateLimit("pw-change", 10, 10 * 60_000), h((req) => {
   const b = parse(z.object({ old_password: z.string().min(1), new_password: z.string().min(8, "Use at least 8 characters").max(72) }), req.body);

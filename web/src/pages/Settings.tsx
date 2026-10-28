@@ -25,7 +25,7 @@ export default function SettingsPage() {
       <KhataRules r={data.khata_rules} onSaved={reload} />
       <Limits l={data.limits} loyaltyRate={data.loyalty_rate} onSaved={reload} />
       <AlertSensitivity s={data.sensitivity} onSaved={reload} />
-      <Safety twofa={data.admin_2fa} faceMatch={data.attend_face_match} idleHours={data.session_idle_hours} allowedIps={data.login_allowed_ips} yourIp={data.your_ip} onTwofa={reload} />
+      <Safety twofa={data.admin_2fa} voidPin={data.void_pin} faceMatch={data.attend_face_match} idleHours={data.session_idle_hours} allowedIps={data.login_allowed_ips} yourIp={data.your_ip} onTwofa={reload} />
       {account.saas ? <SaasBackupsNote /> : <BackupsPanel request={(p, i) => api(p, i as any)} base="/backups" downloadUrl={(n) => `/api/backups/${n}?token=${linkToken()}`} canRestart />}
       <Hardware />
       <Integrations ai={i.claude.connected} provider={i.claude.provider} wa={i.whatsapp.connected} />
@@ -244,7 +244,7 @@ function KhataRules({ r, onSaved }: { r?: { block_days: number; block_institutio
   );
 }
 
-function Safety({ twofa, faceMatch, idleHours, allowedIps, yourIp, onTwofa }: { twofa?: boolean; faceMatch?: boolean; idleHours?: number; allowedIps?: string; yourIp?: string; onTwofa?: () => void }) {
+function Safety({ twofa, voidPin, faceMatch, idleHours, allowedIps, yourIp, onTwofa }: { twofa?: boolean; voidPin?: boolean; faceMatch?: boolean; idleHours?: number; allowedIps?: string; yourIp?: string; onTwofa?: () => void }) {
   const { data, reload } = useApi<any>("/safety");
   const { run } = useAction();
   const [idle, setIdle] = useState(String(idleHours ?? 12));
@@ -259,6 +259,9 @@ function Safety({ twofa, faceMatch, idleHours, allowedIps, yourIp, onTwofa }: { 
       <label className="flex items-start gap-3"><input type="checkbox" className="mt-1 h-5 w-5" defaultChecked={twofa}
         onChange={(e) => run(() => api("/settings", { method: "PUT", body: { admin_2fa: e.target.checked } }), e.target.checked ? "Two-factor on" : "Two-factor off").then(() => onTwofa?.())} />
         <span><span className="block font-medium">Two-factor login for the owner (admin)</span><span className="text-sm text-slate-600">On by default once WhatsApp is connected. After the password, a 6-digit code is sent to the admin's WhatsApp number — needed to finish signing in. Make sure every admin has a WhatsApp number on the Users page. (If WhatsApp isn't connected yet, 2FA stays off so nobody is locked out.)</span></span></label>
+      <label className="flex items-start gap-3"><input type="checkbox" className="mt-1 h-5 w-5" defaultChecked={voidPin !== false}
+        onChange={(e) => run(() => api("/settings", { method: "PUT", body: { void_pin: e.target.checked } }), e.target.checked ? "Mansookh par PIN on" : "Mansookh par PIN off").then(() => onTwofa?.())} />
+        <span><span className="block font-medium">PIN before cancelling an entry · <span className="font-normal">mansookh par PIN</span></span><span className="text-sm text-slate-600">Every void / undo / delete asks the person for their own 4-digit PIN, so an open screen can't be used to wipe entries. 5 wrong PINs lock it for 10 minutes and you get an alert. Someone with no PIN sets one (with their password) the first time.</span></span></label>
       <label className="flex items-start gap-3"><input type="checkbox" className="mt-1 h-5 w-5" defaultChecked={faceMatch}
         onChange={(e) => run(() => api("/settings", { method: "PUT", body: { attend_face_match: e.target.checked } }), e.target.checked ? "Face match on" : "Face match off").then(() => onTwofa?.())} />
         <span><span className="block font-medium">Attendance selfie face-match (AI)</span><span className="text-sm text-slate-600">Needs Claude AI on. Each check-in selfie is compared to the worker's saved face (set it with the 📷 button on the Kiosk QR card). A mismatch only raises an alert for you to review — it never blocks the worker, so no one is wrongly locked out.</span></span></label>

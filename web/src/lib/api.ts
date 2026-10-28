@@ -52,6 +52,11 @@ const DEVICE_KEY = "pumpai_device";
 export const getDevice = () => { try { return localStorage.getItem(DEVICE_KEY); } catch { return null; } };
 export const setDevice = (t: string | null) => { try { t ? localStorage.setItem(DEVICE_KEY, t) : localStorage.removeItem(DEVICE_KEY); } catch { /* storage blocked */ } };
 
+/* ---- PIN before a cancel: the server answers 428 + code, the app asks the person for their PIN and sends it again ---- */
+export type PinCode = "pin_required" | "pin_wrong" | "pin_not_set";
+let pinAsker: ((code: PinCode, message: string) => Promise<string | null>) | null = null;
+export const setPinAsker = (f: typeof pinAsker) => { pinAsker = f; };
+
 export async function api<T = any>(path: string, opts: { method?: string; body?: unknown; headers?: Record<string, string> } = {}): Promise<T> {
   const token = getToken();
   let res: Response;
@@ -74,6 +79,11 @@ export async function api<T = any>(path: string, opts: { method?: string; body?:
   if (res.status === 401 && !path.startsWith("/auth/")) {
     setToken(null);
     window.location.href = "/login";
+  }
+  if (res.status === 428 && pinAsker && ["pin_required", "pin_wrong", "pin_not_set"].includes(data.code)) {
+    const pin = await pinAsker(data.code, data.error);
+    if (!pin) throw new ApiError(428, "Mansookh nahi hua — PIN nahi diya");
+    return api<T>(path, { ...opts, headers: { ...opts.headers, "x-action-pin": pin } });
   }
   if (!res.ok) throw new ApiError(res.status, data.error ?? `Request failed (${res.status})`);
   return data as T;

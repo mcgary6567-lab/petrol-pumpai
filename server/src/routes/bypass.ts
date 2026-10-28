@@ -64,6 +64,15 @@ export function bypassStock(tenantId: number, product?: string) {
 /** Total value of all bypass stock on hand (the "Bypass stock" asset). */
 export function bypassStockValue(tenantId: number): number { return bypassStock(tenantId).value; }
 
+/** The supplier record behind a wholesale client who sells us fuel — made once, the first time we buy from them. */
+export function clientSupplier(t: number, clientId: number): number {
+  const s = get("SELECT id FROM suppliers WHERE tenant_id=? AND client_id=?", t, clientId);
+  if (s) return s.id as number;
+  const c = get("SELECT * FROM wholesale_clients WHERE id=? AND tenant_id=?", clientId, t)!;
+  return run("INSERT INTO suppliers (tenant_id,name,phone,company,notes,client_id,created_at) VALUES (?,?,?,?,?,?,?)",
+    t, c.name, c.phone ?? null, c.business_name ?? null, "Wholesale client — humein bhi maal deta hai", clientId, now()).id as number;
+}
+
 /* ================= Suppliers we lift bypass fuel from ================= */
 bypass.get("/bypass/suppliers", h((req) => {
   const t = tid(req);
@@ -98,7 +107,8 @@ bypass.post("/bypass/deliveries", requirePerm("wholesale.manage"), h((req) => {
     // one tanker can't be at two depots at once: when fuel is lifted from 2+ places, each tanker carries its own driver
     tankers: z.array(z.object({ tanker_id: z.number().int().optional().nullable(), driver_id: z.number().int().optional().nullable(), vehicle_no: z.string().max(30).optional().nullable() })).max(10).optional(),
     // what we bought now (optional — can buy only, to sell from stock later). Enter the full cost amount, or a per-litre rate.
-    purchases: z.array(z.object({ supplier_id: z.number().int(), product, litres: z.number().positive().max(200_000), cost_rate: z.number().positive().optional(), amount: z.number().positive().optional(), ref: z.string().max(60).optional().nullable() })).default([]),
+    // a line bought from one of our wholesale CLIENTS (client_id instead of supplier_id): the fuel is paid by lowering their due
+    purchases: z.array(z.object({ supplier_id: z.number().int().optional(), client_id: z.number().int().optional(), product, litres: z.number().positive().max(200_000), cost_rate: z.number().positive().optional(), amount: z.number().positive().optional(), ref: z.string().max(60).optional().nullable() })).default([]),
     // where it was dropped (optional — can deliver from the held stock with no fresh purchase). Enter the full sale amount, or a per-litre rate.
     drops: z.array(z.object({ client_id: z.number().int(), product: product.optional(), litres: z.number().positive(), rate: z.number().positive().optional(), amount: z.number().positive().optional(), location: z.string().max(120).optional().nullable(), ref: z.string().max(60).optional().nullable(), order_id: z.number().int().optional().nullable(), override_limit: z.boolean().optional() })).max(30).default([]),
     // some of the load emptied into OUR own tank (not sold to a client) — bypass stock → pump tank at its average cost, no client bill
@@ -106,7 +116,10 @@ bypass.post("/bypass/deliveries", requirePerm("wholesale.manage"), h((req) => {
   }), req.body);
   if (!b.purchases.length && !b.drops.length && !b.to_tank.length) throw new AppError(400, "Add a purchase, a drop, or an own-tank unload");
   if (!get("SELECT id FROM stations WHERE id=? AND tenant_id=?", b.station_id, t)) throw new AppError(400, "Station not found");
-  for (const p of b.purchases) if (!get("SELECT id FROM suppliers WHERE id=? AND tenant_id=?", p.supplier_id, t)) throw new AppError(400, "Supplier not found");
+  for (const p of b.purchases) {
+    if (p.client_id) { if (!get("SELECT id FROM wholesale_clients WHERE id=? AND tenant_id=?", p.client_id, t)) throw new AppError(400, "Client not found"); }
+    else if (!p.supplier_id || !get("SELECT id FROM suppliers WHERE id=? AND tenant_id=?", p.supplier_id, t)) throw new AppError(400, "Supplier not found");
+  }
   // resolve each purchase's amount + rate (whichever was entered)
   const purchases = b.purchases.map((p) => {
     if (p.amount == null && p.cost_rate == null) throw new AppError(400, "Har khareed par amount (ya rate) daalein");
@@ -173,9 +186,19 @@ bypass.post("/bypass/deliveries", requirePerm("wholesale.manage"), h((req) => {
       VALUES (?,?,?,?,?,?,?,?,?,?,?)`, t, b.station_id, fl.tanker_id, fl.driver_id, fl.vehicle_no, fl.driver_name, tankersJson, b.note ?? null, by, ts, now());
     if (b.photo_ids?.length) linkPhotos(t, b.photo_ids, `byp:${id}`);
     // supplier cost lines go INTO bypass stock (asset) — we owe the supplier for all of it
-    for (const p of purchases)
-      run(`INSERT INTO bypass_purchases (tenant_id,delivery_id,supplier_id,product,litres,cost_rate,amount,ref,note,created_by,txn_date,created_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`, t, id, p.supplier_id, p.product, round2(p.litres), p.cost_rate, p.amount, p.ref ?? null, `Bypass delivery #${id}`, by, ts, now());
+    for (const p of purchases) {
+      const supplierId = p.client_id ? clientSupplier(t, p.client_id) : p.supplier_id!;
+      const pur = run(`INSERT INTO bypass_purchases (tenant_id,delivery_id,supplier_id,product,litres,cost_rate,amount,ref,note,created_by,txn_date,created_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`, t, id, supplierId, p.product, round2(p.litres), p.cost_rate, p.amount, p.ref ?? null, `Bypass delivery #${id}`, by, ts, now()).id;
+      // fuel from a client: settled at once against what they owe us (their khata goes down; may go into credit) — the
+      // same legs as "client paid the supplier direct", so the bypass payable nets to zero and every book follows
+      if (p.client_id) {
+        const note = `Fuel humein diya — ${round2(p.litres)} L ${PRODUCTS[p.product] ?? p.product} @ Rs ${p.cost_rate} (bypass #${id})`;
+        const wtx = insertTxn(req, p.client_id, { type: "payment", amount: p.amount, method: BYPASS_PAY, ref: p.ref ?? `BYP-${id}`, note, txn_date: ts }).id as number;
+        run(`INSERT INTO bypass_supplier_payments (tenant_id,supplier_id,amount,mode,client_id,wtx_id,method,account_id,ref,note,created_by,txn_date,created_at)
+          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`, t, supplierId, p.amount, "client_direct", p.client_id, wtx, null, null, `cfuel:${pur}`, note, by, ts, now());
+      }
+    }
     // the weighted-average cost of each fuel's stock AFTER this delivery's purchases (removing at the average keeps it stable within the batch)
     const avg: Record<string, number> = {};
     for (const p of new Set([...Object.keys(dropProd), ...Object.keys(tankProd)])) avg[p] = bypassStock(t, p).avg_cost;
@@ -482,7 +505,14 @@ bypass.post("/bypass/purchases/:id/void", requirePerm("wholesale.void"), h((req)
   const t = tid(req);
   const r = get("SELECT * FROM bypass_purchases WHERE id=? AND tenant_id=? AND voided=0", Number(req.params.id), t);
   if (!r) throw new AppError(404, "Entry not found");
-  run("UPDATE bypass_purchases SET voided=1 WHERE id=?", r.id);
+  tx(() => {
+    run("UPDATE bypass_purchases SET voided=1 WHERE id=?", r.id);
+    // fuel bought from a client: its settlement against their khata goes too
+    for (const s of all("SELECT * FROM bypass_supplier_payments WHERE tenant_id=? AND ref=? AND voided=0", t, `cfuel:${r.id}`)) {
+      run("UPDATE bypass_supplier_payments SET voided=1 WHERE id=?", s.id);
+      if (s.wtx_id) run("UPDATE wholesale_txns SET voided=1, void_reason=? WHERE id=? AND tenant_id=?", "client fuel purchase voided", s.wtx_id, t);
+    }
+  });
   return { ok: true, bypass_owed: bypassOwed(r.supplier_id) };
 }));
 bypass.post("/bypass/payments/:id/void", requirePerm("wholesale.void"), h((req) => {

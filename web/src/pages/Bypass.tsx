@@ -224,7 +224,7 @@ function MonthlyProfitChart({ data }: { data: any[] }) {
 }
 
 /** The bypass delivery form body (no Modal wrapper) — shown inside the "New trip" form's Depot-bypass mode. */
-export function BypassDeliveryForm({ onClose, onDone, fromHeld = false }: { onClose: () => void; onDone: (r?: any) => void; fromHeld?: boolean }) {
+export function BypassDeliveryForm({ onClose, onDone, fromHeld = false, fromClient = false }: { onClose: () => void; onDone: (r?: any) => void; fromHeld?: boolean; fromClient?: boolean }) {
   const { can } = useAuth();
   const suppliers = useApi<any[]>("/bypass/suppliers");
   const clients = useApi<any[]>("/wholesale/clients");
@@ -281,7 +281,7 @@ export function BypassDeliveryForm({ onClose, onDone, fromHeld = false }: { onCl
         e.preventDefault();
         const body = {
           station_id: Number(station), ...fleetBody(fleets[0]), tankers: fleets.filter((f) => f.tanker_id || f.vehicle_no).map(fleetBody), note: note || null, photo_ids: photos, txn_date: txnDate,
-          purchases: validBuys.map((b) => ({ supplier_id: Number(b.supplier_id), product: b.product, litres: Number(b.litres), amount: Number(b.amount) })),
+          purchases: validBuys.map((b) => ({ ...(fromClient ? { client_id: Number(b.supplier_id) } : { supplier_id: Number(b.supplier_id) }), product: b.product, litres: Number(b.litres), amount: Number(b.amount) })),
           drops: validDrops.map((d) => ({ client_id: Number(d.client_id), product: d.product, litres: Number(d.litres), order_id: d.order_id ?? null, location: d.location || null })),
           to_tank: validToTank.map((r) => ({ tank_id: Number(r.tank_id), product: r.product, litres: Number(r.litres), ...(Number(r.amount) > 0 ? { amount: Number(r.amount) } : {}), note: null })),
         };
@@ -332,13 +332,18 @@ export function BypassDeliveryForm({ onClose, onDone, fromHeld = false }: { onCl
         {!fromHeld && <>
         {/* Supplier purchase lines — supplier + litre + full amount */}
         <div className="rounded-xl bg-slate-50 p-3">
-          <div className="mb-2 text-sm font-semibold">Maal kahan se liya (supplier + litre + amount) <span className="font-normal text-slate-400">— optional, sirf stock se bechna hai to khaali</span> · <Ur>خریداری</Ur></div>
+          {fromClient ? <>
+            <div className="mb-1 text-sm font-semibold">🤝 Kis client se maal liya (client + litre + amount) · <Ur>کلائنٹ سے خریداری</Ur></div>
+            <p className="mb-2 text-xs text-slate-500">Is maal ki qeemat us client ke khate se <b>minus</b> ho jayegi (agar woh humein kam deta hai to uska khata credit me chala jayega). Maal neeche wale clients ko jata hai ya apne tank me — baqi balance stock me rehta hai.</p>
+          </> : <div className="mb-2 text-sm font-semibold">Maal kahan se liya (supplier + litre + amount) <span className="font-normal text-slate-400">— optional, sirf stock se bechna hai to khaali</span> · <Ur>خریداری</Ur></div>}
           <div className="space-y-2">
             {buys.map((b, i) => (
               <div key={i} className="grid grid-cols-12 gap-2">
                 <div className="col-span-5">
-                  <select className="input w-full" value={b.supplier_id} onChange={(e) => setBuys(buys.map((x, j) => j === i ? { ...x, supplier_id: e.target.value } : x))}>
-                    <option value="">— supplier —</option>{supplierOpts(suppliers.data ?? [])}{can("suppliers.manage") && <option value="__new__">+ Naya supplier add karein</option>}</select>
+                  {fromClient ? <select className="input w-full" aria-label="Client jis se maal liya" value={b.supplier_id} onChange={(e) => setBuys(buys.map((x, j) => j === i ? { ...x, supplier_id: e.target.value } : x))}>
+                    <option value="">— client —</option>{(clients.data ?? []).filter((c: any) => c.active).map((c: any) => <option key={c.id} value={c.id}>{c.name}{c.city ? ` · ${c.city}` : ""}</option>)}</select>
+                  : <select className="input w-full" value={b.supplier_id} onChange={(e) => setBuys(buys.map((x, j) => j === i ? { ...x, supplier_id: e.target.value } : x))}>
+                    <option value="">— supplier —</option>{supplierOpts(suppliers.data ?? [])}{can("suppliers.manage") && <option value="__new__">+ Naya supplier add karein</option>}</select>}
                   {b.supplier_id === "__new__" && <QuickAdd placeholder="Supplier ka naam" onCancel={() => setBuys(buys.map((x, j) => j === i ? { ...x, supplier_id: "" } : x))}
                     onAdd={async (name) => { const s = await api("/suppliers", { body: { name } }); await suppliers.reload(); setBuys(buys.map((x, j) => j === i ? { ...x, supplier_id: String(s.id) } : x)); }} />}
                 </div>
@@ -349,8 +354,8 @@ export function BypassDeliveryForm({ onClose, onDone, fromHeld = false }: { onCl
               </div>
             ))}
           </div>
-          <button type="button" className="mt-2 inline-flex items-center gap-1 rounded-lg border border-brand-300 bg-brand-50 px-3 py-1.5 text-xs font-semibold text-brand-700 hover:bg-brand-100 active:scale-95" onClick={() => setBuys([...buys, { supplier_id: "", product: "HSD", litres: "", amount: "" }])}><Plus size={14} /> Add supplier</button>
-          <div className="mt-1 text-xs text-slate-500">Khareeda: {Object.entries(bought).map(([p, l]) => `${num(l)} L ${PRODUCTS[p]}`).join(" · ") || "—"} · Supplier ko dene hain {pkr(buyAmt)}</div>
+          <button type="button" className="mt-2 inline-flex items-center gap-1 rounded-lg border border-brand-300 bg-brand-50 px-3 py-1.5 text-xs font-semibold text-brand-700 hover:bg-brand-100 active:scale-95" onClick={() => setBuys([...buys, { supplier_id: "", product: "HSD", litres: "", amount: "" }])}><Plus size={14} /> {fromClient ? "Add client" : "Add supplier"}</button>
+          <div className="mt-1 text-xs text-slate-500">Khareeda: {Object.entries(bought).map(([p, l]) => `${num(l)} L ${PRODUCTS[p]}`).join(" · ") || "—"} · {fromClient ? "Client ke khate se minus" : "Supplier ko dene hain"} {pkr(buyAmt)}</div>
         </div>
 
         </>}

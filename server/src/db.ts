@@ -483,6 +483,7 @@ export function migrate() {
     notes TEXT, active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL)`);
   addColumn("suppliers", "depot_id", "INTEGER");       // which depot this contact belongs to (null = standalone)
   addColumn("suppliers", "company", "TEXT");           // oil company he represents: Shell / PSO / Total …
+  addColumn("suppliers", "client_id", "INTEGER"); // a wholesale client who also sells us fuel ("client se maal"): their supplier side
   // what each role may do, changed per pump from Users & Roles (laid over the built-in defaults)
   // fuel products the admin manages (add/rename/recolour/hide/delete) — see products.ts
   db.exec(`CREATE TABLE IF NOT EXISTS products (

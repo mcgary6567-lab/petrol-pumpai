@@ -301,3 +301,28 @@ test("void a bypass drop from the client page's own Void (wholesale txn void) â€
   assert.equal(db.get("SELECT voided FROM bypass_drops WHERE delivery_id=?", d.id)!.voided, 1);
   assert.equal(ok(await call("admin", "GET", "/api/books/check"), "books").ok, true);
 });
+
+test("fuel bought from a wholesale client (client se maal): their khata goes down, it joins the bypass stock, books tally; void undoes both", async () => {
+  const due1 = await clientDueOf(W1.id), due2 = await clientDueOf(W2.id);
+  const stock0 = ok(await call("wholesale", "GET", "/api/bypass/stock"), "s0").by_product.find((p: any) => p.product === "HSD")?.litres ?? 0;
+  // W2 gives us 1,000 L diesel @ 250; we drop 600 L of it to W1 and hold 400 L
+  const d = ok(await call("wholesale", "POST", "/api/bypass/deliveries", { station_id: st,
+    purchases: [{ client_id: W2.id, product: "HSD", litres: 1000, cost_rate: 250 }],
+    drops: [{ client_id: W1.id, product: "HSD", litres: 600, rate: 270, override_limit: true }] }), "client purchase delivery");
+  near(d.bought, 250000, "bought at the client's price");
+  near(await clientDueOf(W2.id), due2 - 250000, "W2's khata goes down by the fuel value");
+  near(await clientDueOf(W1.id), due1 + 600 * 270, "W1 billed for the drop");
+  near(ok(await call("wholesale", "GET", "/api/bypass/stock"), "s1").by_product.find((p: any) => p.product === "HSD").litres, stock0 + 400, "400 L held");
+  const sup = db.get("SELECT * FROM suppliers WHERE client_id=?", W2.id)!;
+  assert.ok(sup, "the client's supplier side is made once");
+  near(ok(await call("wholesale", "GET", "/api/bypass/suppliers"), "bs").find((s: any) => s.id === sup.id).bypass_owed, 0, "nothing owed: settled against the khata");
+  assert.equal(ok(await call("admin", "GET", "/api/books/check"), "books").ok, true);
+  const { tallyBooks } = await import("./helpers/tally.js");
+  await tallyBooks("client fuel purchase");
+  // undo: drop first (stock back), then the purchase â€” W2's settlement goes with it
+  ok(await call("admin", "POST", `/api/bypass/drops/${d.drops[0].id}/void`, { reason: "test" }), "void drop");
+  const pur = db.get("SELECT id FROM bypass_purchases WHERE delivery_id=?", d.id)!;
+  ok(await call("admin", "POST", `/api/bypass/purchases/${pur.id}/void`, {}), "void purchase");
+  near(await clientDueOf(W2.id), due2, "W2's khata back as before");
+  assert.equal(ok(await call("admin", "GET", "/api/books/check"), "books2").ok, true);
+});

@@ -433,3 +433,36 @@ export function errorHandler(err: any, _req: Request, res: Response, _next: Next
 }
 
 export const tid = (req: Request) => req.user!.tenant_id;
+
+/* ---------------- PIN before cancelling (mansookh) an entry ---------------- */
+/** A request that cancels an entry: any …/void or …/undo, a coupon void, deleting an expense or a CEO other-entry. */
+export function isCancelRequest(method: string, path: string): boolean {
+  if (method === "POST" && /\/(void|undo)$/.test(path)) return true;
+  if (method === "DELETE" && /^\/(expenses|other-entries)\/\d+$/.test(path)) return true;
+  return false;
+}
+/**
+ * Every cancel needs the person's own 4-digit PIN (header x-action-pin) — a second check that it is really them, so a
+ * left-open screen can't wipe entries. Wrong PINs count toward the same lock as PIN sign-in. On by default; the CEO can turn
+ * it off in Settings (setting void_pin = "0"). 428 + code tells the app to ask for the PIN (or to set one first).
+ */
+export const cancelPinGuard: RequestHandler = (req, res, next) => {
+  if (!req.user || !isCancelRequest(req.method, req.path)) return next();
+  if (getSetting(req.user.tenant_id, "void_pin", process.env.NODE_ENV === "test" ? "0" : "1") === "0") return next();
+  const u = get("SELECT id, tenant_id, name, pin_hash, pin_fails, pin_locked_until FROM users WHERE id=?", req.user.id);
+  if (!u) return next();
+  if (!u.pin_hash) { res.status(428).json({ error: "Mansookh karne ke liye apna 4-digit PIN chahiye — pehle PIN banayein.", code: "pin_not_set" }); return; }
+  const pin = String(req.headers["x-action-pin"] ?? "");
+  if (!pin) { res.status(428).json({ error: "Mansookh karne ke liye apna PIN daalein.", code: "pin_required" }); return; }
+  if (u.pin_locked_until && Date.parse(u.pin_locked_until) > Date.now()) {
+    res.status(429).json({ error: `Baar-baar ghalat PIN — ${Math.ceil((Date.parse(u.pin_locked_until) - Date.now()) / 60000)} minute baad koshish karein, ya admin PIN reset kare.` }); return;
+  }
+  if (!bcrypt.compareSync(pin, u.pin_hash)) {
+    const fails = u.pin_fails + 1, locked = fails >= PIN_TRIES;
+    run("UPDATE users SET pin_fails=?, pin_locked_until=? WHERE id=?", locked ? 0 : fails, locked ? new Date(Date.now() + PIN_LOCK_MIN * 60000).toISOString() : null, u.id);
+    if (locked) securityNotify(u.tenant_id, `PIN lock — mansookh ke waqt ghalat PIN — ${u.name}`, `${PIN_TRIES} ghalat PIN entry mansookh karte waqt; ${PIN_LOCK_MIN} minute ke liye lock.`, ownerPhone(u.tenant_id), `voidpin-${u.id}-${pkToday()}`);
+    res.status(428).json({ error: locked ? `Ghalat PIN — ${PIN_LOCK_MIN} minute ke liye lock.` : `Ghalat PIN (${PIN_TRIES - fails} koshishein baqi)`, code: "pin_wrong" }); return;
+  }
+  run("UPDATE users SET pin_fails=0, pin_locked_until=NULL WHERE id=?", u.id);
+  next();
+};
