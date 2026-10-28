@@ -65,7 +65,7 @@ export function DayFeed({ title = "Aaj ki saari entries", scope = "all" }: { tit
   const [q, setQ] = useState("");
   const [people, setPeople] = useState(false);
   const rows = useListFilter<any>(data?.rows, { q, text: (r) => [r.label, r.party, r.who, KIND[r.kind]?.en, Math.round(r.amount)].filter(Boolean).join(" ") });
-  const paged = usePaged(rows, 5);
+  const paged = usePaged(rows, 10);
 
   return (
     <div className="card p-4">
@@ -97,6 +97,7 @@ export function DayFeed({ title = "Aaj ki saari entries", scope = "all" }: { tit
               { label: "Kis ne", v: (r: any) => r.who ?? "—" },
               { label: "Party", v: (r: any) => r.party ?? "—", total: (rs: any[]) => `${rs.length} entries` },
               { label: "Tafseel", v: (r: any) => r.label ?? "" },
+              ...(rows.some((r: any) => r.vehicle) ? [{ label: "Gaari", v: (r: any) => r.vehicle ?? "" }] : []),
               // Litre / Rs-per-litre only when the list has fuel rows (cashier counter entries are money only)
               ...(rows.some((r: any) => r.litres || r.rate) ? [
                 { label: "Litre", r: true, v: (r: any) => (r.litres ? `${num(r.litres, r.litres % 1 ? 2 : 0)} L` : "") },
@@ -141,7 +142,39 @@ export function DayFeed({ title = "Aaj ki saari entries", scope = "all" }: { tit
           )}
 
           <input className="input mb-2" placeholder="Dhoondein — party / kism / amount… · تلاش" value={q} onChange={(e) => setQ(e.target.value)} />
-          <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200">
+          {(() => {
+            const fuelCols = rows.some((r: any) => r.litres || r.rate), vehCol = rows.some((r: any) => r.vehicle);
+            const multi = data.from !== data.to;
+            return (
+              <div className="hidden overflow-x-auto rounded-lg border border-slate-200 sm:block">
+                <table className="w-full min-w-[860px]">
+                  <thead><tr>
+                    <th className="th">Waqt</th><th className="th">Kism</th><th className="th">Kis ne</th><th className="th">Party</th><th className="th">Tafseel</th>
+                    {vehCol && <th className="th">Gaari</th>}{fuelCols && <><th className="th text-right">Litre</th><th className="th text-right">Rate</th></>}
+                    <th className="th text-right">Aaya</th><th className="th text-right">Gaya</th>
+                  </tr></thead>
+                  <tbody>{paged.slice.map((r: any) => (
+                    <tr key={r.id}>
+                      <td className="td whitespace-nowrap text-xs text-slate-600">{when(r.at, multi)}</td>
+                      <td className="td"><span className={`whitespace-nowrap rounded-md px-1.5 py-0.5 text-[11px] font-semibold ${KIND[r.kind]?.cls ?? "bg-slate-100 text-slate-600"}`}>{KIND[r.kind]?.en ?? r.kind}</span></td>
+                      <td className="td text-xs text-slate-600">{r.who ?? "—"}</td>
+                      <td className="td text-sm font-medium">{r.party ?? "—"}</td>
+                      <td className="td text-xs text-slate-600">{r.label}</td>
+                      {vehCol && <td className="td whitespace-nowrap text-xs">{r.vehicle ? <b className="font-semibold text-slate-800">🚛 {r.vehicle}</b> : <span className="text-slate-300">—</span>}</td>}
+                      {fuelCols && <>
+                        <td className="td whitespace-nowrap text-right text-xs tabular-nums">{r.litres ? `${num(r.litres, r.litres % 1 ? 2 : 0)} L` : ""}</td>
+                        <td className="td whitespace-nowrap text-right text-xs tabular-nums">{r.rate ? `Rs ${num(r.rate, 2)}` : ""}</td>
+                      </>}
+                      <td className="td whitespace-nowrap text-right tabular-nums text-emerald-700">{r.dir === "in" ? pkr(r.amount) : ""}</td>
+                      <td className="td whitespace-nowrap text-right tabular-nums text-rose-700">{isDebitRow(r) ? pkr(r.amount) : r.dir === "neutral" ? <span className="text-slate-500">{pkr(r.amount)}</span> : ""}</td>
+                    </tr>
+                  ))}</tbody>
+                </table>
+                {!rows.length && <p className="p-4 text-center text-sm text-slate-500">{q ? "Kuch nahi mila" : "Is din koi entry nahi"}</p>}
+              </div>
+            );
+          })()}
+          <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200 sm:hidden">
             {paged.slice.map((r: any) => (
               <li key={r.id} className="flex items-center gap-2 px-3 py-2 text-sm">
                 <span className={`shrink-0 rounded-md px-1.5 py-0.5 text-[11px] font-semibold ${KIND[r.kind]?.cls ?? "bg-slate-100 text-slate-600"}`}>{KIND[r.kind]?.en ?? r.kind}</span>
@@ -149,6 +182,7 @@ export function DayFeed({ title = "Aaj ki saari entries", scope = "all" }: { tit
                   <span className="block truncate">{r.party ? <b>{r.party}</b> : null}{r.party ? " · " : ""}{r.label}</span>
                   <span className="text-xs text-slate-500">
                     {when(r.at, data.from !== data.to)}{r.who ? ` · ${r.who}` : ""}
+                    {r.vehicle ? <> · <b className="font-semibold text-slate-700">🚛 {r.vehicle}</b></> : null}
                     {r.litres ? <> · <span className="font-medium text-slate-600">{num(r.litres, r.litres % 1 ? 2 : 0)} L</span></> : null}
                     {r.rate ? <> · <span className="font-medium text-slate-600">Rs {num(r.rate, 2)}/L</span></> : null}
                   </span>

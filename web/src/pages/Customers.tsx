@@ -11,7 +11,7 @@ import { PartyAdmin } from "../components/PartyAdmin";
 
 import { api, useApi } from "../lib/api";
 import { Badge, CnicInput, Empty, ErrorBox, Field, ListTools, Loading, Modal, PageHeader, Pager, PhoneInput, Stat, statusTone, useAction, useListFilter, usePaged } from "../components/ui";
-import { ago, d, dt, num, phone, pkr } from "../lib/format";
+import { PRODUCTS, ago, d, dt, num, phone, pkr } from "../lib/format";
 import { useAuth } from "../App";
 import { OpeningBalanceField, type AdvanceReceipt } from "../components/OpeningBalanceField";
 import { useLookups } from "../lib/lookups";
@@ -213,7 +213,7 @@ function CustomerDetail({ id, onClose, onChanged }: { id: string; onClose: () =>
   );
 
   return (
-    <Modal open onClose={onClose} title={c?.name ?? "Customer"} wide>
+    <Modal open onClose={onClose} title={c?.name ?? "Customer"} wide xl>
       {error && <ErrorBox error={error} />}
       {!c ? <Loading /> : (
         <div className="space-y-4">
@@ -261,26 +261,35 @@ function CustomerDetail({ id, onClose, onChanged }: { id: string; onClose: () =>
             <button className="btn-primary" disabled={busy || !msg}>Send</button>
           </form>}
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <section className="min-w-0">
+            <section className="min-w-0 md:col-span-2">
               <h3 className="mb-2 text-sm font-semibold">Khata ledger · <Ur>کھاتہ</Ur></h3>
               <ListTools q={lf.q} onQ={(q) => setLf({ ...lf, q })} from={lf.from} to={lf.to} onFrom={(from) => setLf({ ...lf, from })} onTo={(to) => setLf({ ...lf, to })}
                 placeholder="Slip / gaari / note / amount… · تلاش" shown={ledger.length} total={c.ledger.length} />
-              <div className="max-h-64 overflow-y-auto rounded-lg border border-slate-200">
+              <div className="max-h-96 overflow-auto rounded-lg border border-slate-200">
                 <ul className="divide-y divide-slate-100 sm:hidden">
                   {ledger.map((l: any) => (
                     <li key={l.id} className="px-3 py-2">
-                      <div className="flex items-start justify-between gap-2"><span className="min-w-0 text-sm">{l.product ? <>{num(l.litres, 2)} L {l.product} @ Rs {l.rate}</> : l.note ?? l.ref}</span>
+                      <div className="flex items-start justify-between gap-2"><span className="min-w-0 text-sm">{l.product ? PRODUCTS[l.product] ?? l.product : l.note ?? l.ref}</span>
                         <span className={`shrink-0 text-sm font-medium tabular-nums ${l.type === "credit" ? "text-emerald-600" : ""}`}>{l.type === "credit" ? "−" : "+"}{pkr(l.amount)}</span></div>
-                      <div className="flex items-center gap-2 text-xs text-slate-500"><span>{[d(l.created_at), l.vehicle_no, l.slip_no && `Slip ${l.slip_no}`].filter(Boolean).join(" · ")}</span>{lineActions(l)}</div>
+                      {(l.vehicle_no || l.product) && <div className="flex flex-wrap gap-x-3 text-xs tabular-nums text-slate-700">{l.vehicle_no && <b className="font-semibold">🚛 {l.vehicle_no}</b>}{l.product && <><span>{num(l.litres, l.litres % 1 ? 2 : 0)} L</span><span>Rs {num(l.rate, 2)}/L</span></>}{l.slip_no && <span>Slip {l.slip_no}</span>}</div>}
+                      <div className="flex items-center gap-2 text-xs text-slate-500"><span>{d(l.created_at)}</span>{lineActions(l)}</div>
                       <ProofThumbs ids={l.proof_ids} />
                     </li>
                   ))}
                 </ul>
-                <table className="hidden w-full sm:table"><tbody>
+                <table className="hidden w-full min-w-[820px] sm:table">
+                  <thead className="sticky top-0"><tr><th className="th">Date</th><th className="th">Gaari</th><th className="th">Slip</th><th className="th">Fuel</th><th className="th text-right">Litres</th><th className="th text-right">Rate</th><th className="th">Tafseel</th><th className="th text-right">Charge</th><th className="th text-right">Paid</th><th className="th" /></tr></thead>
+                  <tbody>
                   {ledger.map((l: any) => (
-                    <tr key={l.id}><td className="td text-xs text-slate-500">{d(l.created_at)}</td>
-                      <td className="td text-xs">{l.product ? <>{num(l.litres, 2)} L {l.product} @ Rs {l.rate}<div className="text-slate-400">{[l.vehicle_no, l.slip_no && `Slip ${l.slip_no}`].filter(Boolean).join(" · ")}</div></> : l.note ?? l.ref} <ProofThumbs ids={l.proof_ids} /></td>
-                      <td className={`td text-right text-sm tabular-nums ${l.type === "credit" ? "text-emerald-600" : ""}`}>{l.type === "credit" ? "−" : "+"}{pkr(l.amount)}</td>
+                    <tr key={l.id}><td className="td whitespace-nowrap text-xs text-slate-500">{d(l.created_at)}</td>
+                      <td className="td whitespace-nowrap text-xs">{l.vehicle_no ? <b className="font-semibold text-slate-800">🚛 {l.vehicle_no}</b> : <span className="text-slate-300">—</span>}</td>
+                      <td className="td whitespace-nowrap text-xs">{l.slip_no ?? ""}</td>
+                      <td className="td whitespace-nowrap text-xs">{l.product ? PRODUCTS[l.product] ?? l.product : ""}</td>
+                      <td className="td whitespace-nowrap text-right text-xs tabular-nums">{l.litres ? `${num(l.litres, l.litres % 1 ? 2 : 0)} L` : ""}</td>
+                      <td className="td whitespace-nowrap text-right text-xs tabular-nums">{l.rate ? `Rs ${num(l.rate, 2)}` : ""}</td>
+                      <td className="td text-xs text-slate-600">{l.product ? (/^[\d.]+\s*L\b/.test(l.note ?? "") ? "" : l.note) : l.note ?? l.ref} <ProofThumbs ids={l.proof_ids} /></td>
+                      <td className="td whitespace-nowrap text-right text-sm tabular-nums">{l.type !== "credit" ? pkr(l.amount) : ""}</td>
+                      <td className="td whitespace-nowrap text-right text-sm tabular-nums text-emerald-600">{l.type === "credit" ? pkr(l.amount) : ""}</td>
                       <td className="td">{lineActions(l)}</td></tr>
                   ))}
                 </tbody></table>

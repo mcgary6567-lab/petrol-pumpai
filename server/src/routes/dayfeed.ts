@@ -19,7 +19,7 @@ export const dayfeed = Router();
 type Dir = "in" | "out" | "neutral";
 /** readable party kind for a counter voucher with no category ("other" is internal and stays out) */
 const PARTY_TYPE: Record<string, string> = { khata: "Khata customer", wholesale: "Wholesale client", supplier: "Supplier", staff: "Staff", expense: "Kharcha" }; // Kism already says Received/Paid
-interface FeedRow { id: string; at: string; kind: string; who: string | null; party: string | null; label: string; amount: number; dir: Dir; ref: string | null; ledger_id?: number; litres?: number; rate?: number }
+interface FeedRow { id: string; at: string; kind: string; who: string | null; party: string | null; label: string; amount: number; dir: Dir; ref: string | null; ledger_id?: number; litres?: number; rate?: number; vehicle?: string }
 
 dayfeed.get("/day-feed", requireAny("dashboard.view", "cashier.desk", "reports.view"), h((req) => {
   const t = tid(req);
@@ -34,7 +34,7 @@ dayfeed.get("/day-feed", requireAny("dashboard.view", "cashier.desk", "reports.v
   const rows: FeedRow[] = [];
 
   // fuel / shop sales (cash, card, khata, wholesale all in one table) — the billed value incl. any baqi-cash / shop-saman
-  if (scope === "all" || scope === "pos") for (const s of all(`SELECT s.id, s.created_at, s.product, s.litres, s.rate, s.amount, s.payment_method, s.cash_back, s.cash_back_litres, s.items_cost, s.khareed,
+  if (scope === "all" || scope === "pos") for (const s of all(`SELECT s.id, s.created_at, s.product, s.litres, s.rate, s.amount, s.payment_method, s.vehicle_no, s.cash_back, s.cash_back_litres, s.items_cost, s.khareed,
        u.name who, c.name cust FROM sales s JOIN stations st ON st.id=s.station_id LEFT JOIN users u ON u.id=s.created_by LEFT JOIN customers c ON c.id=s.customer_id
      WHERE st.tenant_id=? AND s.created_at>=? AND s.created_at<?`, ...P)) {
     const litres = round2((s.litres ?? 0) + (s.cash_back_litres ?? 0));
@@ -42,7 +42,7 @@ dayfeed.get("/day-feed", requireAny("dashboard.view", "cashier.desk", "reports.v
     // litres & per-litre rate go in their own fields (separate columns) — label keeps product + payment method
     rows.push({ id: `sale-${s.id}`, at: s.created_at, kind: "sale", who: s.who ?? null, party: s.cust ?? null,
       label: `${PRODUCTS[s.product] ?? s.product} · ${s.payment_method}`, amount, dir: "in", ref: `SALE-${s.id}`,
-      litres: litres || undefined, rate: s.rate ? round2(s.rate) : undefined });
+      litres: litres || undefined, rate: s.rate ? round2(s.rate) : undefined, vehicle: s.vehicle_no || undefined });
   }
   // expenses (approved + pending)
   if (scope === "all" || scope === "pos") for (const e of all(`SELECT id, created_at, category, paid_to, method, amount, status, created_by who FROM expenses WHERE tenant_id=? AND created_at>=? AND created_at<?`, ...P))
@@ -92,26 +92,30 @@ dayfeed.get("/day-feed", requireAny("dashboard.view", "cashier.desk", "reports.v
     const dir: Dir = viaSupplier ? "neutral" : w.type === "payment" ? "in" : w.type === "return" ? "out" : "neutral";
     // litres & rate go in their own fields (separate columns) — label keeps only the action, product and vehicle
     const label = viaSupplier ? (w.note || "Supplier ko seedha diya") : w.type === "payment" ? `Payment aayi${w.method ? ` · ${w.method}` : ""}`
-      : w.type === "supply" ? `Supply di${w.product ? ` · ${PRODUCTS[w.product] ?? w.product}` : ""}${w.vehicle_no ? ` · ${w.vehicle_no}` : ""}`
+      : w.type === "supply" ? `Supply di${w.product ? ` · ${PRODUCTS[w.product] ?? w.product}` : ""}`
       : w.type === "return" ? "Wapas aaya" : "Adjustment";
     rows.push({ id: `wtx-${w.id}`, at: w.created_at, kind, who: w.who ?? null, party: w.client ?? null, label, amount: round2(w.amount ?? 0), dir, ref: null,
-      litres: w.litres ? round2(w.litres) : undefined, rate: w.rate ? round2(w.rate) : undefined });
+      litres: w.litres ? round2(w.litres) : undefined, rate: w.rate ? round2(w.rate) : undefined, vehicle: w.vehicle_no || undefined });
   }
 
   // fuel the wholesale officer BUYS from a supplier (bypass purchases — supplier se maal liya, seedha clients ko) + usay di gayi payments
   if (scope === "wholesale") {
-    for (const p of all(`SELECT p.id, p.created_at, p.product, p.litres, p.cost_rate, p.amount, p.ref, p.created_by who, s.name supplier
-         FROM bypass_purchases p JOIN suppliers s ON s.id=p.supplier_id WHERE p.tenant_id=? AND COALESCE(p.voided,0)=0 AND p.created_at>=? AND p.created_at<?`, ...P)) {
+    for (const p of all(`SELECT p.id, p.created_at, p.product, p.litres, p.cost_rate, p.amount, p.ref, p.created_by who, s.name supplier, bd.vehicle_no
+         FROM bypass_purchases p JOIN suppliers s ON s.id=p.supplier_id LEFT JOIN bypass_deliveries bd ON bd.id=p.delivery_id WHERE p.tenant_id=? AND COALESCE(p.voided,0)=0 AND p.created_at>=? AND p.created_at<?`, ...P)) {
       rows.push({ id: `bpur-${p.id}`, at: p.created_at, kind: "supply_bill", who: p.who ?? null, party: p.supplier ?? null,
         label: `Supplier se maal liya${p.product ? ` · ${PRODUCTS[p.product] ?? p.product}` : ""}`,
         amount: round2(p.amount ?? 0), dir: "neutral", ref: p.ref ?? null,
-        litres: p.litres ? round2(p.litres) : undefined, rate: p.cost_rate ? round2(p.cost_rate) : undefined });
+        litres: p.litres ? round2(p.litres) : undefined, rate: p.cost_rate ? round2(p.cost_rate) : undefined, vehicle: p.vehicle_no || undefined });
     }
     for (const sp of all(`SELECT sp.id, sp.created_at, sp.amount, sp.method, sp.created_by who, s.name supplier
          FROM bypass_supplier_payments sp JOIN suppliers s ON s.id=sp.supplier_id WHERE sp.tenant_id=? AND COALESCE(sp.voided,0)=0 AND sp.mode<>'client_direct' AND sp.created_at>=? AND sp.created_at<?`, ...P)) {
       rows.push({ id: `bspay-${sp.id}`, at: sp.created_at, kind: "pay", who: sp.who ?? null, party: sp.supplier ?? null,
         label: `Supplier ko diya${sp.method ? ` · ${sp.method}` : ""}`, amount: round2(sp.amount ?? 0), dir: "out", ref: null });
     }
+    // the Wholesale tab is the wholesale OFFICER's own desk: entries the CEO / cashier / others made stay out of it
+    // (when the pump has no wholesale-role user, everything stays, so the tab is never empty by accident)
+    const officers = new Set(all("SELECT name FROM users WHERE tenant_id=? AND role='wholesale'", t).map((u) => String(u.name)));
+    if (officers.size) { const mine = rows.filter((r) => r.who && officers.has(r.who)); rows.length = 0; rows.push(...mine); }
   }
 
   rows.sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0)); // newest first

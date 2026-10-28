@@ -44,3 +44,19 @@ test("day-feed: rows + day totals + per-person roll-up, read-only", async () => 
   assert.equal(past.status, 200);
   assert.equal(past.data.is_today, false);
 });
+
+test("wholesale tab = the wholesale officer's own entries; CEO's wholesale entries stay out; vehicle in its own field", async () => {
+  tokens.wholesale = (await call("", "POST", "/api/auth/login", { email: "wholesale@pumpai.pk", password: "demo1234" })).data.token;
+  const st = (await call("admin", "GET", "/api/stations")).data[0].id;
+  const cl = (await call("wholesale", "GET", "/api/wholesale/clients")).data[0];
+  const mine = await call("wholesale", "POST", `/api/wholesale/clients/${cl.id}/supply`, { station_id: st, product: "HSD", litres: 30, vehicle_no: "LES-1234", override_limit: true });
+  assert.equal(mine.status, 200, JSON.stringify(mine.data));
+  const ceo = await call("admin", "POST", `/api/wholesale/clients/${cl.id}/supply`, { station_id: st, product: "HSD", litres: 20, override_limit: true });
+  assert.equal(ceo.status, 200, JSON.stringify(ceo.data));
+  const feed = (await call("admin", "GET", "/api/day-feed?scope=wholesale")).data;
+  const ids = feed.rows.map((r: any) => r.id);
+  assert.ok(ids.includes(`wtx-${mine.data.id}`), "officer's supply shown");
+  assert.ok(!ids.includes(`wtx-${ceo.data.id}`), "CEO's supply not on the officer's tab");
+  const row = feed.rows.find((r: any) => r.id === `wtx-${mine.data.id}`);
+  assert.equal(row.vehicle, "LES-1234"); assert.ok(!row.label.includes("LES-1234"), "vehicle not repeated in the label");
+});
