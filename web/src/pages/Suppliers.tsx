@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { CancelForm, pinHeader } from "../components/CancelEntry";
 import { useAuth } from "../App";
 import { FullEditEntry } from "../components/FullEdit";
 import { Plus, Printer, Wallet, Building2, Pencil, Download, Trash2 } from "lucide-react";
@@ -392,23 +393,13 @@ function SupplierDetail({ id, onClose, onChanged, depots, onDepots }: { id: numb
 
 /** Void one statement line with a reason (CEO). Pump-side rows go through Corrections; bypass rows through the Bypass void routes. */
 function VoidLine({ t, supplier, onClose, onDone }: { t: any; supplier: string; onClose: () => void; onDone: () => void }) {
-  const [reason, setReason] = useState("");
   const { busy, run } = useAction();
   const isBypass = t.source === "bypass";
   const rawId = String(t.id).replace(/^b/, "");
   const url = isBypass ? (t.type === "purchase" ? `/bypass/purchases/${rawId}/void` : `/bypass/payments/${rawId}/void`) : `/corrections/supplier-txn/${t.id}/void`;
   const what = `${t.type}${isBypass ? " (bypass)" : ""} · ${t.product ? `${num(t.litres)} L ${PRODUCTS[t.product]} · ` : ""}${pkr(t.amount)}`;
-  return (
-    <Modal open onClose={onClose} title={`Void entry — ${supplier}`}>
-      <div className="space-y-3">
-        <div className="rounded-xl bg-red-50 p-3 text-sm text-red-900"><b>{what}</b><div className="text-xs">{dt(t.txn_date)}{t.ref ? ` · ${t.ref}` : ""}{t.note ? ` · ${t.note}` : ""}</div></div>
-        <p className="text-sm text-slate-600">{isBypass ? "Bypass entry void hogi (payment ke saath client ki taraf wali entry bhi). Sahi entry Bypass page se dobara karein." : "Entry hat jayegi: supplier ka baqaya, cash/bank aur ledger sab wapas ho jayenge. Audit log me wajah ke saath record rahega."}</p>
-        <Field label="Wajah (kyun void) — zaroori"><input className="input" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. galti se 52 lakh likha, 52 hazar tha" /></Field>
-        <div className="flex justify-end gap-2">
-          <button className="btn-secondary" onClick={onClose}>Cancel</button>
-          <button className="btn-primary !bg-red-600 hover:!bg-red-700" disabled={busy || reason.trim().length < 3} onClick={async () => { if (await run(() => api(url, { body: { reason: reason.trim() } }), "Entry void ho gayi")) onDone(); }}><Trash2 size={15} /> Void karein</button>
-        </div>
-      </div>
-    </Modal>
-  );
+  return <CancelForm title={`Entry mansookh karein — ${supplier}`} busy={busy} onClose={onClose}
+    what={<><b>{what}</b><div className="text-xs">{dt(t.txn_date)}{t.ref ? ` · ${t.ref}` : ""}{t.note ? ` · ${t.note}` : ""}</div></>}
+    hint={isBypass ? "Bypass entry mansookh hogi (payment ke saath client ki taraf wali entry bhi). Sahi entry Bypass page se dobara karein." : "Entry hat jayegi: supplier ka baqaya, cash/bank aur ledger sab wapas ho jayenge. Audit log me wajah ke saath record rahega."}
+    onDone={async (a) => { if (await run(() => api(url, { body: { reason: a.reason }, headers: pinHeader(a) }), "Entry mansookh ho gayi")) onDone(); }} />;
 }

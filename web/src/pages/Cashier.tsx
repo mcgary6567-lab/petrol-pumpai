@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { askCancel, pinHeader } from "../components/CancelEntry";
 import { FullEditEntry } from "../components/FullEdit";
 import { PrintFooter, PrintHeader } from "../components/Letterhead";
 import { Link, useSearchParams } from "react-router-dom";
@@ -230,7 +231,7 @@ function Desk({ go, onSlip }: { go: (k: string, extra?: Record<string, string>) 
               )}
               {can("cashier.void") && /^(khata|wholesale|other|supplier|expense|staff)$/.test(v.party_type) && v.method !== "Cheque" && !ownedSrc(v.src) && (
                 <button title="Void this voucher (CEO)" aria-label="Void voucher"
-                  onClick={async () => { const reason = prompt(`Is voucher ko void karein? (${pkr(v.amount)} ${v.party_name})\nWajah likhein:`); if (reason && reason.trim().length >= 3) { await api(`/cashier/vouchers/${v.id}/void`, { body: { reason: reason.trim() } }); reload(); } }}
+                  onClick={async () => { const a = await askCancel({ title: "Voucher mansookh karein", what: <><b>{pkr(v.amount)}</b> · {v.party_name}{v.method ? ` · ${v.method}` : ""}</>, hint: "Voucher mansookh hoga aur us ka cash/bank ka asar wapas ho jayega. Audit log me record rahega." }); if (a) { await api(`/cashier/vouchers/${v.id}/void`, { body: { reason: a.reason }, headers: pinHeader(a) }).catch((e) => alert(e.message)); reload(); } }}
                   className="mr-2 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-500 hover:bg-rose-100 hover:text-rose-600"><Ban size={15} /></button>
               )}
             </li>
@@ -921,7 +922,7 @@ function Vouchers({ onSlip }: { onSlip: (v: any) => void }) {
               )}
               {!v.voided && can("cashier.void") && /^(khata|wholesale|other|supplier|expense|staff)$/.test(v.party_type) && v.method !== "Cheque" && !ownedSrc(v.src) && (
                 <button title="Void this voucher (CEO)" aria-label="Void voucher"
-                  onClick={async () => { const reason = prompt(`Is voucher ko void karein? (${pkr(v.amount)} ${v.party_name})\nWajah likhein:`); if (reason && reason.trim().length >= 3) { await api(`/cashier/vouchers/${v.id}/void`, { body: { reason: reason.trim() } }); reload(); } }}
+                  onClick={async () => { const a = await askCancel({ title: "Voucher mansookh karein", what: <><b>{pkr(v.amount)}</b> · {v.party_name}{v.method ? ` · ${v.method}` : ""}</>, hint: "Voucher mansookh hoga aur us ka cash/bank ka asar wapas ho jayega. Audit log me record rahega." }); if (a) { await api(`/cashier/vouchers/${v.id}/void`, { body: { reason: a.reason }, headers: pinHeader(a) }).catch((e) => alert(e.message)); reload(); } }}
                   className="mr-2 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-500 hover:bg-rose-100 hover:text-rose-600"><Ban size={15} /></button>
               )}
             </li>

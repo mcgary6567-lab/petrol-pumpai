@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { askCancel, pinHeader } from "../components/CancelEntry";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell } from "recharts";
 import { Plus, Truck, Factory, Download, Printer, HandCoins, Ban } from "lucide-react";
 import { api, linkToken, useApi } from "../lib/api";
@@ -136,9 +137,9 @@ export function BypassVoucher({ id, onClose }: { id: number; onClose: () => void
   const { data, error, reload } = useApi<any>(`/bypass/deliveries/${id}`);
   const { can } = useAuth();
   const voidDrop = async (x: any) => {
-    const reason = prompt(`${x.client_name} ka ${num(x.litres, 0)} L drop mansookh karein? Stock wapas bypass me, client ka bill cancel.\nWajah likhein:`);
-    if (!reason || reason.trim().length < 3) return;
-    try { await api(`/bypass/drops/${x.id}/void`, { body: { reason: reason.trim() } }); reload(); } catch (e: any) { alert(e.message); }
+    const a = await askCancel({ title: "Bypass drop mansookh karein", what: <><b>{x.client_name}</b> · {num(x.litres, 0)} L</>, hint: "Litre wapas bypass stock me chale jayenge aur client ka bill cancel ho jayega." });
+    if (!a) return;
+    try { await api(`/bypass/drops/${x.id}/void`, { body: { reason: a.reason }, headers: pinHeader(a) }); reload(); } catch (e: any) { alert(e.message); }
   };
   const vehicle = data
     ? (data.tankers?.length ? data.tankers : [{ tanker_no: data.vehicle_no, driver_name: data.driver_name }])
@@ -635,7 +636,7 @@ function LeftoverToTank({ stock, onChanged }: { stock: any[]; onChanged: () => v
             <li key={r.id} className="flex flex-wrap items-center gap-2 py-2">
               <span className="min-w-0 flex-1"><b>{num(r.litres)} L {PRODUCTS[r.product] ?? r.product}</b> → {r.tank} <span className="text-slate-500">· {r.station} · {dt(r.txn_date)} · by {r.created_by}</span>{r.note && <span className="block text-xs text-slate-500">{r.note}</span>}</span>
               <span className="tabular-nums text-slate-600">@ {num(r.unit_cost, 2)} = {pkr(r.cost_amount)}</span>
-              {can("wholesale.void") && <button className="btn-secondary !px-2 !py-1 text-xs text-red-600" disabled={busy} onClick={() => { const reason = prompt("Undo? Wajah likhein:"); if (reason && reason.trim().length >= 3) run(() => api(`/bypass/to-tank/${r.id}/void`, { body: { reason } }), "Undone — bypass stock aur tank wapas").then(() => { list.reload(); onChanged(); }); }}><Ban size={12} /> Undo</button>}
+              {can("wholesale.void") && <button className="btn-secondary !px-2 !py-1 text-xs text-red-600" disabled={busy} onClick={async () => { const a = await askCancel({ title: "Apne tank wala maal wapas (undo)", what: <><b>{num(r.litres, 0)} L</b> · {r.tank}</>, hint: "Litre tank se nikal kar wapas bypass stock me chale jayenge." }); if (a) run(() => api(`/bypass/to-tank/${r.id}/void`, { body: { reason: a.reason }, headers: pinHeader(a) }), "Undone — bypass stock aur tank wapas").then(() => { list.reload(); onChanged(); }); }}><Ban size={12} /> Undo</button>}
             </li>
           ))}
         </ul>

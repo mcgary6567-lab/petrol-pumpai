@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { askCancel, pinHeader, } from "../components/CancelEntry";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Plus, Search, Truck, Wallet, Undo2, SlidersHorizontal, Download, Printer, Ban, ArrowLeft, Pencil, Send, Receipt, Eye } from "lucide-react";
 import { ImportExport } from "../components/ImportExport";
@@ -476,8 +477,9 @@ function ClientDetail({ id }: { id: string }) {
                 if (confirm(`Void this fuel payment of ${pkr(row.amount)}? Any bank movement will be reversed.`)) { await api(`/carriage/fuel-payments/${String(row.id).replace("bfp", "")}/void`, { body: {} }).catch((e) => alert(e.message)); refresh(); }
                 return;
               }
-              const reason = prompt(`Void ${row.type} #${row.id} of ${pkr(row.amount)}? Enter a reason:`);
-              if (reason) { await api(`/wholesale/txns/${row.id}/void`, { body: { reason } }).catch((e) => alert(e.message)); refresh(); }
+              const a = await askCancel({ title: `Entry mansookh karein — ${row.type === "payment" ? "Payment" : row.type === "supply" ? "Supply" : row.type} #${row.id}`,
+                what: <><b>{pkr(row.amount)}</b> · {row.type}{row.product ? ` · ${num(row.litres, 2)} L` : ""}{row.method ? ` · ${row.method}` : ""}<div className="text-xs">{dt(row.txn_date)}{row.ref ? ` · ${row.ref}` : ""}{row.note ? ` · ${row.note}` : ""}</div></> });
+              if (a) { await api(`/wholesale/txns/${row.id}/void`, { body: { reason: a.reason }, headers: pinHeader(a) }).catch((e) => alert(e.message)); refresh(); }
             } : undefined} />
             <div className="flex justify-between bg-slate-50 px-4 py-2 text-sm font-semibold"><span>{stmt.data.closing_balance < -0.5 ? "Closing — advance with us" : "Closing balance (due)"}</span><span className="tabular-nums">{pkr(Math.abs(stmt.data.closing_balance))}</span></div>
           </>

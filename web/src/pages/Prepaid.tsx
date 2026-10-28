@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { askCancel, pinHeader } from "../components/CancelEntry";
 import { Link, useParams } from "react-router-dom";
 import QRCode from "qrcode";
 import { Ticket, Wallet, Plus, Printer, ArrowLeft, Ban } from "lucide-react";
@@ -63,7 +64,7 @@ function Coupons() {
             <div className="mt-2 flex justify-end gap-2">
               <Link className="btn-secondary min-h-9 !py-1 text-xs" to={`/coupons/${b.batch}`}><Printer size={13} /> Print / view</Link>
               {can("settings.manage") && b.n - b.used - b.void > 0 && <button className="btn-secondary min-h-9 !px-2.5 !py-1 text-red-600" aria-label="Cancel unused coupons of this book"
-                onClick={() => { const reason = prompt("Why cancel the unused coupons of this book? (lost, refunded…)"); if (reason) run(() => api("/coupons/void", { body: { batch: b.batch, reason } }), "Unused coupons cancelled").then(reload); }}><Ban size={15} /></button>}
+                onClick={async () => { const a = await askCancel({ title: "Bache hue coupons mansookh karein", what: <b>Coupon book {b.batch}</b>, hint: "Is book ke jo coupons abhi istemal nahi hue woh cancel ho jayenge (gum ho gayi / paise wapas)." }); if (a) run(() => api("/coupons/void", { body: { batch: b.batch, reason: a.reason }, headers: pinHeader(a) }), "Unused coupons cancelled").then(reload); }}><Ban size={15} /></button>}
             </div>
           </li>
         ))}
@@ -85,7 +86,7 @@ function Coupons() {
                 <td className="whitespace-nowrap px-3 text-right">
                   <Link className="btn-secondary px-2 py-1 text-xs" to={`/coupons/${b.batch}`}><Printer size={13} /> Print / view</Link>
                   {can("settings.manage") && b.n - b.used - b.void > 0 && <button className="ml-1 rounded p-1 text-slate-400 hover:text-red-600" title="Cancel unused coupons of this book"
-                    onClick={() => { const reason = prompt("Why cancel the unused coupons of this book? (lost, refunded…)"); if (reason) run(() => api("/coupons/void", { body: { batch: b.batch, reason } }), "Unused coupons cancelled").then(reload); }}><Ban size={15} /></button>}
+                    onClick={async () => { const a = await askCancel({ title: "Bache hue coupons mansookh karein", what: <b>Coupon book {b.batch}</b>, hint: "Is book ke jo coupons abhi istemal nahi hue woh cancel ho jayenge (gum ho gayi / paise wapas)." }); if (a) run(() => api("/coupons/void", { body: { batch: b.batch, reason: a.reason }, headers: pinHeader(a) }), "Unused coupons cancelled").then(reload); }}><Ban size={15} /></button>}
                 </td>
               </tr>
             ))}

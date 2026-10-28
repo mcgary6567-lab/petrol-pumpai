@@ -4,6 +4,7 @@
  * The server reverses the old row and posts the corrected one (balances, cash book, bank and ledger follow); reason is required.
  */
 import { useEffect, useMemo, useState } from "react";
+import { askCancel, pinHeader } from "./CancelEntry";
 import { Ban, Pencil } from "lucide-react";
 import { api, useApi } from "../lib/api";
 import { Field, Loading, Modal, useAction } from "./ui";
@@ -25,7 +26,6 @@ export function FullEditEntry({ kind, id, onClose, onDone }: { kind: FullEditKin
   const { busy, run } = useAction();
   const [f, setF] = useState<any>(null);
   const [reason, setReason] = useState("");
-  const [voiding, setVoiding] = useState(false);
   const [q, setQ] = useState("");
   useEffect(() => { if (data?.entry && !f) setF({ party_id: data.entry.party_id, type: data.entry.type, day: data.entry.day, amount: String(data.entry.amount ?? ""), litres: String(data.entry.litres ?? ""), rate: String(data.entry.rate ?? ""), product: data.entry.product ?? "", method: data.entry.method ?? "Cash", account_id: data.entry.account_id ?? null, ref: data.entry.ref ?? "", note: data.entry.note ?? "", vehicle_no: data.entry.vehicle_no ?? "", slip_no: data.entry.slip_no ?? "" }); }, [data, f]);
   const e = data?.entry;
@@ -58,7 +58,11 @@ export function FullEditEntry({ kind, id, onClose, onDone }: { kind: FullEditKin
   } }), "Entry theek ho gayi — poore system me update, books tally").then((r) => { if (r) { onDone(); onClose(); } });
   // a bypass drop is voided through the bypass flow (its litres go back to the bypass stock)
   const voidUrl = data?.bypass_drop ? `/bypass/drops/${data.id}/void` : VOID_URL[kind](id);
-  const doVoid = () => run(() => api(voidUrl, { body: { reason: reason.trim() } }), "Entry void ho gayi — books tally").then((r) => { if (r) { onDone(); onClose(); } });
+  const doVoid = async () => {
+    const a = await askCancel({ title: "Entry mansookh karein", what: <><b>{pkr(data.entry.amount)}</b> · {data.entry.party_name} · {data.entry.type}<div className="text-xs">{dayLabel(data.entry.day)}{data.entry.ref ? ` · ref ${data.entry.ref}` : ""}</div></> });
+    if (!a) return;
+    run(() => api(voidUrl, { body: { reason: a.reason }, headers: pinHeader(a) }), "Entry mansookh ho gayi — books tally").then((r) => { if (r) { onDone(); onClose(); } });
+  };
   const canSave = reason.trim().length >= 3 && (f.type === "adjustment" ? amount !== 0 : amount > 0) && !!party;
   return (
     <Modal open onClose={onClose} title={`Entry poori edit karein — CEO`} wide>
@@ -125,11 +129,9 @@ export function FullEditEntry({ kind, id, onClose, onDone }: { kind: FullEditKin
         </div>
         <Field label="Wajah (kyun badla) — zaroori"><input className="input" value={reason} onChange={(ev) => setReason(ev.target.value)} placeholder="e.g. galat customer par lag gayi thi, 52 lakh ki jagah 52 hazar" /></Field>
         <div className="flex flex-wrap items-center justify-between gap-2">
-          {!voiding ? <button type="button" className="btn-secondary !text-red-700" disabled={busy} onClick={() => setVoiding(true)}><Ban size={15} /> Void (poori hatao)</button>
-            : <button type="button" className="btn-primary !bg-red-600 hover:!bg-red-700" disabled={busy || reason.trim().length < 3} onClick={doVoid} title="Wajah likh kar confirm"><Ban size={15} /> Confirm void</button>}
+          <button type="button" className="btn-secondary !text-red-700" disabled={busy} onClick={doVoid} title="Wajah aur PIN ke saath mansookh"><Ban size={15} /> Mansookh (poori hatao)</button>
           <div className="flex gap-2"><button className="btn-secondary" onClick={onClose}>Cancel</button><button className="btn-primary" disabled={busy || !canSave} onClick={save}>Save — sab update</button></div>
         </div>
-        {voiding && reason.trim().length < 3 && <p className="text-xs text-red-700">Void ke liye bhi wajah likhein.</p>}
         <p className="text-[11px] text-slate-400">{num(data.parties?.length ?? 0)} {data.party_label.toLowerCase()}s · pehle banaya {e.created_by ?? "—"}</p>
       </div>
     </Modal>

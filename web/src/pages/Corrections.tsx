@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { askCancel, pinHeader, CancelForm } from "../components/CancelEntry";
 import { FullEditEntry } from "../components/FullEdit";
 import { useSearchParams } from "react-router-dom";
 import { api, useApi } from "../lib/api";
@@ -62,11 +63,10 @@ const TABS: { t: Tab; label: string; short: string; icon: any }[] = [
 /** Ask for a reason (min 3 chars) and POST the void; calls reload on success. */
 function useVoid(reload: () => void) {
   const { busy, run } = useAction();
-  const doVoid = (url: string, what: string) => {
-    const reason = window.prompt(`${what}\n\nKyun theek kar rahe hain? (wajah zaroori)`);
-    if (reason == null) return;
-    if (reason.trim().length < 3) { window.alert("Wajah likhein (kam se kam 3 harf)."); return; }
-    run(() => api(url, { body: { reason: reason.trim() } }), "Theek ho gaya — books tally").then((r) => { if (r) reload(); });
+  const doVoid = async (url: string, what: string) => {
+    const a = await askCancel({ title: "Entry mansookh karein", what: <b>{what}</b> });
+    if (!a) return;
+    run(() => api(url, { body: { reason: a.reason }, headers: pinHeader(a) }), "Theek ho gaya — books tally").then((r) => { if (r) reload(); });
   };
   return { busy, doVoid };
 }
@@ -466,19 +466,7 @@ export function EditKhata({ entry, onClose, onDone }: { entry: any; onClose: () 
 
 /** Void an entry with a reason (CEO) — used from the party pages (khata customer, supplier) so the fix happens where the entry was seen. */
 export function VoidWithReason({ title, what, hint, url, onClose, onDone }: { title: string; what: string; hint?: string; url: string; onClose: () => void; onDone: () => void }) {
-  const [reason, setReason] = useState("");
   const { busy, run } = useAction();
-  return (
-    <Modal open onClose={onClose} title={title}>
-      <div className="space-y-3">
-        <div className="rounded-xl bg-red-50 p-3 text-sm text-red-900"><b>{what}</b></div>
-        <p className="text-sm text-slate-600">{hint ?? "Entry hat jayegi: balance, cash/bank aur ledger sab wapas ho jayenge. Audit log me wajah ke saath record rahega."}</p>
-        <Field label="Wajah (kyun void) — zaroori"><input className="input" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. galti se double entry ho gayi" /></Field>
-        <div className="flex justify-end gap-2">
-          <button className="btn-secondary" onClick={onClose}>Cancel</button>
-          <button className="btn-primary !bg-red-600 hover:!bg-red-700" disabled={busy || reason.trim().length < 3} onClick={async () => { if (await run(() => api(url, { body: { reason: reason.trim() } }), "Entry void ho gayi — books tally")) onDone(); }}><Ban size={15} /> Void karein</button>
-        </div>
-      </div>
-    </Modal>
-  );
+  return <CancelForm title={title} what={<b>{what}</b>} hint={hint} busy={busy} onClose={onClose}
+    onDone={async (a) => { if (await run(() => api(url, { body: { reason: a.reason }, headers: pinHeader(a) }), "Entry mansookh ho gayi — books tally")) onDone(); }} />;
 }

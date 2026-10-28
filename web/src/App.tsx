@@ -1,4 +1,5 @@
 import { createContext, lazy, Suspense, useContext, useEffect, useState, type ReactNode } from "react";
+import { CancelHost } from "./components/CancelEntry";
 import { PinPrompt } from "./components/PinPrompt";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { api, getToken, setToken, setMediaToken } from "./lib/api";
@@ -170,6 +171,7 @@ export default function App() {
         <UpdateBanner />
         <LightboxHost />
         <PinPrompt />
+        <CancelHost />
         <BrowserRouter>
           <Suspense fallback={<Loading />}>
           <Routes>
