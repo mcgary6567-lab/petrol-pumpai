@@ -69,3 +69,16 @@ test("platform backup upload is refused before the body is read (no login)", asy
   const r = await fetch(base + "/api/platform/catalog/from-backup", { method: "POST", body: "x".repeat(1000) });
   assert.ok(r.status === 401 || r.status === 404, String(r.status));
 });
+
+test("encrypted backup: password goes in a POST for a one-time ticket — never in the download link", async () => {
+  ok(await call("admin", "POST", "/api/backups", {}), "make a backup");
+  const name = ok(await call("admin", "GET", "/api/backups"), "list").backups[0].name;
+  assert.equal((await call("admin", "POST", `/api/backups/${name}/enc-ticket`, { pass: "short" })).status, 400);
+  const { ticket } = ok(await call("admin", "POST", `/api/backups/${name}/enc-ticket`, { pass: "very-secret-pass" }), "ticket");
+  const dl = await fetch(`${base}/api/backups/${name}/enc?ticket=${ticket}`, { headers: { authorization: `Bearer ${tokens.admin}` } });
+  assert.equal(dl.status, 200); assert.equal(Buffer.from(await dl.arrayBuffer()).subarray(0, 8).toString("latin1"), "Salted__");
+  const again = await fetch(`${base}/api/backups/${name}/enc?ticket=${ticket}`, { headers: { authorization: `Bearer ${tokens.admin}` } });
+  assert.equal(again.status, 400, "ticket works once");
+  const old = await fetch(`${base}/api/backups/${name}/enc?pass=very-secret-pass`, { headers: { authorization: `Bearer ${tokens.admin}` } });
+  assert.equal(old.status, 400, "password in the URL no longer accepted");
+});

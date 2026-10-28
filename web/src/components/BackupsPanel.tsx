@@ -27,8 +27,13 @@ export function BackupsPanel({ request, base, downloadUrl, canRestart = false, t
           <button className="btn-secondary !py-1 text-xs" title="Password se encrypt kar ke download (safe off-site copy)" onClick={() => {
             const pass = prompt("Backup encrypt karne ke liye password (kam az kam 8 characters). Ise sambhaal kar rakhein — bhoolne par backup khul nahi sakta:") ?? "";
             if (pass.length < 8) { if (pass) alert("Password kam az kam 8 characters ka hona chahiye."); return; }
-            const u = downloadUrl(b.name); const [p, q] = u.split("?");
-            window.open(`${p}/enc?${q ? q + "&" : ""}pass=${encodeURIComponent(pass)}`, "_blank");
+            // the password is POSTed for a one-time ticket — it never goes into a link (links end up in logs / history)
+            run(() => request(`${base}/${b.name}/enc-ticket`, { body: { pass } })).then((r: any) => {
+              if (!r?.ticket) return;
+              const u = downloadUrl(b.name); const [p, q] = u.split("?");
+              // a plain link click (not a pop-up), so the browser never blocks it after the wait
+              const a = document.createElement("a"); a.href = `${p}/enc?${q ? q + "&" : ""}ticket=${encodeURIComponent(r.ticket)}`; a.download = `${b.name}.enc`; document.body.appendChild(a); a.click(); a.remove();
+            });
           }}>🔒 Encrypted</button>
           <button className="btn-secondary !py-1 text-xs" onClick={() => confirm(`Restore ${b.name}? Today's data is backed up first; the restore finishes when the app restarts.`) && run(() => request(`${base}/${b.name}/restore`, { body: {} }), (r: any) => r.message).then(reload)}>Restore</button>
         </li>

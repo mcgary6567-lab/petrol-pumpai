@@ -213,3 +213,12 @@ test("platform pushes the catalog into a pump's shop: priced items created once 
   assert.equal(new Set(again.map((x) => x.name.toLowerCase())).size, again.length, "no duplicates");
   assert.ok(again.some((x) => x.name === "Zic X7 4 ltr" && x.price === 8000));
 });
+
+test("platform login: 5 wrong passwords lock the account for 15 minutes; even the right password waits", async () => {
+  for (let i = 0; i < 4; i++) assert.equal((await call("", "POST", "/api/platform/login", { email: "owner@petrolpumpai.pk", password: "wrong-" + i })).status, 401);
+  assert.equal((await call("", "POST", "/api/platform/login", { email: "owner@petrolpumpai.pk", password: "wrong-5" })).status, 429, "5th wrong locks");
+  assert.equal((await call("", "POST", "/api/platform/login", { email: "owner@petrolpumpai.pk", password: "platform-pass-123" })).status, 429, "locked even with the right password");
+  const { run } = await import("../src/db.js");
+  run("UPDATE platform_admins SET locked_until=NULL, login_fails=0");
+  ok(await call("", "POST", "/api/platform/login", { email: "owner@petrolpumpai.pk", password: "platform-pass-123" }), "unlocked after the wait");
+});

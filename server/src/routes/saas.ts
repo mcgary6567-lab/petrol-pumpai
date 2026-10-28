@@ -108,7 +108,18 @@ export function requirePlatform(req: Request, _res: Response, next: NextFunction
 saasPublic.post("/platform/login", h((req) => {
   const b = parse(z.object({ email: z.string().email(), password: z.string().min(1) }), req.body);
   const a = get("SELECT * FROM platform_admins WHERE email=?", b.email.toLowerCase());
-  if (!a || !bcrypt.compareSync(b.password, a.password_hash)) throw new AppError(401, "Email ya password ghalat");
+  if (a?.locked_until && Date.parse(a.locked_until) > Date.now())
+    throw new AppError(429, `Bahut ghalat koshishen — ${Math.ceil((Date.parse(a.locked_until) - Date.now()) / 60_000)} minute baad dobara try karein`);
+  if (!a || !bcrypt.compareSync(b.password, a.password_hash)) {
+    if (a) {
+      const fails = (a.login_fails ?? 0) + 1;
+      const lock = fails >= 5 ? new Date(Date.now() + 15 * 60_000).toISOString() : null;
+      run("UPDATE platform_admins SET login_fails=?, locked_until=? WHERE id=?", lock ? 0 : fails, lock, a.id);
+      if (lock) throw new AppError(429, "5 ghalat password — platform login 15 minute ke liye band");
+    }
+    throw new AppError(401, "Email ya password ghalat");
+  }
+  run("UPDATE platform_admins SET login_fails=0, locked_until=NULL WHERE id=?", a.id);
   return { token: platformToken(a.id), admin: { email: a.email, name: a.name } };
 }));
 

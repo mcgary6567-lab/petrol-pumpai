@@ -15,6 +15,8 @@ import { config, waLive, aiEnabled } from "../config.js";
 import { vapidPublicKey, saveSubscription, removeSubscription, subscriptionCount, pushToUser } from "../push.js";
 import { PROVIDERS, cloudStatus, cloudPush, cloudPushAll, cloudConfigured, parseServiceAccount, gdriveCheck, gdriveCfg, dropboxCfg, saveCloud, dropboxAuthUrl, dropboxConnect, dropboxCheck, googleAuthUrl, googleConnect, googleConfigured, type Provider } from "../backupCloud.js";
 import { randomBytes, pbkdf2Sync, createCipheriv } from "node:crypto";
+/** one-time tickets for encrypted backup downloads: ticket → backup name + password, valid 60 s */
+const encTickets = new Map<string, { name: string; pass: string; exp: number }>();
 
 export const system = Router();
 
@@ -144,11 +146,24 @@ export function mountBackupRoutes(r: Router, guard: import("express").RequestHan
    *   openssl enc -d -aes-256-cbc -pbkdf2 -md sha256 -in FILE.db.enc -out backup.db -k 'YOUR-PASSWORD'
    * A leaked Drive / phone copy is then useless without the password.
    */
+  /** Step 1: the password goes in a POST body (never a URL, so it can't land in a log) and buys a one-time, 60-second ticket. */
+  r.post("/backups/:name/enc-ticket", guard, h((req) => {
+    if (!NAME.test(req.params.name)) throw new AppError(400, "Bad backup name");
+    const { pass } = parse(z.object({ pass: z.string().min(8, "Backup password kam az kam 8 characters ka hona chahiye").max(200) }), req.body);
+    for (const [k, v] of encTickets) if (v.exp < Date.now()) encTickets.delete(k);
+    if (encTickets.size > 100) throw new AppError(429, "Thori der baad dobara koshish karein");
+    const ticket = randomBytes(24).toString("base64url");
+    encTickets.set(ticket, { name: req.params.name, pass, exp: Date.now() + 60_000 });
+    return { ticket };
+  }));
+  /** Step 2: the browser downloads with the ticket (used once). */
   r.get("/backups/:name/enc", guard, (req, res, next) => {
     try {
       if (!NAME.test(req.params.name)) throw new AppError(400, "Bad backup name");
-      const pass = String(req.query.pass ?? "");
-      if (pass.length < 8) throw new AppError(400, "Backup password kam az kam 8 characters ka hona chahiye");
+      const tk = encTickets.get(String(req.query.ticket ?? ""));
+      encTickets.delete(String(req.query.ticket ?? ""));
+      if (!tk || tk.exp < Date.now() || tk.name !== req.params.name) throw new AppError(400, "Download link purana ho gaya — dobara 🔒 Encrypted dabayein");
+      const pass = tk.pass;
       const file = path.join(backupDir(), req.params.name);
       if (!fs.existsSync(file)) throw new AppError(404, "Backup not found");
       const data = fs.readFileSync(file);

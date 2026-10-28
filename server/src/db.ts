@@ -830,6 +830,9 @@ export function migrate() {
   // the platform owner (super-admin above all pumps) — seeded from env in SaaS mode
   db.exec(`CREATE TABLE IF NOT EXISTS platform_admins (
     id INTEGER PRIMARY KEY, email TEXT NOT NULL UNIQUE, password_hash TEXT NOT NULL, name TEXT, created_at TEXT NOT NULL)`);
+  // platform owner login: wrong passwords counted per account; 5 in a row lock it for 15 minutes
+  addColumn("platform_admins", "login_fails", "INTEGER NOT NULL DEFAULT 0");
+  addColumn("platform_admins", "locked_until", "TEXT");
   // property & rent: units inside the pump (shop, hotel, service bay) rented out = income; and the pump's own rent = expense
   db.exec(`CREATE TABLE IF NOT EXISTS rentals (
     id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, station_id INTEGER, name TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'shop',
