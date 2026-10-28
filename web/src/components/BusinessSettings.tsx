@@ -27,7 +27,7 @@ export function BusinessProfile() {
   };
   return (
     <div className="card space-y-3 p-4">
-      <h2 className="font-semibold">Business profile & branding</h2>
+      <h2 id="set-profile" className="scroll-mt-20 font-semibold">Business profile & branding</h2>
       {f.pump_url && (
         <div className="flex flex-wrap items-center gap-2 rounded-xl bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
           <span className="font-medium">Aap ke pump ka sign-in link:</span>

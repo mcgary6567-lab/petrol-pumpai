@@ -31,7 +31,7 @@ export default function SettingsPage() {
       <Integrations ai={i.claude.connected} provider={i.claude.provider} wa={i.whatsapp.connected} />
       <StationsSection />
       <div className="card flex items-center justify-between p-4">
-        <div><h2 className="font-semibold">Team & access</h2><p className="text-sm text-slate-600">Create Admin, Manager and Salesman logins and control what each can do.</p></div>
+        <div><h2 id="set-team" className="scroll-mt-20 font-semibold">Team & access</h2><p className="text-sm text-slate-600">Create Admin, Manager and Salesman logins and control what each can do.</p></div>
         <Link to="/users" className="btn-secondary">Manage users →</Link>
       </div>
       <div className="card flex items-center justify-between p-4">
@@ -56,7 +56,7 @@ function StationsSection() {
   const danger = `${small} !text-rose-700`;
   return (
     <div className="card p-4">
-      <div className="mb-3 flex items-center justify-between"><h2 className="font-semibold">Stations, tanks & meters</h2><button className="btn-secondary" onClick={() => setAddStation(true)}>+ Add station</button></div>
+      <div className="mb-3 flex items-center justify-between"><h2 id="set-stations" className="scroll-mt-20 font-semibold">Stations, tanks & meters</h2><button className="btn-secondary" onClick={() => setAddStation(true)}>+ Add station</button></div>
       <div className="space-y-3">
         {data.map((s) => (
           <div key={s.id} className={`rounded-lg border border-slate-200 p-3 ${s.active ? "" : "bg-slate-50 opacity-75"}`}>
@@ -123,7 +123,8 @@ function Meters({ nozzles, onSaved }: { nozzles: any[]; onSaved: () => void }) {
   const { busy, run } = useAction();
   return (
     <div className="mt-2">
-      {resetting && <MeterResetModal nozzle={{ id: resetting.id, label: resetting.name ?? resetting.label }} lastReading={resetting.totalizer}
+      {resetting && <MeterResetModal nozzle={{ id: resetting.id, label: resetting.name ?? resetting.label }} running={!!resetting.busy} shiftBy={resetting.shift_by}
+        lastReading={resetting.busy && resetting.shift_start != null ? resetting.shift_start : resetting.totalizer}
         onClose={() => setResetting(null)} onDone={() => { setEdit(null); onSaved(); resets.reload(); }} />}
       <div className="mb-1 text-xs font-medium text-slate-500">Meters (numbers show on shifts, reports and alerts — tap to change)</div>
       <div className="flex flex-wrap gap-2">
@@ -144,9 +145,7 @@ function Meters({ nozzles, onSaved }: { nozzles: any[]; onSaved: () => void }) {
           <button className="btn-primary" disabled={busy}>Save</button><button type="button" className="btn-secondary" onClick={() => setEdit(null)}>Cancel</button>
           <button type="button" className="btn-secondary" disabled={busy} onClick={() => run(() => api(`/nozzles/${edit.id}`, { method: "PATCH", body: { active: !edit.active } }), edit.active ? "Meter retired" : "Meter restored").then(() => { setEdit(null); onSaved(); })}>{edit.active ? "Retire" : "Restore"}</button>
           <button type="button" className="btn-secondary" disabled={busy} title="Meter repair se aaya / badla / reading zero ho gayi" onClick={() => {
-            const n = nozzles.find((x) => x.id === edit.id);
-            if (n?.busy) alert("Ye meter chalti shift me hai — shift band karte waqt reading wale khane me \"Meter kharab / reset\" ka button use karein.");
-            else setResetting(n);
+            setResetting(nozzles.find((x) => x.id === edit.id)); // a meter in a running shift opens the same window in "chalti shift" mode
           }}>🔧 Meter reset / repair</button>
           <button type="button" className="btn-secondary !text-rose-700" disabled={busy} onClick={() => confirm("Delete this meter? Only possible if it never ran a shift.") && run(() => api(`/nozzles/${edit.id}`, { method: "DELETE" }), "Meter deleted").then(() => { setEdit(null); onSaved(); })}>Delete</button>
           <span className="w-full text-xs text-slate-500">If another meter already has this number, the two swap numbers. A retired meter leaves the handover sheet but keeps its history.</span>
@@ -171,7 +170,7 @@ function Limits({ l, loyaltyRate, onSaved }: { l?: Record<string, any>; loyaltyR
   const { busy, run } = useAction();
   return (
     <form className="card grid grid-cols-1 gap-3 p-4 sm:grid-cols-2" onSubmit={(e) => { e.preventDefault(); run(() => api("/settings", { method: "PUT", body: { loyalty_rate: Number(f.loyalty_rate), limits: { test_limit_l: Number(f.test_limit_l), shortage_min: Number(f.shortage_min), utility_alert_pct: Number(f.utility_alert_pct), shortage_tolerance_pct: Number(f.shortage_tolerance_pct), shift_hours: Number(f.shift_hours), khata_discount_max: Number(f.khata_discount_max), direct_discount_max: Number(f.direct_discount_max), direct_discount_alert: Number(f.direct_discount_alert), attend_max_m: Number(f.attend_max_m), pin_admin: f.pin_admin } } }), "Limits saved").then(onSaved); }}>
-      <h2 className="font-semibold sm:col-span-2">Limits & tolerances</h2>
+      <h2 id="set-limits" className="scroll-mt-20 font-semibold sm:col-span-2">Limits & tolerances</h2>
       <div className="sm:col-span-2">
         <span className="label">Shift length — reminder to close fires after this. Set it to how long one salesman's shift runs.</span>
         <div className="mt-1 flex flex-wrap items-center gap-2">
@@ -212,7 +211,7 @@ function AutoSwitches({ values, review, onSaved }: { values: Record<string, bool
   const [url, setUrl] = useState(review ?? "");
   return (
     <div className="card divide-y divide-slate-100">
-      <h2 className="p-4 pb-2 font-semibold">Automatic messages & bookkeeping</h2>
+      <h2 id="set-messages" className="scroll-mt-20 p-4 pb-2 font-semibold">Automatic messages & bookkeeping</h2>
       <form className="flex flex-wrap items-end gap-2 p-4" onSubmit={(e) => { e.preventDefault(); run(() => api("/settings", { method: "PUT", body: { google_review_url: url } }), "Saved").then(onSaved); }}>
         <label className="min-w-[260px] flex-1"><span className="label">Google review link (shown on the customer's digital receipt)</span>
           <input className="input" type="url" placeholder="https://g.page/r/…/review" value={url} onChange={(e) => setUrl(e.target.value)} /></label>
@@ -234,7 +233,7 @@ function KhataRules({ r, onSaved }: { r?: { block_days: number; block_institutio
   const { busy, run } = useAction();
   return (
     <form className="card grid grid-cols-1 gap-3 p-4 sm:grid-cols-3" onSubmit={(e) => { e.preventDefault(); run(() => api("/settings", { method: "PUT", body: { khata_rules: { block_days: Number(f.block_days), block_institutions: f.block_institutions, late_fee_pct: Number(f.late_fee_pct) } } }), "Khata rules saved").then(onSaved); }}>
-      <h2 className="font-semibold sm:col-span-3">Khata rules</h2>
+      <h2 id="set-khata" className="scroll-mt-20 font-semibold sm:col-span-3">Khata rules</h2>
       <label className="block"><span className="label">Hold khata after no payment for (days)</span><input className="input" type="number" inputMode="decimal" min={15} max={365} value={f.block_days} onChange={(e) => setF({ ...f, block_days: e.target.value })} /></label>
       <label className="block"><span className="label">Late-payment charge per month (%, 0 = off)</span><input className="input" type="number" inputMode="decimal" min={0} max={5} step="0.1" value={f.late_fee_pct} onChange={(e) => setF({ ...f, late_fee_pct: e.target.value })} /></label>
       <label className="flex items-center gap-2 self-end pb-2 text-sm"><input type="checkbox" checked={f.block_institutions} onChange={(e) => setF({ ...f, block_institutions: e.target.checked })} /> Also hold police / government / school accounts</label>
@@ -252,7 +251,7 @@ function Safety({ twofa, voidPin, faceMatch, idleHours, allowedIps, yourIp, onTw
   if (!data) return null;
   return (
     <div className="card space-y-3 p-4">
-      <h2 className="font-semibold">Safety rules</h2>
+      <h2 id="set-safety" className="scroll-mt-20 font-semibold">Safety rules</h2>
       <label className="flex items-start gap-3"><input type="checkbox" className="mt-1 h-5 w-5" checked={data.price_approval}
         onChange={(e) => run(() => api("/safety", { method: "PUT", body: { price_approval: e.target.checked } }), "Saved").then(reload)} />
         <span><span className="block font-medium">Two-person approval for price changes</span><span className="text-sm text-slate-600">A manager's new prices wait until the admin approves them (admin gets a notification). Big expenses already need approval above the expense limit.</span></span></label>
@@ -294,7 +293,7 @@ function Hardware() {
   if (!data) return null;
   return (
     <div className="card p-4">
-      <h2 className="mb-1 font-semibold">Hardware connections</h2>
+      <h2 id="set-hardware" className="scroll-mt-20 mb-1 font-semibold">Hardware connections</h2>
       <p className="mb-2 text-sm text-slate-600">Mark where each piece stands. Everything in the app already works without them; marking one “Live” is just for your own record.</p>
       <ul className="space-y-2">{data.map((x) => (
         <li key={x.key} className="flex flex-wrap items-start gap-3 rounded-lg bg-slate-50 p-2 text-sm">
@@ -328,7 +327,7 @@ function AlertSensitivity({ s, onSaved }: { s?: Record<string, number>; onSaved:
   if (!s) return null;
   return (
     <form className="card p-4" onSubmit={(e) => { e.preventDefault(); run(() => api("/settings", { method: "PUT", body: { sensitivity: Object.fromEntries(Object.entries(f).map(([k, v]) => [k, Number(v)])) } }), "Alert sensitivity saved").then(onSaved); }}>
-      <h2 className="font-semibold">Alert sensitivity</h2>
+      <h2 id="set-alerts" className="scroll-mt-20 font-semibold">Alert sensitivity</h2>
       <p className="mb-3 text-sm text-slate-600">How soon the system warns about stock loss, short deliveries, cash shortages and low stock. Lower numbers = more sensitive.</p>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         {SENS.map(([k, label, hint]) => (
@@ -349,7 +348,7 @@ function AlertSensitivity({ s, onSaved }: { s?: Record<string, number>; onSaved:
 function SaasBackupsNote() {
   return (
     <div className="card p-4">
-      <h2 className="font-semibold">Backups</h2>
+      <h2 id="set-backups" className="scroll-mt-20 font-semibold">Backups</h2>
       <p className="mt-1 text-sm text-slate-600">Aap ka data Petrol PumpAI platform par har raat khud backup hota hai (persistent storage + cloud copy). Apne records ka export chahiye to Reports → Ledger export / Excel istemal karein.</p>
     </div>
   );

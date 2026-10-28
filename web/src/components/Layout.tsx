@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { PrintFooter, PrintHeader } from "./Letterhead";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import {
-  LayoutDashboard, MessageCircle, Users, Fuel, Clock, Droplets, Tag, Truck, Megaphone, Bell, Bot, Settings, LogOut, Menu, X, MessageSquareWarning, BookOpen, UserCog, MapPin, Container, Receipt, FileBarChart, Factory, Wallet, Landmark, ShoppingBasket, ClipboardCheck, ShieldCheck, HeartPulse, CalendarClock, ScrollText, Ticket, Star, Calculator, History, Wrench, Route, UserPlus, ChevronDown, Ban, HandCoins, ClipboardList, Banknote, ArrowDownCircle, ArrowUpCircle, FileCheck2, BookOpenText, BookOpenCheck, Building2, ListChecks, Lightbulb, UserCheck, Hourglass, Search, CircleHelp, Ruler, Sun, Moon, Rocket,
+  LayoutDashboard, Gauge, MessageCircle, Users, Fuel, Clock, Droplets, Tag, Truck, Megaphone, Bell, Bot, Settings, LogOut, Menu, X, MessageSquareWarning, BookOpen, UserCog, MapPin, Container, Receipt, FileBarChart, Factory, Wallet, Landmark, ShoppingBasket, ClipboardCheck, ShieldCheck, HeartPulse, CalendarClock, ScrollText, Ticket, Star, Calculator, History, Wrench, Route, UserPlus, ChevronDown, Ban, HandCoins, ClipboardList, Banknote, ArrowDownCircle, ArrowUpCircle, FileCheck2, BookOpenText, BookOpenCheck, Building2, ListChecks, Lightbulb, UserCheck, Hourglass, Search, CircleHelp, Ruler, Sun, Moon, Rocket,
 } from "lucide-react";
 import { useAuth, ROLE_LABEL } from "../App";
 import { api, useApi, useLiveEvents, useLiveData } from "../lib/api";
@@ -14,6 +14,7 @@ import { InstallAppButton } from "./InstallApp";
 import { GoLiveBanner } from "./GoLiveBanner";
 import { useOfflineQueue } from "../lib/offline";
 import { useOffline } from "../lib/api";
+import { PAGE_WORDS, SETTINGS_SECTIONS, scoreItem, whyMatched } from "../lib/navSearch";
 
 /** Shortcuts under "Wholesale Supply" in the menu (open the right tab or form). */
 const WHOLESALE_SUB = [
@@ -260,6 +261,22 @@ const NAV = [
   { to: "/settings", label: "Settings", icon: Settings, perm: "settings.manage" },
 ];
 
+const REC_ICON: Record<string, any> = { customer: Users, vehicle: Truck, client: Users, thekedar: Users, supplier: Factory, staff: UserPlus, voucher: Receipt, cheque: FileCheck2, machine: Wrench, tanker: Truck, driver: UserPlus, station: Fuel, tank: Droplets, meter: Gauge, item: ShoppingBasket, bank: Landmark };
+const REC_KIND: Record<string, string> = { customer: "Khata customer", vehicle: "Gaari", client: "Wholesale client", thekedar: "Thekedar", supplier: "Supplier", staff: "Staff", voucher: "Voucher", cheque: "Cheque", machine: "Machine", tanker: "Tanker", driver: "Driver", station: "Station", tank: "Tank", meter: "Meter", item: "Shop item", bank: "Bank account" };
+
+/** records for a search box (debounced server lookup) */
+function useRecords(query: string, on: boolean) {
+  const [hits, setHits] = useState<{ kind: string; label: string; sub?: string; amount?: number | null; to: string }[]>([]);
+  useEffect(() => {
+    const qq = query.trim();
+    if (!on || qq.length < 2) { setHits([]); return; }
+    let live = true;
+    const tmr = setTimeout(() => { api<any>(`/search?q=${encodeURIComponent(qq)}`).then((r) => { if (live) setHits(r?.hits ?? []); }).catch(() => undefined); }, 200);
+    return () => { live = false; clearTimeout(tmr); };
+  }, [query, on]);
+  return hits;
+}
+
 export default function Layout() {
   // sales saved on the tablet without internet upload from whichever page is open (not only the POS)
   useOfflineQueue();
@@ -275,17 +292,42 @@ export default function Layout() {
   const badgeVal: Record<string, number> = { unread: k?.unread ?? 0, orders: k?.pending_orders ?? 0, alerts: k?.open_alerts ?? 0 };
   const [q, setQ] = useState("");
   const visible = NAV.filter((n) => (!n.perm || n.perm.split("|").some(can)) && (!("only" in n) || (n.only as string[]).includes(user?.role ?? "")));
-  // flat, searchable list of every menu item the role can see, plus sub-items (e.g. Day book)
-  const searchHits = (() => {
-    const query = q.trim().toLowerCase();
-    if (!query) return [];
-    const hits: { to: string; label: string; icon: NavItem["icon"] }[] = [];
+  // every page the role can see, its sub-items (e.g. Day book) and the boxes inside Settings — each with the words of what it holds
+  const pages = useMemo(() => {
+    const out: { to: string; label: string; ur: string; words: string; icon: NavItem["icon"] }[] = [];
     for (const n of visible) {
-      if (n.label.toLowerCase().includes(query) || (NAV_UR[n.to] ?? "").includes(q.trim())) hits.push({ to: n.to, label: n.label, icon: n.icon });
-      for (const s of SUBS[n.to] ?? []) if (can(s.perm) && (s.label.toLowerCase().includes(query) || (s.ur ?? "").includes(q.trim()))) hits.push({ to: s.to, label: `${n.label} · ${s.label}`, icon: s.icon });
+      out.push({ to: n.to, label: n.label, ur: NAV_UR[n.to] ?? "", words: PAGE_WORDS[n.to] ?? "", icon: n.icon });
+      for (const x of SUBS[n.to] ?? []) if (can(x.perm)) out.push({ to: x.to, label: `${n.label} · ${x.label}`, ur: x.ur ?? "", words: "", icon: x.icon });
+      if (n.to === "/settings") for (const x of SETTINGS_SECTIONS) out.push({ to: `/settings#${x.id}`, label: `Settings · ${x.label}`, ur: "", words: x.words, icon: n.icon });
     }
-    return hits.slice(0, 12);
-  })();
+    return out;
+  }, [visible, can]);
+  const findPages = (query: string, max: number) => pages
+    .map((it) => ({ ...it, score: scoreItem(query, it) })).filter((it) => it.score > 0)
+    .sort((a, b) => b.score - a.score).slice(0, max)
+    .map((it) => ({ to: it.to, label: it.label, ur: it.ur, icon: it.icon, why: whyMatched(query, it) }));
+  // records too (customers, gaari number, clients, suppliers, staff, vouchers, cheques…) once 2+ letters are typed
+  const sideRecs = useRecords(q, true);
+  const sidePages = q.trim() ? findPages(q, 10) : [];
+  const sideHits = q.trim() ? [...sidePages.map((h) => ({ ...h, rec: false as const, sub: h.why, amount: null as number | null })),
+    ...sideRecs.slice(0, 10).map((h) => ({ to: h.to, label: h.label, ur: "", icon: REC_ICON[h.kind] ?? Search, rec: true as const, sub: h.sub ?? "", amount: h.amount ?? null, kind: h.kind }))] : [];
+  const [si, setSi] = useState(0);
+  useEffect(() => { setSi(0); }, [q]);
+  const goSide = (to: string) => { setQ(""); setOpen(false); nav(to); };
+  // a link with #section (e.g. Settings → Stations) scrolls to that box once the page has drawn it
+  useEffect(() => {
+    const id = pageLoc.hash.slice(1);
+    if (!id) return;
+    let tries = 0;
+    const tick = setInterval(() => {
+      const el = document.getElementById(id);
+      if (el || ++tries > 30) {
+        clearInterval(tick);
+        if (el) { el.scrollIntoView({ behavior: "smooth", block: "start" }); el.classList.add("search-flash"); setTimeout(() => el.classList.remove("search-flash"), 2200); }
+      }
+    }, 100);
+    return () => clearInterval(tick);
+  }, [pageLoc.pathname, pageLoc.hash]);
 
   /* ---- global command palette (Ctrl/⌘ K): jump to any page or shortcut from anywhere ---- */
   const [cmd, setCmd] = useState(false);
@@ -299,24 +341,10 @@ export default function Layout() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
-  const cmdItems = useMemo(() => {
-    const base = visible.map((n) => ({ to: n.to, label: n.label, ur: NAV_UR[n.to] ?? "", icon: n.icon }));
-    const subs = visible.flatMap((n) => (SUBS[n.to] ?? []).filter((s) => can(s.perm)).map((s) => ({ to: s.to, label: `${n.label} · ${s.label}`, ur: s.ur ?? "", icon: s.icon })));
-    return [...base, ...subs];
-  }, [visible, can]);
   // records too: after 2+ letters the server looks up customers, vehicles, clients, thekedars, suppliers, staff, vouchers, cheques, machines
-  const [recHits, setRecHits] = useState<{ kind: string; label: string; sub?: string; amount?: number | null; to: string }[]>([]);
-  useEffect(() => {
-    const query = cq.trim();
-    if (!cmd || query.length < 2) { setRecHits([]); return; }
-    let live = true;
-    const tmr = setTimeout(() => { api<any>(`/search?q=${encodeURIComponent(query)}`).then((r) => { if (live) setRecHits(r?.hits ?? []); }).catch(() => undefined); }, 180);
-    return () => { live = false; clearTimeout(tmr); };
-  }, [cq, cmd]);
-  const REC_ICON: Record<string, any> = { customer: Users, vehicle: Truck, client: Users, thekedar: Users, supplier: Factory, staff: UserPlus, voucher: Receipt, cheque: FileCheck2, machine: Wrench, tanker: Truck, driver: UserPlus };
+  const recHits = useRecords(cq, cmd);
   const cmdHits = (() => {
-    const query = cq.trim().toLowerCase();
-    const list = query ? cmdItems.filter((it) => it.label.toLowerCase().includes(query) || it.ur.includes(cq.trim()) || it.to.includes(query)) : cmdItems;
+    const list = cq.trim() ? findPages(cq, 30) : pages.filter((it) => !it.to.includes("#"));
     const recs = recHits.map((h) => ({ to: h.to, label: h.label, ur: h.sub ?? "", icon: REC_ICON[h.kind] ?? Search, amount: h.amount ?? null, rec: true as const }));
     return [...recs, ...list].slice(0, 50);
   })();
@@ -341,20 +369,36 @@ export default function Layout() {
       <div className="px-3 pb-2">
         <div className="relative">
           <Search size={15} className="pointer-events-none absolute left-2.5 top-2.5 text-emerald-200/70" />
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search menu… · مینو تلاش"
-            aria-label="Search menu"
-            onKeyDown={(e) => { if (e.key === "Enter" && searchHits[0]) { nav(searchHits[0].to); setQ(""); setOpen(false); } if (e.key === "Escape") setQ(""); }}
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Kuch bhi dhoondein… · تلاش"
+            aria-label="Search menu" title="Page, setting, customer, gaari number, client, supplier, voucher no… sab yahan"
+            onKeyDown={(e) => {
+              if (e.key === "ArrowDown") { e.preventDefault(); setSi((x) => Math.min(x + 1, sideHits.length - 1)); }
+              else if (e.key === "ArrowUp") { e.preventDefault(); setSi((x) => Math.max(x - 1, 0)); }
+              else if (e.key === "Enter" && sideHits[si]) goSide(sideHits[si].to);
+              else if (e.key === "Escape") setQ("");
+            }}
             className="w-full rounded-lg bg-white/10 py-1.5 pl-8 pr-7 text-sm text-white placeholder:text-emerald-200/60 outline-none ring-1 ring-white/15 focus:bg-white/15 focus:ring-white/40" />
           {q && <button aria-label="Clear" onClick={() => setQ("")} className="absolute right-1.5 top-1.5 rounded p-0.5 text-emerald-200/70 hover:text-white"><X size={15} /></button>}
         </div>
       </div>
       <div className="flex-1 space-y-0.5 overflow-y-auto px-3">
         {q.trim() ? (
-          searchHits.length ? searchHits.map((hit) => (
-            <NavLink key={hit.to + hit.label} to={hit.to} onClick={() => { setQ(""); setOpen(false); }} className={itemCls(false)}>
-              <hit.icon size={17} className="shrink-0" /><span className="min-w-0 flex-1 truncate">{hit.label}</span>
-            </NavLink>
-          )) : <p className="px-3 py-4 text-center text-sm text-emerald-200/70">Kuch nahi mila · <span lang="ur" dir="rtl" className="font-urdu">کچھ نہیں ملا</span></p>
+          sideHits.length ? sideHits.map((hit, idx) => (
+            <div key={hit.to + hit.label + idx}>
+              {(idx === 0 || hit.rec !== sideHits[idx - 1].rec) && (
+                <div className="px-3 pb-0.5 pt-2 text-[10px] font-semibold uppercase tracking-wide text-emerald-200/60">{hit.rec ? "Records · ریکارڈ" : "Pages & settings · صفحات"}</div>
+              )}
+              <button type="button" onMouseEnter={() => setSi(idx)} onClick={() => goSide(hit.to)}
+                className={`flex w-full items-center gap-3 rounded-lg px-3 py-1.5 text-left text-sm transition ${idx === si ? "bg-white/15 text-white" : "text-emerald-100/90 hover:bg-white/10"}`}>
+                <hit.icon size={16} className="mt-0.5 shrink-0 self-start opacity-80" />
+                <span className="min-w-0 flex-1">
+                  <span className="block leading-snug">{hit.label}</span>
+                  {(hit.sub || hit.rec) && <span className="block text-[11px] leading-snug text-emerald-200/70">{hit.rec ? [REC_KIND[(hit as any).kind] ?? "", hit.sub].filter(Boolean).join(" · ") : `milta hai: ${hit.sub}`}</span>}
+                </span>
+                {hit.amount != null && hit.amount !== 0 && <span className="shrink-0 self-start pt-0.5 text-[11px] font-semibold tabular-nums text-emerald-100">{pkr(hit.amount)}</span>}
+              </button>
+            </div>
+          )) : <p className="px-3 py-4 text-center text-sm text-emerald-200/70">Kuch nahi mila · <span lang="ur" dir="rtl" className="font-urdu">کچھ نہیں ملا</span><span className="mt-1 block text-[11px]">Spelling badal kar ya chhota lafz likh kar dekhein</span></p>
         ) : (
           <NavMenu items={visible} grouped={["admin", "manager"].includes(user?.role ?? "")} badges={badgeVal} onGo={() => setOpen(false)} />
         )}

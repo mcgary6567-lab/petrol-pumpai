@@ -56,5 +56,19 @@ search.get("/search", requireAuth, h((req) => {
     .map((c) => ({ kind: "cheque", label: `Cheque ${c.cheque_no} · ${c.bank}`, sub: `received from ${c.party_name} (wholesale) · ${c.status} · ${c.cheque_date}`, amount: c.amount, to: "/cashier?tab=cheques" })));
   if (can(u, "sales.create")) push(all(`SELECT id, name, type, serial_no, status FROM machines WHERE tenant_id=? AND (name LIKE ? OR COALESCE(serial_no,'') LIKE ? OR COALESCE(make,'') LIKE ?) LIMIT 4`, t, q, q, q)
     .map((m) => ({ kind: "machine", label: m.name, sub: `${m.type} · ${m.status}${m.serial_no ? ` · ${m.serial_no}` : ""}`, to: `/machines?q=${encodeURIComponent(m.name)}` })));
+  // the forecourt itself: stations, tanks and meters → Settings → Stations, tanks & meters
+  if (can(u, "settings.manage") || can(u, "stock.manage")) {
+    const to = can(u, "settings.manage") ? "/settings#set-stations" : "/stock";
+    push(all(`SELECT id, name, city FROM stations WHERE tenant_id=? AND (name LIKE ? OR COALESCE(city,'') LIKE ?) LIMIT 3`, t, q, q)
+      .map((x) => ({ kind: "station", label: x.name, sub: x.city || "station", to })));
+    push(all(`SELECT k.id, k.name, k.product, k.current_l, s.name station FROM tanks k JOIN stations s ON s.id=k.station_id WHERE s.tenant_id=? AND k.name LIKE ? LIMIT 4`, t, q)
+      .map((x) => ({ kind: "tank", label: x.name, sub: `${x.product} · ${Math.round(x.current_l)} L · ${x.station}`, to: "/stock" })));
+    push(all(`SELECT n.id, n.label, n.totalizer, s.name station FROM nozzles n JOIN stations s ON s.id=n.station_id WHERE s.tenant_id=? AND n.label LIKE ? LIMIT 4`, t, q)
+      .map((x) => ({ kind: "meter", label: x.label, sub: `meter · reading ${round2(x.totalizer)} · ${x.station}`, to })));
+  }
+  if (can(u, "stock.manage")) push(all(`SELECT id, name, price, stock, unit FROM shop_items WHERE tenant_id=? AND active=1 AND (name LIKE ? OR COALESCE(sku,'') LIKE ? OR COALESCE(barcode,'') LIKE ?) ORDER BY name LIMIT 5`, t, q, q, q)
+    .map((x) => ({ kind: "item", label: x.name, sub: `shop item · ${round2(x.stock)} ${x.unit} stock`, amount: x.price, to: `/shop?q=${encodeURIComponent(x.name)}` })));
+  if (can(u, "expenses.view")) push(all(`SELECT id, bank, title, account_no FROM bank_accounts WHERE tenant_id=? AND active=1 AND (bank LIKE ? OR COALESCE(title,'') LIKE ? OR COALESCE(account_no,'') LIKE ?) LIMIT 4`, t, q, q, q)
+    .map((x) => ({ kind: "bank", label: `${x.bank}${x.title ? ` · ${x.title}` : ""}`, sub: x.account_no ? `A/c ${x.account_no}` : "bank account", to: "/cash" })));
   return { q: raw, hits: hits.slice(0, 30) };
 }));

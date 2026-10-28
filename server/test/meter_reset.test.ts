@@ -62,6 +62,9 @@ test("meter back from repair at 0: manager records the reset, unbilled litres le
 test("meter reset during a running shift: litres before + after the reset both count, shift closes clean", async () => {
   const hand = ok(await call("salesman", "GET", "/api/shifts/handover"), "handover");
   const sh = ok(await call("salesman", "POST", "/api/shifts/open", { station_id: hand.station_id, readings: { [noz.nozzle_id]: 0 } }), "open at 0");
+  // Settings → meter list knows the meter is in a running shift, from which reading, and whose shift (the reset window opens in shift mode)
+  const sn = ok(await call("admin", "GET", "/api/stations"), "stations")[0].nozzles.find((x: any) => x.id === noz.nozzle_id);
+  assert.ok(sn.busy); assert.equal(sn.shift_start, 0); assert.ok(sn.shift_by, "shift's salesman named");
   // a running meter needs the old meter's last reading
   assert.equal((await call("manager", "POST", `/api/nozzles/${noz.nozzle_id}/reset`, { new_reading: 0, reason: "kharab" })).status, 400);
   // old meter pumped 120 L this shift, then was swapped for one showing 3000

@@ -125,3 +125,7 @@ body, .card, aside { transition: background-color .2s ease, border-color .2s eas
 @media (prefers-reduced-motion: reduce), print {
   *, *::before, *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; scroll-behavior: auto !important; }
 }
+
+/* the box a search result jumped to blinks once so the eye finds it */
+.search-flash{animation:search-flash 2.2s ease-out}
+@keyframes search-flash{0%,30%{background-color:rgb(253 230 138);box-shadow:0 0 0 6px rgb(253 230 138)}100%{background-color:transparent;box-shadow:0 0 0 6px transparent}}

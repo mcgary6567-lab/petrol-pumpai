@@ -81,7 +81,7 @@ export const openingRead = (x: any) => Math.round(((x.opening ?? 0) + (x.reset_a
  * Not in a shift → the next shift starts from the new reading. In a running shift → the litres the old meter already pumped
  * are kept, so the shift's sale stays right. Every reset goes to the CEO and the audit log.
  */
-export function MeterResetModal({ nozzle, running, lastReading, newReading, onClose, onDone }: { nozzle: { id: number; label: string }; running?: boolean; lastReading: number; newReading?: string; onClose: () => void; onDone: () => void }) {
+export function MeterResetModal({ nozzle, running, shiftBy, lastReading, newReading, onClose, onDone }: { nozzle: { id: number; label: string }; running?: boolean; shiftBy?: string | null; lastReading: number; newReading?: string; onClose: () => void; onDone: () => void }) {
   const [f, setF] = useState({ old: running ? "" : String(lastReading), next: newReading ?? "", why: "Repair se wapas aaya", other: "" });
   const { busy, run } = useAction();
   const old = Number(f.old), next = Number(f.next);
@@ -95,12 +95,13 @@ export function MeterResetModal({ nozzle, running, lastReading, newReading, onCl
     <Modal open onClose={onClose} title={`🔧 Meter reset / repair — ${nozzle.label}`}>
       <div className="space-y-3 text-sm">
         <p className="rounded-xl bg-blue-50 p-2.5 text-blue-900">{running
-          ? <>Ye meter <b>chalti shift</b> me hai. Purane meter ne is shift me jo litre nikale woh bhi hisaab me rahenge — shift band karte waqt <b>naye meter ki reading</b> likhein.</>
+          ? <>Ye meter <b>chalti shift</b>{shiftBy ? <> (<b>{shiftBy}</b>)</> : null} me hai. Purane meter ne is shift me jo litre nikale woh bhi hisaab me rahenge — shift band karte waqt <b>naye meter ki reading</b> likhein.</>
           : <>Meter repair se aaya, badla gaya ya reading ulti / zero ho gayi? Yahan darj karein — agli shift <b>nayi reading</b> se shuru hogi.</>}</p>
         <Field label={running ? "Purana meter kahan tak chala (aakhri reading)" : "Purana meter kahan ruka tha (aakhri reading)"}>
           <input className="input tabular-nums" type="number" inputMode="decimal" step="0.01" min={lastReading} value={f.old} placeholder={running ? `kam se kam ${num(lastReading, 2)}` : ""} onChange={(e) => setF({ ...f, old: e.target.value })} />
         </Field>
         <p className="-mt-2 text-xs text-slate-500">{running ? "Shift" : "Pichli darj"} reading: {num(lastReading, 2)}</p>
+        {running && f.old !== "" && old >= lastReading && <p className="rounded-lg bg-emerald-50 p-2 text-emerald-800">✓ Is shift me purane meter se <b>{num(old - lastReading, 2)} L</b> nikle — ye shift ke hisaab me rahenge.</p>}
         {gap > 0.009 && <p className="rounded-lg bg-amber-50 p-2 text-amber-800">⚠ {num(gap, 2)} L pichli reading ke baad bina shift ke chale — stock se kam honge aur CEO ko alert jayega.</p>}
         <Field label="Meter ab kya dikha raha hai (nayi reading)"><input className="input tabular-nums text-lg" type="number" inputMode="decimal" step="0.01" min={0} value={f.next} placeholder="e.g. 0" onChange={(e) => setF({ ...f, next: e.target.value })} /></Field>
         <Field label="Wajah">

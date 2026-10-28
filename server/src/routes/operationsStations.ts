@@ -36,7 +36,9 @@ stationRoutes.get("/stations", requireAny("sales.view", "stock.manage", "wholesa
   return all(`SELECT * FROM stations WHERE tenant_id=? ${own ? "AND id=" + Number(own) : ""} ${act} ORDER BY id`, tid(req)).map((s) => ({
   ...s,
   tanks: all(`SELECT * FROM tanks WHERE station_id=? ${act} ORDER BY id`, s.id),
-  nozzles: all(`SELECT n.*, ${METER} name, t.product, EXISTS(SELECT 1 FROM meter_readings r JOIN shifts sh ON sh.id=r.shift_id WHERE r.nozzle_id=n.id AND sh.status='open') busy FROM nozzles n JOIN tanks t ON t.id=n.tank_id WHERE n.station_id=? ${act.replace("active", "n.active")} ORDER BY n.meter_no, n.id`, s.id),
+  nozzles: all(`SELECT n.*, ${METER} name, t.product, EXISTS(SELECT 1 FROM meter_readings r JOIN shifts sh ON sh.id=r.shift_id WHERE r.nozzle_id=n.id AND sh.status='open') busy,
+    (SELECT COALESCE(r.checkpoint, r.opening) FROM meter_readings r JOIN shifts sh ON sh.id=r.shift_id WHERE r.nozzle_id=n.id AND sh.status='open' LIMIT 1) shift_start,
+    (SELECT sh.attendant FROM meter_readings r JOIN shifts sh ON sh.id=r.shift_id WHERE r.nozzle_id=n.id AND sh.status='open' LIMIT 1) shift_by FROM nozzles n JOIN tanks t ON t.id=n.tank_id WHERE n.station_id=? ${act.replace("active", "n.active")} ORDER BY n.meter_no, n.id`, s.id),
 }));
 }));
 
