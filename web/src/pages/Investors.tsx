@@ -255,8 +255,9 @@ function InvestorDetail({ id, onBack, onEdit, form, setForm }: { id: number; onB
 function describe(x: any) {
   if (x.type === "capital_in") return [x.method, x.acc_bank, x.note].filter(Boolean).join(" · ");
   if (x.type === "payout") return [x.purpose === "capital" ? "Asal raqam wapas" : "Munafa diya", x.method, x.acc_bank, x.note].filter(Boolean).join(" · ");
-  const d = x.deal_id ? `Deal #${x.deal_id}${x.product ? ` · ${num(x.sold_litres ?? x.litres ?? 0)} L ${PRODUCTS[x.product] ?? x.product}` : ""}${x.deal_profit != null ? ` · deal munafa ${pkr(x.deal_profit)}` : ""}` : "";
-  return [d, x.note].filter(Boolean).join(" · ");
+  // profit / loss share: the deal in words + the investor's % (the stored note only repeats the deal number)
+  const d = x.deal_id ? `Deal #${x.deal_id}${x.product ? ` · ${num(x.sold_litres ?? x.litres ?? 0)} L ${PRODUCTS[x.product] ?? x.product}` : ""}${x.deal_profit != null ? ` · deal ${x.deal_profit < 0 ? "nuqsan" : "munafa"} ${pkr(Math.abs(x.deal_profit))}` : ""}${x.deal_pct != null ? ` · ${100 - x.deal_pct}% hissa` : ""}` : "";
+  return d || x.note || "";
 }
 
 function MoneyForm({ i, dir, onClose, onDone }: { i: any; dir: "in" | "out"; onClose: () => void; onDone: () => void }) {
