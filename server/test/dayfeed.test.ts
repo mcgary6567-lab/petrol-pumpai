@@ -59,4 +59,9 @@ test("wholesale tab = the wholesale officer's own entries; CEO's wholesale entri
   assert.ok(!ids.includes(`wtx-${ceo.data.id}`), "CEO's supply not on the officer's tab");
   const row = feed.rows.find((r: any) => r.id === `wtx-${mine.data.id}`);
   assert.equal(row.vehicle, "LES-1234"); assert.ok(!row.label.includes("LES-1234"), "vehicle not repeated in the label");
+  // statement sides: supply di = Debit, and the Debit / Credit totals add up from the rows
+  assert.equal(row.side, "dr");
+  const sum = (side: string) => feed.rows.reduce((t: number, r: any) => t + (r.side === side ? r.amount : 0), 0);
+  assert.ok(Math.abs(feed.totals.debit - sum("dr")) < 0.01 && Math.abs(feed.totals.credit - sum("cr")) < 0.01, JSON.stringify(feed.totals));
+  assert.ok(Math.abs(feed.totals.net - (feed.totals.debit - feed.totals.credit)) < 0.01);
 });

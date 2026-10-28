@@ -19,7 +19,7 @@ export const dayfeed = Router();
 type Dir = "in" | "out" | "neutral";
 /** readable party kind for a counter voucher with no category ("other" is internal and stays out) */
 const PARTY_TYPE: Record<string, string> = { khata: "Khata customer", wholesale: "Wholesale client", supplier: "Supplier", staff: "Staff", expense: "Kharcha" }; // Kism already says Received/Paid
-interface FeedRow { id: string; at: string; kind: string; who: string | null; party: string | null; label: string; amount: number; dir: Dir; ref: string | null; ledger_id?: number; litres?: number; rate?: number; vehicle?: string }
+interface FeedRow { id: string; at: string; kind: string; who: string | null; party: string | null; label: string; amount: number; dir: Dir; ref: string | null; ledger_id?: number; litres?: number; rate?: number; vehicle?: string; side?: "dr" | "cr" }
 
 dayfeed.get("/day-feed", requireAny("dashboard.view", "cashier.desk", "reports.view"), h((req) => {
   const t = tid(req);
@@ -116,6 +116,10 @@ dayfeed.get("/day-feed", requireAny("dashboard.view", "cashier.desk", "reports.v
     // (when the pump has no wholesale-role user, everything stays, so the tab is never empty by accident)
     const officers = new Set(all("SELECT name FROM users WHERE tenant_id=? AND role='wholesale'", t).map((u) => String(u.name)));
     if (officers.size) { const mine = rows.filter((r) => r.who && officers.has(r.who)); rows.length = 0; rows.push(...mine); }
+    // statement sides: Debit = supply di (client ke zimme) + supplier ko payment; Credit = udhaar maal (supplier se liya) + client payment / wapsi.
+    // a client-se-supplier settlement (adjust) moves no money, so it stays out of both columns
+    const DR = new Set(["ws_supply", "pay"]), CR = new Set(["supply_bill", "khata_in", "ws_return"]);
+    for (const r of rows) r.side = DR.has(r.kind) ? "dr" : CR.has(r.kind) ? "cr" : undefined;
   }
 
   rows.sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0)); // newest first
@@ -137,6 +141,10 @@ dayfeed.get("/day-feed", requireAny("dashboard.view", "cashier.desk", "reports.v
     received: round2(rows.filter((r) => r.dir === "in" && r.kind !== "sale").reduce((a, r) => a + r.amount, 0)),
     paid: round2(rows.filter((r) => r.dir === "out" && r.kind !== "expense").reduce((a, r) => a + r.amount, 0)),
     count: rows.length,
+    ...(scope === "wholesale" ? (() => {
+      const debit = round2(rows.reduce((a, r) => a + (r.side === "dr" ? r.amount : 0), 0)), credit = round2(rows.reduce((a, r) => a + (r.side === "cr" ? r.amount : 0), 0));
+      return { debit, credit, net: round2(debit - credit) };
+    })() : {}),
   };
   return { date: lo === hi ? lo : `${lo} → ${hi}`, from: lo, to: hi, is_today: lo === hi && lo === pkDate(), days: 1 + Math.round((Date.parse(hi) - Date.parse(lo)) / 86_400_000), scope, rows, totals,
     by_person: [...byPerson.values()].map((p) => ({ ...p, sales: round2(p.sales), expenses: round2(p.expenses), received: round2(p.received), paid: round2(p.paid) })).sort((a, b) => b.sales - a.sales || b.n - a.n) };

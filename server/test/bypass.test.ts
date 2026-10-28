@@ -83,6 +83,11 @@ test("bypass delivery: multi-supplier purchase, clients billed, supplier bypass 
   const w2Amt = DEL.drops.find((d: any) => d.client_id === W2.id).amount;
   near(DEL.bought, bought, "bought (purchase cost)"); near(DEL.sold_cost, soldCost, "delivered cost"); near(DEL.margin, billed - soldCost, "margin on what was sold");
   near(DEL.stock.litres, 200, "200 L held in bypass stock");
+  // the CEO's Wholesale tab reads it as a statement: udhaar maal = Credit, supply di = Debit
+  const wf = ok(await call("admin", "GET", "/api/day-feed?scope=wholesale"), "wholesale feed");
+  const purRows = wf.rows.filter((r: any) => r.kind === "supply_bill"), dropRows = wf.rows.filter((r: any) => r.kind === "ws_supply");
+  assert.ok(purRows.length >= 2 && purRows.every((r: any) => r.side === "cr"), "udhaar maal on the Credit side");
+  assert.ok(dropRows.length >= 2 && dropRows.every((r: any) => r.side === "dr"), "supply di on the Debit side");
   // our tanks and the pump-stock supplier payable did not move
   near(db.get("SELECT COALESCE(SUM(current_l),0) l FROM tanks WHERE station_id=?", st)!.l as number, tanks0, "no stock moved");
   near(await supOwed(S.id), pumpOwed0, "pump-stock payable unchanged (separate account)");

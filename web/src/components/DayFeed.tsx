@@ -18,10 +18,21 @@ const sumDir = (rs: any[], dir: "in" | "out") => rs.reduce((a, r) => a + (r.dir 
 /** a row that belongs in the Debit (gaya) column of a print: money out, OR credit maal gaya (wholesale supply / supplier udhaar bill). */
 const isDebitRow = (r: any) => r.dir === "out" || r.kind === "ws_supply" || r.kind === "supply_bill";
 const sumDebit = (rs: any[]) => rs.reduce((a, r) => a + (isDebitRow(r) ? r.amount : 0), 0);
+/** Wholesale statement: the server marks each row Debit (supply di, supplier ko payment) or Credit (udhaar maal, client payment / wapsi). */
+const sumSide = (rs: any[], side: "dr" | "cr") => rs.reduce((a, r) => a + (r.side === side ? r.amount : 0), 0);
+/** Debit − Credit, labelled which way it leans */
+const farq = (n: number) => `${pkr(Math.abs(n))} ${n > 0 ? "Dr" : n < 0 ? "Cr" : ""}`.trim();
 /** share the day's summary (totals + count) on WhatsApp — opens the share sheet so any contact can be picked. */
 function shareWhatsApp(title: string, data: any) {
   const T = data.totals;
-  const text = [
+  const text = data.scope === "wholesale" ? [
+    `${title} — ${data.date}${data.is_today ? " (aaj, abhi tak)" : ""}`,
+    `Debit (supply di + payment ki): ${pkr(T.debit)}`,
+    `Credit (udhaar maal + payment aayi): ${pkr(T.credit)}`,
+    `Farq: ${farq(T.net)}`,
+    `Kul ${T.count} entries`,
+    `— Petrol PumpAI`,
+  ].join("\n") : [
     `${title} — ${data.date}${data.is_today ? " (aaj, abhi tak)" : ""}`,
     `Sales: ${pkr(T.sales)}`,
     `Kharcha: ${pkr(T.expenses)}`,
@@ -64,6 +75,7 @@ export function DayFeed({ title = "Aaj ki saari entries", scope = "all" }: { tit
   const { data } = useApi<any>(`/day-feed?from=${from}&to=${to}&scope=${scope}`, 60_000);
   const [q, setQ] = useState("");
   const [people, setPeople] = useState(false);
+  const ws = scope === "wholesale"; // the wholesale officer's desk reads as a Debit / Credit statement
   const rows = useListFilter<any>(data?.rows, { q, text: (r) => [r.label, r.party, r.who, KIND[r.kind]?.en, Math.round(r.amount)].filter(Boolean).join(" ") });
   const paged = usePaged(rows, 10);
 
@@ -90,7 +102,8 @@ export function DayFeed({ title = "Aaj ki saari entries", scope = "all" }: { tit
           )}
           {data && <button type="button" className="btn-secondary !text-emerald-700" onClick={() => shareWhatsApp(title, data)} title="Is report ka khulasa WhatsApp par bhejein"><MessageCircle size={15} /> WhatsApp</button>}
           {data && <PrintListButton title={`${title} — ${data.date}`} subtitle={data.is_today ? "aaj (abhi tak)" : data.date} rows={rows} label="Report / Print"
-            note={`Sales ${pkr(data.totals.sales)} · Kharcha ${pkr(data.totals.expenses)} · Aur aaya ${pkr(data.totals.received)} · Aur gaya ${pkr(data.totals.paid)} · ${data.totals.count} entries`}
+            note={ws ? `Debit ${pkr(data.totals.debit)} · Credit ${pkr(data.totals.credit)} · Farq ${farq(data.totals.net)} · ${data.totals.count} entries`
+              : `Sales ${pkr(data.totals.sales)} · Kharcha ${pkr(data.totals.expenses)} · Aur aaya ${pkr(data.totals.received)} · Aur gaya ${pkr(data.totals.paid)} · ${data.totals.count} entries`}
             columns={[
               { label: "Waqt", v: (r: any) => when(r.at, data.from !== data.to) },
               { label: "Kism", v: (r: any) => KIND[r.kind]?.en ?? r.kind },
@@ -103,8 +116,13 @@ export function DayFeed({ title = "Aaj ki saari entries", scope = "all" }: { tit
                 { label: "Litre", r: true, v: (r: any) => (r.litres ? `${num(r.litres, r.litres % 1 ? 2 : 0)} L` : "") },
                 { label: "Rs/litre", r: true, v: (r: any) => (r.rate ? `Rs ${num(r.rate, 2)}` : "") },
               ] : []),
-              { label: "Credit (aaya)", r: true, v: (r: any) => (r.dir === "in" ? pkr(r.amount) : ""), tone: () => "pos" as const, total: (rs: any[]) => pkr(sumDir(rs, "in")), totalTone: "pos" as const },
-              { label: "Debit (gaya)", r: true, v: (r: any) => (isDebitRow(r) ? pkr(r.amount) : ""), tone: () => "neg" as const, total: (rs: any[]) => pkr(sumDebit(rs)), totalTone: "neg" as const },
+              ...(ws ? [
+                { label: "Debit", r: true, v: (r: any) => (r.side === "dr" ? pkr(r.amount) : ""), tone: () => "neg" as const, total: (rs: any[]) => pkr(sumSide(rs, "dr")), totalTone: "neg" as const },
+                { label: "Credit", r: true, v: (r: any) => (r.side === "cr" ? pkr(r.amount) : ""), tone: () => "pos" as const, total: (rs: any[]) => pkr(sumSide(rs, "cr")), totalTone: "pos" as const },
+              ] : [
+                { label: "Credit (aaya)", r: true, v: (r: any) => (r.dir === "in" ? pkr(r.amount) : ""), tone: () => "pos" as const, total: (rs: any[]) => pkr(sumDir(rs, "in")), totalTone: "pos" as const },
+                { label: "Debit (gaya)", r: true, v: (r: any) => (isDebitRow(r) ? pkr(r.amount) : ""), tone: () => "neg" as const, total: (rs: any[]) => pkr(sumDebit(rs)), totalTone: "neg" as const },
+              ]),
             ]} />}
         </div>
       </div>
@@ -113,8 +131,9 @@ export function DayFeed({ title = "Aaj ki saari entries", scope = "all" }: { tit
         <>
           {/* day totals */}
           <div className="mb-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
-            {[["Sales", data.totals.sales, "text-emerald-700"], ["Kharcha", data.totals.expenses, "text-rose-700"], ["Aur aaya", data.totals.received, "text-emerald-700"], ["Aur gaya", data.totals.paid, "text-rose-700"]].map(([k, v, c]: any) => (
-              <div key={k} className="rounded-xl bg-slate-50 p-2 text-center"><div className="text-[11px] uppercase tracking-wide text-slate-500">{k}</div><div className={`font-bold tabular-nums ${c}`}>{pkr(v)}</div></div>
+            {(ws ? [["Debit (Dr)", data.totals.debit, "text-rose-700"], ["Credit (Cr)", data.totals.credit, "text-emerald-700"], ["Farq (Dr − Cr)", data.totals.net, "text-slate-800", farq(data.totals.net)], ["Entries", data.totals.count, "text-slate-800", num(data.totals.count)]]
+              : [["Sales", data.totals.sales, "text-emerald-700"], ["Kharcha", data.totals.expenses, "text-rose-700"], ["Aur aaya", data.totals.received, "text-emerald-700"], ["Aur gaya", data.totals.paid, "text-rose-700"]]).map(([k, v, c, shown]: any) => (
+              <div key={k} className="rounded-xl bg-slate-50 p-2 text-center"><div className="text-[11px] uppercase tracking-wide text-slate-500">{k}</div><div className={`font-bold tabular-nums ${c}`}>{shown ?? pkr(v)}</div></div>
             ))}
           </div>
 
@@ -151,7 +170,7 @@ export function DayFeed({ title = "Aaj ki saari entries", scope = "all" }: { tit
                   <thead><tr>
                     <th className="th">Waqt</th><th className="th">Kism</th><th className="th">Kis ne</th><th className="th">Party</th><th className="th">Tafseel</th>
                     {vehCol && <th className="th">Gaari</th>}{fuelCols && <><th className="th text-right">Litre</th><th className="th text-right">Rate</th></>}
-                    <th className="th text-right">Aaya</th><th className="th text-right">Gaya</th>
+                    {ws ? <><th className="th text-right">Debit</th><th className="th text-right">Credit</th></> : <><th className="th text-right">Aaya</th><th className="th text-right">Gaya</th></>}
                   </tr></thead>
                   <tbody>{paged.slice.map((r: any) => (
                     <tr key={r.id}>
@@ -165,10 +184,22 @@ export function DayFeed({ title = "Aaj ki saari entries", scope = "all" }: { tit
                         <td className="td whitespace-nowrap text-right text-xs tabular-nums">{r.litres ? `${num(r.litres, r.litres % 1 ? 2 : 0)} L` : ""}</td>
                         <td className="td whitespace-nowrap text-right text-xs tabular-nums">{r.rate ? `Rs ${num(r.rate, 2)}` : ""}</td>
                       </>}
-                      <td className="td whitespace-nowrap text-right tabular-nums text-emerald-700">{r.dir === "in" ? pkr(r.amount) : ""}</td>
-                      <td className="td whitespace-nowrap text-right tabular-nums text-rose-700">{isDebitRow(r) ? pkr(r.amount) : r.dir === "neutral" ? <span className="text-slate-500">{pkr(r.amount)}</span> : ""}</td>
+                      {ws ? <>
+                        <td className="td whitespace-nowrap text-right tabular-nums text-rose-700">{r.side === "dr" ? pkr(r.amount) : ""}</td>
+                        <td className="td whitespace-nowrap text-right tabular-nums text-emerald-700">{r.side === "cr" ? pkr(r.amount) : !r.side ? <span className="text-slate-400" title="Hisaab barabar kiya — paisa nahi hila">({pkr(r.amount)})</span> : ""}</td>
+                      </> : <>
+                        <td className="td whitespace-nowrap text-right tabular-nums text-emerald-700">{r.dir === "in" ? pkr(r.amount) : ""}</td>
+                        <td className="td whitespace-nowrap text-right tabular-nums text-rose-700">{isDebitRow(r) ? pkr(r.amount) : r.dir === "neutral" ? <span className="text-slate-500">{pkr(r.amount)}</span> : ""}</td>
+                      </>}
                     </tr>
                   ))}</tbody>
+                  {ws && rows.length > 0 && (
+                    <tfoot><tr className="border-t-2 border-slate-300 bg-slate-50 font-semibold tabular-nums">
+                      <td className="td" colSpan={5 + (vehCol ? 1 : 0) + (fuelCols ? 2 : 0)}>Kul ({rows.length} entries) · Farq (Dr − Cr): <span className="text-slate-900">{farq(sumSide(rows, "dr") - sumSide(rows, "cr"))}</span></td>
+                      <td className="td whitespace-nowrap text-right text-rose-700">{pkr(sumSide(rows, "dr"))}</td>
+                      <td className="td whitespace-nowrap text-right text-emerald-700">{pkr(sumSide(rows, "cr"))}</td>
+                    </tr></tfoot>
+                  )}
                 </table>
                 {!rows.length && <p className="p-4 text-center text-sm text-slate-500">{q ? "Kuch nahi mila" : "Is din koi entry nahi"}</p>}
               </div>
@@ -187,13 +218,14 @@ export function DayFeed({ title = "Aaj ki saari entries", scope = "all" }: { tit
                     {r.rate ? <> · <span className="font-medium text-slate-600">Rs {num(r.rate, 2)}/L</span></> : null}
                   </span>
                 </span>
-                <span className={`shrink-0 font-semibold tabular-nums ${amtCls(r.dir)}`}>{sign(r.dir)}{pkr(r.amount)}</span>
+                {ws ? <span className={`shrink-0 text-right font-semibold tabular-nums ${r.side === "dr" ? "text-rose-700" : r.side === "cr" ? "text-emerald-700" : "text-slate-500"}`}>{pkr(r.amount)}<span className="block text-[10px] font-normal">{r.side === "dr" ? "Debit" : r.side === "cr" ? "Credit" : ""}</span></span>
+                  : <span className={`shrink-0 font-semibold tabular-nums ${amtCls(r.dir)}`}>{sign(r.dir)}{pkr(r.amount)}</span>}
               </li>
             ))}
             {!rows.length && <li className="p-4 text-center text-sm text-slate-500">{q ? "Kuch nahi mila" : "Is din koi entry nahi"}</li>}
           </ul>
           <div className="pt-2"><Pager {...paged} /></div>
-          <p className="mt-1 text-[11px] text-slate-400">Sirf dekhne ke liye — {num(data.totals.count)} entries. {scope === "pos" ? "Sirf POS ki sale aur kharch entries." : scope === "cashier" ? "Sirf cashier counter ki receive/pay entries." : scope === "supplier" ? "Sirf supplier ki supply, bill aur payment entries." : scope === "wholesale" ? "Wholesale desk ki apni entries — clients ki supply/wapsi/payment aur supplier se liya maal + uski payment." : "Sale = pump + khata + wholesale; counter receive/pay, khata, supply sab yahan."}</p>
+          <p className="mt-1 text-[11px] text-slate-400">Sirf dekhne ke liye — {num(data.totals.count)} entries. {scope === "pos" ? "Sirf POS ki sale aur kharch entries." : scope === "cashier" ? "Sirf cashier counter ki receive/pay entries." : scope === "supplier" ? "Sirf supplier ki supply, bill aur payment entries." : scope === "wholesale" ? "Wholesale officer ki entries — Debit: clients ko supply di + supplier ko payment; Credit: supplier se udhaar maal + client payment / wapsi." : "Sale = pump + khata + wholesale; counter receive/pay, khata, supply sab yahan."}</p>
         </>
       )}
     </div>
