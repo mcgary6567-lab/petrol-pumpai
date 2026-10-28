@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { askCancel, pinHeader } from "../components/CancelEntry";
 import { Plus, PackagePlus, ClipboardCheck, Pencil, Undo2, ReceiptText, Trash2 } from "lucide-react";
 import { ImportExport } from "../components/ImportExport";
 import { PrintListButton } from "../components/PrintList";
@@ -138,7 +139,7 @@ export default function Shop() {
                   <div className="truncate text-xs text-slate-500">{[v.items, v.by_name].filter(Boolean).join(" · ")} · {dt(v.created_at)}</div>
                 </div>
                 {can("entries.edit") && <button onClick={() => setEditSale(v)} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-500 hover:bg-emerald-100 hover:text-emerald-700" title="Payment theek karein" aria-label="Edit"><Pencil size={15} /></button>}
-                {can("corrections.manage") && <button onClick={async () => { if (confirm(`Is sale (${pkr(v.total)}) ko undo karein? Stock wapas aa jayega.`)) { await api(`/shop/sales/${v.id}/undo`, { body: {} }); reload(); } }} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-500 hover:bg-rose-100 hover:text-rose-600" title="Undo" aria-label="Undo"><Undo2 size={15} /></button>}
+                {can("corrections.manage") && <button onClick={async () => { const a = await askCancel({ title: "Shop sale undo karein", needReason: false, button: "Undo karein", what: <b>{pkr(v.total)}</b>, hint: "Sale hat jayegi aur saman ka stock wapas aa jayega." }); if (a) { await api(`/shop/sales/${v.id}/undo`, { body: {}, headers: pinHeader(a) }).catch((e) => alert(e.message)); reload(); } }} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-500 hover:bg-rose-100 hover:text-rose-600" title="Undo" aria-label="Undo"><Undo2 size={15} /></button>}
               </div>
             ))}
           </div>

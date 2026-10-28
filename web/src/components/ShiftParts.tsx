@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { askCancel, pinHeader } from "./CancelEntry";
 import { AlertTriangle, CheckCircle2, Printer, Trash2, Pencil } from "lucide-react";
 import { api, useApi } from "../lib/api";
 import { Field, Loading, Modal, useAction } from "./ui";
@@ -251,7 +252,7 @@ export function ShiftExpenses({ shiftId, stationId, expenses, onChange, preset }
           <li key={e.id} className="flex items-center gap-2">
             <span className="flex-1">{e.category}{e.note ? <span className="text-xs text-slate-500"> · {e.note}</span> : null}{e.status === "pending" && <span className="ml-1 text-xs text-amber-600">(awaiting approval)</span>}</span>
             <span className="tabular-nums">{pkr(e.amount)}</span>
-            <button aria-label="Remove expense" className="text-slate-400 hover:text-red-600" onClick={() => run(() => api(shiftId ? `/shifts/${shiftId}/expenses/${e.id}` : `/expenses/${e.id}`, { method: "DELETE" }), "Removed").then(onChange)}><Trash2 size={14} /></button>
+            <button aria-label="Remove expense" className="text-slate-400 hover:text-red-600" onClick={async () => { const a = await askCancel({ title: "Kharcha hatayein", needReason: false, button: "Hata dein", what: <><b>{pkr(e.amount)}</b> · {e.category}</> }); if (a) run(() => api(shiftId ? `/shifts/${shiftId}/expenses/${e.id}` : `/expenses/${e.id}`, { method: "DELETE", headers: pinHeader(a) }), "Removed").then(onChange); }}><Trash2 size={14} /></button>
           </li>
         ))}
         {!expenses.length && <li className="text-slate-500">None</li>}

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { askCancel, pinHeader } from "../components/CancelEntry";
 import { Link } from "react-router-dom";
 import { Fuel, Delete, Banknote, Smartphone, CreditCard, BookOpen, Check, Search, X, Zap, Undo2, WifiOff, CloudUpload, Gift, ShoppingBasket, Plus, Minus, ScanBarcode, Ticket, Wallet, Camera, Printer, Percent, Truck } from "lucide-react";
 import QRCode from "qrcode";
@@ -257,7 +258,11 @@ export default function Pos() {
   };
   const undo = async (sale: any) => {
     if (sale.offline) { dropQueued(sale.client_uid); setDone(null); toast("ok", "Sale removed"); return; }
-    if (await run(() => api(sale.shop ? `/shop/sales/${sale.id}/undo` : `/sales/${sale.id}/undo`, { body: {} }), "Sale undone · سیل واپس")) { setDone(null); today.reload(); }
+    const a = await askCancel({ title: "Sale undo karein · سیل واپس", needReason: false, button: "Undo karein",
+      what: <><b>{pkr((sale.amount ?? sale.total ?? 0) + (sale.cash_back || 0) + (sale.items_cost || 0) + (sale.khareed || 0))}</b>{sale.litres ? ` · ${num(sale.litres, 2)} L` : ""}{sale.payment_method ? ` · ${sale.payment_method}` : ""}</>,
+      hint: "Sale hat jayegi aur fuel / stock wapas ho jayega." });
+    if (!a) return;
+    if (await run(() => api(sale.shop ? `/shop/sales/${sale.id}/undo` : `/sales/${sale.id}/undo`, { body: {}, headers: pinHeader(a) }), "Sale undone · سیل واپس")) { setDone(null); today.reload(); }
   };
 
   if (!isSalesman && !stations.data) return <Loading />;
@@ -795,9 +800,7 @@ function ShiftPanel({ d, reload, onUndo, myId, expPreset }: { d: any; reload: ()
                 : r.created_by === myId && <PhotoButton kind="slip" label="Slip" className="!px-2 !py-1.5 !text-xs" onRead={async (_r, id) => {
                     try { await api(`/sales/${r.id}/slip-photo`, { body: { photo_id: id } }); toast("ok", "Slip photo saved · پرچی کی تصویر محفوظ"); reload(); } catch (e: any) { toast("err", e.message); }
                   }} />)}
-              {undoable(r) && (confirm === r.id
-                ? <button onClick={() => { setConfirm(null); onUndo(r); }} className="rounded-lg bg-red-600 px-2 py-1.5 text-xs font-bold text-white">Sure? Undo</button>
-                : <button onClick={() => { setConfirm(r.id); setTimeout(() => setConfirm(null), 4000); }} aria-label="Undo this sale" className="rounded-lg bg-slate-100 p-1.5 text-slate-600 hover:bg-slate-200"><Undo2 size={16} /></button>)}
+              {undoable(r) && <button onClick={() => onUndo(r)} aria-label="Undo this sale" className="rounded-lg bg-slate-100 p-1.5 text-slate-600 hover:bg-slate-200"><Undo2 size={16} /></button>}
             </li>
           ))}
           {!d.recent.length && <li className="py-4 text-center text-sm text-slate-500">No sales yet</li>}
@@ -836,7 +839,12 @@ function AllEntries({ stationId, onClose, onChange }: { stationId?: number; onCl
     if (edit.payment_method === "khata") { body.vehicle_no = edit.vehicle_no || null; body.slip_no = edit.slip_no || null; }
     if (await run(() => api(`/sales/${edit.id}/edit`, { body }), "Entry fixed · درستی ہو گئی")) { setEdit(null); refresh(); }
   };
-  const del = async (id: number) => { if (await run(() => api(`/sales/${id}/undo`, { body: {} }), "Entry removed · ہٹا دی گئی")) { setConfirm(null); refresh(); } };
+  const del = async (r: any) => {
+    const a = await askCancel({ title: "Entry hatayein · انٹری ہٹائیں", needReason: false, button: "Hata dein",
+      what: <><b>{pkr(r.amount + (r.cash_back || 0) + (r.items_cost || 0) + (r.khareed || 0))}</b> · {num(r.litres + (r.cash_back_litres || 0), 2)} L · {r.payment_method}</>, hint: "Sale hat jayegi aur fuel / stock wapas ho jayega." });
+    if (!a) return;
+    if (await run(() => api(`/sales/${r.id}/undo`, { body: {}, headers: pinHeader(a) }), "Entry removed · ہٹا دی گئی")) { setConfirm(null); refresh(); }
+  };
   const s = data?.summary;
   return (
     <Modal open onClose={onClose} title="Today's entries · آج کی ساری انٹریاں" wide>
@@ -889,9 +897,7 @@ function AllEntries({ stationId, onClose, onChange }: { stationId?: number; onCl
                       <span className="block text-xs text-slate-500">{new Date(r.created_at).toLocaleTimeString("en-PK", { hour: "2-digit", minute: "2-digit" })} · {r.payment_method === "khata" ? `📒 ${r.customer_name}${r.slip_no ? ` · ${r.slip_no}` : ""}` : r.wholesale_name ? `${r.payment_method} · ${r.wholesale_name}` : r.bank_name ? `${r.payment_method} · ${r.bank_name}` : r.payment_method}{(r.cash_back_litres || 0) > 0 ? ` · ${num(r.cash_back_litres, 2)} L baqi ${(r.items_cost || 0) > 0 ? "saman" : "cash"}` : ""}{r.source === "meter" ? " · meter" : ""}{!r.mine ? " · other salesman" : ""}</span></span>
                     <span className="shrink-0 font-semibold tabular-nums">{pkr(r.amount + (r.cash_back || 0) + (r.items_cost || 0) + (r.khareed || 0))}</span>
                     {r.can_edit && <button onClick={() => setEdit({ id: r.id, litres: String(r.litres), payment_method: r.payment_method, vehicle_no: r.vehicle_no ?? "", slip_no: r.slip_no ?? "" })} className="shrink-0 rounded-lg bg-slate-100 px-2 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-200">Fix · <Ur>ٹھیک</Ur></button>}
-                    {r.can_undo && (confirm === r.id
-                      ? <button onClick={() => del(r.id)} disabled={busy} className="shrink-0 rounded-lg bg-red-600 px-2 py-1.5 text-xs font-bold text-white">Sure?</button>
-                      : <button onClick={() => { setConfirm(r.id); setTimeout(() => setConfirm(null), 4000); }} aria-label="Remove entry" className="shrink-0 rounded-lg bg-slate-100 p-1.5 text-slate-600 hover:bg-slate-200"><Undo2 size={16} /></button>)}
+                    {r.can_undo && <button onClick={() => del(r)} disabled={busy} aria-label="Remove entry" className="shrink-0 rounded-lg bg-slate-100 p-1.5 text-slate-600 hover:bg-slate-200"><Undo2 size={16} /></button>}
                   </div>
                 )}
               </li>

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { askCancel, pinHeader } from "../components/CancelEntry";
 import { api, useApi } from "../lib/api";
 import { Field, ListTools, Loading, Modal, Pager, PageHeader, Stat, pkDay, useAction, useListFilter, usePaged } from "../components/ui";
 import { AccountPicker } from "../components/BankParts";
@@ -95,7 +96,7 @@ export default function OtherEntries() {
                       <div className="truncate text-xs text-slate-500">{e.reason}{e.method ? ` · ${e.method}` : ""} · {dt(e.created_at)}{e.to_party ? <span className="ml-1 rounded bg-brand-100 px-1.5 py-0.5 text-[10px] font-semibold text-brand-700">khate par</span> : null}</div>
                     </div>
                     <button onClick={() => setEdit(e)} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-500 hover:bg-emerald-100 hover:text-emerald-700" aria-label="Edit"><Pencil size={15} /></button>
-                    <button onClick={() => { if (confirm(`Undo this ${meta.en.toLowerCase()} of ${pkr(e.amount)}?`)) api(`/other-entries/${e.id}`, { method: "DELETE" }).then(reload); }}
+                    <button onClick={async () => { const a = await askCancel({ title: `${meta.en} undo karein`, needReason: false, button: "Undo karein", what: <><b>{pkr(e.amount)}</b> · {e.party_name}{e.reason ? ` · ${e.reason}` : ""}</> }); if (a) api(`/other-entries/${e.id}`, { method: "DELETE", headers: pinHeader(a) }).then(reload).catch((x) => alert(x.message)); }}
                       className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-500 hover:bg-rose-100 hover:text-rose-600" aria-label="Undo"><Trash2 size={15} /></button>
                   </div>
                 ))}

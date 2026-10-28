@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { askCancel, pinHeader } from "../components/CancelEntry";
 import { Plus, Download, Check, X, Trash2, Settings2, Repeat, Printer } from "lucide-react";
 import { api, linkToken, useApi } from "../lib/api";
 import { Badge, Empty, Field, ListTools, Loading, Modal, Pager, PageHeader, Stat, statusTone, useAction, usePaged } from "../components/ui";
@@ -53,7 +54,7 @@ export default function Expenses() {
         <button className="btn-secondary min-h-9 !px-2 !py-1 sm:min-h-0" title="Reject" aria-label="Reject" disabled={busy} onClick={() => run(() => api(`/expenses/${e.id}/reject`, { body: {} }), "Rejected").then(refresh)}><X size={14} /></button>
       </>}
       {(can("expenses.approve") || (e.status === "pending" && e.created_by === user?.name)) &&
-        <button className="btn-secondary min-h-9 !px-2 !py-1 text-red-600 sm:min-h-0" title="Delete" aria-label="Delete" disabled={busy} onClick={() => confirm("Delete this expense?") && run(() => api(`/expenses/${e.id}`, { method: "DELETE" }), "Deleted").then(refresh)}><Trash2 size={14} /></button>}
+        <button className="btn-secondary min-h-9 !px-2 !py-1 text-red-600 sm:min-h-0" title="Delete" aria-label="Delete" disabled={busy} onClick={async () => { const a = await askCancel({ title: "Kharcha delete karein", needReason: false, button: "Delete karein", what: <><b>{pkr(e.amount)}</b> · {e.category}{e.paid_to ? ` · ${e.paid_to}` : ""}</>, hint: "Kharcha hat jayega aur us ka cash/bank ka asar wapas ho jayega." }); if (a) run(() => api(`/expenses/${e.id}`, { method: "DELETE", headers: pinHeader(a) }), "Deleted").then(refresh); }}><Trash2 size={14} /></button>}
     </div>
   );
   return (

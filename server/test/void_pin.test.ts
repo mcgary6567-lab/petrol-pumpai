@@ -58,3 +58,11 @@ test("void / delete asks for the person's PIN: none set → set one with the pas
   ok(await call("admin", "PUT", "/api/settings", { void_pin: false }), "turn off");
   ok(await call("admin", "DELETE", `/api/expenses/${exp2.id}`), "no PIN needed when off");
 });
+
+test("which requests count as a cancel (PIN needed)", async () => {
+  const { isCancelRequest } = await import("../src/auth.js");
+  for (const [m, p] of [["POST", "/wholesale/txns/5/void"], ["POST", "/sales/9/undo"], ["POST", "/shop/sales/9/undo"], ["DELETE", "/expenses/3"], ["DELETE", "/other-entries/7"], ["DELETE", "/shifts/4/expenses/2"]] as const)
+    assert.equal(isCancelRequest(m, p), true, `${m} ${p}`);
+  for (const [m, p] of [["POST", "/expenses"], ["GET", "/sales/9/undo"], ["DELETE", "/users/3"], ["POST", "/wholesale/txns"]] as const)
+    assert.equal(isCancelRequest(m, p), false, `${m} ${p}`);
+});
