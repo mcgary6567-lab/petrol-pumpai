@@ -9,7 +9,8 @@ import { Router } from "express";
 import { all, get, run, tx, now } from "../db.js";
 import { h, tid, requirePerm } from "../auth.js";
 import { round2, pkr, AppError, audit } from "../services.js";
-import { journal } from "./ledger.js";
+import { journal, INVESTORS } from "./ledger.js";
+import { investorsOwed } from "./investors.js";
 import { clientDue, clientDueAll } from "./wholesale.js";
 import { thekedarDue, thekedarDueAll } from "./carriage.js";
 import { bypassOwed, bypassStockValue } from "./bypass.js";
@@ -100,6 +101,8 @@ export function reconcileBooks(t: number) {
   // go-live fuel value: Σ active opening rows (litres × rate) must equal what the ledger carries on "Fuel stock (go-live)"
   safe("Fuel stock (go-live value)", () => push("Fuel stock (go-live value)", get("SELECT COALESCE(SUM(amount),0) v FROM fuel_opening_values WHERE tenant_id=? AND voided=0", t)!.v as number, tb("Fuel stock (go-live)")));
   safe("Bypass suppliers payable", () => push("Bypass suppliers payable", all("SELECT DISTINCT supplier_id FROM bypass_purchases WHERE tenant_id=?", t).reduce((a, s) => a + bypassOwed(s.supplier_id), 0), -tb("Bypass suppliers payable")));
+
+  safe("Investors payable", () => push("Investors payable", investorsOwed(t), -tb(INVESTORS)));
 
   const failed = rows.filter((r) => !r.ok && !r.advisory); // advisory rows inform, they never fail the check
   const maxDiff = rows.filter((r) => !r.advisory).reduce((m, r) => Math.max(m, Math.abs(r.diff)), 0);

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { PrintFooter, PrintHeader } from "./Letterhead";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import {
-  LayoutDashboard, Gauge, MessageCircle, Users, Fuel, Clock, Droplets, Tag, Truck, Megaphone, Bell, Bot, Settings, LogOut, Menu, X, MessageSquareWarning, BookOpen, UserCog, MapPin, Container, Receipt, FileBarChart, Factory, Wallet, Landmark, ShoppingBasket, ClipboardCheck, ShieldCheck, HeartPulse, CalendarClock, ScrollText, Ticket, Star, Calculator, History, Wrench, Route, UserPlus, ChevronDown, Ban, HandCoins, ClipboardList, Banknote, ArrowDownCircle, ArrowUpCircle, FileCheck2, BookOpenText, BookOpenCheck, Building2, ListChecks, Lightbulb, UserCheck, Hourglass, Search, CircleHelp, Ruler, Sun, Moon, Rocket,
+  LayoutDashboard, Gauge, PiggyBank, MessageCircle, Users, Fuel, Clock, Droplets, Tag, Truck, Megaphone, Bell, Bot, Settings, LogOut, Menu, X, MessageSquareWarning, BookOpen, UserCog, MapPin, Container, Receipt, FileBarChart, Factory, Wallet, Landmark, ShoppingBasket, ClipboardCheck, ShieldCheck, HeartPulse, CalendarClock, ScrollText, Ticket, Star, Calculator, History, Wrench, Route, UserPlus, ChevronDown, Ban, HandCoins, ClipboardList, Banknote, ArrowDownCircle, ArrowUpCircle, FileCheck2, BookOpenText, BookOpenCheck, Building2, ListChecks, Lightbulb, UserCheck, Hourglass, Search, CircleHelp, Ruler, Sun, Moon, Rocket,
 } from "lucide-react";
 import { useAuth, ROLE_LABEL } from "../App";
 import { api, useApi, useLiveEvents, useLiveData } from "../lib/api";
@@ -38,7 +38,7 @@ const CASHIER_SUB = [
 const SUBS: Record<string, typeof WHOLESALE_SUB> = { "/wholesale": WHOLESALE_SUB, "/cashier": CASHIER_SUB };
 /** Urdu next to the English in the short menus (salesman, wholesale officer, cashier). */
 const NAV_UR: Record<string, string> = {
-  "/": "ڈیش بورڈ", "/reports": "رپورٹس", "/sales-history": "سیل کی تاریخ", "/insights": "مالک کی نظر", "/owner-report": "ماہانہ رپورٹ", "/discounts-report": "رعایتیں", "/other-entries": "متفرق آمدن/خرچہ",
+  "/": "ڈیش بورڈ", "/reports": "رپورٹس", "/sales-history": "سیل کی تاریخ", "/insights": "مالک کی نظر", "/owner-report": "ماہانہ رپورٹ", "/discounts-report": "رعایتیں", "/other-entries": "متفرق آمدن/خرچہ", "/investors": "سرمایہ کار",
   "/margins": "مارجن و ہدف", "/profit": "منافع کی وضاحت", "/suggestions": "تجاویز", "/inbox": "واٹس ایپ",
   "/pos": "سیل", "/shifts": "شفٹ", "/customers": "گاہک", "/khata": "کھاتہ", "/prepaid": "کوپن و والٹ", "/card-pending": "کارڈ پینڈنگ", "/bookings": "بکنگ",
   "/wholesale": "ہول سیل", "/carriage": "کرایہ", "/cashier": "کیشیئر", "/expenses": "خرچے", "/cash": "کیش بک", "/accounts": "اکاؤنٹس و ٹیکس", "/suppliers": "سپلائر", "/property": "جائیداد و کرایہ",
@@ -52,7 +52,7 @@ const GROUPS: { key: string; label: string; ur: string; icon: any; items: string
   { key: "customers", label: "Customers & khata", ur: "گاہک و کھاتہ", icon: Users, items: ["/customers", "/khata", "/prepaid", "/orders", "/complaints", "/campaigns"] },
   { key: "wholesale", label: "Wholesale & carriage", ur: "ہول سیل و کرایہ", icon: Container, items: ["/wholesale", "/carriage"] },
   { key: "stock", label: "Stock & prices", ur: "اسٹاک و ریٹ", icon: Droplets, items: ["/stock", "/dip-charts", "/register", "/prices", "/shop", "/suppliers"] },
-  { key: "money", label: "Money & accounts", ur: "پیسہ و حساب", icon: Landmark, items: ["/cashier", "/cash", "/expenses", "/accounts", "/property", "/other-entries"] },
+  { key: "money", label: "Money & accounts", ur: "پیسہ و حساب", icon: Landmark, items: ["/cashier", "/cash", "/expenses", "/accounts", "/investors", "/property", "/other-entries"] },
   { key: "reports", label: "Reports & profit", ur: "رپورٹ و منافع", icon: FileBarChart, items: ["/reports", "/sales-history", "/insights", "/owner-report", "/profit", "/margins", "/discounts-report", "/suggestions"] },
   { key: "staff", label: "Staff", ur: "عملہ", icon: Wallet, items: ["/staff", "/kiosk", "/roster", "/team", "/my-account"] },
   { key: "safety", label: "Safety & machines", ur: "حفاظت و مشینیں", icon: ShieldCheck, items: ["/compliance", "/checklist", "/machines"] },
@@ -213,6 +213,7 @@ const NAV = [
   { to: "/owner-report", label: "Monthly report (PDF)", icon: FileBarChart, perm: "reports.view" },
   { to: "/discounts-report", label: "Discounts & overrides", icon: Tag, perm: "reports.view" },
   { to: "/other-entries", label: "Other income/expense", icon: HandCoins, perm: "other_entries.manage" },
+  { to: "/investors", label: "Investors", icon: PiggyBank, perm: "investors.manage" },
   { to: "/margins", label: "Margins & targets", icon: Calculator, perm: "reports.view" },
   { to: "/profit", label: "Profit explainer", icon: Lightbulb, perm: "reports.view" },
   { to: "/suggestions", label: "Suggestions", icon: Lightbulb, perm: "dashboard.view|wholesale.view" },

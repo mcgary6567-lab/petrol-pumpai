@@ -69,6 +69,7 @@ export const PERMISSIONS = {
   "reports.view": MGMT,
   "suppliers.manage": MGMT, // supplier accounts, fuel purchase cost, payments to suppliers
   "audit.view": ADMIN, // who changed what (prices, undo, deletes, edits, sign-ins)
+  "investors.manage": ADMIN, // CEO-only: investors, their capital, fuel deals bought with it and the profit split
   "other_entries.manage": ADMIN, // CEO-only: record other income / expense / discount and see its report
   "cashier.void": ADMIN, // CEO-only: void a wrong cash receive/pay voucher and reverse the money it moved
   "entries.edit": ADMIN, // CEO-only: EDIT any entry made by cashier / manager / wholesale officer (voucher, sale, khata, supplier, wholesale, rent, delivery, shop, carriage) — reverses and re-posts it everywhere

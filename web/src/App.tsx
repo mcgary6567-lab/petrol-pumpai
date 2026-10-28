@@ -60,6 +60,7 @@ const CardPending = lazy(() => import("./pages/CardPending"));
 const OwnerReport = lazy(() => import("./pages/OwnerReport"));
 const DiscountReport = lazy(() => import("./pages/DiscountReport"));
 const OtherEntries = lazy(() => import("./pages/OtherEntries"));
+const Investors = lazy(() => import("./pages/Investors"));
 const Corrections = lazy(() => import("./pages/Corrections"));
 const SalesHistory = lazy(() => import("./pages/SalesHistory"));
 const OpeningBalances = lazy(() => import("./pages/OpeningBalances"));
@@ -209,6 +210,7 @@ export default function App() {
               <Route path="owner-report" element={<Need perm="reports.view"><OwnerReport /></Need>} />
               <Route path="discounts-report" element={<Need perm="reports.view"><DiscountReport /></Need>} />
               <Route path="other-entries" element={<Need perm="other_entries.manage"><OtherEntries /></Need>} />
+              <Route path="investors" element={<Need perm="investors.manage"><Investors /></Need>} />
               <Route path="corrections" element={<Need perm="corrections.manage"><Corrections /></Need>} />
               <Route path="opening-balances" element={<Need perm="opening.manage"><OpeningBalances /></Need>} />
               <Route path="go-live" element={<Need perm="settings.manage"><GoLive /></Need>} />

@@ -59,6 +59,7 @@ import { tax } from "./routes/tax.js";
 import { bankrec } from "./routes/bankrec.js";
 import { ledger } from "./routes/ledger.js";
 import { otherEntries } from "./routes/otherEntries.js";
+import { investors } from "./routes/investors.js";
 import { books } from "./routes/books.js";
 import { corrections } from "./routes/corrections.js";
 import { fullEdit } from "./routes/fullEdit.js";
@@ -103,14 +104,14 @@ installProcessLogging();
 // the web app is served from the same address, so no cross-site access is needed (the demo on Vercel too)
 // small bodies for the doors anyone can reach; photos and logos only after sign-in (or in the one-time setup)
 const rawBody = (req: any, _res: unknown, buf: Buffer) => { req.rawBody = buf; };
-app.use(/^\/(api\/auth|webhooks|w\/|k\/)/, express.json({ limit: "256kb", verify: rawBody }));
+app.use(/^\/(api\/auth|webhooks|w\/|k\/|i\/)/, express.json({ limit: "256kb", verify: rawBody }));
 // an old PumpAI backup (.db) uploaded whole for the master shop catalog — raw bytes, platform login checked by the route
 app.use("/api/platform/catalog/from-backup", express.raw({ type: () => true, limit: "400mb" }));
 app.use(express.json({ limit: "8mb", verify: rawBody }));
 app.use("/api/auth", rateLimit("auth", 30, 10 * 60_000));
 app.use("/api/setup", rateLimit("setup", 20, 10 * 60_000));
 // the PIN page and its PIN tries; slip photos on the page (behind the PIN cookie) are not counted
-app.use(/^\/(w|k)\/[^/]+\/?$/, rateLimit("portal", 60, 10 * 60_000));
+app.use(/^\/(w|k|i)\/[^/]+\/?$/, rateLimit("portal", 60, 10 * 60_000));
 // SaaS public doors: stop tenant-spam sign-ups, platform-login guessing and activation-code brute force
 app.use("/api/signup", rateLimit("signup", 10, 10 * 60_000));
 app.use("/api/platform/login", rateLimit("platform-login", 20, 10 * 60_000));
@@ -388,6 +389,7 @@ api.use(tax);
 api.use(bankrec);
 api.use(ledger);
 api.use(otherEntries);
+api.use(investors);
 api.use(books);
 api.use(corrections);
 api.use(fullEdit);

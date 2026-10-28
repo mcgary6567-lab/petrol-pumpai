@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { AlertTriangle, ArrowDownCircle, ArrowUpCircle, Banknote, Landmark, Scale, TrendingUp, Users, FileCheck2, ChevronDown, Receipt, ArrowUpRight, ArrowDownRight, Fuel, Wallet, Coins } from "lucide-react";
+import { AlertTriangle, ArrowDownCircle, ArrowUpCircle, Banknote, Landmark, Scale, TrendingUp, Users, FileCheck2, ChevronDown, Receipt, ArrowUpRight, ArrowDownRight, Fuel, Wallet, Coins, PiggyBank } from "lucide-react";
 import { useApi } from "../lib/api";
 import { Loading, CountUp, pkDay } from "./ui";
 import { Ur } from "./VoiceShell";
@@ -67,6 +67,7 @@ export function OwnerOverview() {
           {w.unused_coupons > 0 && <Row label="Unused fuel coupons" ur="کوپن" v={w.unused_coupons} to="/prepaid" tone="text-rose-700" />}
           {w.withholding_tax > 0 && <Row label="Tax to deposit (FBR)" ur="ٹیکس" v={w.withholding_tax} to="/accounts" tone="text-rose-700" />}
           {w.pending_expenses > 0 && <Row label="Expenses waiting approval" ur="منظوری" v={w.pending_expenses} to="/expenses" tone="text-rose-700" />}
+          {w.investors > 0 && <Row label="Investors (capital + munafa)" ur="سرمایہ کار" v={w.investors} to="/investors" tone="text-rose-700" />}
           {data.dues && <DuesDetail dues={data.dues} />}
           <div className="mt-2 flex items-baseline justify-between border-t-2 border-slate-800 pt-2">
             <span className="font-semibold">Net position · <Ur>کل مالیت</Ur><span className="block text-xs font-normal text-slate-500">money + owed to us − we owe (stock not included)</span></span>
@@ -105,6 +106,8 @@ export function OwnerOverview() {
           <Link to="/insights" className="mt-1 inline-block py-1 text-xs font-medium text-brand-700 hover:underline">Profit & loss, balance sheet → </Link>
         </div>
       </div>
+
+      {data.investors && <InvestorsCard s={data.investors} />}
 
       {/* each module's own live feed — POS / cashier / wholesale — pulled up right here on the CEO dashboard */}
       <ModuleFeeds />
@@ -243,6 +246,37 @@ function ExpenseBreakdown() {
           </ul>
           <Link to="/expenses" className="mt-1 inline-block py-1 text-xs font-medium text-brand-700 hover:underline">Sab kharche, approvals, budget → </Link>
         </>
+      )}
+    </div>
+  );
+}
+
+/** CEO: what the investors' money earned — the pump's share vs theirs, what is in deals now and what we still owe them. */
+function InvestorsCard({ s }: { s: any }) {
+  return (
+    <div className="card p-4">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <h2 className="flex items-center gap-2 font-semibold"><PiggyBank size={17} /> Investors · <Ur>سرمایہ کار</Ur> <span className="text-xs font-normal text-slate-500">{s.count} investor · {s.open_deals} deal chal rahi</span></h2>
+        <Link to="/investors" className="text-xs font-medium text-brand-700 hover:underline">Sab dekhein →</Link>
+      </div>
+      <div className="grid grid-cols-2 gap-2 text-sm lg:grid-cols-5">
+        <div className="rounded-xl bg-blue-50 p-2"><div className="text-xs text-blue-800">Unka paisa (capital)</div><div className="font-semibold tabular-nums text-blue-900">{pkr(s.capital_in)}</div><div className="text-[11px] text-blue-700">deal me {pkrShort(s.in_deals)}</div></div>
+        <div className="rounded-xl bg-emerald-50 p-2"><div className="text-xs text-emerald-800">Deals ka kul munafa</div><div className="font-semibold tabular-nums text-emerald-900">{pkr(s.deal_profit)}</div><div className="text-[11px] text-emerald-700">is mahine {pkrShort(s.month.profit)}</div></div>
+        <div className="rounded-xl bg-emerald-100 p-2"><div className="text-xs text-emerald-900">Hum ne kamaya</div><div className="text-lg font-bold tabular-nums text-emerald-900">{pkr(s.our_share)}</div><div className="text-[11px] text-emerald-800">is mahine {pkrShort(s.month.our_share)}</div></div>
+        <div className="rounded-xl bg-slate-50 p-2"><div className="text-xs text-slate-600">Investors ka munafa</div><div className="font-semibold tabular-nums">{pkr(s.investor_share)}</div><div className="text-[11px] text-slate-500">diya {pkrShort(s.paid_out)}</div></div>
+        <div className="rounded-xl bg-rose-50 p-2"><div className="text-xs text-rose-800">Unko dena (baqi)</div><div className="font-semibold tabular-nums text-rose-800">{pkr(s.owed)}</div><div className="text-[11px] text-rose-700">capital + munafa</div></div>
+      </div>
+      {s.list.length > 0 && (
+        <div className="mt-3 overflow-x-auto">
+          <table className="w-full min-w-[560px] text-sm">
+            <thead><tr><th className="th">Investor</th><th className="th text-right">Capital</th><th className="th text-right">Hamara munafa</th><th className="th text-right">Unka munafa</th><th className="th text-right">Baqi dena</th></tr></thead>
+            <tbody>{s.list.map((i: any) => (
+              <tr key={i.id} className="border-t"><td className="td"><Link to={`/investors?id=${i.id}`} className="font-medium text-brand-700 hover:underline">{i.name}</Link> <span className="text-xs text-slate-500">{i.our_pct}/{100 - i.our_pct}</span></td>
+                <td className="td text-right tabular-nums">{pkr(i.capital_in)}</td><td className="td text-right tabular-nums text-emerald-700">{pkr(i.our_share)}</td>
+                <td className="td text-right tabular-nums">{pkr(i.profit_share - i.loss_share)}</td><td className="td text-right font-semibold tabular-nums">{pkr(i.balance)}</td></tr>
+            ))}</tbody>
+          </table>
+        </div>
       )}
     </div>
   );

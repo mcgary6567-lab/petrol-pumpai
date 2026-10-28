@@ -874,6 +874,29 @@ export function migrate() {
     old_reading REAL NOT NULL, new_reading REAL NOT NULL, gap_l REAL NOT NULL DEFAULT 0, reason TEXT NOT NULL,
     created_by TEXT, created_at TEXT NOT NULL)`);
   db.exec("CREATE INDEX IF NOT EXISTS idx_meter_resets_nozzle ON meter_resets(nozzle_id, created_at)");
+  // investors: they give capital, we buy fuel with it in "deals"; each closed deal's profit (or loss) is split by the
+  // investor's share (default 60% ours / 40% theirs). investor_txns is the investor's own ledger: capital in / their
+  // profit share = credit (we owe them more); payout / their loss share = debit. Money moves through cashier_vouchers /
+  // bank_txns with ref "inv:<txn id>" (ledger: Investors payable), so cash, bank and books tally.
+  db.exec(`CREATE TABLE IF NOT EXISTS investors (
+    id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, name TEXT NOT NULL, phone TEXT, cnic TEXT, address TEXT, city TEXT,
+    bank_name TEXT, bank_account TEXT, note TEXT, our_pct REAL NOT NULL DEFAULT 60, active INTEGER NOT NULL DEFAULT 1,
+    portal_v INTEGER NOT NULL DEFAULT 0, portal_off INTEGER NOT NULL DEFAULT 0, portal_fails INTEGER NOT NULL DEFAULT 0,
+    portal_locked_until TEXT, portal_seen_at TEXT, created_by TEXT, created_at TEXT NOT NULL, updated_at TEXT)`);
+  db.exec(`CREATE TABLE IF NOT EXISTS investor_deals (
+    id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, investor_id INTEGER NOT NULL, product TEXT NOT NULL,
+    litres REAL NOT NULL, cost_rate REAL NOT NULL, cost_amount REAL NOT NULL, supplier_id INTEGER, ref TEXT, note TEXT, deal_date TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','closed')),
+    sold_litres REAL, sale_rate REAL, sale_amount REAL, exp_carriage REAL, exp_overhead REAL, exp_other REAL, expenses REAL,
+    profit REAL, our_pct REAL, investor_share REAL, our_share REAL, close_note TEXT, closed_by TEXT, closed_at TEXT,
+    voided INTEGER NOT NULL DEFAULT 0, void_reason TEXT, voided_by TEXT, voided_at TEXT, created_by TEXT, created_at TEXT NOT NULL)`);
+  db.exec("CREATE INDEX IF NOT EXISTS idx_investor_deals ON investor_deals(tenant_id, investor_id, status)");
+  db.exec(`CREATE TABLE IF NOT EXISTS investor_txns (
+    id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, investor_id INTEGER NOT NULL,
+    type TEXT NOT NULL CHECK (type IN ('capital_in','payout','profit','loss')), purpose TEXT, amount REAL NOT NULL,
+    method TEXT, account_id INTEGER, deal_id INTEGER, src TEXT, note TEXT,
+    voided INTEGER NOT NULL DEFAULT 0, void_reason TEXT, voided_by TEXT, voided_at TEXT, created_by TEXT, created_at TEXT NOT NULL)`);
+  db.exec("CREATE INDEX IF NOT EXISTS idx_investor_txns ON investor_txns(tenant_id, investor_id, created_at)");
   addColumn("meter_readings", "reset_adj", "REAL");
   addColumn("meter_readings", "reset_note", "TEXT");
   addColumn("expense_categories", "active", "INTEGER NOT NULL DEFAULT 1");

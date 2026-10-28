@@ -18,6 +18,7 @@ import { config, PRODUCTS } from "../config.js";
 import { statement, rateCard, clientDue } from "./wholesale.js";
 import { clientRequests, placeClientRequest, editClientRequest } from "./wholesaleDesk.js";
 import { khataStatement } from "./crm.js";
+import { investorStatement } from "./investors.js";
 import { billLink } from "../billing.js";
 import { sendDirect, sendWhatsApp } from "../whatsapp/cloud.js";
 import { logoTag } from "./setup.js";
@@ -25,8 +26,8 @@ import { logoTag } from "./setup.js";
 export const pinPortalAdmin = Router();
 export const pinPortalPublic = Router();
 
-type Kind = "w" | "k";
-const TABLE: Record<Kind, string> = { w: "wholesale_clients", k: "customers" };
+type Kind = "w" | "k" | "i";
+const TABLE: Record<Kind, string> = { w: "wholesale_clients", k: "customers", i: "investors" };
 const esc = (v: unknown) => String(v ?? "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]!));
 const rs = (v: number) => `Rs ${Math.round(v).toLocaleString("en-IN")}`;
 const n2 = (v: number) => Number(v).toLocaleString("en-IN", { maximumFractionDigits: 2 });
@@ -52,15 +53,16 @@ function fromCode(kind: Kind, code: string) {
 /* ---------------- staff side ---------------- */
 function ownRow(kind: Kind, t: number, id: number) {
   const c = get(`SELECT * FROM ${TABLE[kind]} WHERE id=? AND tenant_id=?`, id, t);
-  if (!c) throw new AppError(404, kind === "w" ? "Wholesale client not found" : "Customer not found");
+  if (!c) throw new AppError(404, kind === "w" ? "Wholesale client not found" : kind === "i" ? "Investor nahi mila" : "Customer not found");
   return c;
 }
 const info = (kind: Kind, c: any) => ({ url: pinLink(kind, c), pin: pinOf(kind, c.id, c.portal_v ?? 0), enabled: !c.portal_off, last_seen: c.portal_seen_at ?? null });
 const message = (kind: Kind, c: any, tenant: string) => {
   const p = info(kind, c);
+  if (kind === "i") return `${c.name}\n📈 Apna investment khata kabhi bhi dekhein (raqam, har deal ka munafa, payment aur baqaya):\n${p.url}\nPIN: ${p.pin}\nYeh PIN kisi ko na batayein.\n— ${tenant}`;
   return `${c.name}\n📒 Apna khata kabhi bhi dekhein (baqaya, har ${kind === "w" ? "supply" : "fill"}, payment aur bill):\n${p.url}\nPIN: ${p.pin}\nYeh PIN kisi ko na batayein.\n— ${tenant}`;
 };
-for (const [kind, base, view, manage] of [["w", "/wholesale/clients/:id/portal", "wholesale.view", "wholesale.manage"], ["k", "/customers/:id/portal", "khata.manage", "khata.manage"]] as const) {
+for (const [kind, base, view, manage] of [["w", "/wholesale/clients/:id/portal", "wholesale.view", "wholesale.manage"], ["k", "/customers/:id/portal", "khata.manage", "khata.manage"], ["i", "/investors/:id/portal", "investors.manage", "investors.manage"]] as const) {
   pinPortalAdmin.get(base, requirePerm(view), h((req) => info(kind, ownRow(kind, tid(req), Number(req.params.id)))));
   /** Shared with the wrong person? A new link and PIN; the old ones stop working. */
   pinPortalAdmin.post(`${base}/new`, requirePerm(manage), h((req) => {
@@ -138,7 +140,7 @@ function topBar(c: any, code: string, billUrl: string) {
   return `<div class="top np"><div class=brand>${logoTag(t, "height:30px;max-width:90px;object-fit:contain")}<span>${esc(tenant.name)}</span></div>
 <div class=acts>
 <button onclick="print()"><span class=i>🖨️</span>Print<span class=ur>پرنٹ</span></button>
-<a href="${esc(billUrl)}"><span class=i>🧾</span>Bill<span class=ur>ماہانہ بل</span></a>
+${billUrl ? `<a href="${esc(billUrl)}"><span class=i>🧾</span>Bill<span class=ur>ماہانہ بل</span></a>` : ""}
 ${phone ? `<a href="tel:${esc(phone)}"><span class=i>📞</span>Call<span class=ur>کال کریں</span></a>` : `<a href="#"><span class=i>📞</span>Call<span class=ur>کال</span></a>`}
 <form method=post action="${esc(code)}/logout" style="display:contents"><button><span class=i>🔒</span>Lock<span class=ur>بند کریں</span></button></form>
 </div>${wa ? `<a href="https://wa.me/${esc(wa)}?text=${encodeURIComponent(`${c.name}: khata ke baare mein`)}" style="display:block;margin-top:8px;background:#25d366;color:#fff;text-align:center;padding:9px;border-radius:12px;text-decoration:none;font-weight:600">💬 WhatsApp the pump · <span class=ur>واٹس ایپ کریں</span></a>` : ""}</div>`;
@@ -299,6 +301,46 @@ ${flash === "sent" ? `<div class="hero ok" style="margin-top:10px"><div class=lb
 <button class="b np" style="margin-top:8px" type=submit>📩 Bhejein · <span class=ur>بھیجیں</span></button></form>`}</div>`;
 }
 
+/** Investor's page: what the pump owes them, every deal (litres, cost, sale, profit, their share) and every credit / debit. */
+function investorBody(c: any, month: string | null, code: string): string {
+  const t = c.tenant_id;
+  const from = month ? `${month}-01` : undefined;
+  const to = month ? new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).toISOString().slice(0, 10) : undefined;
+  const s = investorStatement(t, c.id, from, to);
+  const f = s.investor;
+  const periodLabel = month ? monthName(month) : "All time · سارا حساب";
+  const TY: Record<string, [string, string, string, string]> = {
+    capital_in: ["💵", "Raqam di · Investment", "رقم دی", "pay"], profit: ["📈", "Munafa (aap ka hissa)", "منافع", "pay"],
+    payout: ["🏦", "Pump ne diya", "ادائیگی", "sup"], loss: ["📉", "Nuqsan (aap ka hissa)", "نقصان", "adj"],
+  };
+  const rows = [...s.lines].reverse().filter((l: any) => !l.voided).map((l: any) => {
+    const [ic, en, ur, cls] = TY[l.type] ?? ["✏️", l.type, "", "adj"];
+    const what = l.type === "payout" ? (l.purpose === "capital" ? "Asal raqam wapas" : "Munafa diya") : l.deal_id && l.product ? `Deal #${l.deal_id} · ${n2(l.sold_litres ?? l.litres ?? 0)} L ${PRODUCTS[l.product] ?? l.product}` : "";
+    return `<div class="e ${cls}"><div class=ic>${ic}</div><div class=l><div class=m>${esc(dateStr(l.created_at))}</div><div class=et>${esc(en)} · <span class=ur>${ur}</span></div>
+      <div class=m>${esc([what, l.method && l.type !== "profit" && l.type !== "loss" ? l.method : null, l.note].filter(Boolean).join(" · "))}</div></div>
+      <div class=r>${l.credit ? `<b class=g>+${n2(l.credit)}</b><div class=m>Credit</div>` : `<b class=red>−${n2(l.debit)}</b><div class=m>Debit</div>`}<div class=m>Baqi · <span class=ur>باقی</span> ${n2(l.balance)}</div></div></div>`;
+  }).join("");
+  const deals = s.deals.slice(0, 12).map((d: any) => `<div class=row><div class=l><div class=et>#${d.id} · ${n2(d.litres)} L ${esc(PRODUCTS[d.product] ?? d.product)}</div>
+    <div class=m>${esc(dateStr(d.deal_date + "T00:00:00+05:00"))} · khareed Rs ${n2(d.cost_rate)}/L = ${rs(d.cost_amount)}${d.status === "closed" ? ` · becha ${n2(d.sold_litres)} L @ Rs ${n2(d.sale_rate)} · kharche ${rs(d.expenses)}` : ""}</div></div>
+    <div class=rr>${d.status === "open" ? `<b style="color:#b45309">Chal rahi · <span class=ur>جاری</span></b>` : `<b class="${d.investor_share >= 0 ? "g" : "red"}">${d.investor_share >= 0 ? "+" : "−"}${n2(Math.abs(d.investor_share))}</b><div class=m>munafa ${rs(d.profit)} · aap ${100 - d.our_pct}%</div>`}</div></div>`).join("");
+  const chips = [`<a href="${esc(code)}" class="${month ? "" : "on"}">All · <span class=ur>سب</span></a>`, ...monthsBack(6).map((m) => `<a href="${esc(code)}?m=${m}" class="${month === m ? "on" : ""}">${esc(monthName(m))}</a>`)].join("");
+  return `<div class=po>${brandHead(t, "Investor statement")}<b>Investment statement · <span class=ur>انویسٹمنٹ کھاتہ</span></b><br>${esc(c.name)} · ${esc(periodLabel)} · printed ${esc(new Date().toLocaleString("en-PK", { timeZone: "Asia/Karachi" }))}</div>
+<div class=c><h1>${esc(c.name)}</h1><div class=m>${esc([c.city, c.phone].filter(Boolean).join(" · "))}</div>
+<div class="hero ok" style="margin-top:12px"><div class=lbl>Pump ke zimme aap ka · <span class=ur>پمپ کے ذمے آپ کا</span></div><div class="amt g">${rs(f.balance)}</div>
+<div class=m style="margin-top:6px">Deal me laga · <span class=ur>کاروبار میں</span> <b>${rs(f.in_deals)}</b> · Free · <span class=ur>فارغ</span> <b>${rs(f.free)}</b></div></div>
+<div class=tiles><div class=tile><div class=i>💵</div><b>${rs(f.capital_in)}</b><div class=m>Raqam di · <span class=ur>سرمایہ</span></div></div>
+<div class=tile><div class=i>📈</div><b class=g>${rs(f.profit_share - f.loss_share)}</b><div class=m>Kul munafa · <span class=ur>منافع</span></div></div>
+<div class=tile><div class=i>🏦</div><b>${rs(f.paid_out)}</b><div class=m>Mil chuka · <span class=ur>وصول</span></div></div></div>
+<div class=m style="text-align:center;margin-top:6px">Munafa ka hissa: pump ${f.our_pct ?? c.our_pct}% · aap ${100 - (c.our_pct ?? 60)}% · ${f.deals} deals</div></div>
+${deals ? `<div class=c><b>Deals · <span class=ur>سودے</span></b>${deals}</div>` : ""}
+<div class=c><div class=np style="margin-bottom:8px"><div class=chips>${chips}</div></div>
+<b>Entries · <span class=ur>تفصیل</span> — ${esc(periodLabel)}</b>
+<div class=m>Credit (+) = aap ka pump par barha · Debit (−) = aap ko mila / nuqsan · <span class=ur>باقی</span> = har entry ke baad</div>
+<div class=sum style="border-top:0;border-bottom:1px solid #e2e8f0;font-weight:600"><span>Opening · <span class=ur>شروع کا باقی</span></span><span>${n2(s.opening)}</span></div>
+<div class=ent>${rows || `<p class=m style="text-align:center;padding:16px">No entries · <span class=ur>کوئی اندراج نہیں</span></p>`}</div>
+<div class=sum><span>Credit ${n2(s.totals.credit)} · Debit ${n2(s.totals.debit)}</span><span>Closing ${n2(s.closing)}</span></div></div>`;
+}
+
 /** Photos kept with an entry (khata slip / parchi, delivery challan, cheque or receipt), shown under it; they open full size from this page only. */
 function photoThumbs(code: string, ids: unknown, en: string, ur: string) {
   const list = String(ids ?? "").split(",").map(Number).filter((n) => n > 0);
@@ -307,8 +349,8 @@ function photoThumbs(code: string, ids: unknown, en: string, ur: string) {
 }
 
 function khataPage(kind: Kind, c: any, code: string, month: string | null, flash: string | null = null) {
-  const bill = billLink(c.tenant_id, kind, c.id, month ?? pkDate().slice(0, 7));
-  return page(`${c.name} — khata`, (kind === "w" ? wholesaleBody(c, month, code, flash) : khataBody(c, month, code, flash)) +
+  const bill = kind === "i" ? "" : billLink(c.tenant_id, kind, c.id, month ?? pkDate().slice(0, 7));
+  return page(`${c.name} — khata`, (kind === "w" ? wholesaleBody(c, month, code, flash) : kind === "i" ? investorBody(c, month, code) : khataBody(c, month, code, flash)) +
     `<div class=m style="text-align:center;margin:8px 0 20px">Updated · <span class=ur>تازہ ترین</span> ${esc(new Date().toLocaleString("en-PK", { timeZone: "Asia/Karachi" }))}</div>`, c.tenant_id, topBar(c, code, bill));
 }
 
@@ -322,7 +364,7 @@ function remembered(req: Request, kind: Kind, c: any, v: number) {
 const gone = (res: Response) => res.status(404).type("html").send(page("Not found", "<div class=c>This link is not valid any more. Ask the pump for a new one.</div>"));
 const seen = (kind: Kind, id: number) => run(`UPDATE ${TABLE[kind]} SET portal_seen_at=? WHERE id=?`, now(), id);
 
-for (const kind of ["w", "k"] as const) {
+for (const kind of ["w", "k", "i"] as const) {
   pinPortalPublic.get(`/${kind}/:code`, (req, res) => {
     const r = fromCode(kind, req.params.code);
     if (!r) return gone(res);
@@ -354,7 +396,7 @@ for (const kind of ["w", "k"] as const) {
   pinPortalPublic.get(`/${kind}/:code/slip/:photo`, (req, res) => {
     const r = fromCode(kind, req.params.code);
     // only after the PIN, and only a photo of one of this customer's / client's own entries
-    if (!r || !remembered(req, kind, r.c, r.v)) return res.status(404).end();
+    if (!r || kind === "i" || !remembered(req, kind, r.c, r.v)) return res.status(404).end();
     const p = kind === "k"
       ? get(`SELECT p.mime, p.data FROM photos p JOIN khata_ledger k ON p.ref = 'khata:' || k.id
           WHERE p.id=? AND p.tenant_id=? AND k.customer_id=? AND k.type='debit'`, Number(req.params.photo), r.c.tenant_id, r.c.id)

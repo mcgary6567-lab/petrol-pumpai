@@ -34,10 +34,12 @@ const payAccount = (t: number, m: string | null | undefined) => {
 /** Money tagged by where it came from: tax paid to FBR clears the tax payable, a recovered claim, a coupon refund. */
 const OTHER_INCOME_CEO = "Other income (CEO)", OTHER_EXPENSE_CEO = "Expense: Other (CEO)", OTHER_DISCOUNT_CEO = "Other discount (CEO)";
 const OWN_CAP = "Owner's capital", OWN_DRAW = "Owner's drawings";
+/** Money investors gave (and their profit share not yet paid) — a liability; their share of a deal's profit is an expense to us. */
+export const INVESTORS = "Investors payable", INVESTOR_SHARE = "Expense: Investor profit share";
 /** Go-live opening balances (khata, staff advances) are brought forward against this equity account, never P&L. */
 const OPENING_EQ = "Opening balances (go-live)", OPEN_REF = "open:";
 const specialSide = (ref: string | null | undefined) =>
-  !ref ? null : ref.startsWith("shopbuy:") ? "Shop stock" : ref.startsWith("wht:") ? "Withholding tax payable" : ref.startsWith("claim:") ? "Shortage claims recovered" : ref.startsWith("coupon-refund:") ? "Fuel coupons (unused)" : ref.startsWith("bypassfuel:") ? "Depot money held" : null;
+  !ref ? null : ref.startsWith("shopbuy:") ? "Shop stock" : ref.startsWith("wht:") ? "Withholding tax payable" : ref.startsWith("claim:") ? "Shortage claims recovered" : ref.startsWith("coupon-refund:") ? "Fuel coupons (unused)" : ref.startsWith("bypassfuel:") ? "Depot money held" : ref.startsWith("inv:") ? INVESTORS : null;
 /** CEO-only "other" markers: income / expense / discount. Hidden from non-admin views (shown as owner capital/drawings). */
 const otherKind = (ref: string | null | undefined): "inc" | "exp" | "disc" | "pty" | null =>
   !ref ? null : ref.startsWith("oth-inc:") ? "inc" : ref.startsWith("oth-exp:") ? "exp" : ref.startsWith("oth-disc:") ? "disc" : ref.startsWith("oth-pty:") ? "pty" : null;
@@ -305,6 +307,12 @@ export function journal(t: number, fromDay: string, toDay: string, showPrivate =
     add(day(r.created_at), r.direction === "in" ? "Receipt" : "Payment", narr,
       r.direction === "in" ? [dr(CASH, r.amount), cr(other, r.amount)] : [dr(other, r.amount), cr(CASH, r.amount)]);
   }
+
+  // investors: each closed deal's investor share — profit: Dr investor share expense / Cr Investors payable; loss: the reverse
+  // (their capital and payouts move through the cashier / bank rows above with ref "inv:")
+  for (const r of all(`SELECT x.*, i.name FROM investor_txns x JOIN investors i ON i.id=x.investor_id WHERE x.tenant_id=? AND x.voided=0 AND x.type IN ('profit','loss') AND x.created_at >= ? AND x.created_at < ?`, ...P))
+    add(day(r.created_at), "Journal", `Investor ${r.type === "profit" ? "profit" : "loss"} share — ${r.name}${r.deal_id ? ` (deal #${r.deal_id})` : ""}`,
+      r.type === "profit" ? [dr(INVESTOR_SHARE, r.amount), cr(INVESTORS, r.amount)] : [dr(INVESTORS, r.amount), cr(INVESTOR_SHARE, r.amount)]);
 
   // cash counts: the counted cash is the truth. The first count starts the cash book (its difference from what the books
   // made of the cash so far is the owner's — cash taken or put in without an entry); later counts' short / over is booked

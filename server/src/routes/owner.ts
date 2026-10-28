@@ -3,6 +3,7 @@
  * banks, cheques not yet cleared), what others owe and what we owe, today's money in / out across every module,
  * and this month's profit. Every number comes from the same books the cashier, banks and accounts use.
  */
+import { investorsOwed, investorBalance, investorsSummary } from "./investors.js";
 import { Router } from "express";
 import { all, get, pkDate, pkDayStart, pkStart } from "../db.js";
 import { h, tid, requirePerm } from "../auth.js";
@@ -52,6 +53,7 @@ owner.get("/owner/overview", requirePerm("reports.view"), h((req) => {
     withholding_tax: one("SELECT COALESCE(SUM(amount),0) v FROM tax_withholdings WHERE tenant_id=? AND cpr_no IS NULL", t),
     unused_coupons: one("SELECT COALESCE(SUM(value),0) v FROM fuel_coupons WHERE tenant_id=? AND status='active'", t),
     pending_expenses: b.payables.pending_expenses.amount,
+    investors: investorsOwed(t), // investors' capital + profit share not paid yet
   };
   const sum = (o: Record<string, number>) => round2(Object.values(o).reduce((a, v) => a + v, 0));
   const dues = partyDues(t);
@@ -112,6 +114,8 @@ owner.get("/owner/overview", requirePerm("reports.view"), h((req) => {
     dues,
     net_position: round2(money.total + sum(owedToUs) - sum(weOwe)),
     today: today_, activity, online,
+    // CEO-only: what the investors' money earned (ours vs theirs) and what we still owe them
+    investors: req.user!.role === "admin" && get("SELECT 1 x FROM investors WHERE tenant_id=? LIMIT 1", t) ? investorsSummary(t) : null,
     month: { month: pl.month, income: pl.income.total, gross_profit: pl.gross_profit, expenses: pl.expenses.total, net_profit: pl.net_profit, margin_pct: pl.margin_pct },
   };
 }));
@@ -182,6 +186,10 @@ export function partyDues(t: number) {
     const o = supplierOwed(s.id) + bypassOwed(s.id);
     if (o > 0.5) pay.push({ kind: "supplier", id: s.id, name: [s.company, s.name].filter(Boolean).join(" — "), amount: round2(o), to: "/suppliers" });
     else if (o < -0.5) rec.push({ kind: "supplier_advance", id: s.id, name: `${[s.company, s.name].filter(Boolean).join(" — ")} (advance)`, amount: round2(-o), to: "/suppliers" });
+  }
+  for (const i of all("SELECT id, name FROM investors WHERE tenant_id=?", t)) {
+    const v = investorBalance(i.id);
+    if (v > 0.5) pay.push({ kind: "investor", id: i.id, name: `${i.name} (investor)`, amount: v, to: `/investors?id=${i.id}` });
   }
   rec.sort((a, b) => b.amount - a.amount); pay.sort((a, b) => b.amount - a.amount);
   const tot = (x: D[]) => round2(x.reduce((a, d) => a + d.amount, 0));

@@ -30,6 +30,7 @@ export const PAGE_WORDS: Record<string, string> = {
   "/cash": "cash bank book balance account transfer deposit jama nikal",
   "/accounts": "accounts tax ledger balance sheet trial journal p&l profit loss fbr gst withholding",
   "/suppliers": "supplier depot company pso shell total attock go maal purchase bill payment statement invoice gari",
+  "/investors": "investor investment sarmaya sarmayakar capital partner deal munafa profit share 60 40 hissa payout ledger",
   "/property": "property rent kiraya dukan shop rent",
   "/orders": "order booking delivery customer order",
   "/bookings": "booking appointment service car wash oil change",
