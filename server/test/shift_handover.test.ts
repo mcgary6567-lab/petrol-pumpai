@@ -124,3 +124,11 @@ test("shift report shows meters, rates, khata slips, expenses and the handover g
   const exp = (await call("admin", "GET", "/api/expenses?status=pending")).data.expenses;
   assert.ok(exp.some((e: any) => e.shift_id === shift.id && e.category === "Maintenance & repairs"));
 });
+
+test("open-shift picker lists the registered salesmen (managers only), busy ones marked", async () => {
+  const st = (await call("admin", "GET", "/api/stations")).data[0].id;
+  const r = await call("manager", "GET", `/api/shifts/attendants?station_id=${st}`);
+  assert.equal(r.status, 200);
+  assert.ok(r.data.length >= 1 && r.data.every((u: any) => typeof u.name === "string" && "busy" in u), "salesmen listed");
+  assert.equal((await call("salesman", "GET", `/api/shifts/attendants?station_id=${st}`)).status, 403, "salesman can't list");
+});

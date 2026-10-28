@@ -112,10 +112,10 @@ export default function Shifts() {
         <Modal open onClose={() => setMgrOpen(null)} title="Open a shift" wide>
           <div className="mb-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field label="Station"><select className="input" value={mgrOpen.station_id} onChange={(e) => setMgrOpen({ ...mgrOpen, station_id: e.target.value })}>{stations.data.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></Field>
-            <Field label="Salesman name"><input className="input" required value={mgrOpen.attendant} onChange={(e) => setMgrOpen({ ...mgrOpen, attendant: e.target.value })} /></Field>
+            <AttendantPicker stationId={mgrOpen.station_id} value={mgrOpen.attendant} onChange={(v) => setMgrOpen({ ...mgrOpen, attendant: v })} />
           </div>
           {mgrOpen.attendant.length >= 2 ? <StartShiftSheet key={mgrOpen.station_id} stationId={Number(mgrOpen.station_id)} attendant={mgrOpen.attendant} onStarted={() => { setMgrOpen(null); reloadAll(); }} />
-            : <p className="text-sm text-slate-500">Enter the salesman's name to see the nozzles.</p>}
+            : <p className="text-sm text-slate-500">Salesman chunein — phir nozzles nazar aayenge.</p>}
         </Modal>
       )}
       {closing && <CloseShift id={closing} onClose={() => setClosing(null)} onClosed={(r) => { setClosing(null); setReport(r.id); reloadAll(); }} />}
@@ -442,3 +442,22 @@ function CloseShift({ id, onClose, onClosed }: { id: number; onClose: () => void
   );
 }
 const Row = ({ k, v }: { k: string; v: string }) => <div className="flex justify-between gap-3"><span className="min-w-0">{k}</span><span className="shrink-0 tabular-nums">{v}</span></div>;
+
+/** The registered salesmen (Users page) to pick from; "Doosra naam" still allows someone not registered yet. */
+function AttendantPicker({ stationId, value, onChange }: { stationId: string; value: string; onChange: (v: string) => void }) {
+  const list = useApi<any[]>(`/shifts/attendants?station_id=${stationId}`);
+  const names = (list.data ?? []).map((u) => u.name as string);
+  const [other, setOther] = useState(false);
+  const typed = other || (!!value && list.data != null && !names.includes(value));
+  return (
+    <Field label="Salesman · سیلزمین">
+      <select className="input" value={typed ? "__other__" : value} onChange={(e) => { if (e.target.value === "__other__") { setOther(true); onChange(""); } else { setOther(false); onChange(e.target.value); } }}>
+        <option value="">— salesman chunein —</option>
+        {(list.data ?? []).map((u) => <option key={u.id} value={u.name} disabled={u.busy}>{u.name}{u.station_name && String(u.station_id) !== String(stationId) ? ` · ${u.station_name}` : ""}{u.busy ? " · shift chal rahi hai" : ""}</option>)}
+        <option value="__other__">+ Doosra naam likhein</option>
+      </select>
+      {typed && <input className="input mt-2" autoFocus required placeholder="Salesman ka naam" value={value} onChange={(e) => onChange(e.target.value)} />}
+      {list.data && !list.data.length && <span className="mt-1 block text-xs text-slate-500">Koi salesman registered nahi — Users page par "Salesman" role ke saath add karein.</span>}
+    </Field>
+  );
+}

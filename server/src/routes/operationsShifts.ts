@@ -54,6 +54,15 @@ shiftRoutes.get("/shifts", requirePerm("shifts.manage"), h((req) => {
 const busyNozzles = (stationId: number) => new Set(all(
   `SELECT r.nozzle_id FROM meter_readings r JOIN shifts sh ON sh.id=r.shift_id WHERE sh.station_id=? AND sh.status='open'`, stationId).map((r) => r.nozzle_id));
 
+/** Registered salesmen to pick when a manager opens a shift: this station's first, then the rest; busy = already on an open shift. */
+shiftRoutes.get("/shifts/attendants", requirePerm("shifts.view_all"), h((req) => {
+  const t = tid(req), st = Number(req.query.station_id) || null;
+  const open = new Set(all("SELECT sh.attendant FROM shifts sh JOIN stations s ON s.id=sh.station_id WHERE s.tenant_id=? AND sh.status='open'", t).map((x) => String(x.attendant)));
+  return all(`SELECT u.id, u.name, u.station_id, s.name station_name FROM users u LEFT JOIN stations s ON s.id=u.station_id
+      WHERE u.tenant_id=? AND u.active=1 AND u.role='salesman' ORDER BY CASE WHEN u.station_id=? THEN 0 WHEN u.station_id IS NULL THEN 1 ELSE 2 END, u.name`, t, st)
+    .map((u) => ({ ...u, busy: open.has(String(u.name)) }));
+}));
+
 /** Handover sheet for starting a shift: each nozzle's last closing reading and who handed it over. */
 shiftRoutes.get("/shifts/handover", requirePerm("shifts.manage"), h((req) => {
   const stationId = req.user!.role === "salesman" ? scopedStation(req)! : Number(req.query.station_id) || get("SELECT id FROM stations WHERE tenant_id=? ORDER BY id LIMIT 1", tid(req))!.id;
