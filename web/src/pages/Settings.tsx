@@ -6,6 +6,7 @@ import { StationForm, TankForm } from "../components/QuickAdd";
 import { BusinessProfile, Integrations, About } from "../components/BusinessSettings";
 import { BackupsPanel } from "../components/BackupsPanel";
 import { useAuth } from "../App";
+import { MeterResetModal } from "../components/ShiftParts";
 import { PRODUCTS, num } from "../lib/format";
 
 
@@ -117,9 +118,13 @@ function AddMeter({ tank, onClose, onSaved }: { tank: any; onClose: () => void; 
 /** Meters of a station with their numbers (No.1, No.2 …); number and name can be changed, a dead meter retired or deleted. */
 function Meters({ nozzles, onSaved }: { nozzles: any[]; onSaved: () => void }) {
   const [edit, setEdit] = useState<any | null>(null);
+  const [resetting, setResetting] = useState<any | null>(null);
+  const resets = useApi<any[]>("/meter-resets");
   const { busy, run } = useAction();
   return (
     <div className="mt-2">
+      {resetting && <MeterResetModal nozzle={{ id: resetting.id, label: resetting.name ?? resetting.label }} lastReading={resetting.totalizer}
+        onClose={() => setResetting(null)} onDone={() => { setEdit(null); onSaved(); resets.reload(); }} />}
       <div className="mb-1 text-xs font-medium text-slate-500">Meters (numbers show on shifts, reports and alerts — tap to change)</div>
       <div className="flex flex-wrap gap-2">
         {nozzles.map((n) => (
@@ -138,10 +143,24 @@ function Meters({ nozzles, onSaved }: { nozzles: any[]; onSaved: () => void }) {
           <Field label="Name on the dispenser"><input className="input w-40" required maxLength={30} value={edit.label} onChange={(e) => setEdit({ ...edit, label: e.target.value })} /></Field>
           <button className="btn-primary" disabled={busy}>Save</button><button type="button" className="btn-secondary" onClick={() => setEdit(null)}>Cancel</button>
           <button type="button" className="btn-secondary" disabled={busy} onClick={() => run(() => api(`/nozzles/${edit.id}`, { method: "PATCH", body: { active: !edit.active } }), edit.active ? "Meter retired" : "Meter restored").then(() => { setEdit(null); onSaved(); })}>{edit.active ? "Retire" : "Restore"}</button>
+          <button type="button" className="btn-secondary" disabled={busy} title="Meter repair se aaya / badla / reading zero ho gayi" onClick={() => {
+            const n = nozzles.find((x) => x.id === edit.id);
+            if (n?.busy) alert("Ye meter chalti shift me hai — shift band karte waqt reading wale khane me \"Meter kharab / reset\" ka button use karein.");
+            else setResetting(n);
+          }}>🔧 Meter reset / repair</button>
           <button type="button" className="btn-secondary !text-rose-700" disabled={busy} onClick={() => confirm("Delete this meter? Only possible if it never ran a shift.") && run(() => api(`/nozzles/${edit.id}`, { method: "DELETE" }), "Meter deleted").then(() => { setEdit(null); onSaved(); })}>Delete</button>
           <span className="w-full text-xs text-slate-500">If another meter already has this number, the two swap numbers. A retired meter leaves the handover sheet but keeps its history.</span>
         </form>
       )}
+      {(() => {
+        const mine = (resets.data ?? []).filter((m) => nozzles.some((n) => n.id === m.nozzle_id)).slice(0, 5);
+        return mine.length > 0 && (
+          <div className="mt-2 rounded-lg border border-slate-200 p-2 text-xs">
+            <div className="mb-1 font-medium text-slate-600">🔧 Meter resets (aakhri {mine.length})</div>
+            {mine.map((m) => <div key={m.id} className="text-slate-600"><b>{m.meter}</b> · {num(m.old_reading, 2)} → {num(m.new_reading, 2)}{m.gap_l > 0 ? ` · ${num(m.gap_l, 2)} L bina bill` : ""} · {m.reason} · {m.created_by} · {new Date(m.created_at).toLocaleDateString("en-PK", { day: "2-digit", month: "short" })}</div>)}
+          </div>
+        );
+      })()}
     </div>
   );
 }

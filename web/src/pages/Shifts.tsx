@@ -6,7 +6,7 @@ import { Badge, Empty, Field, ListTools, Loading, Modal, Pager, PageHeader, stat
 import { PRODUCTS, dt, num, pkr } from "../lib/format";
 import { useAuth } from "../App";
 import { PhotoButton, PhotoThumb } from "../components/Capture";
-import { ShiftExpenses, ShiftReport, StartShiftSheet, DipInput, DipUnitChips, dipValue, useDipUnit, type DipValue } from "../components/ShiftParts";
+import { ShiftExpenses, ShiftReport, StartShiftSheet, MeterResetModal, openingRead, DipInput, DipUnitChips, dipValue, useDipUnit, type DipValue } from "../components/ShiftParts";
 import { Ur } from "../components/VoiceShell";
 
 const hhmm = (h: number) => `${Math.floor(h)}h ${String(Math.floor((h % 1) * 60)).padStart(2, "0")}m`;
@@ -173,7 +173,9 @@ const rs = (v: number) => `Rs ${Math.round(v).toLocaleString("en-IN")}`;
  * khata slips not entered during the day — the server works out the cash, exactly as it will save it — (3) count the notes, close.
  */
 function CloseShift({ id, onClose, onClosed }: { id: number; onClose: () => void; onClosed: (r: any) => void }) {
-  const { data } = useApi<any>(`/shifts/${id}/live`);
+  const { data, reload } = useApi<any>(`/shifts/${id}/live`);
+  const { can } = useAuth();
+  const [resetting, setResetting] = useState<any>(null);
   const accts = useApi<any[]>("/pos/khata-accounts");
   // sales still waiting on the tablet must upload before the meters are settled, or they would be counted as cash
   const queue = useOfflineQueue();
@@ -229,6 +231,8 @@ function CloseShift({ id, onClose, onClosed }: { id: number; onClose: () => void
 
   return (
     <Modal open onClose={onClose} title={`End shift — ${data.shift.attendant}`} wide>
+      {resetting && <MeterResetModal nozzle={{ id: resetting.nozzle_id, label: resetting.label }} running lastReading={resetting.checkpoint ?? resetting.opening}
+        onClose={() => setResetting(null)} onDone={() => { setReadings((rd) => { const { [resetting.nozzle_id]: _, ...rest } = rd; return rest; }); reload(); }} />}
       <form className="space-y-5" onSubmit={async (e) => {
         e.preventDefault();
         const r = await run(() => api(`/shifts/${id}/close`, { body: { ...body, cash_actual: counted, cash_notes: Object.fromEntries(Object.entries(notes).filter(([, v]) => Number(v) > 0).map(([k, v]) => [k, Number(v)])), photo_ids: photos } }),
@@ -250,7 +254,11 @@ function CloseShift({ id, onClose, onClosed }: { id: number; onClose: () => void
                     <span className="min-w-0 font-medium">{r.label} <span className="text-xs font-normal text-slate-500">{PRODUCTS[r.product]} · Rs {data.prices[r.product]}/L</span></span>
                     <span className="shrink-0 font-semibold tabular-nums">{filled && !bad ? `${num(v - r.opening, 2)} L` : ""}</span>
                   </div>
-                  <div className="text-xs text-slate-500">Opening {num(r.opening, 2)}{r.checkpoint != null && <> · price change at {num(r.checkpoint, 2)}</>}</div>
+                  <div className="text-xs text-slate-500">Opening {num(openingRead(r), 2)}{r.checkpoint != null && <> · price change at {num(r.checkpoint, 2)}</>}</div>
+                  {r.reset_note && <div className="text-xs text-blue-700">🔧 {r.reset_note} — ab naye meter ki reading likhein</div>}
+                  {bad && <div className="flex flex-wrap items-center gap-2 text-xs text-red-600">Reading pichli se kam hai.
+                    {can("stock.manage") ? <button type="button" className="btn-secondary !py-1 text-xs" onClick={() => setResetting(r)}>🔧 Meter kharab / reset hua? Darj karein</button>
+                      : <span className="text-slate-600">Meter kharab / reset hua ho to manager se "Meter reset" darj karwayein.</span>}</div>}
                   <div className="flex items-center gap-2">
                     <input className={`input min-w-0 flex-1 text-lg tabular-nums ${bad ? "border-red-400" : ""}`} type="number" step="0.01" min={last} required inputMode="decimal"
                       value={readings[r.nozzle_id] ?? ""} onChange={(e) => setReadings({ ...readings, [r.nozzle_id]: e.target.value })} aria-label={`${r.label} closing reading`} placeholder="Closing reading" />

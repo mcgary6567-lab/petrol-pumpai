@@ -92,7 +92,7 @@ shiftRoutes.post("/shifts/open", requirePerm("shifts.manage"), h(async (req) => 
   if (!chosen.length) throw new AppError(400, "All nozzles at this station are already in use by open shifts");
   for (const n of chosen) {
     const r = b.readings?.[String(n.id)];
-    if (r !== undefined && r < n.totalizer) throw new AppError(400, `Nozzle ${n.label}: reading ${r} is below the last closing reading ${n.totalizer}. Meters cannot go back — please check.`);
+    if (r !== undefined && r < n.totalizer) throw new AppError(400, `Nozzle ${n.label}: reading ${r} is below the last closing reading ${n.totalizer}. Meters cannot go back — agar meter repair / reset hua hai to manager "Meter reset" darj kare, phir shift shuru karein.`);
   }
   // opening dip per tank (optional) — the salesman's physical stock at shift start. Checked before anything is written so a
   // bad dip leaves no half-opened shift; like every dip it is the tank's real stock (stock register row, book stock replaced,

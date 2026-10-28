@@ -36,7 +36,7 @@ stationRoutes.get("/stations", requireAny("sales.view", "stock.manage", "wholesa
   return all(`SELECT * FROM stations WHERE tenant_id=? ${own ? "AND id=" + Number(own) : ""} ${act} ORDER BY id`, tid(req)).map((s) => ({
   ...s,
   tanks: all(`SELECT * FROM tanks WHERE station_id=? ${act} ORDER BY id`, s.id),
-  nozzles: all(`SELECT n.*, ${METER} name, t.product FROM nozzles n JOIN tanks t ON t.id=n.tank_id WHERE n.station_id=? ${act.replace("active", "n.active")} ORDER BY n.meter_no, n.id`, s.id),
+  nozzles: all(`SELECT n.*, ${METER} name, t.product, EXISTS(SELECT 1 FROM meter_readings r JOIN shifts sh ON sh.id=r.shift_id WHERE r.nozzle_id=n.id AND sh.status='open') busy FROM nozzles n JOIN tanks t ON t.id=n.tank_id WHERE n.station_id=? ${act.replace("active", "n.active")} ORDER BY n.meter_no, n.id`, s.id),
 }));
 }));
 
@@ -140,6 +140,56 @@ stationRoutes.patch("/nozzles/:id", requirePerm("stock.manage"), h((req) => {
   });
   return get(`SELECT n.*, ${METER} name FROM nozzles n WHERE n.id=?`, n.id);
 }));
+/**
+ * Meter reset / repair: the dispenser came back from repair, was replaced, or its totalizer jumped back (often to 0).
+ * old_reading = where the old meter stood when it stopped (default: the last recorded reading), new_reading = what it shows now.
+ *  - Not in a shift: the next shift starts from new_reading. Litres the old meter ran past the last recorded reading left the
+ *    tank unbilled (like a handover gap): book stock goes down and the CEO is alerted.
+ *  - Running in an open shift: the litres the old meter pumped this shift are kept by moving the opening (and price-change
+ *    checkpoint) into the new meter's terms, so closing − opening is still the shift's true litres; nothing else changes.
+ * Every reset is kept in meter_resets, written to the audit log and sent to the CEO — a reset is never silent.
+ */
+stationRoutes.post("/nozzles/:id/reset", requirePerm("stock.manage"), h(async (req) => {
+  const t = tid(req);
+  const b = parse(z.object({ old_reading: z.number().min(0).max(99_999_999).optional(), new_reading: z.number().min(0).max(99_999_999), reason: z.string().trim().min(3, "Wajah likhein (kam se kam 3 harf)").max(200) }), req.body);
+  const n = get(`SELECT n.*, ${METER} name, t.product, t.id tank_id, s.id station_id FROM nozzles n JOIN tanks t ON t.id=n.tank_id JOIN stations s ON s.id=n.station_id WHERE n.id=? AND s.tenant_id=?`, Number(req.params.id), t);
+  if (!n) throw new AppError(404, "Meter not found");
+  const open = get("SELECT r.* FROM meter_readings r JOIN shifts sh ON sh.id=r.shift_id WHERE r.nozzle_id=? AND sh.status='open' LIMIT 1", n.id);
+  const by = req.user!.name, stamp = now();
+  let gap = 0, old: number;
+  if (open) {
+    const start = open.checkpoint ?? open.opening;
+    if (b.old_reading === undefined) throw new AppError(400, "Ye meter chalti shift me hai — reset se pehle purana meter kahan tak chala (aakhri reading) likhein");
+    old = b.old_reading;
+    if (old < start - 0.001) throw new AppError(400, `${n.name}: purani reading ${old} is shift ki reading ${round2(start)} se kam nahi ho sakti`);
+    if (old - start > 60000) throw new AppError(400, `${n.name}: ${Math.round(old - start)} L ek shift me — reading dobara check karein`);
+  } else {
+    old = b.old_reading ?? n.totalizer;
+    if (old < n.totalizer - 0.001) throw new AppError(400, `${n.name}: purani reading ${old} pichli darj reading ${n.totalizer} se kam nahi ho sakti — meter jahan ruka tha wahi likhein`);
+    gap = round2(old - n.totalizer);
+    if (gap > 60000) throw new AppError(400, `${n.name}: ${Math.round(gap)} L ka farq — reading dobara check karein`);
+  }
+  const delta = round2(old - b.new_reading);
+  const note = `Meter reset ${round2(old)} → ${round2(b.new_reading)} (${b.reason})`;
+  const id = tx(() => {
+    if (open) run("UPDATE meter_readings SET opening=opening-?, checkpoint=CASE WHEN checkpoint IS NULL THEN NULL ELSE checkpoint-? END, reset_adj=COALESCE(reset_adj,0)+?, reset_note=? WHERE id=?", delta, delta, delta, note, open.id);
+    // the old meter ran past the last recorded reading with no shift: that fuel left the tank unbilled
+    if (gap > 0.01) run("UPDATE tanks SET current_l = MAX(0, current_l - ?) WHERE id=?", gap, n.tank_id);
+    run("UPDATE nozzles SET totalizer=? WHERE id=?", b.new_reading, n.id);
+    return run("INSERT INTO meter_resets (tenant_id,nozzle_id,shift_id,old_reading,new_reading,gap_l,reason,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+      t, n.id, open?.shift_id ?? null, old, b.new_reading, gap, b.reason, by, stamp).id;
+  });
+  audit(t, req.user!, "meter_reset", `nozzle:${n.id}`, { meter: n.name, old_reading: old, new_reading: b.new_reading, gap_l: gap, shift_id: open?.shift_id ?? null, reason: b.reason });
+  const body = `${n.name} (${PRODUCTS[n.product] ?? n.product}): ${round2(old)} → ${round2(b.new_reading)} by ${by}. Wajah: ${b.reason}.`
+    + (gap > 0.01 ? ` ${gap} L meter par chale magar kisi shift me bill nahi hue — stock se kam kiye.` : "")
+    + (open ? ` Chalti shift #${open.shift_id} ka hisaab barqarar.` : "");
+  const a = createAlert(t, { station_id: n.station_id, type: "meter_reset", severity: gap > 0.01 ? "critical" : "warning", title: `🔧 Meter reset — ${n.name}`, body, dedupe_key: `meter-reset-${id}` });
+  if (a) await notify(t, staff(t, ["admin"]), { type: "meter_reset", data: { nozzle_id: n.id }, title: a.title, body });
+  return { ok: true, id, old_reading: old, new_reading: b.new_reading, gap_l: gap, shift_id: open?.shift_id ?? null };
+}));
+/** Meter resets so far (newest first), for the meters screen. */
+stationRoutes.get("/meter-resets", requirePerm("stock.manage"), h((req) => all(`SELECT m.*, ${METER} meter FROM meter_resets m JOIN nozzles n ON n.id=m.nozzle_id WHERE m.tenant_id=? ORDER BY m.id DESC LIMIT 50`, tid(req))));
+
 /** Delete a meter that never ran a shift; one with readings is retired instead. */
 stationRoutes.delete("/nozzles/:id", requirePerm("stock.manage"), h((req) => {
   const n = get("SELECT n.* FROM nozzles n JOIN stations s ON s.id=n.station_id WHERE n.id=? AND s.tenant_id=?", Number(req.params.id), tid(req));

@@ -72,8 +72,52 @@ export function DipInput({ tank, unit, value, onChange, ariaLabel }: { tank: { t
   );
 }
 
+/** The opening as the salesman read it: a meter reset during the shift moves the stored opening into the new meter's terms. */
+export const openingRead = (x: any) => Math.round(((x.opening ?? 0) + (x.reset_adj ?? 0)) * 100) / 100;
+
+/**
+ * Meter reset / repair (manager · CEO): the meter came back from repair, was replaced, or jumped back (often to 0).
+ * Not in a shift → the next shift starts from the new reading. In a running shift → the litres the old meter already pumped
+ * are kept, so the shift's sale stays right. Every reset goes to the CEO and the audit log.
+ */
+export function MeterResetModal({ nozzle, running, lastReading, newReading, onClose, onDone }: { nozzle: { id: number; label: string }; running?: boolean; lastReading: number; newReading?: string; onClose: () => void; onDone: () => void }) {
+  const [f, setF] = useState({ old: running ? "" : String(lastReading), next: newReading ?? "", why: "Repair se wapas aaya", other: "" });
+  const { busy, run } = useAction();
+  const old = Number(f.old), next = Number(f.next);
+  const reason = f.why === "Doosri wajah" ? f.other.trim() : f.why;
+  const gap = !running && f.old !== "" ? Math.round((old - lastReading) * 100) / 100 : 0;
+  const ok = f.next !== "" && next >= 0 && f.old !== "" && old >= lastReading - 0.001 && reason.length >= 3;
+  const save = async () => {
+    if (await run(() => api(`/nozzles/${nozzle.id}/reset`, { body: { old_reading: old, new_reading: next, reason } }), "Meter reset darj ho gaya — CEO ko ittila di gayi")) { onDone(); onClose(); }
+  };
+  return (
+    <Modal open onClose={onClose} title={`🔧 Meter reset / repair — ${nozzle.label}`}>
+      <div className="space-y-3 text-sm">
+        <p className="rounded-xl bg-blue-50 p-2.5 text-blue-900">{running
+          ? <>Ye meter <b>chalti shift</b> me hai. Purane meter ne is shift me jo litre nikale woh bhi hisaab me rahenge — shift band karte waqt <b>naye meter ki reading</b> likhein.</>
+          : <>Meter repair se aaya, badla gaya ya reading ulti / zero ho gayi? Yahan darj karein — agli shift <b>nayi reading</b> se shuru hogi.</>}</p>
+        <Field label={running ? "Purana meter kahan tak chala (aakhri reading)" : "Purana meter kahan ruka tha (aakhri reading)"}>
+          <input className="input tabular-nums" type="number" inputMode="decimal" step="0.01" min={lastReading} value={f.old} placeholder={running ? `kam se kam ${num(lastReading, 2)}` : ""} onChange={(e) => setF({ ...f, old: e.target.value })} />
+        </Field>
+        <p className="-mt-2 text-xs text-slate-500">{running ? "Shift" : "Pichli darj"} reading: {num(lastReading, 2)}</p>
+        {gap > 0.009 && <p className="rounded-lg bg-amber-50 p-2 text-amber-800">⚠ {num(gap, 2)} L pichli reading ke baad bina shift ke chale — stock se kam honge aur CEO ko alert jayega.</p>}
+        <Field label="Meter ab kya dikha raha hai (nayi reading)"><input className="input tabular-nums text-lg" type="number" inputMode="decimal" step="0.01" min={0} value={f.next} placeholder="e.g. 0" onChange={(e) => setF({ ...f, next: e.target.value })} /></Field>
+        <Field label="Wajah">
+          <select className="input" value={f.why} onChange={(e) => setF({ ...f, why: e.target.value })}>
+            {["Repair se wapas aaya", "Meter badla gaya (naya meter)", "Reading zero / ulti ho gayi", "Doosri wajah"].map((w) => <option key={w}>{w}</option>)}
+          </select>
+        </Field>
+        {f.why === "Doosri wajah" && <input className="input" placeholder="Wajah likhein" maxLength={150} value={f.other} onChange={(e) => setF({ ...f, other: e.target.value })} />}
+        <div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={onClose}>Cancel</button><button type="button" className="btn-primary" disabled={busy || !ok} onClick={save}>Reset darj karein</button></div>
+      </div>
+    </Modal>
+  );
+}
+
 export function StartShiftSheet({ stationId, attendant, onStarted, big }: { stationId?: number; attendant?: string; onStarted: (s: any) => void; big?: boolean }) {
-  const { data } = useApi<any>(`/shifts/handover${stationId ? `?station_id=${stationId}` : ""}`);
+  const { data, reload } = useApi<any>(`/shifts/handover${stationId ? `?station_id=${stationId}` : ""}`);
+  const { can } = useAuth();
+  const [resetting, setResetting] = useState<any>(null);
   const [vals, setVals] = useState<Record<number, string>>({});
   const [use, setUse] = useState<Record<number, boolean>>({});
   const [photos, setPhotos] = useState<number[]>([]);
@@ -109,6 +153,8 @@ export function StartShiftSheet({ stationId, attendant, onStarted, big }: { stat
 
   return (
     <div className="space-y-3 text-left">
+      {resetting && <MeterResetModal nozzle={{ id: resetting.nozzle_id, label: resetting.label }} lastReading={resetting.last_reading} newReading={vals[resetting.nozzle_id]}
+        onClose={() => setResetting(null)} onDone={() => { setVals({}); reload(); }} />}
       {last && <p className="text-sm text-slate-600">Handed over by <b>{last.handed_over_by}</b> {ago(last.handed_over_at)}. Check each meter and correct the reading if it is different.</p>}
       <div className="space-y-2">
         {data.nozzles.map((n: any) => {
@@ -130,7 +176,9 @@ export function StartShiftSheet({ stationId, attendant, onStarted, big }: { stat
                 </div>
               )}
               {!n.busy && use[n.nozzle_id] && gap > 0.009 && <div className="w-full text-sm font-medium text-amber-700">⚠ {num(gap, 2)} L more than the last closing — the manager will be alerted.</div>}
-              {!n.busy && use[n.nozzle_id] && gap < -0.009 && <div className="w-full text-sm font-medium text-red-600">Reading cannot be less than the last closing.</div>}
+              {!n.busy && use[n.nozzle_id] && gap < -0.009 && <div className="flex w-full flex-wrap items-center gap-2 text-sm font-medium text-red-600">Reading cannot be less than the last closing.
+                {can("stock.manage") ? <button type="button" className="btn-secondary !py-1 text-xs" onClick={() => setResetting(n)}>🔧 Meter repair / reset hua? Darj karein</button>
+                  : <span className="font-normal text-slate-600">Meter repair / reset hua ho to manager se "Meter reset" darj karwayein.</span>}</div>}
             </div>
           );
         })}
@@ -323,8 +371,9 @@ function ReportBody({ r }: { r: any }) {
           <li key={x.nozzle_id} className="px-3 py-2 text-sm">
             <div className="flex items-baseline justify-between gap-2"><span className="font-medium">{x.label} <span className="text-xs font-normal text-slate-500">{PRODUCTS[x.product]}</span></span>
               <span className="shrink-0 font-semibold tabular-nums">{x.litres != null ? `${num(x.litres, 2)} L` : "—"}</span></div>
-            <div className="flex justify-between gap-2 text-xs text-slate-500 tabular-nums"><span>{num(x.opening, 2)} → {x.closing != null ? num(x.closing, 2) : "—"}</span><span>{x.amount != null ? pkr(x.amount) : ""}</span></div>
+            <div className="flex justify-between gap-2 text-xs text-slate-500 tabular-nums"><span>{num(openingRead(x), 2)} → {x.closing != null ? num(x.closing, 2) : "—"}</span><span>{x.amount != null ? pkr(x.amount) : ""}</span></div>
             {x.test_l > 0 && <div className="text-xs text-amber-700">{num(x.test_l, 2)} L put back in the tank</div>}
+            {x.reset_note && <div className="text-xs text-blue-700">🔧 {x.reset_note}</div>}
           </li>
         ))}</ul>
         <div className="hidden overflow-x-auto rounded-lg border border-slate-200 sm:block">
@@ -332,7 +381,7 @@ function ReportBody({ r }: { r: any }) {
             <tbody>{r.readings.map((x: any) => (
               <tr key={x.nozzle_id}><td className="td text-sm">{x.label} <span className="text-xs text-slate-500">{PRODUCTS[x.product]}</span></td>
                 <td className="td text-xs text-slate-500">{x.handover_prev != null ? num(x.handover_prev, 2) : "—"}</td>
-                <td className="td text-right tabular-nums">{num(x.opening, 2)}</td><td className="td text-right tabular-nums">{x.closing != null ? num(x.closing, 2) : "—"}</td>
+                <td className="td text-right tabular-nums">{num(openingRead(x), 2)}{x.reset_note && <div className="text-[11px] text-blue-700">🔧 {x.reset_note}</div>}</td><td className="td text-right tabular-nums">{x.closing != null ? num(x.closing, 2) : "—"}</td>
                 <td className="td text-right font-medium tabular-nums">{x.litres != null ? num(x.litres, 2) : "—"}{x.test_l > 0 && <div className="text-[11px] font-normal text-amber-700">+{num(x.test_l, 2)} L test, back in tank</div>}</td>
                 <td className="td text-right tabular-nums">{x.amount != null ? pkr(x.amount) : "—"}</td></tr>
             ))}</tbody></table>

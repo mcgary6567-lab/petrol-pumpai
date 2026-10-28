@@ -865,6 +865,16 @@ export function migrate() {
   addColumn("stations", "active", "INTEGER NOT NULL DEFAULT 1");
   addColumn("tanks", "active", "INTEGER NOT NULL DEFAULT 1");
   addColumn("nozzles", "active", "INTEGER NOT NULL DEFAULT 1");
+  // a meter that came back from repair / was replaced / jumped back to zero: its new reading starts here.
+  // reset_adj on a running shift's reading = litres the old meter had already pumped this shift, folded into the opening
+  // (opening − reset_adj in the new meter's terms) so closing − opening stays the shift's true litres
+  db.exec(`CREATE TABLE IF NOT EXISTS meter_resets (
+    id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, nozzle_id INTEGER NOT NULL, shift_id INTEGER,
+    old_reading REAL NOT NULL, new_reading REAL NOT NULL, gap_l REAL NOT NULL DEFAULT 0, reason TEXT NOT NULL,
+    created_by TEXT, created_at TEXT NOT NULL)`);
+  db.exec("CREATE INDEX IF NOT EXISTS idx_meter_resets_nozzle ON meter_resets(nozzle_id, created_at)");
+  addColumn("meter_readings", "reset_adj", "REAL");
+  addColumn("meter_readings", "reset_note", "TEXT");
   addColumn("expense_categories", "active", "INTEGER NOT NULL DEFAULT 1");
   addColumn("customers", "active", "INTEGER NOT NULL DEFAULT 1"); // archive a dead / duplicate customer — history stays
   // CEO-set special khata rate per product: JSON { "<product>": { "mode": "fixed"|"minus", "value": number } }.

@@ -29,7 +29,7 @@ export function settleShift(tenantId: number, shift: Row, readings: Record<strin
     const meter = readings[String(r.nozzle_id)];
     const start = r.checkpoint ?? r.opening;
     if (meter === undefined) throw new AppError(400, `Enter the meter reading for nozzle ${r.label}`);
-    if (meter < start) throw new AppError(400, `Nozzle ${r.label}: reading ${meter} is below the previous reading ${start}`);
+    if (meter < start) throw new AppError(400, `Nozzle ${r.label}: reading ${meter} is below the previous reading ${start} — meter reset / repair hua ho to manager "Meter reset" darj kare`);
     if (meter - start > 60000) throw new AppError(400, `Nozzle ${r.label}: ${Math.round(meter - start)} L in one shift looks wrong — please re-check the reading`);
   }
   const ts = now();
