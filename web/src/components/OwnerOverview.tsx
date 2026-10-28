@@ -22,7 +22,7 @@ const Row = ({ label, ur, v, to, tone = "", note }: { label: string; ur: string;
 /** The owner's first look: where the money is, who owes what, today across every module, and this month's profit. */
 export function OwnerOverview() {
   const { can } = useAuth();
-  const { data } = useApi<any>("/owner/overview", 60_000);
+  const { data } = useApi<any>("/owner/overview", 300_000);
   const nav = useNavigate();
   const { modules } = useAuth();
   if (!data) return <div className="card"><Loading /></div>;
@@ -59,10 +59,12 @@ export function OwnerOverview() {
           <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Others owe us · <Ur>لینا</Ur></div>
           <Row label="Khata customers" ur="کھاتہ" v={o.khata} to="/khata" />
           {modules.wholesale && <Row label="Wholesale clients" ur="ہول سیل" v={o.wholesale} to="/wholesale?tab=collect" />}
+          {o.carriage > 0 && <Row label="Carriage / kiraya (thekedar)" ur="کرایہ" v={o.carriage} to="/carriage" />}
           {o.staff_advances > 0 && <Row label="Staff advances" ur="ملازمین" v={o.staff_advances} to="/staff" />}
           <div className="mt-2 text-xs font-semibold uppercase tracking-wide text-rose-700">We owe · <Ur>دینا</Ur></div>
           <Row label="Suppliers (depots)" ur="سپلائر" v={w.suppliers} to="/suppliers" tone="text-rose-700"
             note={w.cheques_issued.n ? `${pkr(w.cheques_issued.amount)} of it in ${w.cheques_issued.n} cheque${w.cheques_issued.n === 1 ? "" : "s"} given, not yet paid by the bank` : undefined} />
+          {w.bypass_suppliers > 0 && <Row label="Bypass suppliers" ur="بائی پاس سپلائر" v={w.bypass_suppliers} to="/suppliers" tone="text-rose-700" />}
           {w.customer_advances > 0 && <Row label="Customer advances" ur="ایڈوانس" v={w.customer_advances} tone="text-rose-700" />}
           {w.unused_coupons > 0 && <Row label="Unused fuel coupons" ur="کوپن" v={w.unused_coupons} to="/prepaid" tone="text-rose-700" />}
           {w.withholding_tax > 0 && <Row label="Tax to deposit (FBR)" ur="ٹیکس" v={w.withholding_tax} to="/accounts" tone="text-rose-700" />}

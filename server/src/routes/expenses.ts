@@ -161,7 +161,7 @@ expenses.get("/expenses.csv", requirePerm("expenses.view"), (req, res, next) => 
   try {
     const f = filters(req);
     const rows = listExpenses(tid(req), f);
-    const esc = (v: unknown) => `"${String(v ?? "").replaceAll('"', '""')}"`;
+    const esc = (v: unknown) => `"${typeof v === "string" && /^[=+@-]/.test(v) ? "'" : ""}${String(v ?? "").replaceAll('"', '""')}"`; // ' stops Excel running a text cell as a formula
     const out = [["Date", "Category", "Amount", "Paid to", "Method", "Station", "Status", "Note", "Receipt", "Entered by", "Approved by"].map(esc).join(","),
       ...rows.map((e) => [e.expense_date.slice(0, 10), e.category, e.amount, e.paid_to, e.method, e.station_name ?? "All", e.status, e.note, e.receipt_ref, e.created_by, e.approved_by].map(esc).join(","))].join("\n");
     res.setHeader("Content-Type", "text/csv; charset=utf-8");

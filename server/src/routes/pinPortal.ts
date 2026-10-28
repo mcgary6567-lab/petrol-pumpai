@@ -534,7 +534,8 @@ pinPortalPublic.get("/i/:code/csv", (req, res) => {
   if (!r || !remembered(req, "i", r.c, r.v)) return res.status(404).end();
   const d = /^\d{4}-\d{2}-\d{2}$/;
   const s = investorStatement(r.c.tenant_id, r.c.id, d.test(String(req.query.from ?? "")) ? String(req.query.from) : undefined, d.test(String(req.query.to ?? "")) ? String(req.query.to) : undefined);
-  const cell = (v: unknown) => { const x = String(v ?? ""); return /[",\n]/.test(x) ? `"${x.replace(/"/g, '""')}"` : x; };
+  // a cell starting with = + - @ would run as a formula in Excel: text cells get a leading ' (numbers stay numbers)
+  const cell = (v: unknown) => { let x = String(v ?? ""); if (typeof v === "string" && /^[=+\-@]/.test(x)) x = "'" + x; return /[",\n]/.test(x) ? `"${x.replace(/"/g, '""')}"` : x; };
   const NAME: Record<string, string> = { capital_in: "Capital diya", profit: "Munafa hissa", payout: "Pump ne diya", loss: "Nuqsan hissa" };
   const lines = [["Date", "Type", "Deal", "Litres", "Note", "Debit", "Credit", "Balance"], ["", "Opening", "", "", "", "", "", s.opening],
     ...s.lines.filter((l: any) => !l.voided).map((l: any) => [String(l.created_at).slice(0, 10), NAME[l.type] ?? l.type, l.deal_id ? `#${l.deal_id}` : "", l.litres ?? "", l.note ?? "", l.debit || "", l.credit || "", l.balance]),

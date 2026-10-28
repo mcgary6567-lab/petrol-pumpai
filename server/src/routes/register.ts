@@ -33,9 +33,11 @@ const net = (m: ReturnType<typeof moves>) => m.receipts - m.sales - m.wholesale 
 export function stockRegister(t: number, stationId: number, from: string, to: string) {
   const station = get("SELECT * FROM stations WHERE id=? AND tenant_id=?", stationId, t);
   if (!station) throw new AppError(404, "Station not found");
+  // check the span BEFORE building the day list, so a silly range can never make the server loop for ages
+  const span = (Date.parse(`${to}T12:00:00+05:00`) - Date.parse(`${from}T12:00:00+05:00`)) / DAY;
+  if (!(span >= 0) || span > 61) throw new AppError(400, "Choose up to 62 days");
   const days: string[] = [];
   for (let d = Date.parse(`${from}T12:00:00+05:00`); d <= Date.parse(`${to}T12:00:00+05:00`); d += DAY) days.push(pkDate(d));
-  if (days.length > 62) throw new AppError(400, "Choose up to 62 days");
   const nowIso = new Date().toISOString();
   const products = all("SELECT product, SUM(current_l) stock, SUM(capacity_l) capacity, COUNT(*) tanks FROM tanks WHERE station_id=? GROUP BY product ORDER BY product", stationId).map((p) => {
     const tankIds = all("SELECT id FROM tanks WHERE station_id=? AND product=?", stationId, p.product).map((x) => x.id);
@@ -92,7 +94,7 @@ register.get("/register", requirePerm("stock.manage"), h((req) => {
 }));
 
 /** The stock register as a CSV (Excel) download — oldest day first, product by product. */
-register.get("/register.csv", (req, res, next) => {
+register.get("/register.csv", requirePerm("stock.manage"), (req, res, next) => {
   try {
     const q = parse(z.object({ station_id: z.coerce.number().optional(), from: dateStr.optional(), to: dateStr.optional(), month: z.string().regex(/^\d{4}-\d{2}$/).optional() }), req.query);
     const station = scopedStation(req, q.station_id ?? null) ?? get("SELECT id FROM stations WHERE tenant_id=? ORDER BY id LIMIT 1", tid(req))!.id;
@@ -107,7 +109,7 @@ register.get("/register.csv", (req, res, next) => {
     from = from ?? pkDate(Date.parse(`${to}T12:00:00+05:00`) - 6 * DAY);
     if (from > to) throw new AppError(400, "From date is after the to date");
     const reg = stockRegister(tid(req), station, from, to);
-    const esc = (v: unknown) => `"${String(v ?? "").replaceAll('"', '""')}"`;
+    const esc = (v: unknown) => `"${typeof v === "string" && /^[=+@-]/.test(v) ? "'" : ""}${String(v ?? "").replaceAll('"', '""')}"`; // ' stops Excel running a text cell as a formula
     const lines: string[] = [
       ["Stock register", (reg.station as Row)?.name].map(esc).join(","),
       ["From", from, "To", to].map(esc).join(","),

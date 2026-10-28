@@ -48,6 +48,9 @@ export function meterSales(t: number, from: string, to: string, stationId?: numb
   });
 }
 
+/** Placeholder for the lite build (withPrev=false): same shape as balances(), nothing in it. */
+const emptyBalances = { receivables: { total: 0, khata_total: 0, wholesale_total: 0, carriage_total: 0, aging: [], list: [] }, payables: { total: 0, suppliers_total: 0, list: [], pending_expenses: { count: 0, amount: 0, list: [] } } } as unknown as ReturnType<typeof balances>;
+/** withPrev=false is the lite build: no previous-period comparison, no tank forecast, no who-owes-whom (callers that only read figures). */
 export function buildReport(t: number, from: string, to: string, withPrev = true) {
   const span = Date.parse(to) - Date.parse(from);
   const grain = span <= 2 * DAY ? "hour" : span <= 93 * DAY ? "day" : "month";
@@ -184,7 +187,8 @@ export function buildReport(t: number, from: string, to: string, withPrev = true
         value_basis: avgCost[p] ? "cost" : pumpPrice[p]?.price != null ? "pump_price" : null,
       };
     }),
-    tanks: tankOutlook(t).map((x) => ({ station: x.station_name, tank: x.name, product: x.product, capacity_l: x.capacity_l, current_l: r0(x.current_l), fill_pct: x.fill_pct, days_to_empty: x.days_to_empty })),
+    // tank outlook (a sales forecast per station) only for a full report — the "previous period" / summary-only builds never show it
+    tanks: !withPrev ? [] : tankOutlook(t).map((x) => ({ station: x.station_name, tank: x.name, product: x.product, capacity_l: x.capacity_l, current_l: r0(x.current_l), fill_pct: x.fill_pct, days_to_empty: x.days_to_empty })),
     deliveries: all(`SELECT d.created_at, s.name station, t.name tank, t.product, d.supplier, d.tanker_no, d.invoice_l, d.received_l, d.shortage_pct, d.purchase_rate
       FROM deliveries d JOIN tanks t ON t.id=d.tank_id JOIN stations s ON s.id=t.station_id WHERE s.tenant_id=? AND d.created_at >= ? AND d.created_at < ? ORDER BY d.created_at DESC`, ...P),
     dips: all(`SELECT d.created_at, s.name station, t.name tank, t.product, d.book_l, d.measured_l, d.variance_pct
@@ -276,7 +280,8 @@ export function buildReport(t: number, from: string, to: string, withPrev = true
     };
   }
 
-  return { from, to, grain, summary, trend, sales, stock, expenses, khata, wholesale, shifts, ...balances(t) };
+  // who-owes-whom is the same whatever the period: only a full report carries it (a summary-only build skips the work)
+  return { from, to, grain, summary, trend, sales, stock, expenses, khata, wholesale, shifts, ...(withPrev ? balances(t) : emptyBalances) };
 }
 
 /**

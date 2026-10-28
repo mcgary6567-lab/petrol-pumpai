@@ -9,7 +9,7 @@
  */
 import { Router } from "express";
 import { z } from "zod";
-import { all, get, run, tx, now, pkDate, pkStart, pkEnd, getSetting, setSetting } from "../db.js";
+import { all, get, run, tx, now, pkDate, pkStart, pkEnd, getSetting, setSetting, memo } from "../db.js";
 import { h, parse, tid, requirePerm, requireAny } from "../auth.js";
 import { AppError, round2 } from "../services.js";
 import { linkPhotos, proofPhotos, proofCol } from "./capture.js";
@@ -119,7 +119,12 @@ export function cardFees(t: number, accountId?: number | null): { account_id: nu
   return out;
 }
 
+/** Every bank / wallet movement — cached until the next write, since one dashboard request asks for it several times.
+ *  Callers get a fresh array (rows are shared read-only). */
 export function bankMoves(t: number, accountId?: number | null, showPrivate = true): Row[] {
+  return [...memo(`bankmoves:${t}:${accountId ?? ""}:${showPrivate ? 1 : 0}:${pkDate()}`, () => bankMovesNow(t, accountId, showPrivate), 30_000)];
+}
+function bankMovesNow(t: number, accountId?: number | null, showPrivate = true): Row[] {
   const acc = accountId ? " AND x.account_id=?" : " AND x.account_id IS NOT NULL";
   const A = accountId ? [accountId] : [];
   const rows: Row[] = [
@@ -156,7 +161,8 @@ export function bankMoves(t: number, accountId?: number | null, showPrivate = tr
   // card / Raast / Easypaisa / JazzCash sales: one line per day per account per method, from the day the account was opened.
   // A fuel sale can name its own bank's POS machine (sales.account_id); untagged sales fall to the method's pos-map default.
   const map = posMap(t);
-  const posLabel = (m: string) => lookupLabel(t, "payment_method", m);
+  const labels = new Map<string, string>();
+  const posLabel = (m: string) => { if (!labels.has(m)) labels.set(m, lookupLabel(t, "payment_method", m)); return labels.get(m)!; };
   for (const m of digitalMethods(t)) {
     const mapped = map[m] ?? null;
     // every account that receives this method's money: the mapped default + any explicitly chosen on a sale

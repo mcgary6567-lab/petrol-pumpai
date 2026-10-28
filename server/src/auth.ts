@@ -339,7 +339,7 @@ export const twoFaRequired = (u: Row) => {
 const OTP_MIN = 10, OTP_TRIES = 5;
 /** Make and store a 6-digit one-time code for this user; returns the plain code to send on WhatsApp. */
 export function create2fa(userId: number): string {
-  const code = String(Math.floor(100000 + Math.random() * 900000));
+  const code = String(crypto.randomInt(100000, 1000000));
   run("INSERT INTO login_otps (user_id,code_hash,expires_at,attempts,created_at) VALUES (?,?,?,0,?) ON CONFLICT(user_id) DO UPDATE SET code_hash=excluded.code_hash, expires_at=excluded.expires_at, attempts=0, created_at=excluded.created_at",
     userId, bcrypt.hashSync(code, 8), new Date(Date.now() + OTP_MIN * 60000).toISOString(), new Date().toISOString());
   return code;

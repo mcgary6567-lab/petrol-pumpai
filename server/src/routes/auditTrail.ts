@@ -122,7 +122,7 @@ auditRouter.get("/audit.csv", requirePerm("audit.view"), (req, res, next) => {
   try {
     const f = parse(filters, req.query);
     const { where, args } = query(tid(req), f);
-    const esc = (v: unknown) => `"${String(v ?? "").replaceAll('"', '""')}"`;
+    const esc = (v: unknown) => `"${typeof v === "string" && /^[=+@-]/.test(v) ? "'" : ""}${String(v ?? "").replaceAll('"', '""')}"`; // ' stops Excel running a text cell as a formula
     const rows = all(`SELECT * FROM audit_log WHERE ${where} ORDER BY id DESC LIMIT 20000`, ...args).map(shape);
     const out = [["Time", "User", "Type", "What", "Changes", "Request"], ...rows.map((r) => [r.at, r.user, r.kind, r.label,
       (r.data?.changes ?? []).map((c: any) => `${c.field}: ${c.from} → ${c.to}`).join("; "), r.ref])].map((x) => x.map(esc).join(",")).join("\n");

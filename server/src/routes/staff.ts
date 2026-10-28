@@ -10,7 +10,7 @@ import { commissionForMonth } from "./feedback.js";
 import { loanDue, loansOf, takeInstalments, saveSlip, slipUrl } from "./people.js";
 import { all, get, run, tx, now, pkDate, getSetting } from "../db.js";
 import { linkPhotos, proofPhotos, proofCol, requireProof } from "./capture.js";
-import { h, parse, tid, can } from "../auth.js";
+import { h, parse, tid, can, revokeSessions } from "../auth.js";
 import { bankAccountFor } from "./banks.js";
 import { AppError, round2, pkr, normalizePhone } from "../services.js";
 import { notify } from "../notifications.js";
@@ -64,12 +64,19 @@ staffRouter.patch("/staff/:id", h((req) => {
     weekly_off: z.number().int().min(0).max(6).nullable().optional(), phone: z.string().max(30).nullable().optional(),
     station_id: z.number().nullable().optional(), active: z.boolean().optional(), name: z.string().min(2).max(60).optional(),
   }), req.body);
+  const t = tid(req);
+  // only the owner may change an owner / manager here; nobody turns off the owner from the staff screen (Users & Roles does that, with its safety checks)
+  if ((u.role === "admin" || u.role === "manager") && req.user!.role !== "admin") throw new AppError(403, "Owner / manager ka record sirf CEO badal sakta hai");
+  if (u.role === "admin" && b.active === false) throw new AppError(400, "Owner ko yahan se band nahi kar sakte — Users & Roles use karein");
+  if (u.id === req.user!.id && b.active === false) throw new AppError(400, "Apne aap ko band nahi kar sakte");
+  if (b.station_id && !get("SELECT id FROM stations WHERE id=? AND tenant_id=?", b.station_id, t)) throw new AppError(404, "Station not found");
   const pick = (v: any, cur: any) => (v === undefined ? (cur ?? null) : (v ?? null));
   run("UPDATE users SET name=?, salary=?, job_title=?, duty_start=?, weekly_off=?, station_id=?, active=? WHERE id=?",
     b.name ?? u.name, pick(b.salary, u.salary), pick(b.job_title, u.job_title),
     pick(b.duty_start, u.duty_start), pick(b.weekly_off, u.weekly_off),
     pick(b.station_id, u.station_id), b.active === undefined ? (u.active ?? 1) : b.active ? 1 : 0, u.id);
   if (b.phone !== undefined) run("UPDATE users SET phone=? WHERE id=?", b.phone ? normalizePhone(b.phone) : null, u.id);
+  if (b.active === false && u.active) revokeSessions(u.id); // a turned-off person is signed out everywhere at once
   return ownUser(tid(req), u.id);
 }));
 
@@ -83,6 +90,7 @@ staffRouter.post("/staff/members", h((req) => {
     station_id: z.number().optional().nullable(),
   }), req.body);
   const t = tid(req);
+  if (b.station_id && !get("SELECT id FROM stations WHERE id=? AND tenant_id=?", b.station_id, t)) throw new AppError(404, "Station not found");
   // a synthetic e-mail + random password so the row is valid; this person never logs in (role 'staff' has no access)
   const email = `staff.${t}.${Date.now().toString(36)}${Math.floor(Math.random() * 1e4)}@no-login.pumpai`;
   const { id } = run(`INSERT INTO users (tenant_id,name,email,password_hash,role,job_title,salary,phone,duty_start,weekly_off,station_id,active,created_at)

@@ -14,7 +14,7 @@ type State = { items: Item[]; pending: number; done: number; skipped: number; di
 
 const META: Record<string, { icon: any; en: string; ur: string; why: string; link?: { to: string; label: string } }> = {
   cash: { icon: Wallet, en: "Opening cash count", ur: "پہلی نقدی گنتی", why: "Aaj daraaz / office me jitna cash hai wo likhein — yahi pehle din ka opening cash hai. Bina iske cash tally nahi dikhta.", link: { to: "/cash", label: "Cash page" } },
-  bank: { icon: Landmark, en: "Pump ka bank account", ur: "بینک اکاؤنٹ", why: "Card, JazzCash, Easypaisa aur transfer ka paisa kisi bank/wallet account me jata hai. Kam az kam ek account banayein.", link: { to: "/banks", label: "Banks page" } },
+  bank: { icon: Landmark, en: "Pump ka bank account", ur: "بینک اکاؤنٹ", why: "Card, JazzCash, Easypaisa aur transfer ka paisa kisi bank/wallet account me jata hai. Kam az kam ek account banayein.", link: { to: "/cash?bank=add", label: "Bank account add karein" } },
   staff: { icon: Users, en: "Staff users (manager, cashier, salesman)", ur: "عملے کے لاگ ان", why: "Har banda apne PIN se login kare — shift, cash aur entries uske naam par likhi jayengi.", link: { to: "/users", label: "Users & Roles" } },
   opening: { icon: BookOpenCheck, en: "Purana hisaab (opening balances)", ur: "پرانا حساب", why: "Khata customers ka baqaya, suppliers ko dena, bank balance, tank stock, shop stock — purane register se aaj ki tareekh par le aayein.", link: { to: "/opening-balances", label: "Opening balances" } },
   fuel_cost: { icon: Fuel, en: "Tank ke fuel ka khareed rate (opening cost)", ur: "ٹینک کے تیل کی لاگت", why: "Jo fuel go-live par tank me hai wo kis rate par mila tha. Isi se pehle din se profit sirf margin dikhta hai, poori sale nahi.", link: { to: "/opening-balances?tab=stock", label: "Opening balances → Tank stock" } },
@@ -56,7 +56,8 @@ function Row({ n, it, reload }: { n: number; it: Item; reload: () => void }) {
   const m = META[it.key];
   const [open, setOpen] = useState(false);
   const { run, busy } = useAction();
-  const post = (p: string, body?: any, msg?: string) => run(() => api(p, { body: body ?? {} }), msg).then((r) => { if (r) { reload(); setOpen(false); } });
+  // settings are saved with PUT; the step is marked done only when the save really worked
+  const post = (p: string, body?: any, msg?: string, method?: string) => run(() => api(p, { body: body ?? {}, method }), msg).then((r) => { if (r) { reload(); setOpen(false); } return r; });
   const tone = it.status === "done" ? "green" : it.status === "skipped" ? "slate" : "amber";
   const Icon = m.icon;
   return (
@@ -104,7 +105,7 @@ function Summary({ it }: { it: Item }) {
   }
 }
 
-function Form({ it, post, busy }: { it: Item; post: (p: string, body?: any, msg?: string) => Promise<void>; busy: boolean }) {
+function Form({ it, post, busy }: { it: Item; post: (p: string, body?: any, msg?: string, method?: string) => Promise<unknown>; busy: boolean }) {
   const [f, setF] = useState<Record<string, any>>({});
   const v = (k: string, d: any = "") => (f[k] ?? d);
   const set = (k: string, val: any) => setF({ ...f, [k]: val });
@@ -144,13 +145,13 @@ function Form({ it, post, busy }: { it: Item; post: (p: string, body?: any, msg?
     case "shift": return (
       <div className="flex flex-wrap items-end gap-2">
         {[12, 24].map((h) => <button key={h} className={`rounded-xl border px-4 py-3 text-sm ${Number(v("shift_hours", it.shift_hours)) === h ? "border-brand-600 bg-brand-50 font-semibold" : "border-slate-200"}`} onClick={() => set("shift_hours", h)}>{h} ghante<div className="text-[11px] font-normal text-slate-500">{h === 12 ? "din / raat do shift" : "ek din on, ek off"}</div></button>)}
-        <Btn onClick={() => post("/settings", { limits: { shift_hours: Number(v("shift_hours", it.shift_hours)) } }, "Shift length set").then(() => post(`/golive/shift/done`))} />
+        <Btn onClick={() => post("/settings", { limits: { shift_hours: Number(v("shift_hours", it.shift_hours)) } }, "Shift length set", "PUT").then((r) => r && post(`/golive/shift/done`))} />
       </div>);
     case "khata": return (
       <div className="flex flex-wrap items-end gap-2">
         <Field label="Hold after (din bina payment)"><input className="input w-32 tabular-nums" type="number" inputMode="numeric" min={15} max={365} value={v("block_days", it.block_days)} onChange={(e) => set("block_days", e.target.value)} /></Field>
         <Field label="Salesman khata discount max (Rs)"><input className="input w-36 tabular-nums" type="number" inputMode="decimal" min={0} value={v("khata_discount_max", it.khata_discount_max)} onChange={(e) => set("khata_discount_max", e.target.value)} /></Field>
-        <Btn onClick={() => post("/settings", { khata_rules: { block_days: Number(v("block_days", it.block_days)) }, limits: { khata_discount_max: Number(v("khata_discount_max", it.khata_discount_max)) } }, "Khata rules set").then(() => post(`/golive/khata/done`))} />
+        <Btn onClick={() => post("/settings", { khata_rules: { block_days: Number(v("block_days", it.block_days)) }, limits: { khata_discount_max: Number(v("khata_discount_max", it.khata_discount_max)) } }, "Khata rules set", "PUT").then((r) => r && post(`/golive/khata/done`))} />
       </div>);
     case "fuel_cost": return (
       <div className="space-y-2">
@@ -176,7 +177,7 @@ function Form({ it, post, busy }: { it: Item; post: (p: string, body?: any, msg?
           <Field label="Cash short — critical (Rs)"><input className="input w-32 tabular-nums" type="number" inputMode="decimal" value={v("cash_short_crit", s.cash_short_crit)} onChange={(e) => set("cash_short_crit", e.target.value)} /></Field>
           <Field label="Shift dip variance (L)"><input className="input w-28 tabular-nums" type="number" inputMode="decimal" value={v("shift_dip_alert_l", s.shift_dip_alert_l)} onChange={(e) => set("shift_dip_alert_l", e.target.value)} /></Field>
           <Field label="Low stock (din)"><input className="input w-24 tabular-nums" type="number" inputMode="decimal" step="0.5" value={v("low_stock_days", s.low_stock_days)} onChange={(e) => set("low_stock_days", e.target.value)} /></Field>
-          <Btn onClick={() => post("/settings", { sensitivity: { cash_short_warn: Number(v("cash_short_warn", s.cash_short_warn)), cash_short_crit: Number(v("cash_short_crit", s.cash_short_crit)), shift_dip_alert_l: Number(v("shift_dip_alert_l", s.shift_dip_alert_l)), low_stock_days: Number(v("low_stock_days", s.low_stock_days)) } }, "Alert sensitivity set").then(() => post(`/golive/alerts/done`))} />
+          <Btn onClick={() => post("/settings", { sensitivity: { cash_short_warn: Number(v("cash_short_warn", s.cash_short_warn)), cash_short_crit: Number(v("cash_short_crit", s.cash_short_crit)), shift_dip_alert_l: Number(v("shift_dip_alert_l", s.shift_dip_alert_l)), low_stock_days: Number(v("low_stock_days", s.low_stock_days)) } }, "Alert sensitivity set", "PUT").then((r) => r && post(`/golive/alerts/done`))} />
         </div>);
     }
     case "letterhead": return (

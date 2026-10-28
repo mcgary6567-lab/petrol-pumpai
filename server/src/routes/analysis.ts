@@ -12,7 +12,6 @@ import { AppError, round2, pkr, currentPrices } from "../services.js";
 import { PRODUCTS } from "../config.js";
 import { buildReport, balances } from "./reports.js";
 import { journal } from "./ledger.js";
-import { rentalIncome } from "./property.js";
 import { carriageIncome } from "./wholesale.js";
 import { carriageIncomeThekedar } from "./carriage.js";
 import { otherEntriesIncome, otherEntriesDiscount } from "./otherEntries.js";
@@ -94,7 +93,7 @@ export function profitAndLoss(t: number, month: string, showPrivate = true) {
   const from = pkStart(`${month}-01`);
   const lastDay = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).getUTCDate();
   const to = Math.min(Date.parse(pkEnd(`${month}-${String(lastDay).padStart(2, "0")}`)), Date.now());
-  const r = buildReport(t, from, new Date(to).toISOString());
+  const r = buildReport(t, from, new Date(to).toISOString(), false); // P&L reads the figures only
   const s = r.summary;
   const fuelCost = s.fuel_cost_estimate ?? 0; // never null any more: unknown cost is assumed at pump price (zero margin), flagged below
   const dipLoss = round2(r.stock.products.reduce((a: number, p: any) => a + (p.dip_adjust_l ?? 0) * (p.avg_cost ?? 0), 0));
@@ -105,7 +104,13 @@ export function profitAndLoss(t: number, month: string, showPrivate = true) {
   // Wholesale's own gross margin, shown as its own line so the owner can see what wholesale earns (it is already
   // inside gross profit below — this is a breakout, not an extra addition). Cost = wholesale litres × that fuel's avg cost.
   const whCostOf = (p: string) => (r.stock.products.find((x: any) => x.product === p)?.avg_cost ?? 0) as number;
-  const whCost = r0((r.wholesale.by_product as any[]).reduce((a, w) => a + (Number(w.net_l) || 0) * whCostOf(w.product), 0));
+  // litres that came straight from a bypass (supplier → client) carry their own bypass cost, not the tank average
+  const byp = new Map(all(`SELECT product, COALESCE(SUM(litres),0) l, COALESCE(SUM(cost_amount),0) c FROM bypass_drops
+      WHERE tenant_id=? AND voided=0 AND tank_id IS NULL AND txn_date >= ? AND txn_date < ? GROUP BY product`, t, from, new Date(to).toISOString()).map((x) => [x.product as string, x]));
+  const whCost = r0((r.wholesale.by_product as any[]).reduce((a, w) => {
+    const b = byp.get(w.product), net = Number(w.net_l) || 0, bl = Math.min(net, b?.l ?? 0);
+    return a + (net - bl) * whCostOf(w.product) + (bl > 0 ? (b!.c * bl) / b!.l : 0);
+  }, 0));
   const whLitres = r0(s.wholesale_litres);
   const wholesale_margin = {
     litres: whLitres, revenue: r0(income.fuel_wholesale), cost: whCost, profit: r0(income.fuel_wholesale - whCost),
@@ -135,7 +140,8 @@ export function profitAndLoss(t: number, month: string, showPrivate = true) {
   // the smaller ledger accounts that are income or cost but not "Expense: …": a credit balance adds, a debit balance reduces
   const MISC = ["Other income", "Bank profit", "Shortage claims recovered", "Supplier adjustments", "Cash short / over", "Other payments", "Loyalty points redeemed", "Khareed"];
   const miscIncome = r0(J.trial_balance.filter((x) => MISC.includes(x.account)).reduce((a, x) => a - x.balance, 0));
-  const otherIncome = r0(rentalIncome(t, from, toIso) + carriageIncome(t, from, toIso) + carriageIncomeThekedar(t, from, toIso) + ceoIncome + miscIncome);
+  // shop / hotel rent is already inside miscIncome (its cash voucher / bank entry is booked to "Other income") — not added again
+  const otherIncome = r0(carriageIncome(t, from, toIso) + carriageIncomeThekedar(t, from, toIso) + ceoIncome + miscIncome);
   const net = r0(gross + otherIncome - expensesTotal - ceoDiscount);
   const costAssumed: string[] = (s as any).cost_assumed_products ?? [];
   const cost_note = costAssumed.length ? `${costAssumed.join(", ")}: khareed rate nahi — is liye cost = sale (0 margin) mana gaya, asal munafa is se zyada hai. Opening balances → Tank stock me khareed rate likhein, ya tanker delivery rate ke saath darj karein.` : null;
@@ -157,8 +163,11 @@ export function profitAndLoss(t: number, month: string, showPrivate = true) {
 
 export function balanceSheet(t: number) {
   const b = balances(t);
+  // a few balances live only in the books: online money not yet tied to a bank, customers' wallets, sales tax owed
+  const J = journal(t, "2000-01-01", new Date(Date.now() + 29 * 3600_000).toISOString().slice(0, 10));
+  const tb = (a: string) => J.trial_balance.find((x) => x.account === a)?.balance ?? 0;
   const cash = cashPosition(t).cash_in_hand;
-  const fuel = buildReport(t, new Date(Date.now() - DAY).toISOString(), new Date().toISOString()).stock.products
+  const fuel = buildReport(t, new Date(Date.now() - DAY).toISOString(), new Date().toISOString(), false).stock.products
     .reduce((a: number, p: any) => a + (p.closing_value ?? 0), 0);
   const shopStock = get("SELECT COALESCE(SUM(stock*cost),0) v FROM shop_items WHERE tenant_id=? AND active=1", t)!.v;
   const staffOwe = get(`SELECT COALESCE(SUM(CASE WHEN type IN ('advance','shortage') THEN amount WHEN type IN ('repayment','deduction') THEN -amount ELSE 0 END),0) v FROM staff_ledger WHERE tenant_id=?`, t)!.v;
@@ -167,12 +176,15 @@ export function balanceSheet(t: number) {
   // cheques received but not yet cleared are still money owed to us (they sit in the receivables), so they are not added again
   // cash taken by the salesmen and not yet handed to the cashier is still the pump's money
   const assets = { cash_in_hand: r0(cash), cash_with_salesmen: r0(cashWithSalesmen(t).total), banks: r0(banks), fuel_stock: r0(fuel), shop_stock: r0(shopStock), khata_receivable: r0(b.receivables.khata_total), wholesale_receivable: r0(b.receivables.wholesale_total), carriage_receivable: r0(b.receivables.carriage_total ?? 0),
-    bypass_stock: r0(bypassStockValue(t)), staff_advances: r0(Math.max(0, staffOwe)) };
+    bypass_stock: r0(bypassStockValue(t)), staff_advances: r0(Math.max(0, staffOwe)),
+    online_not_linked: r0(tb("Digital collections (Easypaisa/JazzCash/Card/Raast)") + tb("Bank — account not chosen")) };
   const liabilities = {
     suppliers: r0(b.payables.suppliers_total), customer_advances: r0(b.payables.total - b.payables.suppliers_total), expenses_pending: r0(b.payables.pending_expenses.amount),
     unused_coupons: one("SELECT COALESCE(SUM(value),0) v FROM fuel_coupons WHERE tenant_id=? AND status='active'"),
     withholding_tax_payable: one("SELECT COALESCE(SUM(amount),0) v FROM tax_withholdings WHERE tenant_id=? AND cpr_no IS NULL"),
     investors: r0(investorsOwed(t)),
+    customer_wallets: r0(-tb("Customer wallets")),
+    sales_tax_payable: r0(-tb("Output sales tax") - tb("Input sales tax")),
     bypass_suppliers: r0((get("SELECT COALESCE(SUM(amount),0) v FROM bypass_purchases WHERE tenant_id=? AND voided=0", t)!.v as number)
       - (get("SELECT COALESCE(SUM(amount),0) v FROM bypass_supplier_payments WHERE tenant_id=? AND voided=0", t)!.v as number)),
   };

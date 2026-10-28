@@ -121,7 +121,7 @@ backoffice.get("/cash.csv", requireAny("expenses.view", "cash.book"), (req, res,
   try {
     const pos = cashPosition(tid(req));
     const deposits = all(`${DEPOSIT_SQL} WHERE d.tenant_id=? ORDER BY d.id DESC LIMIT 30`, tid(req));
-    const esc = (v: unknown) => `"${String(v ?? "").replaceAll('"', '""')}"`;
+    const esc = (v: unknown) => `"${typeof v === "string" && /^[=+@-]/.test(v) ? "'" : ""}${String(v ?? "").replaceAll('"', '""')}"`; // ' stops Excel running a text cell as a formula
     const lines: string[] = [
       ["Cash & bank book"].map(esc).join(","),
       ["Since last count", pos.since ? String(pos.since).slice(0, 10) : ""].map(esc).join(","),

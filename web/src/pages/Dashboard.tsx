@@ -15,7 +15,7 @@ const insightIcon: Record<string, any> = { fuel: Fuel, trend: TrendingUp, users:
 const toneCls: Record<string, string> = { good: "border-l-emerald-500", warn: "border-l-amber-500", bad: "border-l-red-500", info: "border-l-blue-500" };
 
 export default function Dashboard() {
-  const { data, error, reload } = useApi<any>("/dashboard", 60_000);
+  const { data, error, reload } = useApi<any>("/dashboard", 300_000);
   const { can } = useAuth();
   useLiveEvents((e) => { if (e.type === "order") reload(); });
 

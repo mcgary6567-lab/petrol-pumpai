@@ -3,7 +3,7 @@
  * with a trial balance. Download as CSV (Excel / QuickBooks journal import) or Tally XML.
  */
 import { Router, type Request, type Response, type NextFunction } from "express";
-import { all, get, pkDate, pkStart, pkEnd } from "../db.js";
+import { all, get, pkDate, pkStart, pkEnd, memo } from "../db.js";
 import { h, tid, requirePerm } from "../auth.js";
 import { AppError, round2 } from "../services.js";
 import { taxSettings, splitTax } from "./tax.js";
@@ -58,6 +58,10 @@ const toPartyAccount = (ref: string) => PARTY_RECV[get("SELECT party_type FROM o
  *  accounts + narration. When false (non-admin views), those entries appear as owner capital/drawings
  *  with generic narration, so the manager cannot see them — the books still balance either way. */
 export function journal(t: number, fromDay: string, toDay: string, showPrivate = true) {
+  // the whole books for a range are rebuilt only after a write (books check, P&L and balance sheet ask for them often)
+  return memo(`journal:${t}:${fromDay}:${toDay}:${showPrivate ? 1 : 0}`, () => journalNow(t, fromDay, toDay, showPrivate), 30_000);
+}
+function journalNow(t: number, fromDay: string, toDay: string, showPrivate = true) {
   const from = pkStart(fromDay), to = pkEnd(toDay);
   const P = [t, from, to] as const;
   const day = (iso: string) => pkDate(Date.parse(iso));
@@ -351,7 +355,7 @@ const download = (fn: (req: Request) => { name: string; type: string; body: stri
 ledger.get("/ledger.csv", requirePerm("reports.view"), download((req) => {
   const r = range(req);
   const j = journal(tid(req), r.from, r.to, req.user!.role === "admin");
-  const esc = (v: unknown) => `"${String(v ?? "").replaceAll('"', '""')}"`;
+  const esc = (v: unknown) => `"${typeof v === "string" && /^[=+@-]/.test(v) ? "'" : ""}${String(v ?? "").replaceAll('"', '""')}"`; // ' stops Excel running a text cell as a formula
   const rows = [["Date", "Voucher", "Type", "Account", "Debit", "Credit", "Narration"],
     ...j.vouchers.flatMap((v) => v.lines.map((l) => [v.date, v.no, v.type, l.account, l.debit || "", l.credit || "", v.narration]))];
   return { name: `general-ledger-${r.from}-to-${r.to}.csv`, type: "text/csv; charset=utf-8", body: "﻿" + rows.map((x) => x.map(esc).join(",")).join("\n") };

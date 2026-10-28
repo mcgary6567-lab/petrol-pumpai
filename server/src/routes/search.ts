@@ -68,7 +68,7 @@ search.get("/search", requireAuth, h((req) => {
   }
   if (can(u, "stock.manage")) push(all(`SELECT id, name, price, stock, unit FROM shop_items WHERE tenant_id=? AND active=1 AND (name LIKE ? OR COALESCE(sku,'') LIKE ? OR COALESCE(barcode,'') LIKE ?) ORDER BY name LIMIT 5`, t, q, q, q)
     .map((x) => ({ kind: "item", label: x.name, sub: `shop item · ${round2(x.stock)} ${x.unit} stock`, amount: x.price, to: `/shop?q=${encodeURIComponent(x.name)}` })));
-  if (can(u, "expenses.view")) push(all(`SELECT id, bank, title, account_no FROM bank_accounts WHERE tenant_id=? AND active=1 AND (bank LIKE ? OR COALESCE(title,'') LIKE ? OR COALESCE(account_no,'') LIKE ?) LIMIT 4`, t, q, q, q)
+  if (can(u, "bank.view")) push(all(`SELECT id, bank, title, account_no FROM bank_accounts WHERE tenant_id=? AND active=1 AND (bank LIKE ? OR COALESCE(title,'') LIKE ? OR COALESCE(account_no,'') LIKE ?) LIMIT 4`, t, q, q, q)
     .map((x) => ({ kind: "bank", label: `${x.bank}${x.title ? ` · ${x.title}` : ""}`, sub: x.account_no ? `A/c ${x.account_no}` : "bank account", to: "/cash" })));
   return { q: raw, hits: hits.slice(0, 30) };
 }));

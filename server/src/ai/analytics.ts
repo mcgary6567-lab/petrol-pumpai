@@ -2,7 +2,7 @@
  * Predictive analytics: demand forecasting, stock-out prediction, churn and credit-risk scoring,
  * and anomaly detection. Pure TypeScript so it runs anywhere without a Python service.
  */
-import { all, get, run, now, pkDate, pkDayStart, getSetting, type Row } from "../db.js";
+import { all, get, run, now, pkDate, pkDayStart, getSetting, memo, type Row } from "../db.js";
 import { institutionTypes } from "../routes/lookups.js";
 import { PRODUCTS } from "../config.js";
 
@@ -56,7 +56,11 @@ export function holtWinters(y: number[], horizon = 7, season = 7, alpha = 0.35, 
   return Array.from({ length: horizon }, (_, h) => Math.max(0, level + (h + 1) * trend + seasonal[(n + h) % season]));
 }
 
+/** Sales forecast — cached until the next write (or 60 s), since dashboards ask for it many times per request. */
 export function forecast(tenantId: number, horizon = 7, stationId?: number) {
+  return memo(`forecast:${tenantId}:${horizon}:${stationId ?? ""}:${pkDate()}`, () => forecastNow(tenantId, horizon, stationId));
+}
+function forecastNow(tenantId: number, horizon: number, stationId?: number) {
   const { dates, series } = dailySeries(tenantId, 56, stationId);
   const out: Record<string, { history: number[]; forecast: number[] }> = {};
   for (const [p, y] of Object.entries(series)) {

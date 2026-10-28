@@ -13,10 +13,10 @@ import { bankAccounts } from "./banks.js";
 import { balances, buildReport } from "./reports.js";
 import { profitAndLoss } from "./analysis.js";
 import { cashierDayBook, onlineToday, cashWithSalesmen } from "./cashier.js";
-import { clientDue } from "./wholesale.js";
-import { thekedarDue } from "./carriage.js";
-import { supplierOwed } from "./suppliers.js";
-import { bypassOwed } from "./bypass.js";
+import { clientDueAll } from "./wholesale.js";
+import { thekedarDueAll } from "./carriage.js";
+import { supplierOwedAll } from "./suppliers.js";
+import { bypassOwedAll } from "./bypass.js";
 import { staffBalance } from "./staff.js";
 
 export const owner = Router();
@@ -46,9 +46,11 @@ owner.get("/owner/overview", requirePerm("reports.view"), h((req) => {
   // ---- owed to us / we owe ----
   const b = balances(t);
   const staffAdv = Math.max(0, one(`SELECT COALESCE(SUM(CASE WHEN type IN ('advance','shortage') THEN amount WHEN type IN ('repayment','deduction') THEN -amount ELSE 0 END),0) v FROM staff_ledger WHERE tenant_id=?`, t));
-  const owedToUs = { khata: b.receivables.khata_total, wholesale: b.receivables.wholesale_total, staff_advances: round2(staffAdv) };
+  const owedToUs = { khata: b.receivables.khata_total, wholesale: b.receivables.wholesale_total, carriage: round2(b.receivables.carriage_total ?? 0), staff_advances: round2(staffAdv) };
   const weOwe = {
     suppliers: b.payables.suppliers_total,
+    // fuel bought straight for clients (bypass) and not paid yet — a supplier payable too
+    bypass_suppliers: round2([...bypassOwedAll(t).values()].reduce((a, v) => a + v, 0)),
     customer_advances: round2(b.payables.total - b.payables.suppliers_total),
     withholding_tax: one("SELECT COALESCE(SUM(amount),0) v FROM tax_withholdings WHERE tenant_id=? AND cpr_no IS NULL", t),
     unused_coupons: one("SELECT COALESCE(SUM(value),0) v FROM fuel_coupons WHERE tenant_id=? AND status='active'", t),
@@ -59,7 +61,7 @@ owner.get("/owner/overview", requirePerm("reports.view"), h((req) => {
   const dues = partyDues(t);
 
   // ---- today ----
-  const r = buildReport(t, dayStart, nowIso).summary;
+  const r = buildReport(t, dayStart, nowIso, false).summary; // summary only: no prev period / forecast / balances
   const book = cashierDayBook(t, today, req.user!.role === "admin");
   // one-glance trend: today's fuel sale (retail + wholesale) vs the same by this time yesterday, and vs the 7-day average
   const saleSince = (from: string, to?: string) => round2(get(
@@ -168,13 +170,15 @@ export function partyDues(t: number) {
     if (c.balance > 0) rec.push({ kind: "khata", id: c.id, name: c.name, amount: round2(c.balance), to: `/customers/${c.id}` });
     else pay.push({ kind: "khata_advance", id: c.id, name: `${c.name} (advance)`, amount: round2(-c.balance), to: `/customers/${c.id}` });
   }
+  // one query per kind of party (not one per party) — the *All maps carry every balance at once
+  const wsDue = clientDueAll(t), thDue = thekedarDueAll(t), supOwed = supplierOwedAll(t), bypOwed = bypassOwedAll(t);
   for (const w of all("SELECT id, name FROM wholesale_clients WHERE tenant_id=? AND active=1", t)) {
-    const d = clientDue(w.id);
+    const d = wsDue.get(w.id) ?? 0;
     if (d > 0.5) rec.push({ kind: "wholesale", id: w.id, name: w.name, amount: round2(d), to: `/wholesale/${w.id}` });
     else if (d < -0.5) pay.push({ kind: "wholesale_advance", id: w.id, name: `${w.name} (advance)`, amount: round2(-d), to: `/wholesale/${w.id}` });
   }
   for (const k of all("SELECT id, name FROM thekedars WHERE tenant_id=? AND active=1", t)) {
-    const d = thekedarDue(k.id);
+    const d = thDue.get(k.id) ?? 0;
     if (d > 0.5) rec.push({ kind: "carriage", id: k.id, name: `${k.name} (kiraya)`, amount: round2(d), to: `/carriage/${k.id}` });
     else if (d < -0.5) pay.push({ kind: "carriage_advance", id: k.id, name: `${k.name} (advance)`, amount: round2(-d), to: `/carriage/${k.id}` });
   }
@@ -183,7 +187,7 @@ export function partyDues(t: number) {
     if (b > 0.5) rec.push({ kind: "staff", id: u.id, name: `${u.name} (advance)`, amount: round2(b), to: "/staff" });
   }
   for (const s of all("SELECT id, name, company FROM suppliers WHERE tenant_id=? AND active=1", t)) {
-    const o = supplierOwed(s.id) + bypassOwed(s.id);
+    const o = (supOwed.get(s.id) ?? 0) + (bypOwed.get(s.id) ?? 0);
     if (o > 0.5) pay.push({ kind: "supplier", id: s.id, name: [s.company, s.name].filter(Boolean).join(" — "), amount: round2(o), to: "/suppliers" });
     else if (o < -0.5) rec.push({ kind: "supplier_advance", id: s.id, name: `${[s.company, s.name].filter(Boolean).join(" — ")} (advance)`, amount: round2(-o), to: "/suppliers" });
   }

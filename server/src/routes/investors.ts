@@ -136,13 +136,13 @@ export function investorStatement(t: number, id: number, from?: string, to?: str
   const opening = round2(get(`SELECT COALESCE(SUM(CASE WHEN type IN ('capital_in','profit') THEN amount ELSE -amount END),0) v FROM investor_txns WHERE investor_id=? AND voided=0 AND created_at < ?`, id, lo)!.v as number);
   let bal = opening;
   const lines = all(`SELECT x.*, d.product, d.litres, d.sold_litres, d.cost_rate, d.sale_rate, d.profit deal_profit, d.our_pct deal_pct, a.bank acc_bank
-      FROM investor_txns x LEFT JOIN investor_deals d ON d.id=x.deal_id LEFT JOIN bank_accounts a ON a.id=x.account_id
+      FROM investor_txns x LEFT JOIN investor_deals d ON d.id=x.deal_id LEFT JOIN bank_accounts a ON a.id=x.account_id AND a.tenant_id=x.tenant_id
       WHERE x.investor_id=? AND x.created_at >= ? AND x.created_at < ? ORDER BY x.created_at, x.id`, id, lo, hi).map((x) => {
     const credit = !x.voided && CREDIT.has(x.type) ? round2(x.amount) : 0, debit = !x.voided && !CREDIT.has(x.type) ? round2(x.amount) : 0;
     bal = round2(bal + credit - debit);
     return { ...x, credit, debit, balance: bal };
   });
-  const deals = all("SELECT d.*, s.name supplier FROM investor_deals d LEFT JOIN suppliers s ON s.id=d.supplier_id WHERE d.investor_id=? AND d.voided=0 ORDER BY d.deal_date DESC, d.id DESC", id);
+  const deals = all("SELECT d.*, s.name supplier FROM investor_deals d LEFT JOIN suppliers s ON s.id=d.supplier_id AND s.tenant_id=d.tenant_id WHERE d.investor_id=? AND d.voided=0 ORDER BY d.deal_date DESC, d.id DESC", id);
   const requests = all("SELECT * FROM investor_requests WHERE investor_id=? ORDER BY id DESC LIMIT 30", id);
   return { investor: { ...i, ...figures(i) }, opening, closing: bal, lines, deals, requests, monthly: investorMonthly(id),
     totals: { credit: round2(lines.reduce((a, l) => a + l.credit, 0)), debit: round2(lines.reduce((a, l) => a + l.debit, 0)) } };
@@ -218,10 +218,12 @@ function moneyTxn(t: number, by: string, i: any, m: { dir: "in" | "out"; amount:
   const type = m.dir === "in" ? "capital_in" : "payout";
   const purpose = m.dir === "in" ? "capital" : (m.purpose ?? "profit");
   const id = run(`INSERT INTO investor_txns (tenant_id,investor_id,type,purpose,amount,method,account_id,deal_id,note,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-    t, i.id, type, purpose, amount, m.method || "Cash", m.account_id ?? null, m.deal_id ?? null, m.note || null, by, now()).id;
+    t, i.id, type, purpose, amount, m.method || "Cash", null, m.deal_id ?? null, m.note || null, by, now()).id;
   const label = m.dir === "in" ? "Investor capital received" : purpose === "capital" ? "Investor capital returned" : "Investor profit paid";
   const src = otherMoney(t, { dir: m.dir, amount, method: m.method ?? "cash", account_id: m.account_id, party: i.name, category: label, note: m.note, ref: `inv:${id}`, by });
-  run("UPDATE investor_txns SET src=? WHERE id=?", src, id);
+  // the bank account actually used (checked to be this pump's by otherMoney) — never the raw id from the request
+  const bankId = src.startsWith("bank:") ? get("SELECT account_id FROM bank_txns WHERE id=?", Number(src.slice(5)))?.account_id ?? null : null;
+  run("UPDATE investor_txns SET src=?, account_id=? WHERE id=?", src, bankId, id);
   return id;
 }
 
@@ -313,6 +315,7 @@ investors.post("/investors/:id/deals", P, h((req) => {
 investors.patch("/investor-deals/:id", P, h((req) => {
   const t = tid(req), d = ownDeal(t, Number(req.params.id)), b = parse(dealBody, req.body);
   if (d.status !== "open") throw new AppError(400, "Band deal edit nahi hoti — mansookh kar ke dobara banayein");
+  if (b.supplier_id && !get("SELECT id FROM suppliers WHERE id=? AND tenant_id=?", b.supplier_id, t)) throw new AppError(404, "Supplier nahi mila");
   const cost = round2(b.litres * b.cost_rate);
   const free = round2(investorBalance(d.investor_id) - inDeals(d.investor_id) + d.cost_amount);
   if (cost > free + 0.5) throw new AppError(400, `Investor ka free paisa Rs ${Math.round(Math.max(0, free)).toLocaleString("en-IN")} hai — itni deal nahi ho sakti`);

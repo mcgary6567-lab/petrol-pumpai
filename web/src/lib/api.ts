@@ -57,7 +57,20 @@ export type PinCode = "pin_required" | "pin_wrong" | "pin_not_set";
 let pinAsker: ((code: PinCode, message: string) => Promise<string | null>) | null = null;
 export const setPinAsker = (f: typeof pinAsker) => { pinAsker = f; };
 
+/** Identical GETs already on their way share one request (after a write, several cards on one screen ask for the same list). */
+const inflight = new Map<string, Promise<any>>();
 export async function api<T = any>(path: string, opts: { method?: string; body?: unknown; headers?: Record<string, string> } = {}): Promise<T> {
+  if ((opts.method ?? (opts.body ? "POST" : "GET")) === "GET" && !opts.headers) {
+    const key = path;
+    const hit = inflight.get(key);
+    if (hit) return hit as Promise<T>;
+    const p = apiNow<T>(path, opts).finally(() => inflight.delete(key));
+    inflight.set(key, p);
+    return p;
+  }
+  return apiNow<T>(path, opts);
+}
+async function apiNow<T = any>(path: string, opts: { method?: string; body?: unknown; headers?: Record<string, string> } = {}): Promise<T> {
   const token = getToken();
   let res: Response;
   try {
@@ -83,7 +96,7 @@ export async function api<T = any>(path: string, opts: { method?: string; body?:
   if (res.status === 428 && pinAsker && ["pin_required", "pin_wrong", "pin_not_set"].includes(data.code)) {
     const pin = await pinAsker(data.code, data.error);
     if (!pin) throw new ApiError(428, "Mansookh nahi hua — PIN nahi diya");
-    return api<T>(path, { ...opts, headers: { ...opts.headers, "x-action-pin": pin } });
+    return apiNow<T>(path, { ...opts, headers: { ...opts.headers, "x-action-pin": pin } });
   }
   if (!res.ok) throw new ApiError(res.status, data.error ?? `Request failed (${res.status})`);
   return data as T;
@@ -141,14 +154,26 @@ export function useLiveData() {
   }, []);
 }
 
+/* One shared /events connection per tab, whatever number of screens listen (browsers allow only ~6 connections per site). */
+const eventSubs = new Set<(e: any) => void>();
+let eventsEs: EventSource | null = null, eventsRetry: ReturnType<typeof setTimeout> | null = null;
+function ensureEvents() {
+  if (eventsEs || !eventSubs.size || !getToken()) return;
+  // the media token arrives a moment after login: try again shortly until it is there
+  if (!media) { if (!eventsRetry) eventsRetry = setTimeout(() => { eventsRetry = null; ensureEvents(); }, 1500); return; }
+  eventsEs = new EventSource(`/api/events?token=${linkToken()}`);
+  eventsEs.onmessage = (m) => { let e: any; try { e = JSON.parse(m.data); } catch { return; } for (const f of [...eventSubs]) { try { f(e); } catch { /* one bad listener must not stop the rest */ } } };
+  eventsEs.onerror = () => { eventsEs?.close(); eventsEs = null; if (!eventsRetry) eventsRetry = setTimeout(() => { eventsRetry = null; ensureEvents(); }, 5000); };
+}
 /** Subscribe to server-sent live events (new WhatsApp messages, orders...). */
 export function useLiveEvents(onEvent: (e: any) => void, enabled = true) {
   const cb = useRef(onEvent);
   cb.current = onEvent;
   useEffect(() => {
-    if (!getToken() || !media || !enabled) return;
-    const es = new EventSource(`/api/events?token=${linkToken()}`);
-    es.onmessage = (m) => { try { cb.current(JSON.parse(m.data)); } catch { /* ignore */ } };
-    return () => es.close();
+    if (!enabled) return;
+    const f = (e: any) => cb.current(e);
+    eventSubs.add(f);
+    ensureEvents();
+    return () => { eventSubs.delete(f); if (!eventSubs.size) { eventsEs?.close(); eventsEs = null; } };
   }, [enabled]);
 }

@@ -117,7 +117,7 @@ tax.get("/tax/report", requirePerm("reports.view"), h((req) => taxReport(tid(req
 tax.get("/tax/report.csv", requirePerm("reports.view"), (req, res, next) => {
   try {
     const r = taxReport(tid(req), String(req.query.month ?? pkDate().slice(0, 7)));
-    const esc = (v: unknown) => `"${String(v ?? "").replaceAll('"', '""')}"`;
+    const esc = (v: unknown) => `"${typeof v === "string" && /^[=+@-]/.test(v) ? "'" : ""}${String(v ?? "").replaceAll('"', '""')}"`; // ' stops Excel running a text cell as a formula
     const rows: unknown[][] = [[`Tax report ${r.month}`], [], ["Sales tax on shop sales", `GST ${r.settings.gst_pct}%`, r.settings.prices_include_tax ? "prices include tax" : "tax added on price"],
       ["Category", "Sales", "Taxable value", "Sales tax", "Exempt"], ...r.shop.map((x) => [x.category, x.sales, x.value, x.tax, x.exempt ? "yes" : ""]),
       ["Total", r.shop_total.sales, r.shop_total.value, r.shop_total.tax], [], ["Fuel sales", "Litres", "Sales", "Tax inside price"],

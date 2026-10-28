@@ -9,9 +9,9 @@
 import { Router } from "express";
 import { z } from "zod";
 import { all, pkStart, pkEnd, pkDate } from "../db.js";
-import { h, parse, tid, requireAny } from "../auth.js";
+import { h, parse, tid, requireAny, can } from "../auth.js";
 import { PRODUCTS } from "../config.js";
-import { round2 } from "../services.js";
+import { round2, AppError } from "../services.js";
 import { BYPASS_PAY } from "./banks.js";
 
 export const dayfeed = Router();
@@ -29,6 +29,10 @@ dayfeed.get("/day-feed", requireAny("dashboard.view", "cashier.desk", "reports.v
   // a single day (date=) or a range (from=&to=); reversed dates are swapped so the window is always valid
   const a = q.from ?? q.date ?? pkDate(), b = q.to ?? q.date ?? a;
   const lo = a <= b ? a : b, hi = a <= b ? b : a;
+  // each module's feed only for those who may open that module, and at most ~3 months at a time
+  if (scope === "supplier" && !can(req.user, "suppliers.manage")) throw new AppError(403, "Supplier ki entries aap nahi dekh sakte");
+  if (scope === "wholesale" && !can(req.user, "wholesale.view")) throw new AppError(403, "Wholesale ki entries aap nahi dekh sakte");
+  if ((Date.parse(hi) - Date.parse(lo)) / 86_400_000 > 92) throw new AppError(400, "Zyada se zyada 3 mahine ek saath");
   const from = pkStart(lo), to = pkEnd(hi);
   const P = [t, from, to] as const;
   const rows: FeedRow[] = [];

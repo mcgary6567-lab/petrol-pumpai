@@ -535,7 +535,7 @@ wholesale.get("/wholesale/rate-history.csv", (req, res, next) => {
     if (!can(req.user, "wholesale.rates")) throw new AppError(403, "You don't have permission for this");
     const rows = all(`SELECT h.id, c.name client_name, h.product, h.old_rate, h.new_rate, h.changed_by, h.note, h.created_at
       FROM wholesale_rate_history h JOIN wholesale_clients c ON c.id=h.client_id WHERE c.tenant_id=? ORDER BY h.id DESC LIMIT 5000`, tid(req));
-    const esc = (v: unknown) => `"${String(v ?? "").replaceAll('"', '""')}"`;
+    const esc = (v: unknown) => `"${typeof v === "string" && /^[=+@-]/.test(v) ? "'" : ""}${String(v ?? "").replaceAll('"', '""')}"`; // ' stops Excel running a text cell as a formula
     const out = [
       ["Wholesale rate change history"].map(esc).join(","),
       ["Date", "Client", "Fuel", "Old rate", "New rate", "Change", "Note", "By"].map(esc).join(","),
@@ -622,7 +622,7 @@ wholesale.get("/wholesale/clients/:id/statement.csv", (req, res, next) => {
   try {
     const q = parse(z.object({ from: dateStr, to: dateStr }), req.query);
     const s = statement(tid(req), Number(req.params.id), q.from, q.to);
-    const esc = (v: unknown) => `"${String(v ?? "").replaceAll('"', '""')}"`;
+    const esc = (v: unknown) => `"${typeof v === "string" && /^[=+@-]/.test(v) ? "'" : ""}${String(v ?? "").replaceAll('"', '""')}"`; // ' stops Excel running a text cell as a formula
     const out = [
       ["Statement", s.client.name, s.client.business_name ?? ""].map(esc).join(","),
       ["Period", s.from ?? "start", s.to ?? "today"].map(esc).join(","),

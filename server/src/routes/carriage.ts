@@ -162,7 +162,7 @@ carriage.get("/carriage/thekedars/:id/statement.csv", (req, res, next) => {
   try {
     const t = tid(req);
     const s = statement(t, Number(req.params.id), req.query.from as string | undefined, req.query.to as string | undefined);
-    const esc = (v: unknown) => `"${String(v ?? "").replaceAll('"', '""')}"`;
+    const esc = (v: unknown) => `"${typeof v === "string" && /^[=+@-]/.test(v) ? "'" : ""}${String(v ?? "").replaceAll('"', '""')}"`; // ' stops Excel running a text cell as a formula
     const out = [
       ["Carriage statement", s.thekedar.name].map(esc).join(","),
       ["Period", s.from ?? "start", s.to ?? "today"].map(esc).join(","),

@@ -48,8 +48,24 @@ export function get<T = Row>(sql: string, ...params: Params): T | undefined {
   queryCount++;
   return prep(sql).get(...(params as SQLInputValue[])) as T | undefined;
 }
+/**
+ * Every write bumps dataVersion, so a result cached with memo() is thrown away the moment anything changes — a cache can
+ * speed up the dashboards but can never show a stale figure after an entry.
+ */
+let dataVersion = 0;
+export const _dataVersion = () => dataVersion;
+const memoStore = new Map<string, { v: number; at: number; val: unknown }>();
+export function memo<T>(key: string, fn: () => T, ttlMs = 60_000): T {
+  const hit = memoStore.get(key);
+  if (hit && hit.v === dataVersion && Date.now() - hit.at < ttlMs) return hit.val as T;
+  const val = fn();
+  if (memoStore.size > 500) memoStore.clear(); // bounded: never grows without limit
+  memoStore.set(key, { v: dataVersion, at: Date.now(), val });
+  return val;
+}
 export function run(sql: string, ...params: Params) {
   queryCount++;
+  dataVersion++;
   const r = prep(sql).run(...(params as SQLInputValue[]));
   return { id: Number(r.lastInsertRowid), changes: Number(r.changes) };
 }
@@ -68,6 +84,7 @@ export function tx<T>(fn: () => T): T {
     return out;
   } catch (e) {
     db.exec("ROLLBACK");
+    dataVersion++;
     throw e;
   } finally {
     txDepth = 0;
@@ -826,6 +843,10 @@ export function migrate() {
   for (const ix of [
     "CREATE INDEX IF NOT EXISTS idx_sales_shift ON sales(shift_id)",
     "CREATE INDEX IF NOT EXISTS idx_sales_station_created ON sales(station_id, created_at)",
+    // bank / wallet money by payment method (card, Raast, JazzCash…) and the account it settled into
+    "CREATE INDEX IF NOT EXISTS idx_sales_method_created ON sales(payment_method, created_at, account_id, amount, station_id)",
+    "CREATE INDEX IF NOT EXISTS idx_sales_method_acct ON sales(payment_method, account_id)",
+    "CREATE INDEX IF NOT EXISTS idx_khata_cust_type ON khata_ledger(customer_id, type, created_at)",
     "CREATE INDEX IF NOT EXISTS idx_sales_nozzle ON sales(nozzle_id)",
     "CREATE INDEX IF NOT EXISTS idx_khata_cust ON khata_ledger(customer_id, id)",
     "CREATE INDEX IF NOT EXISTS idx_khata_ref ON khata_ledger(ref)",

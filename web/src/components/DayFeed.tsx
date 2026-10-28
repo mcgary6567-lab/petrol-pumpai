@@ -72,7 +72,7 @@ export function DayFeed({ title = "Aaj ki saari entries", scope = "all" }: { tit
   const span = RANGES.find((r) => r.k === range)!.span;
   const from = range === "custom" ? cFrom : range === "today" ? today() : daysAgo(span);
   const to = range === "custom" ? cTo : today();
-  const { data } = useApi<any>(`/day-feed?from=${from}&to=${to}&scope=${scope}`, 60_000);
+  const { data } = useApi<any>(`/day-feed?from=${from}&to=${to}&scope=${scope}`, 300_000);
   const [q, setQ] = useState("");
   const [people, setPeople] = useState(false);
   const ws = scope === "wholesale"; // the wholesale officer's desk reads as a Debit / Credit statement

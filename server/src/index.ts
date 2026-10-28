@@ -75,7 +75,7 @@ import { docFromToken } from "./docs.js";
 import { paymentInbox } from "./routes/paymentInbox.js";
 import { people, slipPdf } from "./routes/people.js";
 import { setupPublic, business, applyStoredConfig, pumpUrl } from "./routes/setup.js";
-import { saasPublic, saasAuthed, tenantGate, seedPlatformAdmin, tenantState } from "./routes/saas.js";
+import { saasPublic, saasAuthed, tenantGate, seedPlatformAdmin, tenantState, requirePlatform } from "./routes/saas.js";
 import { auditTrail, auditRouter } from "./routes/auditTrail.js";
 import { machines } from "./routes/machines.js";
 import { lookupsRouter } from "./routes/lookups.js";
@@ -106,7 +106,8 @@ installProcessLogging();
 const rawBody = (req: any, _res: unknown, buf: Buffer) => { req.rawBody = buf; };
 app.use(/^\/(api\/auth|webhooks|w\/|k\/|i\/)/, express.json({ limit: "256kb", verify: rawBody }));
 // an old PumpAI backup (.db) uploaded whole for the master shop catalog — raw bytes, platform login checked by the route
-app.use("/api/platform/catalog/from-backup", express.raw({ type: () => true, limit: "400mb" }));
+// the platform owner must be signed in BEFORE the big body is read — nobody else can make the server hold 400 MB
+app.use("/api/platform/catalog/from-backup", (req, res, next) => (config.saas ? requirePlatform(req, res, next) : next(new AppError(404, "Not found"))), express.raw({ type: () => true, limit: "400mb" }));
 app.use(express.json({ limit: "8mb", verify: rawBody }));
 app.use("/api/auth", rateLimit("auth", 30, 10 * 60_000));
 app.use("/api/setup", rateLimit("setup", 20, 10 * 60_000));

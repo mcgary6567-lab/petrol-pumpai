@@ -337,7 +337,7 @@ crm.get("/customers/:id/statement.csv", requirePerm("khata.manage"), (req, res, 
   try {
     const q = parse(dateQ, req.query);
     const s = khataStatement(tid(req), Number(req.params.id), q.from, q.to);
-    const esc = (v: unknown) => `"${String(v ?? "").replaceAll('"', '""')}"`;
+    const esc = (v: unknown) => `"${typeof v === "string" && /^[=+@-]/.test(v) ? "'" : ""}${String(v ?? "").replaceAll('"', '""')}"`; // ' stops Excel running a text cell as a formula
     const out = [
       [`Khata statement — ${s.customer.name}`, s.from ?? "start", s.to ?? "today"].map(esc).join(","),
       ["Opening balance", s.opening_balance].map(esc).join(","),

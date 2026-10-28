@@ -447,7 +447,7 @@ bypass.get("/bypass/suppliers/:id/statement.csv", (req, res, next) => {
   try {
     const s = bypassStatement(tid(req), Number(req.params.id), req.query.from as string | undefined, req.query.to as string | undefined);
     const name = [s.supplier.company, s.supplier.name].filter(Boolean).join(" — ");
-    const esc = (v: unknown) => `"${String(v ?? "").replaceAll('"', '""')}"`;
+    const esc = (v: unknown) => `"${typeof v === "string" && /^[=+@-]/.test(v) ? "'" : ""}${String(v ?? "").replaceAll('"', '""')}"`; // ' stops Excel running a text cell as a formula
     const out = [
       ["Bypass supplier statement", name].map(esc).join(","),
       ["Opening balance (we owe)", s.opening_balance].map(esc).join(","),

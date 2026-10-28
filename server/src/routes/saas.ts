@@ -92,7 +92,7 @@ export function seedPlatformAdmin() {
   else run("INSERT INTO platform_admins (email,password_hash,name,created_at) VALUES (?,?,?,?)", config.platformEmail, hash, "Platform owner", now());
 }
 const platformToken = (id: number) => jwt.sign({ padmin: id }, config.jwtSecret, { expiresIn: "7d" });
-function requirePlatform(req: Request, _res: Response, next: NextFunction) {
+export function requirePlatform(req: Request, _res: Response, next: NextFunction) {
   const hdr = req.headers.authorization;
   // a backup download opens in the browser itself, so a GET may carry the platform token as ?token=
   const token = hdr?.startsWith("Bearer ") ? hdr.slice(7) : req.method === "GET" && typeof req.query.token === "string" ? req.query.token : "";

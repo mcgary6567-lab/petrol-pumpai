@@ -6,7 +6,7 @@
  */
 import { Router } from "express";
 import { z } from "zod";
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomInt } from "node:crypto";
 import { all, get, run, now, pkDate } from "../db.js";
 import { h, parse, tid, requirePerm, requireAny, can, scopedStation } from "../auth.js";
 import { AppError, round2, createAlert, audit } from "../services.js";
@@ -333,7 +333,7 @@ compliance.post("/attendance/workers/:id/code", requirePerm("staff.manage"), h((
   const taken = (c: string) => Boolean(get("SELECT id FROM users WHERE tenant_id=? AND attend_code=? AND id<>?", t, c, id));
   let code = b.code;
   if (code) { if (taken(code)) throw new AppError(400, "Yeh code pehle se kisi aur ka hai — doosra chunein"); }
-  else { do { code = String(Math.floor(100000 + Math.random() * 900000)); } while (taken(code)); }
+  else { do { code = String(randomInt(100000, 1000000)); } while (taken(code)); }
   run("UPDATE users SET attend_code=? WHERE id=? AND tenant_id=?", code, id, t);
   return { id, code };
 }));

@@ -166,7 +166,7 @@ suppliers.get("/suppliers/:id/statement.csv", (req, res, next) => {
       return { ...t, type: t.source === "bypass" ? `${t.type} (bypass)` : t.type };
     });
     const name = [s.company, s.name].filter(Boolean).join(" — ");
-    const esc = (v: unknown) => `"${String(v ?? "").replaceAll('"', '""')}"`;
+    const esc = (v: unknown) => `"${typeof v === "string" && /^[=+@-]/.test(v) ? "'" : ""}${String(v ?? "").replaceAll('"', '""')}"`; // ' stops Excel running a text cell as a formula
     const out = [
       ["Supplier statement", name].map(esc).join(","),
       ["Opening balance", s.opening_balance].map(esc).join(","),

@@ -807,7 +807,7 @@ cashier.get("/cashier/daybook.csv", requirePerm("cashier.desk"), (req, res, next
   try {
     const d = req.query.date ? parse(day, req.query.date) : pkDate();
     const b = cashierDayBook(tid(req), d, req.user!.role === "admin");
-    const esc = (v: unknown) => `"${String(v ?? "").replaceAll('"', '""')}"`;
+    const esc = (v: unknown) => `"${typeof v === "string" && /^[=+@-]/.test(v) ? "'" : ""}${String(v ?? "").replaceAll('"', '""')}"`; // ' stops Excel running a text cell as a formula
     const out = [
       ["Cash & bank day book", d].map(esc).join(","),
       ["Opening cash", b.cash.opening ?? ""].map(esc).join(","),

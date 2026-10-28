@@ -11,6 +11,8 @@ import { get, getSetting, setSetting } from "../db.js";
 import { h, parse, tid, requirePerm } from "../auth.js";
 import { currentPrices, AppError } from "../services.js";
 
+/** JSON safe to drop inside a <script>: "</script>" or "<!--" in a name / offer can never close the tag. */
+const jsonInScript = (v: unknown) => JSON.stringify(v).replace(/</g, "\\u003c").replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
 export const board = Router();
 
 // labels, colours and Urdu come from the admin's fuel products (config.PRODUCT_META), with these as a fallback
@@ -75,7 +77,7 @@ footer{padding:2vh 4vw 3vh}.offer{font-size:4vh;background:#facc15;color:#111;bo
 <main id="rows"></main>
 <footer id="offers"></footer>
 <script>
-const token=${JSON.stringify(token)};let last=null;
+const token=${jsonInScript(token)};let last=null;
 function fmt(n){return n.toLocaleString('en-PK',{minimumFractionDigits:2,maximumFractionDigits:2})}
 function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c])}
 function draw(d){const key=JSON.stringify(d.prices.map(p=>[p.product,p.price]));
@@ -83,6 +85,6 @@ document.getElementById('rows').innerHTML=d.prices.map(p=>'<div class="row'+(las
 document.getElementById('offers').innerHTML=d.offers.map(o=>'<div class="offer">🎁 '+esc(o)+'</div>').join('');last=key}
 async function poll(){try{const r=await fetch('/board/'+token+'/data',{cache:'no-store'});if(r.ok)draw(await r.json())}catch(e){}}
 function tick(){document.getElementById('clock').textContent=new Date().toLocaleString('en-PK',{weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}
-draw(${JSON.stringify(d)});tick();setInterval(poll,20000);setInterval(tick,15000);
+draw(${jsonInScript(d)});tick();setInterval(poll,20000);setInterval(tick,15000);
 </script></body></html>`;
 }

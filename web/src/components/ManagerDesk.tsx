@@ -31,7 +31,7 @@ const Kpi = ({ label, value, sub, accent, to }: { label: string; value: React.Re
 
 /** Top of the manager / owner dashboard: one-tap actions, today's numbers, suggestions, live shifts and staff. */
 export function ManagerDesk({ k }: { k: any }) {
-  const { data } = useApi<any>("/dashboard/desk", 60_000);
+  const { data } = useApi<any>("/dashboard/desk", 300_000);
   const nav = useNavigate();
   const { can } = useAuth();
   const vs = k.today.vs_yesterday_pct;
