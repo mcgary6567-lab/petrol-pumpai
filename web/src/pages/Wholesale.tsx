@@ -511,7 +511,7 @@ function LedgerTable({ rows: allRows, running, showClient, tools, onVoid, onEdit
     const debit = running ? r.debit : r.type === "supply" || r.type === "carriage" || (r.type === "adjustment" && r.amount > 0) ? Math.abs(r.amount) : 0;
     return { debit, credit: running ? r.credit : debit ? 0 : Math.abs(r.amount) };
   };
-  const extra = (r: any) => [r.vehicle_no && `🚛 ${r.vehicle_no}`, r.driver_name && `👤 ${r.driver_name}`, r.location && `📍 ${r.location}`, r.trip_id && `trip #${r.trip_id}`, r.ref, r.note, r.voided && r.void_reason].filter(Boolean).join(" · ");
+  const extra = (r: any) => [r.location && `📍 ${r.location}`, r.trip_id && `trip #${r.trip_id}`, r.ref !== r.vehicle_no ? r.ref : null, r.note, r.voided && r.void_reason].filter(Boolean).join(" · ");
   return (
     <>
     {bar}
@@ -524,7 +524,10 @@ function LedgerTable({ rows: allRows, running, showClient, tools, onVoid, onEdit
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-500"><Badge tone={TYPE[r.type].tone}>{TYPE[r.type].label}</Badge>{r.voided ? <Badge tone="red">VOID</Badge> : null}{dt(r.txn_date)}</div>
               {showClient && <Link to={`/wholesale/${r.client_id}`} className="flex min-h-9 items-center font-medium hover:underline">{r.client_name}</Link>}
-              <div className="text-sm">{r.type === "fuel_note" ? <>Fuel <b>{pkr(r.amount)}</b> · {fuelLabel(r)}</> : r.type === "carriage" ? `Kiraya${r.litres ? ` · ${num(r.litres, 2)} L ${r.product ? PRODUCTS[r.product] : "fuel"}` : ""}` : r.product ? `${num(r.litres, 2)} L ${PRODUCTS[r.product]} @ Rs ${r.rate}` : r.method ?? ""}</div>
+              <div className="text-sm">{r.type === "fuel_note" ? <>Fuel <b>{pkr(r.amount)}</b> · {fuelLabel(r)}</> : r.type === "carriage" ? "Kiraya" : !r.product ? r.method ?? "" : null}</div>
+              {r.type !== "fuel_note" && (r.vehicle_no || r.product) && <div className="flex flex-wrap gap-x-3 text-xs tabular-nums text-slate-700">
+                {r.vehicle_no && <b className="font-semibold">🚛 {r.vehicle_no}{r.driver_name ? <span className="font-normal text-slate-500"> · {r.driver_name}</span> : null}</b>}
+                {r.product && <span>{PRODUCTS[r.product] ?? r.product}</span>}{r.litres ? <span>{num(r.litres, r.litres % 1 ? 2 : 0)} L</span> : null}{r.rate && r.type !== "carriage" ? <span>Rs {num(r.rate, 2)}/L</span> : null}</div>}
               {extra(r) && <div className="break-words text-xs text-slate-500">{extra(r)}</div>}
               <ProofThumbs ids={r.proof_ids} />
             </div>
@@ -541,9 +544,9 @@ function LedgerTable({ rows: allRows, running, showClient, tools, onVoid, onEdit
       })}
     </ul>
     <div className="hidden overflow-x-auto sm:block print:block">
-      <table className="w-full">
+      <table className="w-full min-w-[960px] print:min-w-0">
         <thead><tr>
-          <th className="th">Date</th>{showClient && <th className="th">Client</th>}<th className="th">Entry</th><th className="th">Details</th>
+          <th className="th">Date</th>{showClient && <th className="th">Client</th>}<th className="th">Entry</th><th className="th">Gaari · driver</th><th className="th">Fuel</th><th className="th text-right">Litres</th><th className="th text-right">Rate</th><th className="th">Tafseel</th>
           <th className="th text-right">Debit<span className="print:hidden"> (billed)</span></th><th className="th text-right">Credit<span className="print:hidden"> (paid / returned)</span></th>{running && <th className="th text-right">Balance</th>}<th className="th print:hidden" />
         </tr></thead>
         <tbody>
@@ -552,16 +555,18 @@ function LedgerTable({ rows: allRows, running, showClient, tools, onVoid, onEdit
             const credit = r.type === "fuel_note" ? 0 : running ? r.credit : debit ? 0 : Math.abs(r.amount);
             return (
               <tr key={r.id} className={r.voided ? "text-slate-400 line-through print:hidden" : ""}>
-                <td className="td text-xs"><span className="print:hidden">{dt(r.txn_date)}</span><span className="hidden whitespace-nowrap print:inline">{d(r.txn_date)}</span></td>
+                <td className="td whitespace-nowrap text-xs"><span className="print:hidden">{dt(r.txn_date).split(", ").map((x, i) => <span key={i} className={i ? "block text-slate-400" : "block"}>{x}</span>)}</span><span className="hidden whitespace-nowrap print:inline">{d(r.txn_date)}</span></td>
                 {showClient && <td className="td text-sm"><Link to={`/wholesale/${r.client_id}`} className="hover:underline">{r.client_name}</Link></td>}
                 <td className="td"><Badge tone={TYPE[r.type].tone}>{TYPE[r.type].label}</Badge> {r.voided ? <Badge tone="red">VOID</Badge> : null}</td>
-                <td className="td text-xs">
-                  {r.type === "fuel_note" ? <div>Fuel <b>{pkr(r.amount)}</b> · {fuelLabel(r)}</div>
-                    : r.type === "carriage" ? <div>Kiraya{r.litres ? ` · ${num(r.litres, 2)} L ${r.product ? PRODUCTS[r.product] : "fuel"}` : ""}</div>
-                    : r.product && <div>{num(r.litres, 2)} L {PRODUCTS[r.product]} @ Rs {r.rate}{r.station_name ? ` · ${r.station_name}` : ""}</div>}
-                  {r.method && <div>{r.method}</div>}
+                <td className="td text-xs print:max-w-[95px]">{r.vehicle_no ? <b className="whitespace-nowrap font-semibold text-slate-800">🚛 {r.vehicle_no}</b> : <span className="text-slate-300">—</span>}{r.driver_name && <span className="block text-slate-500">{r.driver_name}</span>}</td>
+                <td className="td whitespace-nowrap text-xs">{r.product ? PRODUCTS[r.product] ?? r.product : ""}</td>
+                <td className="td whitespace-nowrap text-right text-xs tabular-nums">{r.litres && r.type !== "fuel_note" ? `${num(r.litres, r.litres % 1 ? 2 : 0)} L` : ""}</td>
+                <td className="td whitespace-nowrap text-right text-xs tabular-nums">{r.rate && r.type !== "carriage" && r.type !== "fuel_note" ? `Rs ${num(r.rate, 2)}` : ""}</td>
+                <td className="td min-w-[180px] text-xs print:min-w-0 print:max-w-[150px]">
+                  {r.type === "fuel_note" ? <div>Fuel <b>{pkr(r.amount)}</b> · {fuelLabel(r)}</div> : r.type === "carriage" ? <div>Kiraya</div> : null}
+                  {r.method && <div className="font-medium">{r.method}</div>}
                   <ProofThumbs ids={r.proof_ids} />
-                  <div className="text-slate-500 print:text-[10px] print:leading-tight">{[r.vehicle_no && `🚛 ${r.vehicle_no}`, r.driver_name && `👤 ${r.driver_name}`, r.location && `📍 ${r.location}`, r.trip_id && `trip #${r.trip_id}`, r.ref, r.note, r.voided && r.void_reason].filter(Boolean).join(" · ")}</div>
+                  <div className="text-slate-500 print:text-[10px] print:leading-tight">{[r.station_name, r.location && `📍 ${r.location}`, r.trip_id && `trip #${r.trip_id}`, r.ref !== r.vehicle_no ? r.ref : null, r.note, r.voided && r.void_reason].filter(Boolean).join(" · ")}</div>
                 </td>
                 <td className="td whitespace-nowrap text-right tabular-nums text-rose-700">{debit ? pkr(debit) : ""}</td>
                 <td className="td whitespace-nowrap text-right tabular-nums text-emerald-700">{credit ? pkr(credit) : ""}</td>
