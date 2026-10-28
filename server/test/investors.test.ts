@@ -113,6 +113,46 @@ test("investor's own page: link + 6-digit PIN shows balance, deals and Credit / 
   assert.equal((await call("manager", "GET", `/api/investors/${inv.id}/portal`)).status, 403);
 });
 
+test("investor portal: withdraw request (capped at free money), cancel, CEO pays it from the request; message; CSV; filters", async () => {
+  const p = ok(await call("admin", "GET", `/api/investors/${inv.id}/portal`), "portal");
+  const path = new URL(p.url).pathname;
+  const login = await fetch(base + path, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: `pin=${p.pin}&remember=1`, redirect: "manual" });
+  const cookie = String(login.headers.get("set-cookie")).split(";")[0];
+  const form = (body: string, url = `${path}/request`) => fetch(base + url, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded", cookie }, body, redirect: "manual" });
+  // without the PIN cookie nothing goes through
+  assert.equal((await fetch(base + `${path}/request`, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: "kind=message&note=hi" })).status, 404);
+  // more than the free money is refused
+  let r = await form("kind=withdraw&amount=99000000&purpose=profit");
+  assert.match(String(r.headers.get("location")), /err=/);
+  r = await form("kind=withdraw&amount=100000&purpose=capital&method_pref=Cash&note=jaldi");
+  assert.match(String(r.headers.get("location")), /flash=req/);
+  let st = ok(await call("admin", "GET", `/api/investors/${inv.id}`), "st");
+  const req1 = st.requests.find((x: any) => x.kind === "withdraw" && x.status === "pending");
+  near(req1.amount, 100_000); assert.equal(st.investor.pending_requests, 1);
+  assert.ok(ok(await call("admin", "GET", "/api/alerts"), "alerts").some?.((a: any) => a.type === "investor_request") ?? true);
+  // the investor takes it back, then asks again
+  r = await form("", `${path}/request/${req1.id}/cancel`); assert.match(String(r.headers.get("location")), /flash=cancel/);
+  r = await form("kind=withdraw&amount=50000&purpose=profit"); assert.match(String(r.headers.get("location")), /flash=req/);
+  st = ok(await call("admin", "GET", `/api/investors/${inv.id}`), "st");
+  const req2 = st.requests.find((x: any) => x.status === "pending");
+  const bal0 = st.investor.balance, c0 = await cashNow();
+  const dec = ok(await call("admin", "POST", `/api/investor-requests/${req2.id}/decide`, { status: "done", reply: "Cash le jayein", pay: { method: "Cash" } }), "decide");
+  near(dec.balance, bal0 - 50_000); near(c0 - await cashNow(), 50_000);
+  assert.equal((await call("admin", "POST", `/api/investor-requests/${req2.id}/decide`, { status: "done" })).status, 404, "answered once");
+  await books();
+  r = await form("kind=message&note=Agle mahine aur raqam lagani hai"); assert.match(String(r.headers.get("location")), /flash=msg/);
+  const msg = ok(await call("admin", "GET", `/api/investors/${inv.id}`), "st").requests.find((x: any) => x.kind === "message");
+  ok(await call("admin", "POST", `/api/investor-requests/${msg.id}/decide`, { status: "done", reply: "Ji zaroor" }), "reply");
+  // page shows the reply, the deal breakdown and the filters; CSV downloads
+  const page = await (await fetch(base + `${path}?f=cr&d=closed`, { headers: { cookie } })).text();
+  assert.match(page, /Ji zaroor/); assert.match(page, /Kul munafa/); assert.match(page, /Return \(ROI\)/); assert.match(page, /Paisa nikalein/);
+  const csv = await fetch(base + `${path}/csv`, { headers: { cookie } });
+  assert.equal(csv.status, 200); assert.match(await csv.text(), /Opening[\s\S]*Capital diya[\s\S]*Closing/);
+  assert.equal((await fetch(base + `${path}/csv`)).status, 404, "csv needs the PIN");
+  // give the 50,000 back so later checks see the same balance
+  ok(await call("admin", "POST", `/api/investors/${inv.id}/money`, { dir: "in", amount: 50_000, method: "Cash" }), "top up");
+});
+
 test("payout by bank, cancel a payout; dashboard card + we-owe; close the investor when settled", async () => {
   const acc = ok(await call("admin", "POST", "/api/bank/accounts", { bank: "Meezan Bank", account_no: "0101 2233", opening_balance: 0 }), "bank").id;
   const p = ok(await call("admin", "POST", `/api/investors/${inv.id}/money`, { dir: "out", amount: 400_000, method: "Bank transfer", account_id: acc, purpose: "capital" }), "payout bank");

@@ -256,7 +256,7 @@ function InvestorsCard({ s }: { s: any }) {
   return (
     <div className="card p-4">
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-        <h2 className="flex items-center gap-2 font-semibold"><PiggyBank size={17} /> Investors · <Ur>سرمایہ کار</Ur> <span className="text-xs font-normal text-slate-500">{s.count} investor · {s.open_deals} deal chal rahi</span></h2>
+        <h2 className="flex items-center gap-2 font-semibold"><PiggyBank size={17} /> Investors · <Ur>سرمایہ کار</Ur> <span className="text-xs font-normal text-slate-500">{s.count} investor · {s.open_deals} deal chal rahi</span>{s.pending_requests > 0 && <Link to="/investors" className="rounded-full bg-amber-500 px-2 py-0.5 text-xs font-normal text-white">{s.pending_requests} request pending</Link>}</h2>
         <Link to="/investors" className="text-xs font-medium text-brand-700 hover:underline">Sab dekhein →</Link>
       </div>
       <div className="grid grid-cols-2 gap-2 text-sm lg:grid-cols-5">

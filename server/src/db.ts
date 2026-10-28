@@ -897,6 +897,13 @@ export function migrate() {
     method TEXT, account_id INTEGER, deal_id INTEGER, src TEXT, note TEXT,
     voided INTEGER NOT NULL DEFAULT 0, void_reason TEXT, voided_by TEXT, voided_at TEXT, created_by TEXT, created_at TEXT NOT NULL)`);
   db.exec("CREATE INDEX IF NOT EXISTS idx_investor_txns ON investor_txns(tenant_id, investor_id, created_at)");
+  // what an investor asks for from their own page: take money out (profit or capital), or a message to the pump
+  db.exec(`CREATE TABLE IF NOT EXISTS investor_requests (
+    id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, investor_id INTEGER NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('withdraw','message')), purpose TEXT, amount REAL, method_pref TEXT, note TEXT,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','done','rejected','cancelled')),
+    reply TEXT, txn_id INTEGER, decided_by TEXT, decided_at TEXT, created_at TEXT NOT NULL)`);
+  db.exec("CREATE INDEX IF NOT EXISTS idx_investor_requests ON investor_requests(tenant_id, investor_id, status)");
   addColumn("meter_readings", "reset_adj", "REAL");
   addColumn("meter_readings", "reset_note", "TEXT");
   addColumn("expense_categories", "active", "INTEGER NOT NULL DEFAULT 1");

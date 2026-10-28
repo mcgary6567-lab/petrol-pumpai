@@ -18,7 +18,8 @@ import { config, PRODUCTS } from "../config.js";
 import { statement, rateCard, clientDue } from "./wholesale.js";
 import { clientRequests, placeClientRequest, editClientRequest } from "./wholesaleDesk.js";
 import { khataStatement } from "./crm.js";
-import { investorStatement } from "./investors.js";
+import { investorStatement, investorRequest, cancelInvestorRequest } from "./investors.js";
+import { round2 } from "../services.js";
 import { billLink } from "../billing.js";
 import { sendDirect, sendWhatsApp } from "../whatsapp/cloud.js";
 import { logoTag } from "./setup.js";
@@ -301,19 +302,63 @@ ${flash === "sent" ? `<div class="hero ok" style="margin-top:10px"><div class=lb
 <button class="b np" style="margin-top:8px" type=submit>📩 Bhejein · <span class=ur>بھیجیں</span></button></form>`}</div>`;
 }
 
-/** Investor's page: what the pump owes them, every deal (litres, cost, sale, profit, their share) and every credit / debit. */
-function investorBody(c: any, month: string | null, code: string): string {
+/** Investor's page: balance + returns, monthly profit chart, every deal fully broken down, the ledger (date range, Credit /
+ *  Debit filter, CSV), money-out requests and messages to the pump, and their own profile. */
+type IQ = { m?: string; from?: string; to?: string; f?: string; d?: string; flash?: string; err?: string };
+function investorBody(c: any, q: IQ, code: string): string {
   const t = c.tenant_id;
-  const from = month ? `${month}-01` : undefined;
-  const to = month ? new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).toISOString().slice(0, 10) : undefined;
+  const ymd = /^\d{4}-\d{2}-\d{2}$/;
+  const month = q.m && /^\d{4}-\d{2}$/.test(q.m) ? q.m : null;
+  const from = month ? `${month}-01` : ymd.test(q.from ?? "") ? q.from : undefined;
+  const to = month ? new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).toISOString().slice(0, 10) : ymd.test(q.to ?? "") ? q.to : undefined;
   const s = investorStatement(t, c.id, from, to);
   const f = s.investor;
-  const periodLabel = month ? monthName(month) : "All time · سارا حساب";
+  const theirPct = 100 - (c.our_pct ?? 60);
+  const net = round2(f.profit_share - f.loss_share);
+  const pendingOut = s.requests.filter((r: any) => r.kind === "withdraw" && r.status === "pending").reduce((a: number, r: any) => a + r.amount, 0);
+  const canTake = Math.max(0, round2(f.free - pendingOut));
+  const periodLabel = month ? monthName(month) : from || to ? `${from ?? "shuru"} → ${to ?? "aaj"}` : "All time · سارا حساب";
+  const qs = (o: Record<string, string | undefined>) => { const x = new URLSearchParams(); for (const [k, v] of Object.entries({ m: month ?? undefined, from: month ? undefined : from, to: month ? undefined : to, f: q.f, d: q.d, ...o })) if (v) x.set(k, v); const z = x.toString(); return `${esc(code)}${z ? `?${esc(z)}` : ""}`; };
+
+  // ---- monthly bars ----
+  const maxM = Math.max(1, ...s.monthly.map((m: any) => Math.abs(m.profit)));
+  const bars = `<div style="display:flex;align-items:flex-end;gap:6px;height:120px;margin-top:10px">${s.monthly.map((m: any) => {
+    const h = Math.max(3, Math.round((Math.abs(m.profit) / maxM) * 100));
+    return `<div style="flex:1;text-align:center;min-width:0"><div class=m style="font-size:10px;white-space:nowrap">${m.profit ? n2(Math.round(m.profit / 1000)) + "k" : ""}</div>
+      <div style="height:${h}px;border-radius:6px 6px 0 0;background:${m.profit < 0 ? "#dc2626" : m.profit ? "#059669" : "#e2e8f0"}"></div><div class=m style="font-size:11px">${esc(monthName(m.month).split(" ")[0])}</div></div>`;
+  }).join("")}</div>`;
+
+  // ---- deals ----
+  const dealFilter = q.d === "open" ? "open" : q.d === "closed" ? "closed" : null;
+  const dealList = s.deals.filter((d: any) => !dealFilter || d.status === dealFilter);
+  const days = (a: string, b?: string | null) => Math.max(0, Math.round(((b ? Date.parse(b) : Date.now()) - Date.parse(a + "T00:00:00+05:00")) / DAYMS));
+  const dealRows = dealList.map((d: any) => {
+    const head = `<summary style="cursor:pointer;list-style:none"><div class=row style="border:0;padding:4px 0"><div class=l><div class=et>#${d.id} · ${n2(d.litres)} L ${esc(PRODUCTS[d.product] ?? d.product)}</div>
+      <div class=m>${esc(dateStr(d.deal_date + "T00:00:00+05:00"))} · ${d.status === "open" ? `${days(d.deal_date)} din se chal rahi` : `${days(d.deal_date, d.closed_at)} din me band`} · ▸ tafseel</div></div>
+      <div class=rr>${d.status === "open" ? `<b style="color:#b45309">Chal rahi · <span class=ur>جاری</span></b><div class=m>laga ${rs(d.cost_amount)}</div>` : `<b class="${d.investor_share >= 0 ? "g" : "red"}">${d.investor_share >= 0 ? "+" : "−"}${n2(Math.abs(d.investor_share))}</b><div class=m>aap ka hissa</div>`}</div></div></summary>`;
+    const line = (a: string, b: string, cls = "") => `<div class=sum style="border-top:0;border-bottom:1px dashed #e2e8f0;font-weight:400;padding:6px 0"><span>${a}</span><span class="${cls}">${b}</span></div>`;
+    const body = d.status === "open"
+      ? line("Khareed · خرید", `${n2(d.litres)} L × Rs ${n2(d.cost_rate)} = <b>${rs(d.cost_amount)}</b>`) + (d.supplier ? line("Supplier", esc(d.supplier)) : "") + (d.ref ? line("Bilty / ref", esc(d.ref)) : "")
+        + `<p class=m>Fuel bikne ke baad deal band hogi aur munafa ${theirPct}% aap ke khate me aayega.</p>`
+      : line("Khareed · خرید", `${n2(d.litres)} L × Rs ${n2(d.cost_rate)} = ${rs(d.cost_amount)}`)
+        + line("Becha · فروخت", `${n2(d.sold_litres)} L × Rs ${n2(d.sale_rate)} = ${rs(d.sale_amount)}`)
+        + (d.litres - d.sold_litres > 0.001 ? line("Kami (shortage)", `${n2(d.litres - d.sold_litres)} L`, "red") : "")
+        + line("Kiraya / carriage", rs(d.exp_carriage ?? 0)) + line("Staff / bijli", rs(d.exp_overhead ?? 0)) + line("Doosre kharche", rs(d.exp_other ?? 0))
+        + line(`<b>${d.profit >= 0 ? "Kul munafa · منافع" : "Kul nuqsan · نقصان"}</b>`, `<b class="${d.profit >= 0 ? "g" : "red"}">${rs(d.profit)}</b>`)
+        + line(`Pump ${d.our_pct}%`, rs(d.our_share)) + line(`<b>Aap ${100 - d.our_pct}%</b>`, `<b class="${d.investor_share >= 0 ? "g" : "red"}">${rs(d.investor_share)}</b>`)
+        + (d.supplier ? line("Supplier", esc(d.supplier)) : "") + (d.ref ? line("Bilty / ref", esc(d.ref)) : "")
+        + line("Munafa per litre", `Rs ${n2(round2((d.sale_rate ?? 0) - d.cost_rate))}`);
+    return `<details style="border-bottom:1px solid #e2e8f0;padding:4px 0">${head}<div style="padding:4px 0 10px">${body}</div></details>`;
+  }).join("");
+  const dChips = [["", "Sab"], ["open", "Chal rahi"], ["closed", "Band"]].map(([k, l]) => `<a href="${qs({ d: k || undefined })}#deals" class="${(q.d ?? "") === k ? "on" : ""}">${l}</a>`).join("");
+
+  // ---- ledger ----
   const TY: Record<string, [string, string, string, string]> = {
     capital_in: ["💵", "Raqam di · Investment", "رقم دی", "pay"], profit: ["📈", "Munafa (aap ka hissa)", "منافع", "pay"],
     payout: ["🏦", "Pump ne diya", "ادائیگی", "sup"], loss: ["📉", "Nuqsan (aap ka hissa)", "نقصان", "adj"],
   };
-  const rows = [...s.lines].reverse().filter((l: any) => !l.voided).map((l: any) => {
+  const live = s.lines.filter((l: any) => !l.voided && (q.f === "cr" ? l.credit : q.f === "dr" ? l.debit : true));
+  const rows = [...live].reverse().map((l: any) => {
     const [ic, en, ur, cls] = TY[l.type] ?? ["✏️", l.type, "", "adj"];
     const what = l.type === "payout" ? (l.purpose === "capital" ? "Asal raqam wapas" : "Munafa diya") : l.deal_id && l.product ? `Deal #${l.deal_id} · ${n2(l.sold_litres ?? l.litres ?? 0)} L ${PRODUCTS[l.product] ?? l.product}${l.deal_pct != null ? ` · ${100 - l.deal_pct}% hissa` : ""}` : "";
     const extra = l.type === "profit" || l.type === "loss" ? null : l.note; // a share's note only repeats the deal number
@@ -321,25 +366,72 @@ function investorBody(c: any, month: string | null, code: string): string {
       <div class=m>${esc([what, l.method && l.type !== "profit" && l.type !== "loss" ? l.method : null, extra].filter(Boolean).join(" · "))}</div></div>
       <div class=r>${l.credit ? `<b class=g>+${n2(l.credit)}</b><div class=m>Credit</div>` : `<b class=red>−${n2(l.debit)}</b><div class=m>Debit</div>`}<div class=m>Baqi · <span class=ur>باقی</span> ${n2(l.balance)}</div></div></div>`;
   }).join("");
-  const deals = s.deals.slice(0, 12).map((d: any) => `<div class=row><div class=l><div class=et>#${d.id} · ${n2(d.litres)} L ${esc(PRODUCTS[d.product] ?? d.product)}</div>
-    <div class=m>${esc(dateStr(d.deal_date + "T00:00:00+05:00"))} · khareed Rs ${n2(d.cost_rate)}/L = ${rs(d.cost_amount)}${d.status === "closed" ? ` · becha ${n2(d.sold_litres)} L @ Rs ${n2(d.sale_rate)} · kharche ${rs(d.expenses)}` : ""}</div></div>
-    <div class=rr>${d.status === "open" ? `<b style="color:#b45309">Chal rahi · <span class=ur>جاری</span></b>` : `<b class="${d.investor_share >= 0 ? "g" : "red"}">${d.investor_share >= 0 ? "+" : "−"}${n2(Math.abs(d.investor_share))}</b><div class=m>munafa ${rs(d.profit)} · aap ${100 - d.our_pct}%</div>`}</div></div>`).join("");
-  const chips = [`<a href="${esc(code)}" class="${month ? "" : "on"}">All · <span class=ur>سب</span></a>`, ...monthsBack(6).map((m) => `<a href="${esc(code)}?m=${m}" class="${month === m ? "on" : ""}">${esc(monthName(m))}</a>`)].join("");
+  const chips = [`<a href="${esc(code)}#entries" class="${month || from || to ? "" : "on"}">All · <span class=ur>سب</span></a>`, ...monthsBack(6).map((m) => `<a href="${qs({ m, from: undefined, to: undefined })}#entries" class="${month === m ? "on" : ""}">${esc(monthName(m))}</a>`)].join("");
+  const fChips = [["", "Sab"], ["cr", "Credit (+)"], ["dr", "Debit (−)"]].map(([k, l]) => `<a href="${qs({ f: k || undefined })}#entries" class="${(q.f ?? "") === k ? "on" : ""}">${l}</a>`).join("");
+
+  // ---- requests ----
+  const RS: Record<string, string> = { pending: "background:#fef9c3;color:#854d0e", done: "background:#dcfce7;color:#166534", rejected: "background:#fee2e2;color:#991b1b", cancelled: "background:#f1f5f9;color:#475569" };
+  const RL: Record<string, string> = { pending: "Intezar · انتظار", done: "Ho gaya · مکمل", rejected: "Nahi hua · نہیں", cancelled: "Wapas li · منسوخ" };
+  const reqRows = s.requests.slice(0, 10).map((r: any) => `<div class=row><div class=l><div class=et>${r.kind === "withdraw" ? `💰 ${rs(r.amount)} · ${r.purpose === "capital" ? "asal raqam" : "munafa"}` : "✉️ Paigham"}</div>
+    <div class=m>${esc(dateStr(r.created_at))}${r.method_pref ? ` · ${esc(r.method_pref)}` : ""}${r.note ? ` · ${esc(r.note)}` : ""}</div>${r.reply ? `<div class=m>💬 Pump: ${esc(r.reply)}</div>` : ""}
+    ${r.status === "pending" ? `<form method=post action="${esc(code)}/request/${r.id}/cancel" style="margin-top:4px"><button style="background:none;border:0;color:#b91c1c;padding:0;font:600 13px system-ui;cursor:pointer">✕ Request wapas lein</button></form>` : ""}</div>
+    <div class=rr><span style="display:inline-block;padding:3px 9px;border-radius:99px;font-size:12px;font-weight:600;${RS[r.status] ?? ""}">${RL[r.status] ?? r.status}</span></div></div>`).join("");
+  const flash = q.flash === "req" ? `<div style="background:#dcfce7;color:#166534;padding:10px;border-radius:10px;margin:8px 0">✅ Request bhej di — pump jald jawab dega · <span class=ur>درخواست بھیج دی گئی</span></div>`
+    : q.flash === "msg" ? `<div style="background:#dcfce7;color:#166534;padding:10px;border-radius:10px;margin:8px 0">✅ Paigham mil gaya · <span class=ur>پیغام موصول</span></div>`
+    : q.flash === "cancel" ? `<div style="background:#f1f5f9;padding:10px;border-radius:10px;margin:8px 0">Request wapas le li.</div>` : "";
+  const err = q.err ? `<div class=err>${esc(q.err)}</div>` : "";
+  const cnic = c.cnic ? String(c.cnic).replace(/^(\d{5})-?\d{7}-?(\d)$/, "$1-•••••••-$2") : null;
+  const nav = [["#summary", "📊", "Khulasa"], ["#deals", "⛽", "Deals"], ["#entries", "📒", "Khata"], ["#request", "💰", "Paisa nikalein"], ["#profile", "👤", "Profile"]]
+    .map(([h, i, l]) => `<a href="${h}">${i} ${l}</a>`).join("");
+
   return `<div class=po>${brandHead(t, "Investor statement")}<b>Investment statement · <span class=ur>انویسٹمنٹ کھاتہ</span></b><br>${esc(c.name)} · ${esc(periodLabel)} · printed ${esc(new Date().toLocaleString("en-PK", { timeZone: "Asia/Karachi" }))}</div>
-<div class=c><h1>${esc(c.name)}</h1><div class=m>${esc([c.city, c.phone].filter(Boolean).join(" · "))}</div>
+<div class="c np" style="padding:8px"><div class=chips>${nav}</div></div>
+${flash}${err}
+<div class=c id=summary><h1>${esc(c.name)}</h1><div class=m>${esc([c.city, c.phone].filter(Boolean).join(" · "))}</div>
 <div class="hero ok" style="margin-top:12px"><div class=lbl>Pump ke zimme aap ka · <span class=ur>پمپ کے ذمے آپ کا</span></div><div class="amt g">${rs(f.balance)}</div>
 <div class=m style="margin-top:6px">Deal me laga · <span class=ur>کاروبار میں</span> <b>${rs(f.in_deals)}</b> · Free · <span class=ur>فارغ</span> <b>${rs(f.free)}</b></div></div>
 <div class=tiles><div class=tile><div class=i>💵</div><b>${rs(f.capital_in)}</b><div class=m>Raqam di · <span class=ur>سرمایہ</span></div></div>
-<div class=tile><div class=i>📈</div><b class=g>${rs(f.profit_share - f.loss_share)}</b><div class=m>Kul munafa · <span class=ur>منافع</span></div></div>
+<div class=tile><div class=i>📈</div><b class="${net < 0 ? "red" : "g"}">${rs(net)}</b><div class=m>Kul munafa · <span class=ur>منافع</span></div></div>
 <div class=tile><div class=i>🏦</div><b>${rs(f.paid_out)}</b><div class=m>Mil chuka · <span class=ur>وصول</span></div></div></div>
-<div class=m style="text-align:center;margin-top:6px">Munafa ka hissa: pump ${f.our_pct ?? c.our_pct}% · aap ${100 - (c.our_pct ?? 60)}% · ${f.deals} deals</div></div>
-${deals ? `<div class=c><b>Deals · <span class=ur>سودے</span></b>${deals}</div>` : ""}
-<div class=c><div class=np style="margin-bottom:8px"><div class=chips>${chips}</div></div>
+<div class=tiles><div class=tile><div class=i>📊</div><b class="${f.roi_pct < 0 ? "red" : "g"}">${n2(f.roi_pct)}%</b><div class=m>Return (ROI)</div></div>
+<div class=tile><div class=i>⛽</div><b>${n2(f.deals)}</b><div class=m>Deals · ${n2(f.open_deals)} chal rahi</div></div>
+<div class=tile><div class=i>🛢️</div><b>${Math.round(f.litres).toLocaleString("en-IN")} L</b><div class=m>Fuel becha</div></div></div>
+<div class=m style="text-align:center;margin-top:6px">Munafa ka hissa: pump ${c.our_pct}% · aap ${theirPct}%</div>
+<div style="margin-top:14px"><b>Mahana munafa · <span class=ur>ماہانہ منافع</span></b><span class=m> — aakhri 6 mahine (aap ka hissa)</span>${bars}</div></div>
+
+<div class=c id=deals><b>Deals · <span class=ur>سودے</span></b> <span class=m>— har deal par tap karein, poora hisaab khulega</span>
+<div class=np style="margin:8px 0"><div class=chips>${dChips}</div></div>
+${dealRows || `<p class=m style="text-align:center;padding:12px">Koi deal nahi</p>`}</div>
+
+<div class=c id=entries><div class=np style="margin-bottom:8px"><div class=chips>${chips}</div>
+<form method=get action="${esc(code)}#entries" style="display:flex;gap:6px;flex-wrap:wrap;align-items:end;margin-top:8px">
+<label class=m>Se<input class=f type=date name=from value="${esc(month ? "" : from ?? "")}" style="padding:7px"></label>
+<label class=m>Tak<input class=f type=date name=to value="${esc(month ? "" : to ?? "")}" style="padding:7px"></label>
+${q.f ? `<input type=hidden name=f value="${esc(q.f)}">` : ""}<button class=b style="width:auto;padding:9px 14px;margin:0;font-size:15px">Dikhayein</button></form>
+<div class=chips style="margin-top:8px">${fChips}<a href="${esc(code)}/csv${from || to || month ? `?${esc(new URLSearchParams(Object.entries({ from, to }).filter(([, v]) => v) as [string, string][]).toString())}` : ""}">⬇️ CSV / Excel</a><a href="#" onclick="print();return false">🖨️ Print / PDF</a></div></div>
 <b>Entries · <span class=ur>تفصیل</span> — ${esc(periodLabel)}</b>
 <div class=m>Credit (+) = aap ka pump par barha · Debit (−) = aap ko mila / nuqsan · <span class=ur>باقی</span> = har entry ke baad</div>
 <div class=sum style="border-top:0;border-bottom:1px solid #e2e8f0;font-weight:600"><span>Opening · <span class=ur>شروع کا باقی</span></span><span>${n2(s.opening)}</span></div>
 <div class=ent>${rows || `<p class=m style="text-align:center;padding:16px">No entries · <span class=ur>کوئی اندراج نہیں</span></p>`}</div>
-<div class=sum><span>Credit ${n2(s.totals.credit)} · Debit ${n2(s.totals.debit)}</span><span>Closing ${n2(s.closing)}</span></div></div>`;
+<div class=sum><span>Credit ${n2(s.totals.credit)} · Debit ${n2(s.totals.debit)}</span><span>Closing ${n2(s.closing)}</span></div></div>
+
+<div class="c np" id=request><b>💰 Paisa nikalein · <span class=ur>رقم نکلوائیں</span></b>
+<div class=m style="margin:4px 0 8px">Abhi nikal sakte hain: <b>${rs(canTake)}</b>${pendingOut ? ` (${rs(pendingOut)} ki request pehle se pending)` : ""}${f.in_deals ? ` · ${rs(f.in_deals)} deal me laga hai` : ""}</div>
+${canTake > 0 ? `<form method=post action="${esc(code)}/request"><input type=hidden name=kind value=withdraw>
+<div class=grid style="margin-top:0"><label>Raqam (Rs)<input class=f name=amount type=number min=1 max="${Math.floor(canTake)}" step=1 required placeholder="${Math.floor(canTake)}"></label>
+<label>Kya nikalna hai<select class=f name=purpose><option value=profit>Munafa</option><option value=capital>Asal raqam (capital)</option></select></label>
+<label>Kaise chahiye<select class=f name=method_pref><option>Cash</option><option>Bank transfer${c.bank_name ? ` — ${esc(c.bank_name)}` : ""}</option><option>JazzCash / Easypaisa</option></select></label></div>
+<label style="display:block;margin-top:8px">Note<input class=f name=note maxlength=200 placeholder="e.g. 5 tareekh tak chahiye"></label>
+<button class=b>Request bhejein · <span class=ur>درخواست بھیجیں</span></button></form>` : `<p class=m>Abhi nikalne ke liye free raqam nahi.</p>`}
+${reqRows ? `<div style="margin-top:14px"><b>Meri requests · <span class=ur>میری درخواستیں</span></b>${reqRows}</div>` : ""}
+<div style="margin-top:14px"><b>✉️ Pump ko paigham · <span class=ur>پیغام</span></b>
+<form method=post action="${esc(code)}/request"><input type=hidden name=kind value=message><textarea name=note maxlength=300 required rows=3 class=f placeholder="Sawal, hisaab me ghalti, nayi raqam lagani hai…"></textarea>
+<button class=b style="margin-top:8px">📩 Bhejein · <span class=ur>بھیجیں</span></button></form></div></div>
+
+<div class=c id=profile><b>👤 Profile · <span class=ur>پروفائل</span></b>
+${[["Naam", c.name], ["Phone", c.phone], ["CNIC", cnic], ["Shehar", c.city], ["Address", c.address], ["Bank", [c.bank_name, c.bank_account].filter(Boolean).join(" · ")], ["Munafa ka hissa", `Pump ${c.our_pct}% · Aap ${theirPct}%`], ["Investor since", dateStr(c.created_at)]]
+  .filter(([, v]) => v).map(([k, v]) => `<div class=row><span class=m>${k}</span><span class=rr>${esc(v)}</span></div>`).join("")}
+<p class=m style="margin-top:8px">Kuch ghalat hai? Upar "Pump ko paigham" se batayein.</p></div>`;
 }
 
 /** Photos kept with an entry (khata slip / parchi, delivery challan, cheque or receipt), shown under it; they open full size from this page only. */
@@ -349,9 +441,9 @@ function photoThumbs(code: string, ids: unknown, en: string, ur: string) {
   return `<div class="slips np">${list.map((id) => `<a href="${esc(code)}/slip/${id}" target="_blank" rel="noopener"><img src="${esc(code)}/slip/${id}" alt="${esc(en)} photo" loading="lazy">${esc(en)} · <span class=ur>${ur}</span></a>`).join("")}</div>`;
 }
 
-function khataPage(kind: Kind, c: any, code: string, month: string | null, flash: string | null = null) {
+function khataPage(kind: Kind, c: any, code: string, month: string | null, flash: string | null = null, iq?: IQ) {
   const bill = kind === "i" ? "" : billLink(c.tenant_id, kind, c.id, month ?? pkDate().slice(0, 7));
-  return page(`${c.name} — khata`, (kind === "w" ? wholesaleBody(c, month, code, flash) : kind === "i" ? investorBody(c, month, code) : khataBody(c, month, code, flash)) +
+  return page(`${c.name} — khata`, (kind === "w" ? wholesaleBody(c, month, code, flash) : kind === "i" ? investorBody(c, iq ?? { m: month ?? undefined }, code) : khataBody(c, month, code, flash)) +
     `<div class=m style="text-align:center;margin:8px 0 20px">Updated · <span class=ur>تازہ ترین</span> ${esc(new Date().toLocaleString("en-PK", { timeZone: "Asia/Karachi" }))}</div>`, c.tenant_id, topBar(c, code, bill));
 }
 
@@ -370,7 +462,8 @@ for (const kind of ["w", "k", "i"] as const) {
     const r = fromCode(kind, req.params.code);
     if (!r) return gone(res);
     res.setHeader("cache-control", "no-store");
-    if (remembered(req, kind, r.c, r.v)) { seen(kind, r.c.id); return res.type("html").send(khataPage(kind, r.c, req.params.code, monthQ(req), String(req.query.sent ?? "") === "1" ? "sent" : String(req.query.ordered ?? "") === "1" ? "ok" : String(req.query.ordererr ?? "") === "1" ? "err" : null)); }
+    if (remembered(req, kind, r.c, r.v)) { seen(kind, r.c.id); return res.type("html").send(khataPage(kind, r.c, req.params.code, monthQ(req), String(req.query.sent ?? "") === "1" ? "sent" : String(req.query.ordered ?? "") === "1" ? "ok" : String(req.query.ordererr ?? "") === "1" ? "err" : null,
+      kind === "i" ? Object.fromEntries(["m", "from", "to", "f", "d", "flash", "err"].map((k) => [k, typeof req.query[k] === "string" ? String(req.query[k]).slice(0, 200) : undefined])) as IQ : undefined)); }
     res.type("html").send(pinForm(r.c));
   });
   pinPortalPublic.post(`/${kind}/:code`, express.urlencoded({ extended: false, limit: "2kb" }), (req, res) => {
@@ -417,6 +510,40 @@ for (const kind of ["w", "k", "i"] as const) {
     res.redirect(303, `/${kind}/${req.params.code}`);
   });
 }
+// an investor asks to take money out, or sends a message; takes back a pending request; downloads the ledger as CSV
+pinPortalPublic.post("/i/:code/request", express.urlencoded({ extended: false, limit: "2kb" }), (req, res) => {
+  const r = fromCode("i", req.params.code);
+  if (!r || !remembered(req, "i", r.c, r.v)) return gone(res);
+  const kind = req.body?.kind === "withdraw" ? "withdraw" : "message";
+  try {
+    investorRequest(r.c, { kind, purpose: String(req.body?.purpose ?? ""), amount: Number(req.body?.amount), method_pref: String(req.body?.method_pref ?? ""), note: String(req.body?.note ?? "") });
+    seen("i", r.c.id);
+    res.redirect(303, `/i/${req.params.code}?flash=${kind === "withdraw" ? "req" : "msg"}#request`);
+  } catch (e) {
+    res.redirect(303, `/i/${req.params.code}?err=${encodeURIComponent((e as Error).message)}#request`);
+  }
+});
+pinPortalPublic.post("/i/:code/request/:id/cancel", (req, res) => {
+  const r = fromCode("i", req.params.code);
+  if (!r || !remembered(req, "i", r.c, r.v)) return gone(res);
+  try { cancelInvestorRequest(r.c, Number(req.params.id)); res.redirect(303, `/i/${req.params.code}?flash=cancel#request`); }
+  catch (e) { res.redirect(303, `/i/${req.params.code}?err=${encodeURIComponent((e as Error).message)}#request`); }
+});
+pinPortalPublic.get("/i/:code/csv", (req, res) => {
+  const r = fromCode("i", req.params.code);
+  if (!r || !remembered(req, "i", r.c, r.v)) return res.status(404).end();
+  const d = /^\d{4}-\d{2}-\d{2}$/;
+  const s = investorStatement(r.c.tenant_id, r.c.id, d.test(String(req.query.from ?? "")) ? String(req.query.from) : undefined, d.test(String(req.query.to ?? "")) ? String(req.query.to) : undefined);
+  const cell = (v: unknown) => { const x = String(v ?? ""); return /[",\n]/.test(x) ? `"${x.replace(/"/g, '""')}"` : x; };
+  const NAME: Record<string, string> = { capital_in: "Capital diya", profit: "Munafa hissa", payout: "Pump ne diya", loss: "Nuqsan hissa" };
+  const lines = [["Date", "Type", "Deal", "Litres", "Note", "Debit", "Credit", "Balance"], ["", "Opening", "", "", "", "", "", s.opening],
+    ...s.lines.filter((l: any) => !l.voided).map((l: any) => [String(l.created_at).slice(0, 10), NAME[l.type] ?? l.type, l.deal_id ? `#${l.deal_id}` : "", l.litres ?? "", l.note ?? "", l.debit || "", l.credit || "", l.balance]),
+    ["", "Closing", "", "", "", s.totals.debit, s.totals.credit, s.closing]];
+  res.setHeader("content-type", "text/csv; charset=utf-8");
+  res.setHeader("content-disposition", `attachment; filename="investment-statement-${r.c.id}.csv"`);
+  res.setHeader("cache-control", "no-store");
+  res.send("\ufeff" + lines.map((l) => l.map(cell).join(",")).join("\r\n"));
+});
 // a khata customer sends a message / call-back request from their own link — pure communication, raises an owner alert
 pinPortalPublic.post("/k/:code/message", express.urlencoded({ extended: false, limit: "2kb" }), (req, res) => {
   const r = fromCode("k", req.params.code);

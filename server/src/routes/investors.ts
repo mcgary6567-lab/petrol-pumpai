@@ -18,7 +18,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { all, get, run, tx, now, pkDate, pkStart } from "../db.js";
 import { h, parse, tid, requirePerm } from "../auth.js";
-import { AppError, round2, audit, currentPrices } from "../services.js";
+import { AppError, round2, audit, currentPrices, createAlert } from "../services.js";
 import { otherMoney, accountIdField } from "./banks.js";
 
 export const investors = Router();
@@ -60,10 +60,14 @@ function figures(i: any) {
       COALESCE(SUM(CASE WHEN status='closed' THEN litres END),0) litres
     FROM investor_deals WHERE investor_id=? AND voided=0`, i.id)!;
   const balance = investorBalance(i.id), busy = inDeals(i.id);
+  const capital = round2(s.capital_in), net = round2(s.profit - s.loss);
   return {
     capital_in: round2(s.capital_in), paid_out: round2(s.paid_out), profit_share: round2(s.profit), loss_share: round2(s.loss),
     balance, in_deals: busy, free: round2(Math.max(0, balance - busy)),
     deals: d.n, open_deals: d.open_n, deal_profit: round2(d.deal_profit), our_share: round2(d.our_share), litres: round2(d.litres),
+    /** the investor's net profit share as % of the capital they put in */
+    roi_pct: capital > 0 ? round2((net / capital) * 100) : 0,
+    pending_requests: get("SELECT COUNT(*) n FROM investor_requests WHERE investor_id=? AND status='pending'", i.id)!.n as number,
   };
 }
 
@@ -139,7 +143,8 @@ export function investorStatement(t: number, id: number, from?: string, to?: str
     return { ...x, credit, debit, balance: bal };
   });
   const deals = all("SELECT d.*, s.name supplier FROM investor_deals d LEFT JOIN suppliers s ON s.id=d.supplier_id WHERE d.investor_id=? AND d.voided=0 ORDER BY d.deal_date DESC, d.id DESC", id);
-  return { investor: { ...i, ...figures(i) }, opening, closing: bal, lines, deals,
+  const requests = all("SELECT * FROM investor_requests WHERE investor_id=? ORDER BY id DESC LIMIT 30", id);
+  return { investor: { ...i, ...figures(i) }, opening, closing: bal, lines, deals, requests, monthly: investorMonthly(id),
     totals: { credit: round2(lines.reduce((a, l) => a + l.credit, 0)), debit: round2(lines.reduce((a, l) => a + l.debit, 0)) } };
 }
 investors.get("/investors/:id", P, h((req) => {
@@ -147,6 +152,54 @@ investors.get("/investors/:id", P, h((req) => {
   const d = /^\d{4}-\d{2}-\d{2}$/;
   return investorStatement(tid(req), Number(req.params.id), d.test(q.from ?? "") ? q.from : undefined, d.test(q.to ?? "") ? q.to : undefined);
 }));
+
+/** the investor's profit share (net of loss) per month, last `n` months (oldest first) — for the bar chart */
+export function investorMonthly(id: number, n = 6) {
+  const out: { month: string; profit: number; deals: number }[] = [];
+  const base = new Date(Date.parse(`${pkDate().slice(0, 7)}-15T00:00:00Z`));
+  for (let k = n - 1; k >= 0; k--) {
+    const d = new Date(base); d.setUTCMonth(d.getUTCMonth() - k);
+    const m = d.toISOString().slice(0, 7);
+    const next = new Date(d); next.setUTCMonth(next.getUTCMonth() + 1);
+    const r = get(`SELECT COALESCE(SUM(CASE WHEN type='profit' THEN amount ELSE -amount END),0) v, COUNT(DISTINCT deal_id) n FROM investor_txns
+        WHERE investor_id=? AND voided=0 AND type IN ('profit','loss') AND created_at >= ? AND created_at < ?`, id, pkStart(`${m}-01`), pkStart(`${next.toISOString().slice(0, 7)}-01`))!;
+    out.push({ month: m, profit: round2(r.v), deals: r.n });
+  }
+  return out;
+}
+
+/* ---------------- requests from the investor's own page ---------------- */
+/** an investor asks to take money out, or sends a message — the CEO gets an alert and answers on the investor's screen */
+export function investorRequest(i: any, b: { kind: "withdraw" | "message"; purpose?: string | null; amount?: number | null; method_pref?: string | null; note?: string | null }) {
+  const t = i.tenant_id;
+  const note = (b.note ?? "").trim().slice(0, 300) || null;
+  if (b.kind === "message") {
+    if (!note) throw new AppError(400, "Paigham likhein");
+    const recent = get("SELECT id FROM investor_requests WHERE investor_id=? AND kind='message' AND created_at > ?", i.id, new Date(Date.now() - 120_000).toISOString());
+    if (recent) throw new AppError(429, "Thori der baad dobara bhejein");
+  } else {
+    const amount = round2(Number(b.amount) || 0);
+    if (!(amount > 0)) throw new AppError(400, "Raqam likhein");
+    const pending = round2(get("SELECT COALESCE(SUM(amount),0) v FROM investor_requests WHERE investor_id=? AND kind='withdraw' AND status='pending'", i.id)!.v as number);
+    const free = round2(investorBalance(i.id) - inDeals(i.id) - pending);
+    if (amount > free + 0.5) throw new AppError(400, `Itni raqam nahi nikal sakte — free Rs ${Math.round(Math.max(0, free)).toLocaleString("en-IN")} hai${pending ? " (pehli request bhi pending hai)" : ""}`);
+    b.amount = amount;
+  }
+  const purpose = b.kind === "withdraw" ? (b.purpose === "capital" ? "capital" : "profit") : null;
+  const id = run(`INSERT INTO investor_requests (tenant_id,investor_id,kind,purpose,amount,method_pref,note,created_at) VALUES (?,?,?,?,?,?,?,?)`,
+    t, i.id, b.kind, purpose, b.kind === "withdraw" ? b.amount : null, (b.method_pref ?? "").slice(0, 40) || null, note, now()).id;
+  createAlert(t, { type: "investor_request", severity: b.kind === "withdraw" ? "warning" : "info",
+    title: b.kind === "withdraw" ? `💰 ${i.name}: Rs ${Math.round(b.amount!).toLocaleString("en-IN")} nikalna chahte hain` : `✉️ Investor paigham — ${i.name}`,
+    body: [b.kind === "withdraw" ? `${purpose === "capital" ? "Asal raqam" : "Munafa"}${b.method_pref ? ` · ${b.method_pref}` : ""}` : null, note, i.phone ? `📞 ${i.phone}` : null].filter(Boolean).join("\n"),
+    dedupe_key: `invreq-${id}` });
+  return id;
+}
+/** the investor takes back a request still pending */
+export function cancelInvestorRequest(i: any, reqId: number) {
+  const r = get("SELECT * FROM investor_requests WHERE id=? AND investor_id=? AND status='pending'", reqId, i.id);
+  if (!r) throw new AppError(404, "Request nahi mili");
+  run("UPDATE investor_requests SET status='cancelled', decided_by=?, decided_at=? WHERE id=?", i.name, now(), r.id);
+}
 
 /* ---------------- money in / out ---------------- */
 const money = z.object({
@@ -207,6 +260,29 @@ investors.post("/investor-txns/:id/void", P, h((req) => {
   });
   audit(t, req.user!, "investor_txn_void", `investor:${x.investor_id}`, { txn: x.id, type: x.type, amount: x.amount, reason });
   return { ok: true, balance: investorBalance(x.investor_id) };
+}));
+
+/** CEO answers a request: done (a withdrawal can be paid right here) or rejected, with a reply the investor sees */
+investors.post("/investor-requests/:id/decide", P, h((req) => {
+  const t = tid(req);
+  const r = get("SELECT * FROM investor_requests WHERE id=? AND tenant_id=? AND status='pending'", Number(req.params.id), t);
+  if (!r) throw new AppError(404, "Request nahi mili ya pehle hi jawab ho chuka");
+  const b = parse(z.object({ status: z.enum(["done", "rejected"]), reply: z.string().trim().max(300).optional().nullable(),
+    pay: z.object({ amount: z.number().positive().optional().nullable(), method: z.string().trim().max(30).optional().nullable(), account_id: accountIdField }).optional().nullable() }), req.body);
+  const i = own(t, r.investor_id);
+  const txn = tx(() => {
+    let id: number | null = null;
+    if (b.status === "done" && r.kind === "withdraw" && b.pay) {
+      const amount = round2(b.pay.amount ?? r.amount);
+      const free = round2(investorBalance(i.id) - inDeals(i.id));
+      if (amount > free + 0.5) throw new AppError(400, `Free balance Rs ${Math.round(Math.max(0, free)).toLocaleString("en-IN")} hai — itna nahi de sakte`);
+      id = moneyTxn(t, req.user!.name, i, { dir: "out", amount, method: b.pay.method, account_id: b.pay.account_id, purpose: r.purpose, note: `Request #${r.id}${r.note ? ` — ${r.note}` : ""}` });
+    }
+    run("UPDATE investor_requests SET status=?, reply=?, txn_id=?, decided_by=?, decided_at=? WHERE id=?", b.status, b.reply || null, id, req.user!.name, now(), r.id);
+    return id;
+  });
+  audit(t, req.user!, "investor_request", `investor:${i.id}`, { request: r.id, ...b, txn });
+  return { ok: true, txn_id: txn, balance: investorBalance(i.id) };
 }));
 
 /* ---------------- deals ---------------- */
@@ -325,6 +401,7 @@ export function investorsSummary(t: number) {
     capital_in: sum("capital_in"), in_deals: sum("in_deals"), owed: investorsOwed(t),
     deal_profit: sum("deal_profit"), our_share: sum("our_share"), investor_share: round2(sum("deal_profit") - sum("our_share")), paid_out: sum("paid_out"),
     open_deals: sum("open_deals"),
+    pending_requests: sum("pending_requests"),
     month: { profit: round2(m.p), our_share: round2(m.o), investor_share: round2(m.i), deals: m.n },
     list: list.filter((x) => x.active || Math.abs(x.balance) > 0.5),
   };

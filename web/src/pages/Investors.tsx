@@ -61,7 +61,7 @@ export default function Investors() {
               </tr></thead>
               <tbody>{paged.slice.map((i: any) => (
                 <tr key={i.id} className={`cursor-pointer hover:bg-slate-50 ${i.active ? "" : "opacity-60"}`} onClick={() => setSp({ id: String(i.id) })}>
-                  <td className="td"><div className="font-medium">{i.name}{!i.active && <span className="ml-1 rounded bg-slate-200 px-1.5 text-[10px]">band</span>}</div><div className="text-xs text-slate-500">{[i.phone, i.city].filter(Boolean).join(" · ")}</div></td>
+                  <td className="td"><div className="font-medium">{i.name}{!i.active && <span className="ml-1 rounded bg-slate-200 px-1.5 text-[10px]">band</span>}{i.pending_requests > 0 && <span className="ml-1 rounded-full bg-amber-500 px-1.5 text-[10px] text-white">{i.pending_requests} request</span>}</div><div className="text-xs text-slate-500">{[i.phone, i.city].filter(Boolean).join(" · ")}</div></td>
                   <td className="td text-right tabular-nums">{pkr(i.capital_in)}</td>
                   <td className="td text-right tabular-nums">{i.in_deals ? pkr(i.in_deals) : "—"}{i.open_deals ? <div className="text-[11px] text-amber-700">{i.open_deals} deal chal rahi</div> : null}</td>
                   <td className="td text-right tabular-nums text-emerald-700">{pkr(i.profit_share - i.loss_share)}</td>
@@ -163,6 +163,8 @@ function InvestorDetail({ id, onBack, onEdit, form, setForm }: { id: number; onB
         <Stat label="Unka munafa" value={pkr(i.profit_share - i.loss_share)} hint={`${100 - i.our_pct}% hissa${i.loss_share ? ` · nuqsan ${pkr(i.loss_share)}` : ""}`} tone="green" />
         <Stat label="Hamara munafa" value={pkr(i.our_share)} hint={`${i.our_pct}% · kul deal munafa ${pkr(i.deal_profit)}`} tone="green" />
       </div>
+
+      {data.requests?.length > 0 && <Requests i={i} list={data.requests} onDone={reload} />}
 
       {/* deals */}
       <div className="card mb-4 p-4">
@@ -372,6 +374,63 @@ function CloseDeal({ i, d, onClose, onDone }: { i: any; d: any; onClose: () => v
       )}
       <div className="mt-4 flex justify-end gap-2"><button className="btn-secondary" onClick={onClose}>Cancel</button>
         <button className="btn-primary" disabled={busy || !(n(f.sale_rate) > 0) || n(f.sold_litres) > d.litres || (payNow && theirs > 0 && !isCash(method) && !account)} onClick={save}>Deal band karein</button></div>
+    </Modal>
+  );
+}
+
+/** What the investor asked for from their own page: money out (pay it right here) or a message — answer is shown to them. */
+function Requests({ i, list, onDone }: { i: any; list: any[]; onDone: () => void }) {
+  const [act, setAct] = useState<any>(null);
+  const pending = list.filter((r) => r.status === "pending");
+  const ST: Record<string, string> = { pending: "bg-amber-100 text-amber-800", done: "bg-emerald-100 text-emerald-700", rejected: "bg-rose-100 text-rose-700", cancelled: "bg-slate-100 text-slate-500" };
+  const LB: Record<string, string> = { pending: "Pending", done: "Ho gaya", rejected: "Mana", cancelled: "Investor ne wapas li" };
+  return (
+    <div className={`card mb-4 p-4 ${pending.length ? "ring-2 ring-amber-300" : ""}`}>
+      <h2 className="mb-2 font-semibold">Investor ki requests · <Ur>درخواستیں</Ur> {pending.length > 0 && <span className="ml-1 rounded-full bg-amber-500 px-2 text-xs text-white">{pending.length} pending</span>}</h2>
+      <ul className="divide-y">
+        {list.slice(0, 10).map((r) => (
+          <li key={r.id} className="flex flex-wrap items-center gap-2 py-2 text-sm">
+            <div className="min-w-0 flex-1">
+              <div className="font-medium">{r.kind === "withdraw" ? <>💰 {pkr(r.amount)} nikalna — {r.purpose === "capital" ? "asal raqam" : "munafa"}{r.method_pref ? ` · ${r.method_pref}` : ""}</> : <>✉️ Paigham</>}</div>
+              <div className="text-xs text-slate-500">{dt(r.created_at)}{r.note ? ` · ${r.note}` : ""}{r.reply ? ` · jawab: ${r.reply}` : ""}</div>
+            </div>
+            <span className={`rounded-md px-1.5 py-0.5 text-[11px] font-semibold ${ST[r.status] ?? ""}`}>{LB[r.status] ?? r.status}</span>
+            {r.status === "pending" && <button className="btn-primary !py-1 text-xs" onClick={() => setAct(r)}>Jawab / pay</button>}
+          </li>
+        ))}
+      </ul>
+      {act && <DecideRequest i={i} r={act} onClose={() => setAct(null)} onDone={onDone} />}
+    </div>
+  );
+}
+
+function DecideRequest({ i, r, onClose, onDone }: { i: any; r: any; onClose: () => void; onDone: () => void }) {
+  const { busy, run } = useAction();
+  const [reply, setReply] = useState("");
+  const [amount, setAmount] = useState(String(r.amount ?? ""));
+  const [method, setMethod] = useState(/bank/i.test(r.method_pref ?? "") ? "Bank transfer" : "Cash");
+  const [account, setAccount] = useState<number | null>(null);
+  useEffect(() => { setAccount(null); }, [method]);
+  const go = (status: "done" | "rejected") => run(() => api(`/investor-requests/${r.id}/decide`, { body: { status, reply: reply || null,
+    pay: status === "done" && r.kind === "withdraw" ? { amount: Number(amount), method, account_id: isCash(method) ? null : account } : null } }),
+    status === "done" ? (r.kind === "withdraw" ? "Paisa de diya — investor ke khate me Debit" : "Jawab bhej diya") : "Request mana kar di").then((x) => { if (x) { onDone(); onClose(); } });
+  return (
+    <Modal open title={r.kind === "withdraw" ? `${i.name}: ${pkr(r.amount)} nikalna` : `${i.name} ka paigham`} onClose={onClose}>
+      <div className="space-y-3">
+        {r.note && <p className="rounded-xl bg-slate-50 p-2.5 text-sm">"{r.note}"</p>}
+        {r.kind === "withdraw" && <>
+          <p className="rounded-xl bg-rose-50 p-2.5 text-sm text-rose-900">{r.purpose === "capital" ? "Asal raqam" : "Munafa"} · free balance <b>{pkr(i.free)}</b>. Pay karne par cash/bank se nikal kar investor ke khate me <b>Debit</b> hoga.</p>
+          <Field label="Kitna dena hai (Rs)"><input className="input" type="number" value={amount} onChange={(e) => setAmount(e.target.value)} /></Field>
+          <Field label="Kaise"><div className="flex flex-wrap gap-1.5">{PAY.map((m) => <button key={m} onClick={() => setMethod(m)} className={`rounded-full px-3 py-1 text-xs font-semibold ${method === m ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-600"}`}>{m}</button>)}</div></Field>
+          <AccountPicker value={account} onChange={setAccount} method={method} required />
+        </>}
+        <Field label="Jawab (investor ko apne page par dikhega)"><input className="input" value={reply} onChange={(e) => setReply(e.target.value)} placeholder={r.kind === "withdraw" ? "e.g. Cash le jayein / bank me bhej diya" : "e.g. Theek hai, kal baat karte hain"} /></Field>
+        <div className="flex flex-wrap justify-end gap-2">
+          <button className="btn-secondary" onClick={onClose}>Cancel</button>
+          <button className="btn-secondary !text-rose-700" disabled={busy} onClick={() => go("rejected")}>Mana karein</button>
+          <button className="btn-primary" disabled={busy || (r.kind === "withdraw" && (!(Number(amount) > 0) || Number(amount) > i.free + 0.5 || (!isCash(method) && !account)))} onClick={() => go("done")}>{r.kind === "withdraw" ? "Pay karein" : "Jawab bhejein"}</button>
+        </div>
+      </div>
     </Modal>
   );
 }
