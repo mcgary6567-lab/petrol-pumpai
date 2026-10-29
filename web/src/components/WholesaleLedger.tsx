@@ -17,7 +17,7 @@ const amt = (n: number) => num(Math.round(n * 100) / 100, 0);
 const drcr = (n: number) => (Math.abs(n) < 0.5 ? "0" : `${amt(Math.abs(n))} ${n > 0 ? "Dr" : "Cr"}`);
 
 /** Voucher number per entry type: WS supply, RV receipt, CN credit note (return), JV journal (kiraya / adjustment). */
-export const voucherNo = (l: any) => `${l.type === "supply" ? "WS" : l.type === "payment" ? "RV" : l.type === "return" ? "CN" : "JV"}-${l.id}`;
+export const voucherNo = (l: any) => l.voucher_no ?? `${l.type === "supply" ? "WS" : l.type === "payment" ? "RV" : l.type === "return" ? "CN" : "JV"}-${l.id}`;
 function particulars(l: any): string {
   const fuel = PRODUCTS[l.product] ?? l.product ?? "";
   if (l.type === "supply") return `Supply · ${fuel}${l.location ? ` → ${l.location}` : ""}`;

@@ -832,6 +832,7 @@ wholesale.post("/wholesale/clients/:id/voucher", requirePerm("wholesale.manage")
       const x = insertTxn(req, c.id, { ...b, ...fl, type: "carriage", station_id: b.station_id, amount: p.carriage, note: b.note ? `Kiraya · ${b.note}` : "Kiraya (carriage)", photo_ids: undefined, silent: true });
       ids.push(x.id);
     }
+    run(`UPDATE wholesale_txns SET voucher_no=? WHERE id IN (${ids.map(() => "?").join(",")})`, `WS-${ids[0]}`, ...ids);
     deliverOrder(tid(req), b.order_id, c.id, ids[0]);
     const due_after = clientDue(c.id);
     limitAlert(req, c, due_after);

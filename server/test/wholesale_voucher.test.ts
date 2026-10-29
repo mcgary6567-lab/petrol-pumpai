@@ -85,3 +85,35 @@ test("post: one voucher = supplies + kiraya, stock out, due up, ledger / unpaid 
   assert.equal(ok(await call("wholesale", "GET", `/api/wholesale/clients/${client.id}/statement`), "s3").due_now, 97000);
   assert.equal(ok(await call("admin", "GET", "/api/books/check"), "books2").ok, true);
 });
+
+test("invoices: a voucher is one bill (fuel + kiraya), status follows payments FIFO; detail posts balanced", async () => {
+  const c = ok(await call("admin", "POST", "/api/wholesale/clients", { name: "Invoice Test Co", phone: "03001238888" }), "client");
+  ok(await call("admin", "PUT", `/api/wholesale/clients/${c.id}/rates`, { rates: { HSD: 250 } }), "rates");
+  const v1 = ok(await call("wholesale", "POST", `/api/wholesale/clients/${c.id}/voucher`, { station_id: st.id, lines: [{ product: "HSD", litres: 100 }], carriage: 1000 }), "v1");
+  const v2 = ok(await call("wholesale", "POST", `/api/wholesale/clients/${c.id}/voucher`, { station_id: st.id, lines: [{ product: "HSD", litres: 200 }] }), "v2");
+  let inv = ok(await call("wholesale", "GET", `/api/wholesale/invoices?client=${c.id}`), "list");
+  assert.equal(inv.invoices.length, 2, "two bills, the kiraya rides on the first");
+  const b1 = inv.invoices.find((i: any) => i.no === v1.voucher_no);
+  assert.equal(b1.amount, 26000); assert.equal(b1.lines, 2); assert.equal(b1.status, "unpaid");
+  // pay 30,000: the older bill (26,000) clears first, the newer one is partly paid
+  ok(await call("wholesale", "POST", `/api/wholesale/clients/${c.id}/payment`, { amount: 30000, method: "cash" }), "pay");
+  inv = ok(await call("wholesale", "GET", `/api/wholesale/invoices?client=${c.id}`), "list2");
+  assert.equal(inv.invoices.find((i: any) => i.no === v1.voucher_no).status, "paid");
+  const b2 = inv.invoices.find((i: any) => i.no === v2.voucher_no);
+  assert.equal(b2.status, "partly"); assert.equal(b2.unpaid, 46000);
+  assert.equal(inv.totals.unpaid, 46000);
+  assert.equal(ok(await call("wholesale", "GET", `/api/wholesale/invoices?client=${c.id}&status=paid`), "paid").invoices.length, 1);
+  const d = ok(await call("wholesale", "GET", `/api/wholesale/invoices/${v1.voucher_no}`), "detail");
+  assert.equal(d.lines.length, 2);
+  assert.equal(d.posting.reduce((a: number, p: any) => a + p.dr, 0), d.posting.reduce((a: number, p: any) => a + p.cr, 0));
+  assert.equal((await call("wholesale", "GET", "/api/wholesale/invoices/WS-999999")).status, 404);
+  // board and 360 read the same numbers
+  const pipe = ok(await call("wholesale", "GET", "/api/wholesale/pipeline"), "pipeline");
+  assert.deepEqual(pipe.columns.map((x: any) => x.key), ["requests", "orders", "unpaid", "overdue", "paid"]);
+  assert.ok(pipe.columns[2].items.some((i: any) => i.no === v2.voucher_no && i.unpaid === 46000), "unpaid bill on the board");
+  assert.ok(pipe.columns[4].items.some((p: any) => p.client_id === c.id && p.amount === 30000), "payment on the board");
+  const x = ok(await call("wholesale", "GET", `/api/wholesale/clients/${c.id}/360`), "360");
+  assert.equal(x.counts.invoices, 2); assert.equal(x.counts.payments, 1); assert.equal(x.due, 46000);
+  assert.ok(x.activity.length >= 4 && x.activity.some((e: any) => e.kind === "payment"));
+  assert.equal(ok(await call("admin", "GET", "/api/books/check"), "books").ok, true);
+});

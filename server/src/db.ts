@@ -527,6 +527,7 @@ export function migrate() {
   addColumn("wholesale_txns", "location", "TEXT"); // where this drop was unloaded
   // links a wholesale supply/payment raised from a pump-nozzle sale back to that sales row (so an Undo reverses both)
   addColumn("wholesale_txns", "sale_id", "INTEGER");
+  addColumn("wholesale_txns", "voucher_no", "TEXT"); // ERP supply voucher: every fuel line + kiraya posted together share one number (WS-<first id>)
   addColumn("meter_readings", "handover_gap", "REAL");
   // meter numbers per station (No.1, No.2 …): existing meters get numbers in the order they were added,
   // new ones get the next free number automatically

@@ -7,7 +7,7 @@ import { PrintListButton } from "../components/PrintList";
 import { PartyAdmin } from "../components/PartyAdmin";
 
 import { api, linkToken, useApi } from "../lib/api";
-import { Badge, Empty, ErrorBox, Field, ListTools, Loading, Modal, PageHeader, Pager, PhoneInput, Stat, useAction, useListFilter, usePaged } from "../components/ui";
+import { Badge, Empty, ErrorBox, Field, ListTools, Loading, Modal, PageHeader, Pager, PhoneInput, useAction, useListFilter, usePaged } from "../components/ui";
 import { WhatsAppDoc } from "../components/WhatsAppDoc";
 import { PRODUCTS, ago, d, dt, num, phone, pkr, pkrShort, dueLabel } from "../lib/format";
 import { useAuth } from "../App";
@@ -24,6 +24,9 @@ import { WholesaleVoice } from "../components/WholesaleVoice";
 import { BypassPanel, BypassVoucher } from "./Bypass";
 import { PartyLedger } from "../components/WholesaleLedger";
 import { SupplyVoucher } from "../components/WholesaleVoucher";
+import { SupplyInvoices } from "../components/WholesaleInvoices";
+import { OrderToCash } from "../components/WholesalePipeline";
+import { Client360, ClientVehicles } from "../components/WholesaleClient360";
 const Ur = ({ children, className = "" }: { children: React.ReactNode; className?: string }) => <span lang="ur" dir="rtl" className={`font-urdu ${className}`}>{children}</span>;
 
 const TYPE: Record<string, { label: string; tone: string }> = {
@@ -39,6 +42,8 @@ export default function Wholesale() {
   const { id } = useParams();
   if (id === "voucher") return <SupplyVoucher />;
   if (id === "ledger") return <PartyLedger />;
+  if (id === "invoices") return <SupplyInvoices />;
+  if (id === "board") return <OrderToCash />;
   return id ? <ClientDetail id={id} /> : <ClientList />;
 }
 
@@ -60,8 +65,8 @@ function ClientList() {
     <div className="space-y-5">
       <PageHeader title="Wholesale supply · ہول سیل سپلائی" subtitle="Bulk fuel to dealers and businesses — each client has their own rate card and running account" />
       <div className="flex gap-1 overflow-x-auto border-b border-slate-200">
-        {([["dashboard", "Dashboard", "ڈیش بورڈ"], ["ledger", "Party ledger", "پارٹی کھاتہ"], ["clients", "Clients", "کلائنٹس"], ["orders", "Order book", "آرڈر بک"], ["collect", "Recovery", "وصولی"], ["trips", "Tanker trips", "ٹینکر ٹرپ"], ["fleet", "Tankers & drivers", "ٹینکر اور ڈرائیور"]] as const).map(([k, l, u]) => (
-          <button key={k} onClick={() => (k === "ledger" ? nav("/wholesale/ledger") : setTab(k))} className={`whitespace-nowrap border-b-2 px-3 py-1.5 text-center text-sm leading-tight ${tab === k ? "border-brand-600 font-medium text-brand-700" : "border-transparent text-slate-600"}`}>{l}<Ur className="block text-xs">{u}</Ur></button>
+        {([["dashboard", "Dashboard", "ڈیش بورڈ"], ["ledger", "Party ledger", "پارٹی کھاتہ"], ["invoices", "Invoices", "بل"], ["board", "Order to cash", "آرڈر سے وصولی"], ["clients", "Clients", "کلائنٹس"], ["orders", "Order book", "آرڈر بک"], ["collect", "Recovery", "وصولی"], ["trips", "Tanker trips", "ٹینکر ٹرپ"], ["fleet", "Tankers & drivers", "ٹینکر اور ڈرائیور"]] as const).map(([k, l, u]) => (
+          <button key={k} onClick={() => (k === "ledger" || k === "invoices" || k === "board" ? nav(`/wholesale/${k}`) : setTab(k))} className={`whitespace-nowrap border-b-2 px-3 py-1.5 text-center text-sm leading-tight ${tab === k ? "border-brand-600 font-medium text-brand-700" : "border-transparent text-slate-600"}`}>{l}<Ur className="block text-xs">{u}</Ur></button>
         ))}
       </div>
       {tab === "trips" && <><TripsTab key={tripsKey} onNew={can("wholesale.manage") ? () => setParams({ tab: "trips", do: "trip" }) : undefined} /><div className="mt-6 border-t pt-6"><BypassPanel key={tripsKey} /></div></>}
@@ -364,6 +369,7 @@ function ClientDetail({ id }: { id: string }) {
   // supplying a booked order (from the order book) fills the form and closes the order
   const [orderId, setOrderId] = useState<number | null>(() => Number(params.get("order")) || null);
   const [deskKey, setDeskKey] = useState(0);
+  const [tab, setTab] = useState<"statement" | "rates" | "desk" | "vehicles" | "portal">("statement");
   useEffect(() => { if (params.get("do")) setParams({}, { replace: true }); }, []);
   const [sending, setSending] = useState(false);
   const { run: runMsg } = useAction();
@@ -395,27 +401,17 @@ function ClientDetail({ id }: { id: string }) {
           <PartyAdmin kind="client" id={c.id} name={c.name} backTo="/wholesale?tab=clients" />
         </div>} />
 
-      {/* big, one-tap common actions — saaf aur samajhne me aasan */}
-      {can("wholesale.manage") && <div className="grid grid-cols-3 gap-3 print:hidden">
-        <button onClick={() => nav(`/wholesale/voucher?client=${c.id}${orderId ? `&order=${orderId}` : ""}`)} disabled={!c.active} className="flex flex-col items-center justify-center gap-1 rounded-2xl bg-brand-600 py-4 text-white shadow active:scale-95 disabled:opacity-50">
-          <Truck size={26} /><span className="text-base font-bold">Supply</span><Ur className="text-sm">سپلائی</Ur></button>
-        <button onClick={() => setAction("payment")} className="flex flex-col items-center justify-center gap-1 rounded-2xl bg-emerald-600 py-4 text-white shadow active:scale-95">
-          <Wallet size={26} /><span className="text-base font-bold">Payment</span><Ur className="text-sm">رقم وصول</Ur></button>
-        <button onClick={() => setAction(can("wholesale.rates") ? "rates" : "order")} className="flex flex-col items-center justify-center gap-1 rounded-2xl bg-slate-700 py-4 text-white shadow active:scale-95">
-          {can("wholesale.rates") ? <><SlidersHorizontal size={26} /><span className="text-base font-bold">Rate</span><Ur className="text-sm">ریٹ</Ur></> : <><Receipt size={26} /><span className="text-base font-bold">Order</span><Ur className="text-sm">آرڈر</Ur></>}</button>
-      </div>}
+      <Client360 c={c} refreshKey={deskKey} onAction={setAction} onTab={(t) => setTab(t as typeof tab)} />
 
       {(can("wholesale.manage") || can("wholesale.view")) && <div className="print:hidden"><WholesaleVoice compact clientId={c.id} onDone={refresh} /></div>}
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-        <Stat label={s.due < -0.5 ? "Advance with us · ایڈوانس" : "Current due · بقایا"} value={pkr(Math.abs(s.due))} tone={s.due > 0 ? "amber" : "green"} hint={s.due < -0.5 ? "Client's money lying with us — supplies are cut from it first" : c.credit_limit ? `Limit ${pkr(c.credit_limit)} · ${Math.round((s.due / c.credit_limit) * 100)}% used` : "No credit limit"} />
-        <Stat label="Total billed · کل بل" value={pkrShort(s.billed)} hint={`${s.supplies} supplies · opening ${pkr(c.opening_balance)}`} />
-        <Stat label="Total received · کل وصولی" value={pkrShort(s.received)} tone="green" hint={`Last payment ${ago(s.last_payment)}`} />
-        <Stat label="Returns credited · واپسی" value={pkrShort(s.returned)} hint={s.adjustments ? `Adjustments ${pkr(s.adjustments)}` : undefined} />
-        <Stat label="This month · اس مہینے" value={`${num(m.by_product.reduce((a: number, p: any) => a + p.supplied_l, 0))} L`} hint={`Billed ${pkrShort(m.billed)} · received ${pkrShort(m.received)}`} />
+      <div role="tablist" aria-label="Client sections" className="flex gap-1 overflow-x-auto border-b border-slate-200 print:hidden">
+        {([["statement", "Statement", "کھاتہ"], ["rates", "Rate card & fuel", "ریٹ اور تیل"], ["desk", "Orders, promises & cheques", "آرڈر، وعدے، چیک"], ["vehicles", "Vehicles", "گاڑیاں"], ["portal", "Client portal", "پورٹل"]] as const).map(([k, l, u]) => (
+          <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)} className={`whitespace-nowrap border-b-2 px-3 py-1.5 text-sm leading-tight ${tab === k ? "border-brand-600 font-semibold text-brand-700" : "border-transparent text-slate-600"}`}>{l}<Ur className="block text-xs">{u}</Ur></button>
+        ))}
       </div>
 
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
+      {tab === "rates" && <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
         <div className="card min-w-0 p-4">
           <div className="mb-2 flex items-center justify-between"><h2 className="font-semibold">Rate card · <Ur>ریٹ</Ur></h2>{can("wholesale.rates") && <button className="-my-2 min-h-9 px-1 text-xs text-brand-600 hover:underline print:hidden" onClick={() => setAction("rates")}>Change rates</button>}</div>
           {Object.keys(PRODUCTS).map((p) => {
@@ -456,14 +452,14 @@ function ClientDetail({ id }: { id: string }) {
           </table>
           {!s.by_product.length && <Empty>No fuel supplied yet</Empty>}
         </div>
-      </div>
+      </div>}
 
+      {tab === "desk" && <ClientDeskCard client={c} refreshKey={deskKey} onChanged={refresh} onAction={(a, oid) => { if (a === "supply-order") { setOrderId(oid ?? null); setAction("supply"); } else setAction(a); }} />}
+      {tab === "vehicles" && <div className="card overflow-hidden"><ClientVehicles id={c.id} /></div>}
 
-      <ClientDeskCard client={c} refreshKey={deskKey} onChanged={refresh} onAction={(a, oid) => { if (a === "supply-order") { setOrderId(oid ?? null); setAction("supply"); } else setAction(a); }} />
+      {tab === "portal" && <div className="print:hidden"><PortalCard base={`/wholesale/clients/${c.id}/portal`} name={c.name} phone={c.phone} canManage={can("wholesale.manage")} /></div>}
 
-      <div className="print:hidden"><PortalCard base={`/wholesale/clients/${c.id}/portal`} name={c.name} phone={c.phone} canManage={can("wholesale.manage")} /></div>
-
-      <div className="card">
+      <div className={`card ${tab === "statement" ? "" : "hidden"}`}>
         <div className="grid grid-cols-2 items-end gap-3 p-4 sm:flex sm:flex-wrap print:hidden">
           <h2 className="col-span-2 mr-auto font-semibold">Account statement · <Ur>کھاتہ</Ur></h2>
           <Field label="From"><input className="input" type="date" value={range.from} onChange={(e) => setRange({ ...range, from: e.target.value })} /></Field>

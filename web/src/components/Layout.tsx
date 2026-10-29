@@ -20,6 +20,8 @@ import { PAGE_WORDS, SETTINGS_SECTIONS, scoreItem, whyMatched } from "../lib/nav
 const WHOLESALE_SUB = [
   { to: "/wholesale/voucher", label: "Supply voucher", ur: "سپلائی واؤچر", icon: FilePlus2, perm: "wholesale.manage" },
   { to: "/wholesale/ledger", label: "Party ledger", ur: "پارٹی کھاتہ", icon: BookOpen, perm: "wholesale.view" },
+  { to: "/wholesale/invoices", label: "Supply invoices", ur: "سپلائی بل", icon: Receipt, perm: "wholesale.view" },
+  { to: "/wholesale/board", label: "Order to cash", ur: "آرڈر سے وصولی", icon: Route, perm: "wholesale.view" },
   { to: "/wholesale?tab=clients", label: "Clients", ur: "کلائنٹس", icon: Users, perm: "wholesale.view" },
   { to: "/wholesale?tab=orders", label: "Order book", ur: "آرڈر بک", icon: ClipboardList, perm: "wholesale.view" },
   { to: "/wholesale?tab=collect", label: "Recovery", ur: "وصولی", icon: HandCoins, perm: "wholesale.view" },
