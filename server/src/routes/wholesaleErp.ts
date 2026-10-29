@@ -66,7 +66,7 @@ const invRows = (t: number, where: string, args: (string | number)[]) => all(
 const listQ = z.object({
   status: z.enum(["all", "unpaid", "partly", "overdue", "paid", "void", "open"]).default("all"),
   q: z.string().trim().max(80).optional(), client: z.coerce.number().int().optional(),
-  from: isoDay.optional(), to: isoDay.optional(),
+  from: z.preprocess((v) => (v === "" ? undefined : v), isoDay.optional()), to: z.preprocess((v) => (v === "" ? undefined : v), isoDay.optional()),
 });
 wholesaleErp.get("/wholesale/invoices", h((req) => {
   const t = tid(req), q = parse(listQ, req.query);

@@ -120,6 +120,7 @@ test.describe("Supply voucher → ledger → invoice → board", () => {
     await expect(l.table.getByRole("row").first()).toContainText("Month");
     await l.view("Detailed").click();
     await l.search.fill("Payment");
+    await expect(l.table.getByRole("button", { name: /^(WS|JV|CN)-\d+$/ })).toHaveCount(0); // server search answered (debounced)
     for (const row of await l.table.getByRole("row").all()) {
       const t = (await row.textContent()) ?? "";
       if (/RV-|WS-|JV-|CN-/.test(t)) expect(t).toMatch(/Payment/);

@@ -33,7 +33,7 @@ let media = "";
 export const setMediaToken = (t: string | null | undefined) => { media = t ?? ""; };
 export const linkToken = () => encodeURIComponent(media);
 
-export class ApiError extends Error { constructor(public status: number, message: string) { super(message); } }
+export class ApiError extends Error { retryAfter?: number; constructor(public status: number, message: string, retryAfter?: number) { super(message); this.retryAfter = retryAfter; } }
 
 /* ---- live data: after any write, every list / total on screen refreshes by itself (no browser reload) ---- */
 /** This tab's id: its own writes are announced back on /live too — those are skipped (already refreshed locally). */
@@ -98,7 +98,7 @@ async function apiNow<T = any>(path: string, opts: { method?: string; body?: unk
     if (!pin) throw new ApiError(428, "Mansookh nahi hua — PIN nahi diya");
     return apiNow<T>(path, { ...opts, headers: { ...opts.headers, "x-action-pin": pin } });
   }
-  if (!res.ok) throw new ApiError(res.status, data.error ?? `Request failed (${res.status})`);
+  if (!res.ok) throw new ApiError(res.status, data.error ?? `Request failed (${res.status})`, Number(data.retry_after) || undefined);
   return data as T;
 }
 

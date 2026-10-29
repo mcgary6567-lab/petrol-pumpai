@@ -32,6 +32,8 @@ export function SupplyVoucher() {
   const [preview, setPreview] = useState<any>(null);
   const [pvErr, setPvErr] = useState<string | null>(null);
   const [done, setDone] = useState<any>(null);
+  // one key per draft: a retried POST (bad network) returns the first answer instead of posting twice
+  const [idem, setIdem] = useState(() => crypto.randomUUID());
   const { busy, run } = useAction();
 
   useEffect(() => { if (stations.data?.length && !f.station_id) setF((x: any) => ({ ...x, station_id: String(stations.data![0].id) })); }, [stations.data]);
@@ -67,7 +69,7 @@ export function SupplyVoucher() {
 
   const post = async () => {
     if (!ready || busy) return;
-    const r = await run(() => api(`/wholesale/clients/${clientId}/voucher`, { body: body() }), (x: any) => `Voucher ${x.voucher_no} posted · ${pkr(x.total)}`);
+    const r = await run(() => api(`/wholesale/clients/${clientId}/voucher`, { body: body(), headers: { "x-idempotency-key": idem } }), (x: any) => `Voucher ${x.voucher_no} posted · ${pkr(x.total)}`);
     if (r) setDone(r);
   };
   const postRef = useRef(post); postRef.current = post;
@@ -213,7 +215,7 @@ export function SupplyVoucher() {
           <div className="flex items-center gap-2 text-emerald-700"><CheckCircle2 size={20} /> <b>{pkr(done.total)}</b> {client?.name} ke khate mein · ab baqaya <b>{pkr(done.due_after)}</b></div>
           <p className="text-slate-600">{done.ids.length} entries ek saath post hui hain (fuel lines{Number(f.carriage) ? " + kiraya" : ""}). Client ko WhatsApp receipt chali gayi agar number hai.</p>
           <div className="flex flex-wrap justify-end gap-2">
-            <button className="btn-secondary" onClick={() => { setDone(null); setLines([{ product: lines[0].product, litres: "", rate: "" }]); setPhotos([]); setF({ ...f, ref: "", note: "", carriage: "", order_id: "", override_limit: false }); desk.reload?.(); clients.reload?.(); }}>New voucher</button>
+            <button className="btn-secondary" onClick={() => { setDone(null); setIdem(crypto.randomUUID()); setLines([{ product: lines[0].product, litres: "", rate: "" }]); setPhotos([]); setF({ ...f, ref: "", note: "", carriage: "", order_id: "", override_limit: false }); desk.reload?.(); clients.reload?.(); }}>New voucher</button>
             <button className="btn-primary" onClick={() => nav(`/wholesale/ledger?client=${clientId}`)}>Open party ledger</button>
           </div>
         </div>

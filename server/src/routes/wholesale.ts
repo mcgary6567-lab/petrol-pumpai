@@ -29,7 +29,8 @@ wholesale.use("/wholesale", requirePerm("wholesale.view"));
 const product = productSchema();
 // a date that really exists on the calendar (the shape alone lets 2026-13-45 through and SQLite then throws a 500)
 const realDay = (v: string) => { const d = v.slice(0, 10); return !Number.isNaN(Date.parse(d + "T00:00:00Z")) && new Date(d + "T00:00:00Z").toISOString().slice(0, 10) === d; };
-const dateStr = z.string().regex(/^\d{4}-\d{2}-\d{2}/).refine(realDay, "Invalid date").optional();
+// an empty string (a cleared date box: `?from=&to=`) means "no filter", same as leaving the param out
+const dateStr = z.preprocess((v) => (v === "" ? undefined : v), z.string().regex(/^\d{4}-\d{2}-\d{2}/).refine(realDay, "Invalid date").optional());
 
 function ownClient(tenantId: number, id: number) {
   const c = get("SELECT * FROM wholesale_clients WHERE id=? AND tenant_id=?", id, tenantId);
@@ -623,9 +624,30 @@ export function statement(tenantId: number, clientId: number, from?: string, to?
     due_now: dueNow, ageing: ageing(c.id, dueNow, nowMs), unpaid: unpaidBills(c.id, dueNow, nowMs) };
 }
 
+/** The statement, or (with `page`) one page of it: the whole history is computed once (running balances need it) but
+ *  only `size` lines travel, with the period totals, the month summary and a text search applied before paging. */
 wholesale.get("/wholesale/clients/:id/statement", h((req) => {
-  const q = parse(z.object({ from: dateStr, to: dateStr }), req.query);
-  return statement(tid(req), Number(req.params.id), q.from, q.to);
+  const q = parse(z.object({ from: dateStr, to: dateStr, page: z.coerce.number().int().min(1).optional(), size: z.coerce.number().int().min(5).max(100).default(10),
+    q: z.string().trim().max(80).optional(), voided: z.coerce.boolean().optional() }), req.query);
+  const s = statement(tid(req), Number(req.params.id), q.from, q.to);
+  if (!q.page) return s;
+  const live = s.lines.filter((l) => l.type !== "fuel_note" && !l.voided);
+  const period = { debit: round2(live.reduce((a, l) => a + l.debit, 0)), credit: round2(live.reduce((a, l) => a + l.credit, 0)),
+    litres: round2(live.reduce((a, l) => a + (l.type === "supply" ? l.litres ?? 0 : l.type === "return" ? -(l.litres ?? 0) : 0), 0)) };
+  const months = new Map<string, { month: string; opening: number; dr: number; cr: number; closing: number; litres: number; n: number }>();
+  let bal = s.opening_balance;
+  for (const l of live) {
+    const k = new Date(Date.parse(l.txn_date) + 5 * 3600_000).toISOString().slice(0, 7);
+    if (!months.has(k)) months.set(k, { month: k, opening: bal, dr: 0, cr: 0, closing: bal, litres: 0, n: 0 });
+    const m = months.get(k)!; m.dr = round2(m.dr + l.debit); m.cr = round2(m.cr + l.credit); m.n++; bal = l.balance; m.closing = bal;
+    if (l.type === "supply") m.litres = round2(m.litres + (l.litres ?? 0));
+  }
+  const needle = (q.q ?? "").toLowerCase();
+  const no = (l: Row) => l.voucher_no ?? `${l.type === "supply" ? "WS" : l.type === "payment" ? "RV" : l.type === "return" ? "CN" : "JV"}-${l.id}`;
+  const rows = s.lines.filter((l) => (q.voided || !l.voided) && (!needle ||
+    [no(l), l.type, l.product && PRODUCTS[l.product], l.vehicle_no, l.driver_name, l.ref, l.note, l.method, l.location, l.litres, l.rate, l.amount, l.txn_date?.slice(0, 10)].some((v) => String(v ?? "").toLowerCase().includes(needle))));
+  const pages = Math.max(1, Math.ceil(rows.length / q.size)), page = Math.min(q.page, pages);
+  return { ...s, lines: rows.slice((page - 1) * q.size, page * q.size), page, pages, size: q.size, total: rows.length, period, months: [...months.values()] };
 }));
 
 /** One wholesale entry with every input filled in — for the "View" panel on the client page. A supply that came off a
@@ -815,7 +837,22 @@ wholesale.post("/wholesale/clients/:id/voucher/preview", requirePerm("wholesale.
 
 /** Post a supply voucher: every fuel line is its own supply entry (stock out of its tank) and the kiraya a carriage entry —
  *  all in one transaction, sharing the bilty no. / narration, so either the whole voucher posts or nothing does. */
+/** The same voucher POST sent twice (a phone retrying on a bad network) must post once: the first answer is stored under the
+ *  client's key and replayed. Keys are per tenant, 36 chars max, and pruned after a day. */
+function idem(req: Request): string | null {
+  const k = String(req.get("x-idempotency-key") ?? "").trim();
+  return /^[\w-]{8,36}$/.test(k) ? k : null;
+}
+function idemReplay(t: number, key: string | null) {
+  if (!key) return null;
+  run("DELETE FROM idempotency_keys WHERE tenant_id=? AND created_at < ?", t, new Date(Date.now() - 86_400_000).toISOString());
+  const r = get("SELECT response FROM idempotency_keys WHERE tenant_id=? AND key=?", t, key);
+  return r ? { ...JSON.parse(r.response as string), replayed: true } : null;
+}
 wholesale.post("/wholesale/clients/:id/voucher", requirePerm("wholesale.manage"), h((req) => {
+  const key = idem(req);
+  const again = idemReplay(tid(req), key);
+  if (again) return again;
   const b = parse(voucherBody, req.body);
   const p = voucherPreview(req, Number(req.params.id), b);
   if (p.issues.length) throw new AppError(400, p.issues[0]);
@@ -841,7 +878,9 @@ wholesale.post("/wholesale/clients/:id/voucher", requirePerm("wholesale.manage")
     audit(tid(req), req.user!, "wholesale_voucher", `wtx:${ids[0]}`, { client_id: c.id, lines: p.lines.length, total: p.total, carriage: p.carriage, ids });
     const no = `WS-${ids[0]}`;
     setImmediate(() => wholesaleBillMessage(tid(req), c.id, no, all(`SELECT * FROM wholesale_txns WHERE voucher_no=? AND tenant_id=?`, no, tid(req))).catch((e) => console.error("[wholesale bill]", e.message)));
-    return { ok: true, voucher_no: `WS-${ids[0]}`, ids, total: p.total, due_after };
+    const out = { ok: true, voucher_no: no, ids, total: p.total, due_after };
+    if (key) run("INSERT OR IGNORE INTO idempotency_keys (tenant_id,key,response,created_at) VALUES (?,?,?,?)", tid(req), key, JSON.stringify(out), now());
+    return out;
   });
 }));
 

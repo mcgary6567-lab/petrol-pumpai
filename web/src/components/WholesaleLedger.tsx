@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Download, FilePlus2, Printer, Send, Wallet } from "lucide-react";
 import { api, linkToken, useApi } from "../lib/api";
@@ -9,7 +9,6 @@ import { WholesaleEntryView } from "./EntryView";
 import { ErpBar, ErpSearch, Ur, bal } from "./WholesaleErp";
 
 const pkToday = () => new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 10);
-const pkDay = (iso: string) => new Date(Date.parse(iso) + 5 * 3600_000).toISOString().slice(0, 10);
 const dayLabel = (iso: string) => new Date(Date.parse(iso)).toLocaleDateString("en-PK", { day: "2-digit", month: "short", year: "2-digit" });
 const amt = (n: number) => num(Math.round(n * 100) / 100, 0);
 
@@ -46,36 +45,26 @@ export function PartyLedger() {
   const clientId = params.get("client") ?? (list.length ? String([...list].sort((a: any, b: any) => (b.due ?? 0) - (a.due ?? 0))[0].id) : "");
   const set = (k: string, v: string) => { const p = new URLSearchParams(params); if (v) p.set(k, v); else p.delete(k); if (!p.get("client") && clientId) p.set("client", clientId); setParams(p, { replace: true }); };
   const setRange = (f: string, t: string) => { const p = new URLSearchParams(params); p.set("client", clientId); p.set("from", f); p.set("to", t); setParams(p, { replace: true }); };
-  const qs = new URLSearchParams(Object.entries({ from, to }).filter(([, v]) => v)).toString();
-  const stmt = useApi<any>(clientId ? `/wholesale/clients/${clientId}/statement?${qs}` : null);
   const [view, setView] = useState<"detailed" | "monthly" | "unpaid">("detailed");
   const [q, setQ] = useState("");
+  const [dq, setDq] = useState(""); // debounced search sent to the server
+  const [page, setPage] = useState(1);
   const [showFleet, setShowFleet] = useState(true);
   const [showVoid, setShowVoid] = useState(false);
+  useEffect(() => { const t = setTimeout(() => { setDq(q.trim()); setPage(1); }, 300); return () => clearTimeout(t); }, [q]);
+  useEffect(() => { setPage(1); }, [clientId, from, to, showVoid]);
+  const qs = new URLSearchParams(Object.entries({ from, to, page: String(page), size: "10", q: dq, voided: showVoid ? "true" : "" }).filter(([, v]) => v)).toString();
+  // one page of lines + running balances + period totals + months, computed server-side (a 5-year client never ships 20k rows)
+  const stmt = useApi<any>(clientId ? `/wholesale/clients/${clientId}/statement?${qs}` : null);
   const [open, setOpen] = useState<any>(null);
   const { busy, run } = useAction();
 
   const s = stmt.data;
-  const allLines: any[] = useMemo(() => (s?.lines ?? []).filter((l: any) => showVoid || !l.voided), [s, showVoid]);
-  const needle = q.trim().toLowerCase();
-  const lines = useMemo(() => !needle ? allLines : allLines.filter((l) => [voucherNo(l), particulars(l), l.vehicle_no, l.driver_name, l.ref, l.note, l.method, l.litres, l.rate, l.amount, dayLabel(l.txn_date)].some((v) => String(v ?? "").toLowerCase().includes(needle))), [allLines, needle]);
-  const paged = usePaged(lines, 10);
-  const real = allLines.filter((l: any) => l.type !== "fuel_note" && !l.voided);
-  const dr = real.reduce((a, l) => a + l.debit, 0), cr = real.reduce((a, l) => a + l.credit, 0);
-  const litres = real.reduce((a, l) => a + (l.type === "supply" ? l.litres ?? 0 : l.type === "return" ? -(l.litres ?? 0) : 0), 0);
-  const months = useMemo(() => {
-    if (!s) return [];
-    const m = new Map<string, { month: string; opening: number; dr: number; cr: number; closing: number; litres: number; n: number }>();
-    let b = s.opening_balance;
-    for (const l of (s.lines as any[]).filter((x) => x.type !== "fuel_note" && !x.voided)) {
-      const k = pkDay(l.txn_date).slice(0, 7);
-      if (!m.has(k)) m.set(k, { month: k, opening: b, dr: 0, cr: 0, closing: b, litres: 0, n: 0 });
-      const r = m.get(k)!;
-      r.dr += l.debit; r.cr += l.credit; r.n++; b = l.balance; r.closing = b;
-      if (l.type === "supply") r.litres += l.litres ?? 0;
-    }
-    return [...m.values()];
-  }, [s]);
+  const needle = dq.toLowerCase();
+  const lines: any[] = s?.lines ?? [];
+  const paged = { slice: lines, page: s?.page ?? 1, pages: s?.pages ?? 1, total: s?.total ?? 0, size: 10, setPage };
+  const dr = s?.period?.debit ?? 0, cr = s?.period?.credit ?? 0, litres = s?.period?.litres ?? 0;
+  const months: { month: string; opening: number; dr: number; cr: number; closing: number; litres: number; n: number }[] = s?.months ?? [];
   const unpaidRows = useMemo(() => (s?.unpaid?.bills ?? []).filter((b: any) => !needle || [voucherNo(b), particulars(b), b.vehicle_no, b.ref, b.amount, b.unpaid].some((v) => String(v ?? "").toLowerCase().includes(needle))), [s, needle]);
   const pagedUnpaid = usePaged(unpaidRows, 10);
   const ageing = useMemo(() => {
@@ -180,6 +169,7 @@ export function PartyLedger() {
                   );
                 })}
                 {!lines.length && <tr><td colSpan={cols} className="px-3 py-8 text-center text-slate-500">{needle ? "Kuch nahi mila · کچھ نہیں ملا" : "Is muddat mein koi entry nahi"}</td></tr>}
+                {stmt.loading && lines.length > 0 && <tr><td colSpan={cols} className="px-3 py-1 text-center text-xs text-slate-400">…</td></tr>}
                 {!needle && <tr className="bg-slate-50 font-bold text-slate-800">{/* period totals on every page — they are the period's, not the page's */}
                   <td className={TD} colSpan={showFleet ? 4 : 3}>Totals for the period</td>
                   {showFleet && <><td className={`${TD} text-right`}>{num(litres, 0)}</td><td /></>}
@@ -234,7 +224,7 @@ export function PartyLedger() {
           </div>}
           <div className="flex flex-wrap justify-between gap-2 px-4 py-3 text-xs text-slate-500 print:hidden">
             <span>Balance = client par baqaya · <b className="text-emerald-700">Adv</b> = client ka advance humare paas · voucher number par click karein: poori entry, print, WhatsApp · WS supply · RV receipt · CN return · JV kiraya / adjustment</span>
-            <span>{lines.length} entries</span>
+            <span>{paged.total} entries</span>
           </div>
         </section>
       </>}

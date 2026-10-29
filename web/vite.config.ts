@@ -19,6 +19,15 @@ export default defineConfig({
     },
   ],
   define: { __BUILD_ID__: JSON.stringify(BUILD_ID) },
+  build: {
+    chunkSizeWarningLimit: 600,
+    rollupOptions: { output: { manualChunks(id) {
+      // charts only on the pages that draw them; framework + icons cached across releases; the rest splits per lazy page
+      if (id.includes("node_modules/recharts") || id.includes("node_modules/d3-")) return "charts";
+      if (id.includes("node_modules/lucide-react")) return "icons";
+      if (/node_modules\/(react|react-dom|react-router|react-router-dom|scheduler)\//.test(id)) return "react";
+    } } },
+  },
   server: {
     port: 5173,
     proxy: { "/api": "http://localhost:4000", "/webhooks": "http://localhost:4000" },

@@ -42,8 +42,9 @@ export function rateLimit(name: string, max: number, windowMs: number): RequestH
     const h = hits.get(key);
     if (!h || h.until < now) { hits.set(key, { n: 1, until: now + windowMs }); return next(); }
     if (++h.n > max) {
-      res.setHeader("Retry-After", String(Math.ceil((h.until - now) / 1000)));
-      return res.status(429).json({ error: "Too many tries from this device. Wait a few minutes and try again." });
+      const wait = Math.ceil((h.until - now) / 1000);
+      res.setHeader("Retry-After", String(wait));
+      return res.status(429).json({ error: `Too many tries from this device. Wait ${wait >= 90 ? `${Math.ceil(wait / 60)} minutes` : `${wait} seconds`} and try again.`, retry_after: wait });
     }
     next();
   };

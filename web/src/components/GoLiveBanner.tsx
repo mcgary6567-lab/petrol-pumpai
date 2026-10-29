@@ -15,7 +15,7 @@ export function GoLiveBanner() {
       <div className="flex items-center gap-2"><Rocket size={16} /> <span><span className="font-semibold">Go-live checklist:</span> {data.pending} settings baqi hain (opening cash, bank, staff…). Har ek skip bhi ho sakti hai.</span></div>
       <div className="flex items-center gap-2">
         <Link to="/go-live" className="btn-primary text-xs">Checklist kholen</Link>
-        <button aria-label="Dismiss" className="text-amber-700" onClick={async () => { await api("/golive/dismiss", { body: {} }); reload(); }}><X size={16} /></button>
+        <button aria-label="Dismiss" className="flex h-7 w-7 items-center justify-center rounded-md text-amber-700 hover:bg-amber-100" onClick={async () => { await api("/golive/dismiss", { body: {} }); reload(); }}><X size={16} /></button>
       </div>
     </div>
   );

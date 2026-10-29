@@ -123,8 +123,45 @@ test("hardening: an impossible calendar date is a 400, not a 500; roles and limi
   assert.equal((await call("wholesale", "GET", "/api/wholesale/invoices?from=2026-02-30")).status, 400, "30 Feb");
   assert.equal((await call("wholesale", "GET", `/api/wholesale/clients/${client.id}/statement?from=2026-00-10`)).status, 400, "statement bad date");
   assert.equal((await call("wholesale", "GET", "/api/wholesale/invoices?from=2026-02-28")).status, 200, "real date ok");
+  assert.equal((await call("wholesale", "GET", "/api/wholesale/invoices?from=&to=")).status, 200, "cleared date boxes = no filter");
+  assert.equal((await call("wholesale", "GET", `/api/wholesale/clients/${client.id}/statement?from=&to=&page=1`)).status, 200, "statement, cleared dates");
   assert.equal((await call("wholesale", "GET", "/api/wholesale/invoices/WS-1'%20OR%201=1--")).status, 400, "invoice no shape");
   assert.equal((await call("wholesale", "POST", `/api/wholesale/clients/${client.id}/voucher/preview`, { station_id: st.id, lines: [{ product: "HSD", litres: -5 }] })).status, 400, "negative litres");
   assert.equal((await call("wholesale", "POST", `/api/wholesale/clients/${client.id}/voucher/preview`, { station_id: st.id, lines: Array(7).fill({ product: "HSD", litres: 1 }) })).status, 400, "7 lines");
   assert.equal((await call("wholesale", "GET", "/api/wholesale/requests")).status, 403, "officer cannot see portal requests");
+});
+
+test("idempotency: the same voucher POST with one key posts once and replays the first answer", async () => {
+  const key = `e2e-${Date.now()}`;
+  const body = { station_id: st.id, lines: [{ product: "HSD", litres: 10 }], note: "idem" };
+  const post = async () => { const res = await fetch(`${base}/api/wholesale/clients/${client.id}/voucher`, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${tokens.wholesale}`, "x-idempotency-key": key }, body: JSON.stringify(body) }); return { status: res.status, data: (await res.json()) as any }; };
+  const n0 = ok(await call("wholesale", "GET", `/api/wholesale/clients/${client.id}/statement`), "s0").lines.length;
+  const a = ok(await post(), "first");
+  const b = ok(await post(), "retry");
+  assert.equal(b.voucher_no, a.voucher_no, "same voucher number");
+  assert.equal(b.replayed, true);
+  const n1 = ok(await call("wholesale", "GET", `/api/wholesale/clients/${client.id}/statement`), "s1").lines.length;
+  assert.equal(n1 - n0, 1, "posted exactly once");
+  // a different key posts again
+  const res = await fetch(`${base}/api/wholesale/clients/${client.id}/voucher`, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${tokens.wholesale}`, "x-idempotency-key": `${key}-b` }, body: JSON.stringify(body) });
+  assert.equal(res.status, 200);
+  assert.equal(ok(await call("wholesale", "GET", `/api/wholesale/clients/${client.id}/statement`), "s2").lines.length - n0, 2);
+});
+
+test("statement paging: 10 a page, running balance intact, period totals and months ride along, search filters", async () => {
+  const full = ok(await call("wholesale", "GET", `/api/wholesale/clients/${client.id}/statement`), "full");
+  const p1 = ok(await call("wholesale", "GET", `/api/wholesale/clients/${client.id}/statement?page=1&size=5`), "p1");
+  assert.equal(p1.lines.length, Math.min(5, full.lines.filter((l: any) => !l.voided).length));
+  assert.equal(p1.total, full.lines.filter((l: any) => !l.voided).length);
+  assert.equal(p1.pages, Math.ceil(p1.total / 5));
+  assert.deepEqual(p1.lines.map((l: any) => l.id), full.lines.filter((l: any) => !l.voided).slice(0, 5).map((l: any) => l.id), "same order and balances as the full statement");
+  assert.equal(p1.closing_balance, full.closing_balance);
+  assert.equal(p1.period.debit, Math.round(full.lines.filter((l: any) => !l.voided).reduce((a: number, l: any) => a + l.debit, 0) * 100) / 100);
+  assert.ok(Array.isArray(p1.months) && p1.months.length >= 1);
+  const last = ok(await call("wholesale", "GET", `/api/wholesale/clients/${client.id}/statement?page=99&size=5`), "last");
+  assert.equal(last.page, last.pages, "page past the end clamps to the last page");
+  const q = ok(await call("wholesale", "GET", `/api/wholesale/clients/${client.id}/statement?page=1&q=payment`), "q");
+  assert.ok(q.lines.length >= 1 && q.lines.every((l: any) => l.type === "payment"));
+  const v = ok(await call("wholesale", "GET", `/api/wholesale/clients/${client.id}/statement?page=1&voided=true&size=100`), "voided");
+  assert.ok(v.lines.some((l: any) => l.voided), "voided lines come back when asked");
 });

@@ -7,6 +7,19 @@ import { ErrorBox } from "../components/ui";
 import { useBranding, loadBranding, getPumpSlug } from "../lib/brand";
 import { InstallAppButton } from "../components/InstallApp";
 
+/** Seconds left on a "too many tries" lock (429 with retry_after), ticking down to 0. */
+function useLockCountdown(): [number, (n: number) => void] {
+  const [wait, setWait] = useState(0);
+  useEffect(() => { if (wait <= 0) return; const t = setTimeout(() => setWait(wait - 1), 1000); return () => clearTimeout(t); }, [wait]);
+  return [wait, setWait];
+}
+const LockBox = ({ wait }: { wait: number }) => wait > 0 ? (
+  <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900" role="status" aria-live="polite">
+    🔒 Bohat si koshishein — <b className="tabular-nums">{Math.floor(wait / 60)}:{String(wait % 60).padStart(2, "0")}</b> baad dobara try karein · <span lang="ur" dir="rtl" className="font-urdu">تھوڑا انتظار کریں</span>
+  </div>
+) : null;
+
+
 const ROLE: Record<string, string> = { admin: "Admin (CEO)", manager: "Manager", salesman: "Salesman", wholesale: "Wholesale", cashier: "Cashier" };
 const ROLE_TONE: Record<string, string> = { salesman: "bg-emerald-500", manager: "bg-blue-500", wholesale: "bg-violet-500", cashier: "bg-amber-500", admin: "bg-slate-700" };
 /** The portals shown on the first login screen — tap one to go straight to that module's sign-in. */
@@ -110,9 +123,10 @@ function PinLogin({ people, roleFilter, onDone, onEmail, onBack }: { people: any
     if (next.length < 4) return;
     setBusy(true);
     try { await onDone(await api("/auth/pin", { body: { user_id: who.id, pin: next }, headers: { "x-device": getDevice() ?? "" } })); }
-    catch (e: any) { setError(e.message); setPin(""); }
+    catch (e: any) { setError(e.message); setPin(""); if (e.retryAfter) setWait(e.retryAfter); }
     finally { setBusy(false); }
   };
+  const [wait, setWait] = useLockCountdown();
   return (
     <div className="card space-y-4 p-5">
       {!who ? (
@@ -120,6 +134,8 @@ function PinLogin({ people, roleFilter, onDone, onEmail, onBack }: { people: any
           <button onClick={onBack} className="flex items-center gap-1 text-sm text-slate-500 hover:text-slate-700"><ArrowLeft size={16} /> Portals · <span className="font-urdu">پورٹل</span></button>
           <h2 className="text-center text-lg font-semibold">{roleFilter ? `${ROLE[roleFilter]} — who are you?` : "Who are you?"} <span className="block font-urdu text-base font-normal text-slate-500">آپ کون ہیں؟</span></h2>
           {error && <ErrorBox error={error} />}
+      <LockBox wait={wait} />
+          <LockBox wait={wait} />
           {list && !list.length ? (
             <div className="space-y-3 text-center">
               <p className="text-sm text-slate-500">{roleFilter ? `${ROLE[roleFilter]} ka koi PIN is device par set nahi.` : "No one has a PIN yet."} <span className="font-urdu">ای میل سے سائن ان کریں</span></p>
@@ -149,6 +165,8 @@ function PinLogin({ people, roleFilter, onDone, onEmail, onBack }: { people: any
             {[0, 1, 2, 3].map((i) => <span key={i} className={`h-5 w-5 rounded-full border-2 ${i < pin.length ? "border-brand-600 bg-brand-600" : "border-slate-300"}`} />)}
           </div>
           {error && <ErrorBox error={error} />}
+      <LockBox wait={wait} />
+          <LockBox wait={wait} />
           <div className="grid grid-cols-3 gap-3">
             {["1", "2", "3", "4", "5", "6", "7", "8", "9"].map((d) => (
               <button key={d} onClick={() => press(d)} disabled={busy} className="h-16 rounded-xl bg-slate-100 text-2xl font-semibold hover:bg-slate-200 active:scale-95">{d}</button>
@@ -181,9 +199,10 @@ function EmailLogin({ demo, role, pump, onDone, onBack, onPin }: { demo: boolean
       const r: any = await api("/auth/login", { body: { email: email.trim(), password, ...(pump ? { pump } : {}) } });
       if (r.twofa) { setTwofa({ user_id: r.user_id, phone_hint: r.phone_hint }); setCode(""); }
       else await onDone(r);
-    } catch (err: any) { setError(err.message); }
+    } catch (err: any) { setError(err.message); if (err.retryAfter) setWait(err.retryAfter); }
     finally { setBusy(false); }
   };
+  const [wait, setWait] = useLockCountdown();
   const verify = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true); setError(null);
@@ -196,6 +215,7 @@ function EmailLogin({ demo, role, pump, onDone, onBack, onPin }: { demo: boolean
       <div><h2 className="text-lg font-semibold">Verification code</h2>
         <p className="text-sm text-slate-500">Aap ke WhatsApp number {twofa.phone_hint ?? ""} par ek 6-digit code bheja gaya hai. Wo yahan likhein.</p></div>
       {error && <ErrorBox error={error} />}
+      <LockBox wait={wait} />
       <input className="input text-center text-2xl tracking-[0.4em]" inputMode="numeric" autoFocus maxLength={6} value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))} placeholder="______" />
       <button className="btn-primary w-full" disabled={busy || code.length !== 6}>{busy ? "Checking…" : "Verify & sign in"}</button>
       <button type="button" onClick={() => { setTwofa(null); setError(null); }} className="w-full text-sm text-slate-500 hover:underline">← Back</button>
@@ -208,6 +228,7 @@ function EmailLogin({ demo, role, pump, onDone, onBack, onPin }: { demo: boolean
         {role && <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold text-white ${ROLE_TONE[role] ?? "bg-slate-600"}`}>{ROLE[role]} sign-in</span>}
       </div>
       {error && <ErrorBox error={error} />}
+      <LockBox wait={wait} />
       <label className="block"><span className="label">Email ya phone number · <span lang="ur" dir="rtl" className="font-urdu">ای میل یا فون</span></span><input className="input" type="text" inputMode="email" autoComplete="username" placeholder="name@email.com ya 03xx xxxxxxx" value={email} onChange={(e) => setEmail(e.target.value)} required /></label>
       <label className="block"><span className="label">Password</span><input className="input" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required /></label>
       <button className="btn-primary w-full" disabled={busy}>{busy ? "Signing in…" : "Sign in"}</button>
