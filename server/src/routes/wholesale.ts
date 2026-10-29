@@ -178,6 +178,38 @@ function ageing(clientId: number, due: number, nowMs: number) {
   return { buckets, oldest_days: oldest };
 }
 
+/** The bills that make up a client's unpaid balance, newest first (same matching as ageing: older bills count as paid first). */
+export function unpaidBills(clientId: number, due: number, nowMs = Date.now()) {
+  const out: { id: number; txn_date: string; type: string; product: string | null; litres: number | null; rate: number | null; vehicle_no: string | null; ref: string | null; amount: number; unpaid: number; days: number }[] = [];
+  let left = due;
+  if (left <= 0.01) return { bills: out, older: 0 };
+  for (const s of all("SELECT id, txn_date, type, product, litres, rate, vehicle_no, ref, amount FROM wholesale_txns WHERE client_id=? AND type IN ('supply','carriage','adjustment') AND amount > 0 AND voided=0 AND COALESCE(ref,'') <> 'refund:' ORDER BY txn_date DESC, id DESC", clientId)) {
+    const part = round2(Math.min(left, s.amount));
+    out.push({ ...(s as any), unpaid: part, days: Math.floor((nowMs - Date.parse(s.txn_date)) / DAYMS) });
+    left = round2(left - part);
+    if (left <= 0.01) break;
+  }
+  return { bills: out, older: left > 0.01 ? left : 0 }; // older = opening balance / older than any bill
+}
+
+/** Supplied vs collected per month for the last `n` months (oldest first) — the dashboard's main chart. */
+function monthlyFlow(t: number, n = 6) {
+  const today = pkDate();
+  let y = Number(today.slice(0, 4)), m = Number(today.slice(5, 7));
+  for (let i = 1; i < n; i++) { if (m === 1) { y -= 1; m = 12; } else m -= 1; }
+  const from = `${y}-${String(m).padStart(2, "0")}-01T00:00:00+05:00`;
+  const rows = all(`SELECT strftime('%Y-%m', txn_date, '+5 hours') ym, COALESCE(SUM(CASE WHEN type='supply' THEN amount END),0) supplied,
+      COALESCE(SUM(CASE WHEN type='supply' THEN litres END),0) litres, COALESCE(SUM(CASE WHEN type='payment' THEN amount END),0) collected
+    FROM wholesale_txns WHERE tenant_id=? AND voided=0 AND txn_date >= ? GROUP BY ym`, t, new Date(from).toISOString());
+  const out: { month: string; supplied: number; collected: number; litres: number }[] = [];
+  for (let i = 0; i < n; i++) {
+    const ym = `${y}-${String(m).padStart(2, "0")}`, r = rows.find((x) => x.ym === ym);
+    out.push({ month: ym, supplied: Math.round(r?.supplied ?? 0), collected: Math.round(r?.collected ?? 0), litres: Math.round(r?.litres ?? 0) });
+    if (m === 12) { y += 1; m = 1; } else m += 1;
+  }
+  return out;
+}
+
 wholesale.get("/wholesale/dashboard", h((req) => {
   const t = tid(req), nowMs = Date.now(), today = pkDate();
   const monthStart = new Date(today.slice(0, 7) + "-01T00:00:00+05:00");
@@ -314,7 +346,7 @@ wholesale.get("/wholesale/dashboard", h((req) => {
       })(),
     },
     ageing: Object.fromEntries(Object.entries(ageTotals).map(([k, v]) => [k, Math.round(v)])),
-    daily, weekly, monthly_profit: monthlyProfit, clients, suggestions: sug.slice(0, 20),
+    daily, weekly, monthly_profit: monthlyProfit, monthly: monthlyFlow(t), clients, suggestions: sug.slice(0, 20),
   };
 }));
 
@@ -584,7 +616,9 @@ export function statement(tenantId: number, clientId: number, from?: string, to?
   const lines = [...real, ...fuels].sort((a, b) => (a.txn_date < b.txn_date ? -1 : a.txn_date > b.txn_date ? 1 : 0));
   let rb = opening;
   for (const l of lines) { if (l.type !== "fuel_note") rb = l.balance; else l.balance = rb; }
-  return { client: c, from: from ?? null, to: to ?? null, opening_balance: opening, closing_balance: bal, lines, summary: summary(c.id, from, to) };
+  const dueNow = clientDue(c.id), nowMs = Date.now();
+  return { client: c, from: from ?? null, to: to ?? null, opening_balance: opening, closing_balance: bal, lines, summary: summary(c.id, from, to),
+    due_now: dueNow, ageing: ageing(c.id, dueNow, nowMs), unpaid: unpaidBills(c.id, dueNow, nowMs) };
 }
 
 wholesale.get("/wholesale/clients/:id/statement", h((req) => {
@@ -713,6 +747,96 @@ wholesale.post("/wholesale/clients/:id/supply", requirePerm("wholesale.manage"),
     deliverOrder(tid(req), b.order_id, c.id, t.id);
     limitAlert(req, c, t.due_after);
     return t;
+  });
+}));
+
+/* ---------------- Supply voucher (ERP style): several fuel lines + kiraya in one posting ---------------- */
+const voucherBody = z.object({
+  station_id: z.number().int(),
+  lines: z.array(z.object({ product, litres: z.number().positive(), rate: z.number().positive().optional() })).min(1, "Add at least one fuel line").max(6),
+  carriage: z.number().min(0).max(10_000_000).optional().nullable(),
+  tanker_id: z.number().int().optional().nullable(), driver_id: z.number().int().optional().nullable(), vehicle_no: z.string().max(30).optional().nullable(),
+  location: z.string().max(120).optional().nullable(), ref: z.string().max(60).optional().nullable(), note: z.string().max(300).optional().nullable(),
+  txn_date: dateStr, override_limit: z.boolean().optional(), photo_ids: proofPhotos, order_id: z.number().int().optional().nullable(),
+});
+type VoucherBody = z.infer<typeof voucherBody>;
+
+/** Everything the voucher screen shows before posting: each line's rate / tank / margin, the credit check and the journal it will post.
+ *  Never throws on a business rule — problems come back as `issues` so the form can show them next to the fields. */
+export function voucherPreview(req: Request, clientId: number, b: VoucherBody) {
+  const t = tid(req);
+  const c = ownClient(t, clientId);
+  const card = rates(c.id);
+  const station = get("SELECT id, name FROM stations WHERE id=? AND tenant_id=?", b.station_id, t);
+  const issues: string[] = [];
+  if (!c.active) issues.push(`${c.name} is inactive`);
+  if (!station) issues.push("Station not found");
+  const taken: Record<number, number> = {}; // litres already drawn from a tank by earlier lines
+  const lines = b.lines.map((l) => {
+    const tank = station ? get(`SELECT t.* FROM tanks t WHERE t.station_id=? AND t.product=? ORDER BY t.current_l DESC LIMIT 1`, station.id, l.product) : null;
+    const rate = l.rate ?? card[l.product] ?? null;
+    if (!rate) issues.push(`No ${PRODUCTS[l.product] ?? l.product} rate set for ${c.name}`);
+    if (l.rate !== undefined && l.rate !== card[l.product] && !can(req.user, "wholesale.rates")) issues.push("Only the admin can change the rate on a supply");
+    if (station && !tank) issues.push(`No ${PRODUCTS[l.product] ?? l.product} tank at ${station.name}`);
+    const before = tank ? round2(tank.current_l - (taken[tank.id] ?? 0)) : null;
+    if (tank) taken[tank.id] = (taken[tank.id] ?? 0) + l.litres;
+    if (tank && before! < l.litres) issues.push(`Not enough stock in ${tank.name} (${Math.round(before!)} L available)`);
+    const cost = lastCost(t, l.product);
+    const amount = rate ? round2(l.litres * rate) : 0;
+    return { product: l.product, litres: l.litres, rate, card_rate: card[l.product] ?? null, amount, tank_id: tank?.id ?? null, tank_name: tank?.name ?? null,
+      stock_before: before, stock_after: before == null ? null : round2(before - l.litres), cost, margin: cost != null && rate ? round2((rate - cost) * l.litres) : null };
+  });
+  const fuel = round2(lines.reduce((a, l) => a + l.amount, 0));
+  const carriage = round2(b.carriage ?? 0);
+  const total = round2(fuel + carriage);
+  const due = clientDue(c.id);
+  const after = round2(due + total);
+  const over = c.credit_limit > 0 && after > c.credit_limit;
+  const canOverride = can(req.user, "wholesale.rates");
+  if (over && !(b.override_limit && canOverride)) issues.push(`Credit limit exceeded: due ${pkr(due)} + this voucher ${pkr(total)} > limit ${pkr(c.credit_limit)}`);
+  const posting = [
+    { account: `Receivable — ${c.name}`, dr: total, cr: 0 },
+    ...lines.filter((l) => l.amount).map((l) => ({ account: `Wholesale sales — ${PRODUCTS[l.product] ?? l.product}`, dr: 0, cr: l.amount })),
+    ...(carriage ? [{ account: "Carriage income (kiraya)", dr: 0, cr: carriage }] : []),
+  ];
+  const dr = round2(posting.reduce((a, p) => a + p.dr, 0)), cr = round2(posting.reduce((a, p) => a + p.cr, 0));
+  const margin = lines.every((l) => l.margin != null) ? round2(lines.reduce((a, l) => a + l.margin!, 0) + carriage) : null;
+  return {
+    client: { id: c.id, name: c.name, city: c.city, phone: c.phone, credit_limit: c.credit_limit },
+    lines, fuel, carriage, total, litres: round2(lines.reduce((a, l) => a + l.litres, 0)),
+    credit: { due, after, limit: c.credit_limit, pct: c.credit_limit > 0 ? Math.round((after / c.credit_limit) * 100) : null, over, can_override: canOverride },
+    posting, balanced: Math.abs(dr - cr) < 0.01, dr, cr, margin, issues: [...new Set(issues)],
+  };
+}
+
+wholesale.post("/wholesale/clients/:id/voucher/preview", requirePerm("wholesale.manage"), h((req) => voucherPreview(req, Number(req.params.id), parse(voucherBody, req.body))));
+
+/** Post a supply voucher: every fuel line is its own supply entry (stock out of its tank) and the kiraya a carriage entry —
+ *  all in one transaction, sharing the bilty no. / narration, so either the whole voucher posts or nothing does. */
+wholesale.post("/wholesale/clients/:id/voucher", requirePerm("wholesale.manage"), h((req) => {
+  const b = parse(voucherBody, req.body);
+  const p = voucherPreview(req, Number(req.params.id), b);
+  if (p.issues.length) throw new AppError(400, p.issues[0]);
+  guardClosedDay(req, tid(req), b.txn_date ?? pkDate());
+  const fl = fleet(tid(req), b);
+  const c = ownClient(tid(req), p.client.id);
+  return tx(() => {
+    const ids: number[] = [];
+    p.lines.forEach((l, i) => {
+      run("UPDATE tanks SET current_l = current_l - ? WHERE id=?", l.litres, l.tank_id);
+      const x = insertTxn(req, c.id, { ...b, ...fl, type: "supply", station_id: b.station_id, tank_id: l.tank_id, product: l.product, litres: l.litres, rate: l.rate, amount: l.amount,
+        photo_ids: i === 0 ? b.photo_ids : undefined });
+      ids.push(x.id);
+    });
+    if (p.carriage > 0) {
+      const x = insertTxn(req, c.id, { ...b, ...fl, type: "carriage", station_id: b.station_id, amount: p.carriage, note: b.note ? `Kiraya · ${b.note}` : "Kiraya (carriage)", photo_ids: undefined, silent: true });
+      ids.push(x.id);
+    }
+    deliverOrder(tid(req), b.order_id, c.id, ids[0]);
+    const due_after = clientDue(c.id);
+    limitAlert(req, c, due_after);
+    audit(tid(req), req.user!, "wholesale_voucher", `wtx:${ids[0]}`, { client_id: c.id, lines: p.lines.length, total: p.total, carriage: p.carriage, ids });
+    return { ok: true, voucher_no: `WS-${ids[0]}`, ids, total: p.total, due_after };
   });
 }));
 

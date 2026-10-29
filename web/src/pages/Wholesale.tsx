@@ -22,6 +22,8 @@ import { FleetPicker, FleetTab, TripForm, TripSheet, TripsTab, fleetBody } from 
 import { ChequeForm, ClientDeskCard, CollectTab, OrderForm, OrdersTab, PromiseForm } from "../components/WholesaleDesk";
 import { WholesaleVoice } from "../components/WholesaleVoice";
 import { BypassPanel, BypassVoucher } from "./Bypass";
+import { PartyLedger } from "../components/WholesaleLedger";
+import { SupplyVoucher } from "../components/WholesaleVoucher";
 const Ur = ({ children, className = "" }: { children: React.ReactNode; className?: string }) => <span lang="ur" dir="rtl" className={`font-urdu ${className}`}>{children}</span>;
 
 const TYPE: Record<string, { label: string; tone: string }> = {
@@ -35,6 +37,8 @@ const fuelLabel = (r: any) => r.fuel_mode === "direct"
 
 export default function Wholesale() {
   const { id } = useParams();
+  if (id === "voucher") return <SupplyVoucher />;
+  if (id === "ledger") return <PartyLedger />;
   return id ? <ClientDetail id={id} /> : <ClientList />;
 }
 
@@ -56,8 +60,8 @@ function ClientList() {
     <div className="space-y-5">
       <PageHeader title="Wholesale supply · ہول سیل سپلائی" subtitle="Bulk fuel to dealers and businesses — each client has their own rate card and running account" />
       <div className="flex gap-1 overflow-x-auto border-b border-slate-200">
-        {([["dashboard", "Dashboard", "ڈیش بورڈ"], ["clients", "Clients", "کلائنٹس"], ["orders", "Order book", "آرڈر بک"], ["collect", "Recovery", "وصولی"], ["trips", "Tanker trips", "ٹینکر ٹرپ"], ["fleet", "Tankers & drivers", "ٹینکر اور ڈرائیور"]] as const).map(([k, l, u]) => (
-          <button key={k} onClick={() => setTab(k)} className={`whitespace-nowrap border-b-2 px-3 py-1.5 text-center text-sm leading-tight ${tab === k ? "border-brand-600 font-medium text-brand-700" : "border-transparent text-slate-600"}`}>{l}<Ur className="block text-xs">{u}</Ur></button>
+        {([["dashboard", "Dashboard", "ڈیش بورڈ"], ["ledger", "Party ledger", "پارٹی کھاتہ"], ["clients", "Clients", "کلائنٹس"], ["orders", "Order book", "آرڈر بک"], ["collect", "Recovery", "وصولی"], ["trips", "Tanker trips", "ٹینکر ٹرپ"], ["fleet", "Tankers & drivers", "ٹینکر اور ڈرائیور"]] as const).map(([k, l, u]) => (
+          <button key={k} onClick={() => (k === "ledger" ? nav("/wholesale/ledger") : setTab(k))} className={`whitespace-nowrap border-b-2 px-3 py-1.5 text-center text-sm leading-tight ${tab === k ? "border-brand-600 font-medium text-brand-700" : "border-transparent text-slate-600"}`}>{l}<Ur className="block text-xs">{u}</Ur></button>
         ))}
       </div>
       {tab === "trips" && <><TripsTab key={tripsKey} onNew={can("wholesale.manage") ? () => setParams({ tab: "trips", do: "trip" }) : undefined} /><div className="mt-6 border-t pt-6"><BypassPanel key={tripsKey} /></div></>}
@@ -348,6 +352,7 @@ export function ClientForm({ initial, onClose, onSaved }: { initial?: any; onClo
 /* ---------------- Detail ---------------- */
 function ClientDetail({ id }: { id: string }) {
   const { can } = useAuth();
+  const nav = useNavigate();
   const client = useApi<any>(`/wholesale/clients/${id}`);
   const [range, setRange] = useState({ from: "", to: "" });
   const qs = new URLSearchParams(Object.entries(range).filter(([, v]) => v)).toString();
@@ -377,6 +382,7 @@ function ClientDetail({ id }: { id: string }) {
       <PageHeader title={c.name} subtitle={[c.business_name, c.city, c.phone && phone(c.phone)].filter(Boolean).join(" · ")}
         actions={<div className="flex flex-wrap gap-2 print:hidden">
           {/* primary actions are the big tiles below; here only the occasional ones */}
+          <Link className="btn-secondary" to={`/wholesale/ledger?client=${c.id}`}><Receipt size={15} /> Party ledger · <Ur>کھاتہ</Ur></Link>
           {can("wholesale.manage") && <button className="btn-secondary" onClick={() => setAction("return")}><Undo2 size={15} /> Fuel return · <Ur>واپسی</Ur></button>}
           {can("wholesale.manage") && s.due < -0.5 && <button className="btn-secondary !text-emerald-700" onClick={() => setAction("refund")}><Wallet size={15} /> Advance wapas · <Ur>ایڈوانس واپس</Ur></button>}
           {can("wholesale.rates") && <button className="btn-secondary" onClick={() => setAction("adjustment")}><SlidersHorizontal size={15} /> Adjustment · <Ur>ایڈجسٹمنٹ</Ur></button>}
@@ -391,7 +397,7 @@ function ClientDetail({ id }: { id: string }) {
 
       {/* big, one-tap common actions — saaf aur samajhne me aasan */}
       {can("wholesale.manage") && <div className="grid grid-cols-3 gap-3 print:hidden">
-        <button onClick={() => setAction("supply")} disabled={!c.active} className="flex flex-col items-center justify-center gap-1 rounded-2xl bg-brand-600 py-4 text-white shadow active:scale-95 disabled:opacity-50">
+        <button onClick={() => nav(`/wholesale/voucher?client=${c.id}${orderId ? `&order=${orderId}` : ""}`)} disabled={!c.active} className="flex flex-col items-center justify-center gap-1 rounded-2xl bg-brand-600 py-4 text-white shadow active:scale-95 disabled:opacity-50">
           <Truck size={26} /><span className="text-base font-bold">Supply</span><Ur className="text-sm">سپلائی</Ur></button>
         <button onClick={() => setAction("payment")} className="flex flex-col items-center justify-center gap-1 rounded-2xl bg-emerald-600 py-4 text-white shadow active:scale-95">
           <Wallet size={26} /><span className="text-base font-bold">Payment</span><Ur className="text-sm">رقم وصول</Ur></button>

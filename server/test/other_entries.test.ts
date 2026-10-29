@@ -20,6 +20,8 @@ async function call(tok: string, method: string, url: string, body?: unknown) {
 }
 const ok = (r: { status: number; data: any }, m: string) => { assert.equal(r.status, 200, `${m}: ${JSON.stringify(r.data)}`); return r.data; };
 const month = new Date().toISOString().slice(0, 7);
+// last day of this month, so the "this month" reports include today whatever the date (a fixed -28 dropped entries on the 29th–31st)
+const monthEnd = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).toISOString().slice(0, 10);
 
 before(async () => {
   const { app } = await import("../src/index.js");
@@ -75,7 +77,7 @@ test("income, expense and discount move the money/balance, tally, and hit the P&
   assert.equal(pl.net_profit, Math.round((pl0.net_profit + 8000 - 2000 - 1500) * 100) / 100);
 
   // report groups by party
-  const incRep = ok(await call(adminTok, "GET", `/api/other-entries?kind=income&from=${month}-01&to=${month}-28`), "inc report");
+  const incRep = ok(await call(adminTok, "GET", `/api/other-entries?kind=income&from=${month}-01&to=${monthEnd}`), "inc report");
   assert.equal(incRep.total, 8000);
   assert.ok(incRep.by_party.some((p: any) => p.party_name === khata.name && p.total === 5000));
   const discRep = ok(await call(adminTok, "GET", `/api/other-entries?kind=discount`), "disc report");
@@ -105,8 +107,8 @@ test("the CEO entries are private — a manager cannot see them, but both books 
   assert.equal(Math.round((adminPl.net_profit - mgrPl.net_profit) * 100) / 100, 5000);
 
   const g = (tb: any[], a: string) => tb.find((x) => x.account === a);
-  const adminLed = ok(await call(adminTok, "GET", `/api/ledger?from=${month}-01&to=${month}-28`), "admin ledger");
-  const mgrLed = ok(await call(mgrTok, "GET", `/api/ledger?from=${month}-01&to=${month}-28`), "mgr ledger");
+  const adminLed = ok(await call(adminTok, "GET", `/api/ledger?from=${month}-01&to=${monthEnd}`), "admin ledger");
+  const mgrLed = ok(await call(mgrTok, "GET", `/api/ledger?from=${month}-01&to=${monthEnd}`), "mgr ledger");
   // both balance, nothing in Suspense
   assert.equal(adminLed.totals.debit, adminLed.totals.credit);
   assert.equal(mgrLed.totals.debit, mgrLed.totals.credit);

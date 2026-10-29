@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { PrintFooter, PrintHeader } from "./Letterhead";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import {
-  LayoutDashboard, Gauge, PiggyBank, MessageCircle, Users, Fuel, Clock, Droplets, Tag, Truck, Megaphone, Bell, Bot, Settings, LogOut, Menu, X, MessageSquareWarning, BookOpen, UserCog, MapPin, Container, Receipt, FileBarChart, Factory, Wallet, Landmark, ShoppingBasket, ClipboardCheck, ShieldCheck, HeartPulse, CalendarClock, ScrollText, Ticket, Star, Calculator, History, Wrench, Route, UserPlus, ChevronDown, Ban, HandCoins, ClipboardList, Banknote, ArrowDownCircle, ArrowUpCircle, FileCheck2, BookOpenText, BookOpenCheck, Building2, ListChecks, Lightbulb, UserCheck, Hourglass, Search, CircleHelp, Ruler, Sun, Moon, Rocket,
+  LayoutDashboard, Gauge, PiggyBank, MessageCircle, Users, Fuel, Clock, Droplets, Tag, Truck, Megaphone, Bell, Bot, Settings, LogOut, Menu, X, MessageSquareWarning, BookOpen, FilePlus2, UserCog, MapPin, Container, Receipt, FileBarChart, Factory, Wallet, Landmark, ShoppingBasket, ClipboardCheck, ShieldCheck, HeartPulse, CalendarClock, ScrollText, Ticket, Star, Calculator, History, Wrench, Route, UserPlus, ChevronDown, Ban, HandCoins, ClipboardList, Banknote, ArrowDownCircle, ArrowUpCircle, FileCheck2, BookOpenText, BookOpenCheck, Building2, ListChecks, Lightbulb, UserCheck, Hourglass, Search, CircleHelp, Ruler, Sun, Moon, Rocket,
 } from "lucide-react";
 import { useAuth, ROLE_LABEL } from "../App";
 import { api, useApi, useLiveEvents, useLiveData } from "../lib/api";
@@ -18,6 +18,8 @@ import { PAGE_WORDS, SETTINGS_SECTIONS, scoreItem, whyMatched } from "../lib/nav
 
 /** Shortcuts under "Wholesale Supply" in the menu (open the right tab or form). */
 const WHOLESALE_SUB = [
+  { to: "/wholesale/voucher", label: "Supply voucher", ur: "سپلائی واؤچر", icon: FilePlus2, perm: "wholesale.manage" },
+  { to: "/wholesale/ledger", label: "Party ledger", ur: "پارٹی کھاتہ", icon: BookOpen, perm: "wholesale.view" },
   { to: "/wholesale?tab=clients", label: "Clients", ur: "کلائنٹس", icon: Users, perm: "wholesale.view" },
   { to: "/wholesale?tab=orders", label: "Order book", ur: "آرڈر بک", icon: ClipboardList, perm: "wholesale.view" },
   { to: "/wholesale?tab=collect", label: "Recovery", ur: "وصولی", icon: HandCoins, perm: "wholesale.view" },

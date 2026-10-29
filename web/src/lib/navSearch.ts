@@ -24,6 +24,8 @@ export const PAGE_WORDS: Record<string, string> = {
   "/prepaid": "coupon wallet prepaid advance voucher card",
   "/card-pending": "card pending khata bank card",
   "/wholesale": "wholesale bulk client supply tanker trip order recovery wasooli rate udhaar maal bypass officer",
+  "/wholesale/voucher": "supply voucher new invoice bill bilty kiraya carriage post entry",
+  "/wholesale/ledger": "party ledger khata statement account debit credit balance aging unpaid bills",
   "/carriage": "carriage kiraya freight thekedar transport bilty",
   "/cashier": "cashier receive pay wasooli adaigi cheque day book roznamcha voucher rv pv bank handover",
   "/expenses": "expense kharcha bill bijli utility salary approval",

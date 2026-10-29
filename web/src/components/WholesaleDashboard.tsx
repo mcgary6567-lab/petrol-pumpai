@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Cell } from "recharts";
-import { ArrowDownRight, ArrowUpRight, Banknote, CalendarClock, ClipboardList, Plus, Search, Truck, Wallet } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, Banknote, BookOpen, CalendarClock, ChevronRight, ClipboardList, FilePlus2, Plus, Search, Truck, Wallet } from "lucide-react";
 import { ChequeForm, OrderForm, PromiseForm } from "./WholesaleDesk";
 import { WholesaleVoice } from "./WholesaleVoice";
 import { useApi } from "../lib/api";
@@ -26,12 +26,20 @@ const Change = ({ v }: { v: number | null }) => v == null ? null : (
   </span>
 );
 const Ur = ({ children, className = "" }: { children: React.ReactNode; className?: string }) => <span lang="ur" dir="rtl" className={`font-urdu ${className}`}>{children}</span>;
-const Kpi = ({ label, ur, value, sub, accent }: { label: string; ur?: string; value: string; sub?: React.ReactNode; accent?: string }) => (
+
+const MONTHS = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const ErpKpi = ({ label, ur, value, sub, accent }: { label: string; ur?: string; value: string; sub?: React.ReactNode; accent?: string }) => (
   <div className="card h-full p-4">
-    <div className="flex flex-wrap items-baseline justify-between gap-x-2 text-xs font-medium uppercase tracking-wide text-slate-500"><span>{label}</span>{ur && <Ur className="text-sm normal-case">{ur}</Ur>}</div>
-    <div className={`mt-1 text-2xl font-bold tabular-nums ${accent ?? "text-slate-900"}`}>{value}</div>
+    <div className="flex flex-wrap items-baseline justify-between gap-x-2 text-xs font-medium text-slate-500"><span>{label}</span>{ur && <Ur className="text-xs">{ur}</Ur>}</div>
+    <div className={`mt-1 whitespace-nowrap text-xl font-extrabold tabular-nums 2xl:text-2xl ${accent ?? "text-slate-900"}`}>{value}</div>
     {sub && <div className="mt-1 text-xs text-slate-500">{sub}</div>}
   </div>
+);
+const ActionRow = ({ label, value, hot, onClick }: { label: string; value: string; hot?: boolean; onClick?: () => void }) => (
+  <li><button disabled={!onClick} onClick={onClick} className={`flex w-full items-center justify-between gap-3 py-2.5 text-left ${onClick ? "hover:bg-slate-50" : ""}`}>
+    <span className={hot ? "font-medium text-red-700" : "text-slate-700"}>{label}</span>
+    <span className={`flex items-center gap-1 font-bold tabular-nums ${hot ? "text-red-700" : ""}`}>{value}{onClick && <ChevronRight size={14} className="text-slate-400" />}</span>
+  </button></li>
 );
 
 /** Reminder for the wholesale officer: bypass fuel we already bought but haven't delivered — deliver it first. */
@@ -69,42 +77,89 @@ export function WholesaleDashboard({ onTrip, onAddClient, onTab }: { onTrip: () 
 
   return (
     <div className="space-y-5">
-      <WholesaleVoice onDone={reload} />
       <BypassHeldBanner onDeliver={manage ? onTrip : undefined} />
-      {manage && (
-        <div className="grid grid-cols-4 gap-2 sm:grid-cols-2 sm:gap-3 md:grid-cols-4 2xl:grid-cols-7">
-          {[
-            { label: "New supply", short: "Supply", ur: "سپلائی", sub: "one client", icon: Truck, cls: "bg-brand-600 text-white", go: () => setPick("supply") },
-            { label: "Tanker trip", short: "Trip", ur: "ٹینکر ٹرپ", sub: "several drops", icon: Truck, cls: "bg-slate-800 text-white", go: onTrip },
-            { label: "Receive payment", short: "Payment", ur: "رقم وصول", sub: "cash / bank", icon: Wallet, cls: "bg-emerald-600 text-white", go: () => setPick("payment") },
-            { label: "Book order", short: "Order", ur: "آرڈر", sub: "litres for a day", icon: ClipboardList, cls: "bg-amber-500 text-white", go: () => setDesk("order") },
-            { label: "Cheque received", short: "Cheque", ur: "چیک", sub: "post-dated too", icon: Banknote, cls: "bg-white text-slate-800 ring-1 ring-slate-200", go: () => setDesk("cheque") },
-            { label: "Payment promise", short: "Promise", ur: "وعدہ", sub: "will pay on …", icon: CalendarClock, cls: "bg-white text-slate-800 ring-1 ring-slate-200", go: () => setDesk("promise") },
-            { label: "Add client", short: "Client", ur: "نیا کلائنٹ", sub: "with rate card", icon: Plus, cls: "bg-white text-slate-800 ring-1 ring-slate-200", go: onAddClient },
-          ].map((b) => (
-            <button key={b.label} onClick={b.go} className={`flex flex-col items-center gap-1 rounded-2xl px-1 py-2.5 text-center shadow-sm active:scale-[.98] sm:flex-row sm:gap-3 sm:px-4 sm:py-3 sm:text-left ${b.cls}`}>
-              <b.icon size={22} className="shrink-0" /><span className="min-w-0"><span className="block text-[13px] font-semibold leading-tight sm:hidden">{b.short}</span><Ur className="block text-xs leading-tight sm:hidden">{b.ur}</Ur>
-                <span className="hidden font-semibold sm:block">{b.label} · <Ur className="font-normal">{b.ur}</Ur></span><span className="hidden text-xs opacity-75 sm:block">{b.sub}</span></span>
-            </button>
-          ))}
-        </div>
-      )}
-
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-6">
-        <Kpi label="Total due" ur="کل بقایا" value={pkrShort(k.total_due)} accent="text-amber-700" sub={k.overdue_30 > 0 ? <span className="font-medium text-red-600">{pkrShort(k.overdue_30)} older than 30 days</span> : "Nothing older than 30 days"} />
-        <Kpi label="Litres this month" ur="اس مہینے لیٹر" value={`${num(k.month_litres)} L`} sub={<Change v={k.month_litres_change} />} />
-        <Kpi label="Billed this month" ur="اس مہینے بل" value={pkrShort(k.month_billed)} sub={`${k.trips_month} tanker trips`} />
-        <Kpi label="Received this month" ur="اس مہینے وصولی" value={pkrShort(k.month_received)} accent="text-emerald-700" sub={k.collection_pct == null ? undefined : k.collection_pct > 100 ? "More than billed — old dues are coming down" : `${k.collection_pct}% of this month's billing`} />
-        <Kpi label="Profit (est.)" ur="منافع" value={k.profit_estimate != null ? pkrShort(k.profit_estimate) : "—"} sub={k.profit_estimate != null
-          ? <>{k.margin_per_l != null ? `Rs ${k.margin_per_l.toFixed(2)}/L over cost` : ""} · <Change v={k.month_profit_change} /> {k.last_month_profit != null && <span className="text-slate-400">(pichle mahine {pkrShort(k.last_month_profit)})</span>}</>
-          : "Add purchase rates to see profit"} />
-        <Kpi label="Today" ur="آج" value={`${num(k.today.litres)} L`} sub={`Received ${pkr(k.today.received)}`} />
+      {/* ERP toolbar: the voucher is the main entry; the rest are one tap away */}
+      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white p-3">
+        {manage && <button className="btn-primary" onClick={() => nav("/wholesale/voucher")}><FilePlus2 size={15} /> New supply voucher</button>}
+        <div className="flex-1" />
+        <button className="btn-secondary" onClick={() => nav("/wholesale/ledger")}><BookOpen size={15} /> Party ledger</button>
+        {manage && <>
+          <button className="btn-secondary" onClick={onTrip}><Truck size={15} /> Tanker trip</button>
+          <button className="btn-secondary" onClick={() => setPick("payment")}><Wallet size={15} /> Receipt</button>
+          <button className="btn-secondary" onClick={() => setDesk("order")}><ClipboardList size={15} /> Order</button>
+          <button className="btn-secondary" onClick={() => setDesk("cheque")}><Banknote size={15} /> Cheque</button>
+          <button className="btn-secondary" onClick={() => setDesk("promise")}><CalendarClock size={15} /> Promise</button>
+          <button className="btn-secondary" onClick={onAddClient}><Plus size={15} /> Client</button>
+        </>}
       </div>
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <button className="text-left" onClick={() => onTab("orders")}><Kpi label="Open orders" ur="باقی آرڈر" value={String(k.open_orders)} accent={k.orders_today ? "text-amber-700" : undefined} sub={`${num(k.open_orders_l)} L booked${k.orders_today ? ` · ${k.orders_today} for today / late` : ""}`} /></button>
-        <button className="text-left" onClick={() => onTab("collect")}><Kpi label="Promised today" ur="آج کے وعدے" value={pkrShort(k.promised_today)} accent="text-amber-700" sub={k.broken_promises ? <span className="font-medium text-red-600">{k.broken_promises} promise{k.broken_promises > 1 ? "s" : ""} broken</span> : "no broken promises"} /></button>
-        <button className="text-left" onClick={() => onTab("collect")}><Kpi label="Cheques not cleared" ur="چیک باقی" value={pkrShort(k.cheques_in_hand)} sub="in hand + deposited" /></button>
-        <button className="text-left" onClick={() => onTab("collect")}><Kpi label="Collection this month" ur="وصولی %" value={k.collection_pct == null ? "—" : `${k.collection_pct}%`} accent={k.collection_pct != null && k.collection_pct < 80 ? "text-red-600" : "text-emerald-700"} sub="received ÷ billed" /></button>
+
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-5">
+        <ErpKpi label="Total receivable" ur="کل وصولی باقی" value={pkr(k.total_due)} sub={`${data.clients.filter((c: any) => c.due > 0.5).length} clients`} />
+        <ErpKpi label="Overdue > 30 days" ur="30 دن سے پرانا" value={pkr(k.overdue_30)} accent={k.overdue_30 > 0 ? "text-red-700" : "text-emerald-700"}
+          sub={<span className={k.overdue_30 > 0 ? "text-red-700" : ""}>{data.clients.filter((c: any) => c.due > 0.5 && c.oldest_days > 30).length} clients · {k.total_due > 0 ? Math.round((k.overdue_30 / k.total_due) * 100) : 0}% of total</span>} />
+        <ErpKpi label="Supplied this month" ur="اس مہینے سپلائی" value={`${num(k.month_litres)} L`} sub={<>{pkr(k.month_billed)}{k.month_litres_change != null && <> · <Change v={k.month_litres_change} /></>}</>} />
+        <ErpKpi label="Collected this month" ur="اس مہینے وصولی" value={pkr(k.month_received)} accent="text-emerald-700" sub={k.collection_pct == null ? "nothing billed yet" : `${k.collection_pct}% collection rate`} />
+        <ErpKpi label="Gross margin" ur="منافع" value={k.profit_estimate != null ? pkr(k.profit_estimate) : "—"} sub={k.profit_estimate != null ? <>{k.margin_per_l != null ? `Rs ${k.margin_per_l.toFixed(2)} per litre` : ""}{k.month_profit_change != null && <> · <Change v={k.month_profit_change} /></>}</> : "Add purchase rates to see margin"} />
+      </div>
+
+      <WholesaleVoice compact onDone={reload} />
+
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-5">
+        <div className="card p-4 xl:col-span-2">
+          <div className="mb-3 flex items-baseline justify-between"><h2 className="font-bold">Receivable aging · <Ur className="font-normal">بقایا کتنا پرانا</Ur></h2><button className="text-sm text-brand-700 underline" onClick={() => onTab("collect")}>Recovery</button></div>
+          {ageTotal > 0 ? <div className="mb-3 flex h-3 gap-0.5 overflow-hidden rounded" role="img" aria-label="Due by age">
+            {AGE.map((a) => data.ageing[a.k] > 0 && <div key={a.k} title={`${a.label}: ${pkr(data.ageing[a.k])}`} style={{ width: `${(data.ageing[a.k] / ageTotal) * 100}%`, background: a.fill }} />)}
+          </div> : <p className="mb-3 text-sm text-emerald-700">Koi baqaya nahi ✓</p>}
+          <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+            {AGE.map((a) => <div key={a.k}><div className="flex items-center gap-1.5 text-xs text-slate-500"><span className="h-2.5 w-2.5 rounded-sm" style={{ background: a.fill }} />{a.label}</div>
+              <div className={`font-bold tabular-nums ${a.k === "d31_60" || a.k === "d60" ? (data.ageing[a.k] > 0 ? "text-red-700" : "") : ""}`}>{pkr(data.ageing[a.k])}</div></div>)}
+          </div>
+        </div>
+        <div className="card p-4 xl:col-span-3">
+          <div className="mb-1 flex flex-wrap items-baseline justify-between gap-2"><h2 className="font-bold">Supply vs collection · last 6 months · <Ur className="font-normal">سپلائی اور وصولی</Ur></h2></div>
+          <div className="h-56"><ResponsiveContainer>
+            <BarChart data={data.monthly ?? []} margin={{ top: 4, right: 4, left: 0, bottom: 0 }} barGap={3}>
+              <CartesianGrid stroke={GRID} vertical={false} />
+              <XAxis dataKey="month" tickFormatter={(ym: string) => MONTHS[Number(ym.split("-")[1])] ?? ym} tick={{ fill: AXIS, fontSize: 11 }} tickLine={false} axisLine={{ stroke: GRID }} />
+              <YAxis tickFormatter={(v) => (v >= 10_000_000 ? `${(v / 10_000_000).toFixed(1)}Cr` : v >= 100_000 ? `${Math.round(v / 100_000)}L` : v >= 1000 ? `${Math.round(v / 1000)}k` : v)} tick={{ fill: AXIS, fontSize: 11 }} tickLine={false} axisLine={false} width={44} />
+              <Tooltip cursor={{ fill: "rgba(15,23,42,.05)" }} formatter={(v: number, n: string) => [pkr(v), n === "supplied" ? "Supplied" : "Collected"]} labelFormatter={(ym) => String(ym)} />
+              <Legend formatter={(v) => <span className="text-xs text-slate-700">{v === "supplied" ? "Supplied" : "Collected"}</span>} iconType="square" iconSize={10} />
+              <Bar dataKey="supplied" fill={BILLED} radius={[4, 4, 0, 0]} maxBarSize={30} />
+              <Bar dataKey="collected" fill={RECEIVED} radius={[4, 4, 0, 0]} maxBarSize={30} />
+            </BarChart>
+          </ResponsiveContainer></div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+        <div className="card overflow-hidden xl:col-span-2">
+          <div className="flex items-baseline justify-between p-4 pb-2"><h2 className="font-bold">Top outstanding clients · <Ur className="font-normal">سب سے زیادہ ادھار</Ur></h2><button className="text-sm text-brand-700 underline" onClick={() => onTab("clients")}>All clients</button></div>
+          <div className="overflow-x-auto"><table className="w-full text-sm">
+            <thead><tr className="bg-slate-50 text-left text-xs font-semibold text-slate-500"><th className="px-4 py-2">Client</th><th className="px-3 py-2">Credit limit used</th><th className="px-3 py-2 text-right">Outstanding</th><th className="px-3 py-2 text-right">Oldest bill</th><th className="px-3 py-2" /></tr></thead>
+            <tbody>{[...data.clients].filter((c: any) => c.due > 0.5).sort((a: any, b: any) => b.due - a.due).slice(0, 6).map((c: any) => (
+              <tr key={c.id} className="border-t border-slate-100">
+                <td className="px-4 py-2.5"><button className="text-left font-semibold hover:underline" onClick={() => nav(`/wholesale/${c.id}`)}>{c.name}</button><div className="text-xs text-slate-500">{[c.city, c.phone].filter(Boolean).join(" · ")}</div></td>
+                <td className="px-3 py-2.5">{c.limit_pct != null ? <><div className="h-1.5 w-36 rounded bg-slate-100"><div className="h-full rounded" style={{ width: `${Math.min(100, Math.max(0, c.limit_pct))}%`, background: c.limit_pct >= 90 ? "#dc2626" : c.limit_pct >= 75 ? "#f59e0b" : "#0b6e4f" }} /></div><div className="mt-0.5 text-xs text-slate-500">{c.limit_pct}% of {pkrShort(c.credit_limit)}</div></> : <span className="text-xs text-slate-400">no limit</span>}</td>
+                <td className="px-3 py-2.5 text-right font-bold tabular-nums">{pkr(c.due)}</td>
+                <td className={`px-3 py-2.5 text-right tabular-nums ${c.oldest_days > 30 ? "font-semibold text-red-700" : ""}`}>{c.oldest_days} days</td>
+                <td className="px-3 py-2.5 text-right"><button className="btn-secondary min-h-8 !px-2.5 !py-1 text-xs" onClick={() => nav(`/wholesale/ledger?client=${c.id}`)}>Ledger</button></td>
+              </tr>
+            ))}</tbody>
+          </table></div>
+          {!data.clients.some((c: any) => c.due > 0.5) && <p className="p-4 text-center text-sm text-emerald-700">Kisi client ka baqaya nahi ✓</p>}
+        </div>
+        <div className="card p-4">
+          <h2 className="mb-2 font-bold">Needs action today · <Ur className="font-normal">آج کے کام</Ur></h2>
+          <ul className="divide-y divide-slate-100 text-sm">
+            <ActionRow label="Orders for today / late" value={String(k.orders_today)} hot={k.orders_today > 0} onClick={() => onTab("orders")} />
+            <ActionRow label="Open orders" value={`${k.open_orders} · ${num(k.open_orders_l)} L`} onClick={() => onTab("orders")} />
+            <ActionRow label="Promised to pay today" value={pkr(k.promised_today)} onClick={() => onTab("collect")} />
+            <ActionRow label="Broken promises" value={String(k.broken_promises)} hot={k.broken_promises > 0} onClick={() => onTab("collect")} />
+            <ActionRow label="Cheques to clear" value={pkr(k.cheques_in_hand)} onClick={() => onTab("collect")} />
+            <ActionRow label="Over 90% of credit limit" value={`${data.clients.filter((c: any) => (c.limit_pct ?? 0) >= 90).length} clients`} hot={data.clients.some((c: any) => (c.limit_pct ?? 0) >= 90)} onClick={() => onTab("clients")} />
+            <ActionRow label="Today so far" value={`${num(k.today.litres)} L · ${pkrShort(k.today.received)} in`} />
+          </ul>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
@@ -155,22 +210,6 @@ export function WholesaleDashboard({ onTrip, onAddClient, onTab }: { onTrip: () 
         </ResponsiveContainer></div>
       </div>}
 
-      <div className="card p-4">
-        <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2"><h2 className="font-semibold">How old is the money owed? · <Ur>بقایا کتنا پرانا ہے</Ur></h2><span className="text-sm text-slate-600">Total due {pkr(ageTotal)}</span></div>
-        {ageTotal > 0 && <div className="mb-3 flex h-4 gap-0.5 overflow-hidden rounded-md" role="img" aria-label="Due by age">
-          {AGE.map((a) => data.ageing[a.k] > 0 && <div key={a.k} title={`${a.label}: ${pkr(data.ageing[a.k])}`} style={{ width: `${(data.ageing[a.k] / ageTotal) * 100}%`, background: a.fill }} />)}
-        </div>}
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-          {AGE.map((a) => (
-            <div key={a.k} className="rounded-xl bg-slate-50 p-3">
-              <div className="flex items-center gap-2 text-xs text-slate-600"><span className="h-3 w-3 rounded-sm" style={{ background: a.fill }} />{a.label}</div>
-              <div className="mt-1 text-lg font-semibold tabular-nums">{pkrShort(data.ageing[a.k])}</div>
-              <div className="text-xs text-slate-500">{ageTotal ? Math.round((data.ageing[a.k] / ageTotal) * 100) : 0}%</div>
-            </div>
-          ))}
-        </div>
-      </div>
-
       <div className="card">
         <div className="flex flex-wrap items-center justify-between gap-2 p-4 pb-2">
           <h2 className="font-semibold">Clients at a glance · <Ur>کلائنٹس</Ur></h2>
@@ -216,7 +255,7 @@ export function WholesaleDashboard({ onTrip, onAddClient, onTab }: { onTrip: () 
         <Modal open onClose={() => setPick(null)} title={pick === "supply" ? "Supply to which client?" : "Payment from which client?"}>
           <div className="max-h-[60vh] space-y-1 overflow-y-auto">
             {data.clients.map((c: any) => (
-              <button key={c.id} className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left hover:bg-slate-50" onClick={() => nav(`/wholesale/${c.id}?do=${pick}`)}>
+              <button key={c.id} className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left hover:bg-slate-50" onClick={() => nav(pick === "supply" ? `/wholesale/voucher?client=${c.id}` : `/wholesale/${c.id}?do=${pick}`)}>
                 <span><span className="font-medium">{c.name}</span> <span className="text-xs text-slate-500">{c.city}</span></span>
                 <span className="text-sm tabular-nums text-slate-600">due {pkr(c.due)}</span>
               </button>
