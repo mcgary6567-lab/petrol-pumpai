@@ -214,7 +214,7 @@ const NAV = [
   { to: "/reports", label: "Reports", icon: FileBarChart, perm: "reports.view" },
   { to: "/sales-history", label: "Sales history", icon: Receipt, perm: "sales.view" },
   { to: "/insights", label: "Owner insights", icon: HeartPulse, perm: "reports.view" },
-  { to: "/owner-report", label: "Monthly report (PDF)", icon: FileBarChart, perm: "reports.view" },
+  { to: "/owner-report", label: "Financial statements", icon: Calculator, perm: "reports.view" },
   { to: "/discounts-report", label: "Discounts & overrides", icon: Tag, perm: "reports.view" },
   { to: "/other-entries", label: "Other income/expense", icon: HandCoins, perm: "other_entries.manage" },
   { to: "/investors", label: "Investors", icon: PiggyBank, perm: "investors.manage" },

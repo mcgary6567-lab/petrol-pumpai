@@ -6,11 +6,11 @@ import { num } from "../lib/format";
 export const Ur = ({ children, className = "" }: { children: React.ReactNode; className?: string }) => <span lang="ur" dir="rtl" className={`font-urdu ${className}`}>{children}</span>;
 
 /** The page bar: breadcrumb, title (with Urdu), then the filters and actions on the right. Sticks to the top while scrolling. */
-export function ErpBar({ crumb, title, ur, children }: { crumb: string; title: string; ur: string; children?: React.ReactNode }) {
+export function ErpBar({ crumb, title, ur, children, root = "Wholesale", rootTo = "/wholesale" }: { crumb: string; title: string; ur: string; children?: React.ReactNode; root?: string; rootTo?: string }) {
   return (
     <div className="sticky top-0 z-10 -mx-1 flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white/95 px-4 py-2.5 shadow-sm backdrop-blur print:hidden sm:gap-3">
       <div className="mr-auto min-w-0">
-        <div className="text-[11px] text-slate-500"><Link to="/wholesale" className="hover:underline">Wholesale</Link> › {crumb}</div>
+        <div className="text-[11px] text-slate-500"><Link to={rootTo} className="hover:underline">{root}</Link> › {crumb}</div>
         <h1 className="truncate text-lg font-bold leading-tight sm:text-xl">{title} · <Ur className="text-base font-normal">{ur}</Ur></h1>
       </div>
       {children}

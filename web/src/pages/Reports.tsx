@@ -3,8 +3,9 @@ import { Link } from "react-router-dom";
 import { ResponsiveContainer, ComposedChart, Bar, Line, LineChart, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from "recharts";
 import { Download, Printer, ArrowDownLeft, ArrowUpRight, TrendingUp, TrendingDown, Minus, Send } from "lucide-react";
 import { api, useApi } from "../lib/api";
-import { Badge, Empty, ErrorBox, Loading, PageHeader, SearchBar, Stat, matchQuery, useAction } from "../components/ui";
+import { Badge, Empty, ErrorBox, Loading, SearchBar, Stat, matchQuery, useAction } from "../components/ui";
 import { Ur } from "../components/VoiceShell";
+import { ErpBar } from "../components/WholesaleErp";
 import { PRODUCTS, PRODUCT_COLORS, ago, dt, num, pkr, pkrShort } from "../lib/format";
 
 /** English + Urdu together, bank-app style. Urdu sits under or beside the English. */
@@ -81,11 +82,26 @@ function Sparkline({ data, color = "#2a78d6", width = 108, height = 26 }: { data
   );
 }
 
+/** A totals cell in the same shape as the column's cells (rupees columns print "Rs", litres print a plain number). */
+const fmtTotal = (c: Col, v: number) => (/amount|sales|billed|received|collected|given|due|expense|revenue|variance|expected|counted|value|retail|wholesale$|balance|paid|cost|profit|net/i.test(c.h) && !/ l$/i.test(c.h) ? pkr(v) : num(v));
 function Table({ title, rows, cols }: TableDef) {
   const [q, setQ] = useState("");
   // searchable text of a row = each column's CSV value (or its plain string/number cell)
   const textOf = (c: Col, r: any) => { const x = c.csv ? c.csv(r) : c.v(r); return typeof x === "string" || typeof x === "number" ? x : ""; };
   const shown = q.trim() ? rows.filter((r) => matchQuery(q, ...cols.map((c) => textOf(c, r)))) : rows;
+  // accounting tables end in a totals row: every right-aligned column whose cells are numbers (litres, rupees, counts) adds up
+  const totals = useMemo(() => {
+    const t: Record<string, number | null> = {};
+    let any = false;
+    for (const c of cols) {
+      if (!c.right) continue;
+      const vals = shown.map((r) => (c.csv ? c.csv(r) : c.v(r)));
+      if (!vals.length || !vals.every((x) => typeof x === "number" || (typeof x === "string" && /^-?[\d,]+(\.\d+)?$/.test(x)))) { t[c.h] = null; continue; }
+      if (/%|rate|price|avg|per |capacity|limit|aging|days/i.test(c.h)) { t[c.h] = null; continue; } // a rate or a percentage does not add
+      t[c.h] = vals.reduce((a: number, x) => a + Number(String(x).replace(/,/g, "")), 0); any = true;
+    }
+    return any ? t : null;
+  }, [shown, cols]);
   return (
     // a short table stays on one page; a long one runs on (else it jumps whole to the next page and leaves half a page blank)
     <div className={`card overflow-hidden ${shown.length <= 12 ? "break-inside-avoid" : ""}`}>
@@ -107,9 +123,10 @@ function Table({ title, rows, cols }: TableDef) {
           })}
         </ul>
         <div className="hidden max-h-[480px] overflow-auto sm:block print:block print:max-h-none">
-          <table className="w-full">
-            <thead className="sticky top-0"><tr>{cols.map((c) => <th key={c.h} className={`th ${c.right ? "text-right" : ""}`}><Th h={c.h} /></th>)}</tr></thead>
-            <tbody>{shown.map((r, i) => <tr key={i}>{cols.map((c) => <td key={c.h} className={`td text-sm ${c.right || c.h === "Date" ? "whitespace-nowrap" : ""} ${c.right ? "text-right tabular-nums" : ""}`}>{c.v(r)}</td>)}</tr>)}</tbody>
+          <table className="w-full tabular-nums">
+            <thead className="sticky top-0"><tr className="border-b border-slate-300 bg-slate-100">{cols.map((c) => <th key={c.h} className={`px-3 py-2 text-xs font-bold text-slate-700 ${c.right ? "text-right" : "text-left"}`}><Th h={c.h} /></th>)}</tr></thead>
+            <tbody>{shown.map((r, i) => <tr key={i} className="border-b border-slate-100 hover:bg-slate-50">{cols.map((c) => <td key={c.h} className={`px-3 py-1.5 text-sm ${c.right || c.h === "Date" ? "whitespace-nowrap" : ""} ${c.right ? "text-right" : ""}`}>{c.v(r)}</td>)}</tr>)}</tbody>
+            {totals && <tfoot><tr className="border-t-2 border-slate-800 bg-slate-50 font-bold">{cols.map((c, i) => <td key={c.h} className={`px-3 py-2 text-sm ${c.right ? "text-right" : ""}`}>{i === 0 ? `Total (${shown.length})` : totals[c.h] != null ? fmtTotal(c, totals[c.h]!) : ""}</td>)}</tr></tfoot>}
           </table>
         </div>
       </>) : <Empty>Is period mein kuch nahi · <Ur>اس عرصے میں کچھ نہیں</Ur></Empty>}
@@ -160,17 +177,17 @@ export default function Reports() {
 
   return (
     <div className="space-y-5">
-      <PageHeader title={<Lbl en="Reports" ur="رپورٹس" />} subtitle={`Pakistan time · ${periodLabel}`}
-        actions={<div className="flex gap-2 print:hidden">
-          <button className="btn-secondary" disabled={!r} onClick={() => downloadCsv(`pumpai-${tab}-${from.slice(0, 10)}_${to.slice(0, 10)}`, tables)}><Download size={15} /> Excel / CSV</button>
-          <button className="btn-secondary" disabled={!r || wa.busy} onClick={() => wa.run(() => api("/reports/whatsapp", { body: { from, to } }), (x: any) => x.simulated ? "WhatsApp abhi set nahi — Settings me connect karein" : `Owner ko WhatsApp bhej diya (${x.to})`)}><Send size={15} /> WhatsApp</button>
-          <button className="btn-secondary" onClick={() => window.print()}><Printer size={15} /> Print / PDF · <Ur>پرنٹ</Ur></button>
-        </div>} />
+      <ErpBar root="Reports" rootTo="/reports" crumb={TABS.find(([k]) => k === tab)![1]} title="Reports" ur="رپورٹس">
+        <span className="hidden text-xs text-slate-500 xl:inline">{periodLabel}</span>
+        <div className="flex gap-1">{PRESETS.map((p) => (
+          <button key={p.key} onClick={() => setPreset(p.key)} className={`min-h-7 rounded-md border px-2 py-1 text-xs ${preset === p.key ? "border-brand-600 bg-brand-50 font-semibold text-brand-700" : "border-slate-200 bg-white hover:bg-slate-50"}`}>{p.label}</button>
+        ))}</div>
+        <button className="btn-secondary" disabled={!r} onClick={() => downloadCsv(`pumpai-${tab}-${from.slice(0, 10)}_${to.slice(0, 10)}`, tables)} title="Excel / CSV"><Download size={15} /><span className="hidden sm:inline"> Excel</span></button>
+        <button className="btn-secondary" disabled={!r || wa.busy} onClick={() => wa.run(() => api("/reports/whatsapp", { body: { from, to } }), (x: any) => x.simulated ? "WhatsApp abhi set nahi — Settings me connect karein" : `Owner ko WhatsApp bhej diya (${x.to})`)}><Send size={15} /><span className="hidden sm:inline"> WhatsApp</span></button>
+        <button className="btn-primary" onClick={() => window.print()}><Printer size={15} /> Print / PDF</button>
+      </ErpBar>
 
       <div className="flex flex-wrap items-end gap-2 print:hidden">
-        {PRESETS.map((p) => (
-          <button key={p.key} onClick={() => setPreset(p.key)} className={`min-h-10 rounded-full px-4 py-1.5 text-sm ${preset === p.key ? "bg-brand-600 text-white" : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"}`}>{p.label} <Ur className="text-[11px] opacity-80">{p.ur}</Ur></button>
-        ))}
         {preset === "custom" && (
           <div className="flex flex-wrap items-end gap-2">
             <label className="text-xs text-slate-600">From<input className="input mt-0.5" type="datetime-local" value={custom.from} onChange={(e) => e.target.value && setCustom({ ...custom, from: e.target.value })} /></label>
@@ -328,28 +345,28 @@ function Overview({ r }: { r: any }) {
   return (
     <>
       {/* bank-statement style account band: the period's bottom line at a glance, with last-period comparison */}
-      <div className="overflow-hidden rounded-2xl bg-gradient-to-br from-brand-700 to-brand-900 p-4 text-white shadow-sm sm:p-5 print:hidden">
+      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white p-4 sm:p-5 print:hidden">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <div className="text-xs uppercase tracking-wide text-white/70">Net profit (est.) · <Ur>خالص منافع</Ur></div>
-            <div className="mt-1 text-3xl font-bold tabular-nums sm:text-4xl">{est ? pkr(s.net_profit_estimate) : "—"}</div>
-            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-white/80">
-              {prev && est && <span className="rounded-full bg-white/15 px-2 py-0.5"><Delta now={s.net_profit_estimate} prev={prev.net_profit_estimate} /></span>}
+            <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Net profit (est.) · <Ur>خالص منافع</Ur></div>
+            <div className={`mt-1 text-3xl font-extrabold tabular-nums sm:text-4xl ${est && s.net_profit_estimate < 0 ? "text-red-700" : "text-slate-900"}`}>{est ? pkr(s.net_profit_estimate) : "—"}</div>
+            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-slate-600">
+              {prev && est && <span className="rounded-full bg-slate-100 px-2 py-0.5"><Delta now={s.net_profit_estimate} prev={prev.net_profit_estimate} /></span>}
               {margin != null && <span>Margin {margin.toFixed(1)}% · <Ur>مارجن</Ur></span>}
             </div>
           </div>
           <div className="grid grid-cols-3 gap-4 text-right">
             {[["Revenue", "آمدن", s.revenue, prev?.revenue, false], ["Expenses", "اخراجات", s.expenses, prev?.expenses, true], ["Gross profit", "مجموعی منافع", s.gross_profit_estimate, prev?.gross_profit_estimate, false]].map(([en, ur, now, pv, low]: any) => (
               <div key={en}>
-                <div className="text-[11px] uppercase tracking-wide text-white/60">{en}</div>
-                <div className="text-sm font-semibold tabular-nums sm:text-lg">{now != null ? pkrShort(now) : "—"}</div>
-                <Ur className="block text-[10px] text-white/50">{ur}</Ur>
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{en}</div>
+                <div className="text-sm font-bold tabular-nums sm:text-lg">{now != null ? pkrShort(now) : "—"}</div>
+                <Ur className="block text-[10px] text-slate-400">{ur}</Ur>
                 {prev && now != null && <div className="mt-0.5 text-[11px]"><Delta now={now} prev={pv} lowerIsBetter={low} money={false} /></div>}
               </div>
             ))}
           </div>
         </div>
-        {prev && <div className="mt-3 border-t border-white/15 pt-2 text-[11px] text-white/60">Comparison: pichhle barabar period se ({dt(prev.from)} → {dt(prev.to)}) · <Ur>پچھلے عرصے سے موازنہ</Ur></div>}
+        {prev && <div className="mt-3 border-t border-slate-100 pt-2 text-[11px] text-slate-500">Comparison: pichhle barabar period se ({dt(prev.from)} → {dt(prev.to)}) · <Ur>پچھلے عرصے سے موازنہ</Ur></div>}
       </div>
 
       {/* plain-language one-liner: what this period looks like, both scripts */}

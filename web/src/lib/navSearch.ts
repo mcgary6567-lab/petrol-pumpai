@@ -10,7 +10,7 @@ export const PAGE_WORDS: Record<string, string> = {
   "/reports": "report daily monthly sale summary print pdf rozana",
   "/sales-history": "sale history purani sales receipt bill invoice litre",
   "/insights": "owner insights analysis trend graph chart",
-  "/owner-report": "monthly report pdf mahana",
+  "/owner-report": "financial statements profit loss p&l balance sheet trial balance journal aging monthly report pdf mahana accountant",
   "/discounts-report": "discount riayat override rate kam",
   "/other-entries": "other income expense mutafarriq aamdan kharcha",
   "/margins": "margin target hadaf profit per litre",
