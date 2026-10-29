@@ -4,7 +4,7 @@ import { api, useApi } from "../lib/api";
 import { ProofPhotos, ProofThumbs } from "./Capture";
 import { challanPages, printPages, tripSheetPage } from "./TripPrint";
 import { WhatsAppDoc } from "./WhatsAppDoc";
-import { Badge, CnicInput, Empty, Field, ListTools, Loading, Modal, PhoneInput, useAction } from "./ui";
+import { Badge, CnicInput, Empty, Field, ListTools, Loading, Modal, Pager, PhoneInput, useAction, usePaged } from "./ui";
 import { supplierOpts } from "./SupplierSelect";
 import { BypassDeliveryForm } from "../pages/Bypass";
 import { PRODUCTS, d, dt, num, phone, pkr } from "../lib/format";
@@ -355,13 +355,14 @@ export function TripsTab({ onNew }: { onNew?: () => void }) {
   const { data } = useApi<any[]>(`/wholesale/trips?${qs}`);
   const [open, setOpen] = useState<number | null>(null);
   const filtered = Boolean(dq || range.from || range.to);
+  const paged = usePaged(data ?? [], 10);
   if (!data) return <Loading />;
   return (
     <div className="card">
       <div className="flex flex-wrap items-center justify-between gap-2 p-4 pb-2"><h2 className="font-semibold">Tanker trips · <span lang="ur" className="font-urdu">ٹینکر ٹرپ</span></h2><div className="flex flex-wrap gap-2"><WhatsAppDoc kind="trip_list" id={0} from={range.from || undefined} to={range.to || undefined} label="WhatsApp" />{onNew && <button className="btn-primary" onClick={onNew}><Truck size={15} /> New trip · <span lang="ur" className="font-urdu">نیا ٹرپ</span></button>}</div></div>
       <div className="px-4"><ListTools q={q} onQ={setQ} placeholder="Tanker / driver / client… · ٹینکر، ڈرائیور یا کلائنٹ" from={range.from} to={range.to} onFrom={(v) => setRange({ ...range, from: v })} onTo={(v) => setRange({ ...range, to: v })}
         right={filtered ? <button type="button" className="text-xs text-brand-700 hover:underline" onClick={() => { setQ(""); setRange({ from: "", to: "" }); }}>Clear</button> : null} /></div>
-      <ul className="divide-y divide-slate-100 sm:hidden">{data.map((t) => (
+      <ul className="divide-y divide-slate-100 sm:hidden">{(paged.slice as any[]).map((t) => (
         <li key={t.id} className="cursor-pointer space-y-1 px-4 py-3 active:bg-slate-50" onClick={() => setOpen(t.id)}>
           <div className="flex justify-between gap-2"><span className="font-medium">#{t.id} · {t.vehicle_no ?? "—"}</span><span className="font-semibold tabular-nums">{pkr(t.amount)}</span></div>
           <div className="flex justify-between gap-2 text-xs text-slate-500"><span className="truncate">{dt(t.trip_date)} · {t.driver_name ?? "—"}</span><span className="shrink-0">{t.source === "depot" ? "🏭 " : ""}{fuels(t.product)} · {num(t.litres)} L · {t.drops} drops</span></div>
@@ -369,7 +370,7 @@ export function TripsTab({ onNew }: { onNew?: () => void }) {
       ))}</ul>
       <div className="hidden overflow-x-auto sm:block"><table className="w-full">
         <thead><tr><th className="th">Trip</th><th className="th">Date</th><th className="th">Tanker</th><th className="th">Driver</th><th className="th">Product</th><th className="th text-right">Litres</th><th className="th text-right">Drops</th><th className="th text-right">Billed</th></tr></thead>
-        <tbody>{data.map((t) => (
+        <tbody>{(paged.slice as any[]).map((t) => (
           <tr key={t.id} className="cursor-pointer hover:bg-slate-50" onClick={() => setOpen(t.id)}>
             <td className="td font-medium">#{t.id}</td><td className="td text-xs">{dt(t.trip_date)}</td><td className="td">{t.vehicle_no ?? "—"}</td><td className="td">{t.driver_name ?? "—"}</td>
             <td className="td">{fuels(t.product)}{t.source === "depot" && <div className="text-xs text-sky-700">🏭 {depotName(t.supplier_name)}</div>}</td><td className="td text-right tabular-nums">{num(t.litres)} L</td><td className="td text-right">{t.drops}</td><td className="td text-right tabular-nums">{pkr(t.amount)}</td>
@@ -377,6 +378,7 @@ export function TripsTab({ onNew }: { onNew?: () => void }) {
         ))}</tbody>
       </table></div>{!data.length && (filtered ? <Empty>Kuch nahi mila · کچھ نہیں ملا</Empty> : <Empty>No tanker trips yet · ابھی کوئی ٹرپ نہیں. One trip can drop fuel at several clients — each at their own rate.</Empty>)}
       {data.length >= limit && limit < 500 && <div className="p-3"><button type="button" className="btn-secondary w-full" onClick={() => setLimit((n) => Math.min(500, n + 100))}>Show more · <span lang="ur" className="font-urdu">مزید دکھائیں</span></button></div>}
+      <div className="px-4 pb-3"><Pager {...paged} /></div>
       {open && <TripSheet id={open} onClose={() => setOpen(null)} />}
     </div>
   );

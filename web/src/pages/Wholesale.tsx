@@ -63,7 +63,7 @@ function ClientList() {
 
   return (
     <div className="space-y-5">
-      <PageHeader title="Wholesale supply · ہول سیل سپلائی" subtitle="Bulk fuel to dealers and businesses — each client has their own rate card and running account" />
+      {tab !== "dashboard" && <PageHeader title="Wholesale supply · ہول سیل سپلائی" subtitle="Bulk fuel to dealers and businesses — each client has their own rate card and running account" />}
       <div className="flex gap-1 overflow-x-auto border-b border-slate-200">
         {([["dashboard", "Dashboard", "ڈیش بورڈ"], ["ledger", "Party ledger", "پارٹی کھاتہ"], ["invoices", "Invoices", "بل"], ["board", "Order to cash", "آرڈر سے وصولی"], ["clients", "Clients", "کلائنٹس"], ["orders", "Order book", "آرڈر بک"], ["collect", "Recovery", "وصولی"], ["trips", "Tanker trips", "ٹینکر ٹرپ"], ["fleet", "Tankers & drivers", "ٹینکر اور ڈرائیور"]] as const).map(([k, l, u]) => (
           <button key={k} onClick={() => (k === "ledger" || k === "invoices" || k === "board" ? nav(`/wholesale/${k}`) : setTab(k))} className={`whitespace-nowrap border-b-2 px-3 py-1.5 text-center text-sm leading-tight ${tab === k ? "border-brand-600 font-medium text-brand-700" : "border-transparent text-slate-600"}`}>{l}<Ur className="block text-xs">{u}</Ur></button>
@@ -508,6 +508,7 @@ function LedgerTable({ rows: allRows, running, showClient, tools, onVoid, onEdit
   const filteredRows = useListFilter(allRows, { q, keep: (r) => !type || r.type === type,
     text: (r) => [r.vehicle_no, r.driver_name, r.trip_id && `trip #${r.trip_id}`, r.trip_id, r.ref, r.note, r.method, r.client_name, r.location, r.product && PRODUCTS[r.product], r.amount, r.void_reason].filter((v) => v != null && v !== false && v !== "").join(" ") });
   const rows = tools ? filteredRows : allRows;
+  const paged = usePaged(rows, 10); // 10 entries a page (print shows the lot)
   const bar = tools ? <div className="px-4 pt-2"><ListTools q={q} onQ={setQ} placeholder="Gaari / driver / trip / ref / note… · تلاش" chips={typeChips} chip={type} onChip={setType} shown={rows.length} total={allRows.length} /></div> : null;
   if (!rows.length) return <>{bar}<Empty>{allRows.length ? "Kuch nahi mila · کچھ نہیں ملا" : "No entries"}</Empty></>;
   const amounts = (r: any) => {
@@ -521,7 +522,7 @@ function LedgerTable({ rows: allRows, running, showClient, tools, onVoid, onEdit
     {bar}
     {/* phone: one line per entry */}
     <ul className="divide-y divide-slate-100 sm:hidden print:hidden">
-      {rows.map((r) => {
+      {paged.slice.map((r) => {
         const { debit, credit } = amounts(r);
         return (
           <li key={r.id} className={`flex gap-3 px-4 py-2.5 ${r.voided ? "text-slate-400 line-through print:hidden" : ""}`}>
@@ -554,7 +555,7 @@ function LedgerTable({ rows: allRows, running, showClient, tools, onVoid, onEdit
           <th className="th text-right">Debit<span className="print:hidden"> (billed)</span></th><th className="th text-right">Credit<span className="print:hidden"> (paid / returned)</span></th>{running && <th className="th text-right">Balance</th>}<th className="th print:hidden" />
         </tr></thead>
         <tbody>
-          {rows.map((r) => {
+          {paged.slice.map((r) => {
             const debit = r.type === "fuel_note" ? 0 : running ? r.debit : r.type === "supply" || r.type === "carriage" || (r.type === "adjustment" && r.amount > 0) ? Math.abs(r.amount) : 0;
             const credit = r.type === "fuel_note" ? 0 : running ? r.credit : debit ? 0 : Math.abs(r.amount);
             return (
@@ -582,6 +583,7 @@ function LedgerTable({ rows: allRows, running, showClient, tools, onVoid, onEdit
         </tbody>
       </table>
     </div>
+    <div className="px-4 pb-3"><Pager {...paged} /></div>
     </>
   );
 }

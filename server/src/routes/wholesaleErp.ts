@@ -7,6 +7,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { all, get, pkDate, pkStart, pkEnd, type Row } from "../db.js";
 import { h, parse, tid, requirePerm } from "../auth.js";
+import { wholesaleBillMessage } from "../billing.js";
 import { AppError, round2 } from "../services.js";
 import { PRODUCTS } from "../config.js";
 import { clientDue, clientDueAll, unpaidBills } from "./wholesale.js";
@@ -105,6 +106,20 @@ wholesaleErp.get("/wholesale/invoices/:no", h((req) => {
     ...(inv.status === "paid" ? [{ at: null, who: null, text: "Fully paid (older bills are cleared first)" }] : inv.unpaid > 0.5 && inv.unpaid < inv.amount - 0.5 ? [{ at: null, who: null, text: `Partly paid — ${round2(inv.amount - inv.unpaid)} received against it` }] : []),
   ];
   return { ...inv, lines: inv.lines, client: { ...c, due: clientDue(c.id) }, posting, activity };
+}));
+
+/** Send the whole bill (all its lines) as one WhatsApp message. */
+wholesaleErp.post("/wholesale/invoices/:no/whatsapp", requirePerm("wholesale.manage"), h(async (req) => {
+  const t = tid(req), no = String(req.params.no).toUpperCase();
+  const m = /^(WS|JV)-(\d+)$/.exec(no);
+  if (!m) throw new AppError(400, "Invoice number like WS-123");
+  const rows = all(`SELECT x.* FROM wholesale_txns x WHERE x.tenant_id=? AND x.type IN ('supply','carriage') AND (x.voucher_no=? OR (x.voucher_no IS NULL AND x.id=?)) ORDER BY x.id`, t, no, Number(m[2]));
+  if (!rows.length) throw new AppError(404, "Bill nahi mila");
+  const c = get("SELECT phone FROM wholesale_clients WHERE id=?", rows[0].client_id);
+  if (!c?.phone) throw new AppError(400, "Is client ka WhatsApp number nahi — pehle number add karein");
+  const sent = await wholesaleBillMessage(t, rows[0].client_id, no, rows);
+  if (!sent) throw new AppError(400, "Wholesale WhatsApp messages band hain (Settings → WhatsApp) ya bill void hai");
+  return { ok: true };
 }));
 
 /* ---------------- Order to cash board ---------------- */

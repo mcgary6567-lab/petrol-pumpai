@@ -1,13 +1,13 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { FilePlus2, Search } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { FilePlus2 } from "lucide-react";
 import { api, useApi } from "../lib/api";
 import { ErrorBox, Loading, useAction } from "./ui";
 import { PRODUCTS, num, pkr } from "../lib/format";
 import { useAuth } from "../App";
 import { OrderForm } from "./WholesaleDesk";
+import { ErpBar, ErpSearch, Ur } from "./WholesaleErp";
 
-const Ur = ({ children, className = "" }: { children: React.ReactNode; className?: string }) => <span lang="ur" dir="rtl" className={`font-urdu ${className}`}>{children}</span>;
 const day = (iso: string) => new Date(iso.length === 10 ? iso + "T00:00:00+05:00" : iso).toLocaleDateString("en-PK", { day: "numeric", month: "short" });
 const COLS: Record<string, { title: string; ur: string; hint: string; tint: string }> = {
   requests: { title: "Client requests", ur: "کلائنٹ کی درخواست", hint: "from the client portal", tint: "border-t-violet-500" },
@@ -26,6 +26,7 @@ export function OrderToCash() {
   const [q, setQ] = useState("");
   const [fuel, setFuel] = useState("");
   const [book, setBook] = useState<any>(null);
+  const [more, setMore] = useState<Record<string, number>>({}); // cards shown per column (10 a page, "show more")
   const { busy, run } = useAction();
   if (error) return <ErrorBox error={error} />;
   if (!data) return <Loading />;
@@ -37,14 +38,12 @@ export function OrderToCash() {
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3">
-        <div className="mr-auto"><div className="text-xs text-slate-500"><Link to="/wholesale" className="hover:underline">Wholesale</Link> › Sales</div>
-          <h1 className="text-xl font-bold">Order to cash · <Ur className="font-normal">آرڈر سے وصولی تک</Ur></h1></div>
-        <label className="relative"><Search size={15} className="absolute left-2.5 top-2.5 text-slate-400" /><input className="input w-56 pl-8" placeholder="Client, bill no…" value={q} onChange={(e) => setQ(e.target.value)} /></label>
+      <ErpBar crumb="Sales › Order to cash" title="Order to cash" ur="آرڈر سے وصولی تک">
+        <ErpSearch value={q} onChange={setQ} placeholder="Client, bill no, gaari… · تلاش" className="w-full sm:w-60" />
         <select className="input w-auto" value={fuel} onChange={(e) => setFuel(e.target.value)} aria-label="Fuel"><option value="">Fuel: all</option>{Object.entries(PRODUCTS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select>
         {manage && <button className="btn-secondary" onClick={() => setBook({})}>+ Order</button>}
         {manage && <button className="btn-primary" onClick={() => nav("/wholesale/voucher")}><FilePlus2 size={15} /> Supply voucher</button>}
-      </div>
+      </ErpBar>
       <div className="flex flex-wrap gap-x-6 gap-y-1 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm">
         <span>Requests <b>{col("requests").count}</b> · {num(col("requests").litres)} L</span>
         <span>Booked <b>{num(col("orders").litres)} L</b></span>
@@ -55,7 +54,7 @@ export function OrderToCash() {
 
       <div className="flex items-start gap-3 overflow-x-auto pb-3 xl:grid xl:grid-cols-5 xl:overflow-visible">
         {data.columns.map((c: any) => {
-          const meta = COLS[c.key], items = c.items.filter(keep);
+          const meta = COLS[c.key], items = c.items.filter(keep), shown = more[c.key] ?? 10;
           return (
             <section key={c.key} aria-label={meta.title} className={`flex w-72 min-w-0 shrink-0 flex-col gap-2 xl:w-auto rounded-xl border-t-4 bg-slate-100 p-2.5 ${meta.tint}`}>
               <div className="px-1">
@@ -63,7 +62,7 @@ export function OrderToCash() {
                 <div className="text-xs text-slate-500">{meta.hint} · <Ur>{meta.ur}</Ur></div>
               </div>
               {!items.length && <div className="rounded-lg border border-dashed border-slate-300 p-3 text-center text-xs text-slate-500">Khaali</div>}
-              {items.slice(0, 40).map((x: any) => (
+              {items.slice(0, shown).map((x: any) => (
                 <article key={`${c.key}${x.id ?? x.no}`} className="flex flex-col gap-1 rounded-lg border border-slate-200 bg-white p-3 text-sm shadow-sm">
                   <button className="text-left font-semibold hover:underline" onClick={() => nav(`/wholesale/${x.client_id}`)}>{x.client_name}</button>
                   {c.key === "requests" && <>
@@ -94,7 +93,7 @@ export function OrderToCash() {
                   </>}
                 </article>
               ))}
-              {items.length > 40 && <button className="rounded-lg bg-white p-2 text-center text-xs font-semibold text-brand-700" onClick={() => nav(c.key === "orders" ? "/wholesale?tab=orders" : "/wholesale/invoices?status=open")}>+ {items.length - 40} more</button>}
+              {items.length > shown && <button className="rounded-lg bg-white p-2 text-center text-xs font-semibold text-brand-700 hover:bg-brand-50" onClick={() => setMore({ ...more, [c.key]: shown + 10 })}>Show 10 more · {items.length - shown} baqi</button>}
             </section>
           );
         })}

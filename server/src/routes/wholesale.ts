@@ -14,7 +14,7 @@ import { PRODUCTS } from "../config.js";
 import { announce } from "../notifications.js";
 import { linkPhotos, proofPhotos, proofCol, requireProof, isCheque } from "./capture.js";
 import { bankAccountFor, accountIdField, DEPOT_PAY } from "./banks.js";
-import { wholesaleReceipt, wholesaleRateMessage, sendWholesaleStatement, billLink, prevMonth, receiptUrl } from "../billing.js";
+import { wholesaleReceipt, wholesaleBillMessage, wholesaleRateMessage, sendWholesaleStatement, billLink, prevMonth, receiptUrl } from "../billing.js";
 import { recordPurchase } from "./suppliers.js";
 import { createExpense } from "./expenses.js";
 import { claimForTrip } from "./claims.js";
@@ -825,7 +825,7 @@ wholesale.post("/wholesale/clients/:id/voucher", requirePerm("wholesale.manage")
     p.lines.forEach((l, i) => {
       run("UPDATE tanks SET current_l = current_l - ? WHERE id=?", l.litres, l.tank_id);
       const x = insertTxn(req, c.id, { ...b, ...fl, type: "supply", station_id: b.station_id, tank_id: l.tank_id, product: l.product, litres: l.litres, rate: l.rate, amount: l.amount,
-        photo_ids: i === 0 ? b.photo_ids : undefined });
+        photo_ids: i === 0 ? b.photo_ids : undefined, silent: true }); // one bill message for the whole voucher, below
       ids.push(x.id);
     });
     if (p.carriage > 0) {
@@ -837,6 +837,8 @@ wholesale.post("/wholesale/clients/:id/voucher", requirePerm("wholesale.manage")
     const due_after = clientDue(c.id);
     limitAlert(req, c, due_after);
     audit(tid(req), req.user!, "wholesale_voucher", `wtx:${ids[0]}`, { client_id: c.id, lines: p.lines.length, total: p.total, carriage: p.carriage, ids });
+    const no = `WS-${ids[0]}`;
+    setImmediate(() => wholesaleBillMessage(tid(req), c.id, no, all(`SELECT * FROM wholesale_txns WHERE voucher_no=? AND tenant_id=?`, no, tid(req))).catch((e) => console.error("[wholesale bill]", e.message)));
     return { ok: true, voucher_no: `WS-${ids[0]}`, ids, total: p.total, due_after };
   });
 }));

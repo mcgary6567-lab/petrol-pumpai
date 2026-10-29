@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { CheckCircle2, Plus, X } from "lucide-react";
 import { api, useApi } from "../lib/api";
 import { ErrorBox, Loading, Modal, useAction } from "./ui";
@@ -8,7 +8,7 @@ import { useAuth } from "../App";
 import { ProofPhotos } from "./Capture";
 import { FleetPicker, fleetBody } from "./WholesaleFleet";
 
-const Ur = ({ children, className = "" }: { children: React.ReactNode; className?: string }) => <span lang="ur" dir="rtl" className={`font-urdu ${className}`}>{children}</span>;
+import { ErpBar, Ur } from "./WholesaleErp";
 const pkToday = () => new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 10);
 const amt = (n: number) => num(Math.round(n * 100) / 100, 2);
 type Line = { product: string; litres: string; rate: string };
@@ -86,15 +86,12 @@ export function SupplyVoucher() {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3">
-        <div>
-          <div className="text-xs text-slate-500"><Link to="/wholesale" className="hover:underline">Wholesale</Link> › Supply voucher</div>
-          <h1 className="text-xl font-bold text-slate-900">New supply voucher <span className="ml-1 rounded-full bg-slate-100 px-2.5 py-0.5 align-middle text-xs font-semibold text-slate-600">Draft</span> <Ur className="text-base font-normal">سپلائی واؤچر</Ur></h1>
-        </div>
-        <div className="flex-1" />
+      <ErpBar crumb="Sales › Supply voucher" title="New supply voucher" ur="سپلائی واؤچر">
+        <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-600">Draft</span>
+        {preview && <span className="text-sm text-slate-600">Total <b className="tabular-nums">{pkr(total)}</b></span>}
         <button className="btn-secondary" onClick={() => nav(-1)}>Cancel</button>
         <button className="btn-primary" disabled={!ready || busy || !!preview?.issues?.length} onClick={post}>Post voucher <span className="hidden text-xs opacity-70 sm:inline">Ctrl+S</span></button>
-      </div>
+      </ErpBar>
 
       <div className="flex flex-wrap gap-4">
         <div className="flex min-w-0 flex-[999_1_620px] flex-col gap-4">

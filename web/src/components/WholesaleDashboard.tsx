@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Cell } from "recharts";
-import { ArrowDownRight, ArrowUpRight, Banknote, BookOpen, CalendarClock, ChevronRight, ClipboardList, FilePlus2, Plus, Search, Truck, Wallet } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, Banknote, BookOpen, CalendarClock, ChevronRight, ClipboardList, FilePlus2, Plus, Receipt, Route, Search, Truck, Wallet } from "lucide-react";
+import { ErpBar } from "./WholesaleErp";
 import { ChequeForm, OrderForm, PromiseForm } from "./WholesaleDesk";
 import { WholesaleVoice } from "./WholesaleVoice";
 import { useApi } from "../lib/api";
@@ -79,10 +80,10 @@ export function WholesaleDashboard({ onTrip, onAddClient, onTab }: { onTrip: () 
     <div className="space-y-5">
       <BypassHeldBanner onDeliver={manage ? onTrip : undefined} />
       {/* ERP toolbar: the voucher is the main entry; the rest are one tap away */}
-      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white p-3">
-        {manage && <button className="btn-primary" onClick={() => nav("/wholesale/voucher")}><FilePlus2 size={15} /> New supply voucher</button>}
-        <div className="flex-1" />
+      <ErpBar crumb="Dashboard" title="Wholesale dashboard" ur="ڈیش بورڈ">
         <button className="btn-secondary" onClick={() => nav("/wholesale/ledger")}><BookOpen size={15} /> Party ledger</button>
+        <button className="btn-secondary" onClick={() => nav("/wholesale/invoices")}><Receipt size={15} /> Invoices</button>
+        <button className="btn-secondary" onClick={() => nav("/wholesale/board")}><Route size={15} /> Order to cash</button>
         {manage && <>
           <button className="btn-secondary" onClick={onTrip}><Truck size={15} /> Tanker trip</button>
           <button className="btn-secondary" onClick={() => setPick("payment")}><Wallet size={15} /> Receipt</button>
@@ -90,8 +91,9 @@ export function WholesaleDashboard({ onTrip, onAddClient, onTab }: { onTrip: () 
           <button className="btn-secondary" onClick={() => setDesk("cheque")}><Banknote size={15} /> Cheque</button>
           <button className="btn-secondary" onClick={() => setDesk("promise")}><CalendarClock size={15} /> Promise</button>
           <button className="btn-secondary" onClick={onAddClient}><Plus size={15} /> Client</button>
+          <button className="btn-primary" onClick={() => nav("/wholesale/voucher")}><FilePlus2 size={15} /> New supply voucher</button>
         </>}
-      </div>
+      </ErpBar>
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-5">
         <ErpKpi label="Total receivable" ur="کل وصولی باقی" value={pkr(k.total_due)} sub={`${data.clients.filter((c: any) => c.due > 0.5).length} clients`} />

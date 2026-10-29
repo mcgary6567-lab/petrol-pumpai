@@ -70,6 +70,26 @@ export async function wholesaleReceipt(tenantId: number, clientId: number, txn: 
     `${c.name}\n${line}\n${due < -0.5 ? `Advance baqi: ${pkr(-due)}` : `Balance due now: ${pkr(due)}`}\n— ${get("SELECT name FROM tenants WHERE id=?", tenantId)!.name}`);
 }
 
+/** One WhatsApp message for a whole supply voucher / bill: every fuel line, the kiraya, the total and the balance now.
+ *  Used on posting (instead of one message per line) and by the "WhatsApp" button on the bill. */
+export async function wholesaleBillMessage(tenantId: number, clientId: number, no: string, lines: Row[]) {
+  if (!on(tenantId, "wholesale_messages")) return false;
+  const c = get("SELECT * FROM wholesale_clients WHERE id=? AND tenant_id=?", clientId, tenantId);
+  const live = lines.filter((l) => !l.voided);
+  if (!c?.phone || !live.length) return false;
+  const first = live[0];
+  const day = new Date(first.txn_date).toLocaleDateString("en-PK", { day: "numeric", month: "short", year: "numeric" });
+  const body = live.map((l) => l.type === "supply"
+    ? `• ${Math.round(l.litres ?? 0).toLocaleString("en-PK")} L ${PRODUCTS[l.product] ?? l.product} × Rs ${l.rate} = ${pkr(l.amount)}`
+    : `• Kiraya / carriage = ${pkr(l.amount)}`).join("\n");
+  const total = live.reduce((a, l) => a + l.amount, 0);
+  const meta = [first.vehicle_no && `gaari ${first.vehicle_no}`, first.driver_name && `driver ${first.driver_name}`, first.location && first.location, first.ref && `bilty ${first.ref}`].filter(Boolean).join(" · ");
+  const due = clientDue(c.id);
+  await sendDirect(tenantId, c, "wholesale_bill", `wbill:${no}`,
+    `${c.name}\n🧾 Bill ${no} · ${day}\n${body}\n*Total: ${pkr(total)}*${meta ? `\n${meta}` : ""}${first.note ? `\n${first.note}` : ""}\n${due < -0.5 ? `Advance baqi: ${pkr(-due)}` : `Kul baqaya ab: ${pkr(due)}`}\n— ${get("SELECT name FROM tenants WHERE id=?", tenantId)!.name}`);
+  return true;
+}
+
 export async function wholesaleRateMessage(tenantId: number, clientId: number, lines: string[]) {
   if (!lines.length || !on(tenantId, "wholesale_messages")) return;
   const c = get("SELECT * FROM wholesale_clients WHERE id=? AND tenant_id=?", clientId, tenantId);

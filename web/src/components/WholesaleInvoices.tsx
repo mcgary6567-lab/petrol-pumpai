@@ -1,14 +1,14 @@
 import { Fragment, useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { Ban, BookOpen, FilePlus2, Printer, Search, Send, Wallet } from "lucide-react";
+import { Ban, BookOpen, FilePlus2, Printer, Send, Wallet } from "lucide-react";
 import { api, useApi } from "../lib/api";
-import { Empty, ErrorBox, Loading, useAction } from "./ui";
+import { Empty, ErrorBox, Loading, Pager, useAction, usePaged } from "./ui";
+import { ErpBar, ErpSearch, Ur } from "./WholesaleErp";
 import { PRODUCTS, num, pkr } from "../lib/format";
 import { useAuth } from "../App";
 import { useBusiness } from "./Letterhead";
 import { askCancel, pinHeader } from "./CancelEntry";
 
-const Ur = ({ children, className = "" }: { children: React.ReactNode; className?: string }) => <span lang="ur" dir="rtl" className={`font-urdu ${className}`}>{children}</span>;
 const day = (iso: string) => new Date(Date.parse(iso)).toLocaleDateString("en-PK", { day: "2-digit", month: "short", year: "numeric" });
 const amt = (n: number) => num(Math.round(n * 100) / 100, 0);
 export const INV_STATUS: Record<string, { label: string; cls: string }> = {
@@ -37,20 +37,16 @@ export function SupplyInvoices() {
   const list = useApi<any>(`/wholesale/invoices?${qs}`);
   const sel = params.get("no") ?? list.data?.invoices?.[0]?.no ?? "";
   useEffect(() => { const t = setTimeout(() => set("q", q.trim()), 300); return () => clearTimeout(t); }, [q]);
-
   const data = list.data;
+  const paged = usePaged(data?.invoices ?? [], 10);
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 print:hidden">
-        <div className="mr-auto">
-          <div className="text-xs text-slate-500"><Link to="/wholesale" className="hover:underline">Wholesale</Link> › Sales › Supply invoices</div>
-          <h1 className="text-xl font-bold">Supply invoices · <Ur className="font-normal">سپلائی بل</Ur></h1>
-        </div>
-        <label className="relative"><Search size={15} className="absolute left-2.5 top-2.5 text-slate-400" /><input className="input w-60 pl-8" placeholder="Bill no, client, gaari, bilty…" value={q} onChange={(e) => setQ(e.target.value)} /></label>
-        <label className="text-xs text-slate-500">From <input type="date" className="input inline-block w-auto" value={from} onChange={(e) => set("from", e.target.value)} /></label>
-        <label className="text-xs text-slate-500">To <input type="date" className="input inline-block w-auto" max={pkToday()} value={to} onChange={(e) => set("to", e.target.value)} /></label>
+      <ErpBar crumb="Sales › Supply invoices" title="Supply invoices" ur="سپلائی بل">
+        <ErpSearch value={q} onChange={setQ} placeholder="Bill no, client, gaari, bilty… · تلاش" className="w-full sm:w-64" />
+        <input type="date" className="input w-auto" aria-label="From" value={from} onChange={(e) => set("from", e.target.value)} />
+        <input type="date" className="input w-auto" aria-label="To" max={pkToday()} value={to} onChange={(e) => set("to", e.target.value)} />
         {can("wholesale.manage") && <button className="btn-primary" onClick={() => nav("/wholesale/voucher")}><FilePlus2 size={15} /> New voucher</button>}
-      </div>
+      </ErpBar>
 
       <div className="flex gap-1 overflow-x-auto border-b border-slate-200 print:hidden">
         {TABS.map(([k, l]) => (
@@ -72,8 +68,8 @@ export function SupplyInvoices() {
         <div className="flex flex-wrap items-start gap-4">
           <section aria-label="Invoices" className="min-w-0 flex-[1_1_420px] overflow-hidden rounded-xl border border-slate-200 bg-white print:hidden">
             {!data.invoices.length ? <Empty>Is filter mein koi bill nahi</Empty> : (
-              <ul className="max-h-[70vh] divide-y divide-slate-100 overflow-y-auto">
-                {data.invoices.map((i: any) => (
+              <ul className="divide-y divide-slate-100">
+                {(paged.slice as any[]).map((i) => (
                   <li key={i.no}><button onClick={() => set("no", i.no)} className={`flex w-full items-start gap-3 px-4 py-3 text-left hover:bg-slate-50 ${sel === i.no ? "bg-brand-50/60 ring-1 ring-inset ring-brand-200" : ""}`}>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2"><b className="truncate">{i.client_name}</b><StatusChip s={i.status} /></div>
@@ -87,6 +83,7 @@ export function SupplyInvoices() {
                 ))}
               </ul>
             )}
+            <div className="px-4 pb-2"><Pager {...paged} /></div>
           </section>
           <div className="min-w-0 flex-[1.4_1_520px]">{sel ? <InvoiceView no={sel} onChanged={() => list.reload()} /> : <Empty>Bill chunen</Empty>}</div>
         </div>
@@ -110,7 +107,7 @@ export function InvoiceView({ no, onChanged }: { no: string; onChanged?: () => v
     <div className="space-y-3">
       <div className="flex flex-wrap gap-2 print:hidden">
         <button className="btn-secondary" onClick={() => window.print()}><Printer size={15} /> Print / PDF</button>
-        {can("wholesale.manage") && c.phone && i.status !== "void" && <button className="btn-secondary" disabled={busy} onClick={() => run(() => api(`/wholesale/clients/${c.id}/txn/${live[0].id}/whatsapp`, { body: {} }), "Bill WhatsApp par bhej diya")}><Send size={15} /> WhatsApp</button>}
+        {can("wholesale.manage") && c.phone && i.status !== "void" && <button className="btn-secondary" disabled={busy} onClick={() => run(() => api(`/wholesale/invoices/${i.no}/whatsapp`, { body: {} }), "Poora bill WhatsApp par bhej diya")}><Send size={15} /> WhatsApp</button>}
         {can("wholesale.manage") && i.unpaid > 0.5 && <button className="btn-secondary !border-brand-600 !text-brand-700" onClick={() => nav(`/wholesale/${c.id}?do=payment`)}><Wallet size={15} /> Record payment</button>}
         <button className="btn-secondary" onClick={() => nav(`/wholesale/ledger?client=${c.id}`)}><BookOpen size={15} /> Ledger</button>
         {can("wholesale.void") && live.length > 0 && <button className="btn-secondary !text-red-700" onClick={async () => {

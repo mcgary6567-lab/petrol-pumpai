@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { CalendarClock, CheckCircle2, ClipboardList, HandCoins, Landmark, MessageCircle, Phone, Plus, Truck, Undo2, XCircle, Banknote } from "lucide-react";
 import { api, useApi } from "../lib/api";
-import { Badge, Empty, Field, Loading, Modal, SearchBar, useAction } from "./ui";
+import { Badge, Empty, Field, Loading, Modal, Pager, SearchBar, useAction, usePaged } from "./ui";
 import { PRODUCTS, num, pkr, pkrShort } from "../lib/format";
 import { ProofPhotos, ProofThumbs } from "./Capture";
 import { AccountPicker, BankLogo, BankNamePicker } from "./BankParts";
@@ -107,20 +107,23 @@ export function OrdersTab({ onTrip }: { onTrip: () => void }) {
   const [doneLimit, setDoneLimit] = useState(15);
   const { data, reload } = useApi<any>(`/wholesale/orders?limit=${doneLimit}${doneQ.trim() ? `&q=${encodeURIComponent(doneQ.trim())}` : ""}`);
   const [form, setForm] = useState(false);
+  const [q, setQ] = useState("");
   const { busy, run } = useAction();
   if (!data) return <Loading />;
   const manage = can("wholesale.manage");
   const doneRows: any[] = data.done ?? [];
+  const hit = (o: any) => !q.trim() || [o.client_name, o.product, PRODUCTS[o.product], o.location, o.note, o.litres, o.needed_on].some((v) => String(v ?? "").toLowerCase().includes(q.trim().toLowerCase()));
   const groups = [
-    { k: "late", label: "Late — not delivered", ur: "دیر ہو گئی", rows: data.open.filter((o: any) => o.late), tone: "border-l-red-500" },
-    { k: "today", label: "Deliver today", ur: "آج", rows: data.open.filter((o: any) => o.today), tone: "border-l-amber-500" },
-    { k: "next", label: "Coming days", ur: "اگلے دن", rows: data.open.filter((o: any) => !o.late && !o.today), tone: "border-l-sky-500" },
+    { k: "late", label: "Late — not delivered", ur: "دیر ہو گئی", rows: data.open.filter((o: any) => o.late && hit(o)), tone: "border-l-red-500" },
+    { k: "today", label: "Deliver today", ur: "آج", rows: data.open.filter((o: any) => o.today && hit(o)), tone: "border-l-amber-500" },
+    { k: "next", label: "Coming days", ur: "اگلے دن", rows: data.open.filter((o: any) => !o.late && !o.today && hit(o)), tone: "border-l-sky-500" },
   ];
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap gap-2">
         {manage && <button className="btn-primary" onClick={() => setForm(true)}><Plus size={15} /> New order · آرڈر</button>}
         {manage && <button className="btn-secondary" onClick={onTrip}><Truck size={15} /> Tanker trip from orders</button>}
+        <SearchBar className="ml-auto w-full sm:w-64" value={q} onChange={setQ} placeholder="Client, fuel, jagah… · تلاش" />
       </div>
       <ClientRequests />
 
@@ -148,7 +151,7 @@ export function OrdersTab({ onTrip }: { onTrip: () => void }) {
                   <div className="text-sm text-slate-600"><b>{num(o.litres)} L</b> {PRODUCTS[o.product]}{o.location ? ` · ${o.location}` : ""}{o.note ? ` · ${o.note}` : ""}</div>
                 </div>
                 {manage && <div className="flex gap-2">
-                  <button className="btn-primary !py-1.5 text-sm" onClick={() => nav(`/wholesale/${o.client_id}?do=supply&order=${o.id}`)}><Truck size={14} /> Supply</button>
+                  <button className="btn-primary !py-1.5 text-sm" onClick={() => nav(`/wholesale/voucher?client=${o.client_id}&order=${o.id}`)}><Truck size={14} /> Supply</button>
                   {o.phone && <a className="btn-secondary !px-2.5 !py-1.5" href={tel(o.phone)!} aria-label="Call"><Phone size={14} /></a>}
                   <button className="btn-secondary !px-2.5 !py-1.5 text-red-600" disabled={busy} aria-label="Cancel order" onClick={async () => {
                     const reason = prompt("Why is this order cancelled?"); if (!reason) return;
@@ -226,7 +229,12 @@ export function CollectTab() {
   const { data, reload } = useApi<any>("/wholesale/collect");
   const [form, setForm] = useState<null | "promise" | "cheque" | { promiseFor: any }>(null);
   const [act, setAct] = useState<null | { q: any; kind: "deposit" | "clear" | "bounce" }>(null);
+  const [q, setQ] = useState("");
   const { busy, run } = useAction();
+  const hit = (v: unknown[]) => !q.trim() || v.some((x) => String(x ?? "").toLowerCase().includes(q.trim().toLowerCase()));
+  const calls = usePaged((data?.calls ?? []).filter((c: any) => hit([c.name, c.phone, c.due, ...(c.reasons ?? [])])), 10);
+  const chq = usePaged((data?.cheques ?? []).filter((x: any) => hit([x.client_name, x.bank, x.cheque_no, x.amount, x.status])), 10);
+  const prom = usePaged((data?.promises ?? []).filter((x: any) => hit([x.client_name, x.amount, x.promised_on, x.note])), 10);
   if (!data) return <Loading />;
   const manage = can("wholesale.manage");
   const t = data.totals;
@@ -243,12 +251,13 @@ export function CollectTab() {
         <button className="btn-primary" onClick={() => setForm("cheque")}><Plus size={15} /> Cheque received · چیک</button>
         <button className="btn-secondary" onClick={() => setForm("promise")}><CalendarClock size={15} /> Payment promise · وعدہ</button>
       </div>}
+      <SearchBar className="w-full sm:w-72" value={q} onChange={setQ} placeholder="Client, cheque no, bank… · تلاش" />
 
       <div className="card overflow-hidden">
         <h2 className="border-b border-slate-100 px-4 py-2.5 font-semibold">Call list — who to ask for money today · <Ur>آج کس سے رقم مانگنی ہے</Ur></h2>
-        {data.calls.length ? <ul className="divide-y divide-slate-100">{data.calls.map((c: any, i: number) => (
+        {calls.total ? <ul className="divide-y divide-slate-100">{(calls.slice as any[]).map((c, i) => (
           <li key={c.client_id} className="flex flex-wrap items-center gap-3 px-4 py-3">
-            <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-bold ${i < 3 ? "bg-red-100 text-red-700" : "bg-slate-100 text-slate-600"}`}>{i + 1}</span>
+            <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-bold ${calls.start + i < 3 ? "bg-red-100 text-red-700" : "bg-slate-100 text-slate-600"}`}>{calls.start + i + 1}</span>
             <div className="min-w-0 flex-1 basis-56">
               <button className="font-semibold hover:underline" onClick={() => nav(`/wholesale/${c.client_id}`)}>{c.name}</button>
               <span className="ml-2 font-bold tabular-nums text-amber-700">{pkr(c.due)}</span>
@@ -260,13 +269,14 @@ export function CollectTab() {
               {c.phone && <a className="btn-secondary !py-1.5 text-sm" target="_blank" rel="noreferrer" href={`${wa(c.phone)}?text=${encodeURIComponent(`Assalam o Alaikum ${c.name}, aap ka baqaya ${pkr(c.due)} hai. Meharbani kar ke payment ka bata dein. Shukriya.`)}`}><MessageCircle size={14} /> WhatsApp</a>}
               {manage && <button className="btn-secondary !py-1.5 text-sm" onClick={() => setForm({ promiseFor: { id: c.client_id, name: c.name, summary: { due: c.due } } })}><CalendarClock size={14} /> Promise</button>}
             </div>
-          </li>))}</ul> : <Empty>Nobody to chase today 🎉</Empty>}
+          </li>))}</ul> : <Empty>{q ? "Kuch nahi mila" : "Nobody to chase today 🎉"}</Empty>}
+        <div className="px-4 pb-2"><Pager {...calls} /></div>
       </div>
 
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
         <div className="card overflow-hidden">
           <h2 className="border-b border-slate-100 px-4 py-2.5 font-semibold">Cheque register · <Ur>چیک رجسٹر</Ur></h2>
-          {data.cheques.length ? <ul className="divide-y divide-slate-100">{data.cheques.map((q: any) => {
+          {chq.total ? <ul className="divide-y divide-slate-100">{(chq.slice as any[]).map((q) => {
             const ready = q.status === "in_hand" && q.cheque_date <= today();
             return (
               <li key={q.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
@@ -286,18 +296,20 @@ export function CollectTab() {
                 </div>}
               </li>
             );
-          })}</ul> : <Empty>No cheques in the register</Empty>}
+          })}</ul> : <Empty>{q ? "Kuch nahi mila" : "No cheques in the register"}</Empty>}
+          <div className="px-4 pb-2"><Pager {...chq} /></div>
         </div>
 
         <div className="card overflow-hidden">
           <h2 className="border-b border-slate-100 px-4 py-2.5 font-semibold">Payment promises · <Ur>ادائیگی کے وعدے</Ur></h2>
-          {data.promises.length ? <ul className="divide-y divide-slate-100">{data.promises.map((p: any) => (
+          {prom.total ? <ul className="divide-y divide-slate-100">{(prom.slice as any[]).map((p) => (
             <li key={p.id} className="flex flex-wrap items-center gap-3 px-4 py-2.5 text-sm">
               <div className="min-w-0 flex-1"><b>{p.client_name}</b> · {pkr(p.amount)} on {nice(p.promised_on)}
                 <div className="text-xs text-slate-500">{p.paid > 0 ? `Received ${pkr(p.paid)} since` : "Nothing received yet"}{p.note ? ` · ${p.note}` : ""}</div></div>
               <Badge tone={PROM[p.state].tone}>{PROM[p.state].label}</Badge>
               {manage && p.state !== "kept" && <button className="text-xs text-slate-400 hover:text-red-600" disabled={busy} onClick={async () => { if (confirm("Remove this promise?") && await run(() => api(`/wholesale/promises/${p.id}`, { method: "DELETE" }), "Removed")) reload(); }}>remove</button>}
-            </li>))}</ul> : <Empty>No promises noted</Empty>}
+            </li>))}</ul> : <Empty>{q ? "Kuch nahi mila" : "No promises noted"}</Empty>}
+          <div className="px-4 pb-2"><Pager {...prom} /></div>
         </div>
       </div>
 
