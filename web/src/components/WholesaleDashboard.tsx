@@ -215,7 +215,7 @@ export function WholesaleDashboard({ onTrip, onAddClient, onTab }: { onTrip: () 
       <div className="card">
         <div className="flex flex-wrap items-center justify-between gap-2 p-4 pb-2">
           <h2 className="font-semibold">Clients at a glance · <Ur>کلائنٹس</Ur></h2>
-          <div className="relative w-full sm:w-56"><Search size={15} className="absolute left-2.5 top-2.5 text-slate-400" /><input className="input pl-8" placeholder="Search client" value={q} onChange={(e) => setQ(e.target.value)} /></div>
+          <div className="relative w-full sm:w-56"><Search size={15} className="absolute left-2.5 top-2.5 text-slate-400" /><input className="input pl-8" placeholder="Search client" aria-label="Search client" value={q} onChange={(e) => setQ(e.target.value)} /></div>
         </div>
         {/* phone: one card per client */}
         <ul className="divide-y divide-slate-100 sm:hidden">{paged.slice.map((c: any) => (

@@ -38,7 +38,7 @@ export function Client360({ c, refreshKey, onAction, onTab }: { c: any; refreshK
       <div className="flex min-w-0 flex-[999_1_600px] flex-col gap-4">
         <nav aria-label="Client records" className="flex flex-wrap gap-2 print:hidden">
           {smart.map((s) => (
-            <button key={s.label} onClick={s.go} className={`flex min-w-[118px] flex-col items-start rounded-xl border px-3.5 py-2.5 text-left hover:border-brand-400 ${s.tone === "red" ? "border-red-200 bg-red-50" : s.tone === "amber" ? "border-amber-200 bg-amber-50" : "border-slate-200 bg-white"}`}>
+            <button key={s.label} onClick={s.go} className={`flex min-h-11 min-w-[118px] flex-col items-start rounded-xl border px-3.5 py-2.5 text-left hover:border-brand-400 ${s.tone === "red" ? "border-red-200 bg-red-50" : s.tone === "amber" ? "border-amber-200 bg-amber-50" : "border-slate-200 bg-white"}`}>
               <b className={`text-lg tabular-nums ${s.tone === "red" ? "text-red-700" : s.tone === "amber" ? "text-amber-800" : s.tone === "green" ? "text-emerald-700" : ""}`}>{s.value}</b>
               <span className="text-xs text-slate-500">{s.label}</span>
             </button>

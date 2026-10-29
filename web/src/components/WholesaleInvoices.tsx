@@ -130,7 +130,7 @@ export function InvoiceView({ no, onChanged }: { no: string; onChanged?: () => v
             {i.ref && <div><span className="text-slate-500">Bilty / ref </span>{i.ref}</div>}{i.vehicle_no && <div><span className="text-slate-500">Vehicle </span>{i.vehicle_no}</div>}
             <div className="mt-1 print:hidden"><StatusChip s={i.status} /></div></div>
         </div>
-        <table className="mt-4 w-full text-sm tabular-nums">
+        <div className="mt-4 overflow-x-auto"><table className="w-full text-sm tabular-nums">
           <thead><tr className="border-y border-slate-300 bg-slate-50 text-left text-xs font-bold text-slate-700"><th className="px-2 py-2">#</th><th className="px-2 py-2">Item</th><th className="px-2 py-2">From</th><th className="px-2 py-2 text-right">Litres</th><th className="px-2 py-2 text-right">Rate</th><th className="px-2 py-2 text-right">Amount</th></tr></thead>
           <tbody>{i.lines.map((l: any, n: number) => (
             <tr key={l.id} className={`border-b border-slate-100 ${l.voided ? "text-slate-400 line-through" : ""}`}>
@@ -142,7 +142,7 @@ export function InvoiceView({ no, onChanged }: { no: string; onChanged?: () => v
               <td className="px-2 py-2 text-right font-semibold">{amt(l.amount)}</td>
             </tr>
           ))}</tbody>
-        </table>
+        </table></div>
         <div className="mt-3 flex justify-end">
           <div className="w-72 space-y-1 text-sm tabular-nums">
             <div className="flex justify-between"><span className="text-slate-500">Litres</span><span>{num(i.litres)} L</span></div>

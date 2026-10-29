@@ -27,7 +27,9 @@ export const wholesale = Router();
 wholesale.use("/wholesale", requirePerm("wholesale.view"));
 
 const product = productSchema();
-const dateStr = z.string().regex(/^\d{4}-\d{2}-\d{2}/).optional();
+// a date that really exists on the calendar (the shape alone lets 2026-13-45 through and SQLite then throws a 500)
+const realDay = (v: string) => { const d = v.slice(0, 10); return !Number.isNaN(Date.parse(d + "T00:00:00Z")) && new Date(d + "T00:00:00Z").toISOString().slice(0, 10) === d; };
+const dateStr = z.string().regex(/^\d{4}-\d{2}-\d{2}/).refine(realDay, "Invalid date").optional();
 
 function ownClient(tenantId: number, id: number) {
   const c = get("SELECT * FROM wholesale_clients WHERE id=? AND tenant_id=?", id, tenantId);
@@ -977,7 +979,7 @@ export function tripSheet(t: number, id: number) {
 }
 /** Tanker trips, newest first. Optional `q` (tanker number, driver or a client on the trip), `from`/`to` (PK days) and `limit` (default 100, max 500). */
 const tripListQuery = z.object({
-  q: z.string().trim().max(80).optional(), from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  q: z.string().trim().max(80).optional(), from: dateStr, to: dateStr,
   limit: z.coerce.number().int().min(1).max(500).default(100),
 });
 wholesale.get("/wholesale/trips", h((req) => {

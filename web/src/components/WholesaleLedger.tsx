@@ -104,7 +104,7 @@ export function PartyLedger() {
         <input type="date" className="input w-auto" aria-label="To" value={to} onChange={(e) => set("to", e.target.value)} />
         <div className="flex gap-1">
           {([["Month", monthStart, pkToday()], ["3 mo", new Date(Date.now() - 89 * 864e5).toISOString().slice(0, 10), pkToday()], ["All", "", ""]] as const).map(([l, f, t]) => (
-            <button key={l} className={`rounded-md border px-2 py-1 text-xs ${from === f && to === t ? "border-brand-600 bg-brand-50 font-semibold text-brand-700" : "border-slate-200 hover:bg-slate-50"}`} onClick={() => setRange(f, t)}>{l}</button>
+            <button key={l} className={`min-h-7 rounded-md border px-2 py-1 text-xs ${from === f && to === t ? "border-brand-600 bg-brand-50 font-semibold text-brand-700" : "border-slate-200 hover:bg-slate-50"}`} onClick={() => setRange(f, t)}>{l}</button>
           ))}
         </div>
         <button className="btn-secondary" onClick={() => window.print()} title="Print"><Printer size={15} /><span className="hidden sm:inline"> Print</span></button>
@@ -168,7 +168,7 @@ export function PartyLedger() {
                   return (
                     <tr key={l.id} className={`border-b border-slate-100 ${l.voided ? "text-slate-400 line-through" : note ? "text-slate-500" : "hover:bg-slate-50"}`}>
                       <td className={`${TD} whitespace-nowrap`}>{dayLabel(l.txn_date)}</td>
-                      <td className={`${TD} whitespace-nowrap`}>{note ? "—" : <button className="font-medium text-brand-700 hover:underline print:text-slate-900" onClick={() => setOpen(l)}>{voucherNo(l)}</button>}</td>
+                      <td className={`${TD} whitespace-nowrap`}>{note ? "—" : <button className="inline-flex min-h-6 items-center font-medium text-brand-700 hover:underline print:text-slate-900" onClick={() => setOpen(l)}>{voucherNo(l)}</button>}</td>
                       <td className={TD}>{particulars(l)}{l.voided ? " (VOID)" : ""}</td>
                       {showFleet && <><td className={`${TD} whitespace-nowrap`}>{l.vehicle_no ?? ""}</td>
                         <td className={`${TD} text-right`}>{l.litres ? (l.type === "return" ? "−" : "") + num(l.litres, 0) : ""}</td>
@@ -180,7 +180,7 @@ export function PartyLedger() {
                   );
                 })}
                 {!lines.length && <tr><td colSpan={cols} className="px-3 py-8 text-center text-slate-500">{needle ? "Kuch nahi mila · کچھ نہیں ملا" : "Is muddat mein koi entry nahi"}</td></tr>}
-                {paged.page === paged.pages && !needle && <tr className="bg-slate-50 font-bold text-slate-800">
+                {!needle && <tr className="bg-slate-50 font-bold text-slate-800">{/* period totals on every page — they are the period's, not the page's */}
                   <td className={TD} colSpan={showFleet ? 4 : 3}>Totals for the period</td>
                   {showFleet && <><td className={`${TD} text-right`}>{num(litres, 0)}</td><td /></>}
                   <td className={`${TD} text-right text-red-700`}>{amt(dr)}</td><td className={`${TD} text-right text-emerald-700`}>{amt(cr)}</td>
@@ -217,7 +217,7 @@ export function PartyLedger() {
                 {(pagedUnpaid.slice as any[]).map((b) => (
                   <tr key={b.id} className="border-b border-slate-100 hover:bg-slate-50">
                     <td className={`${TD} whitespace-nowrap`}>{dayLabel(b.txn_date)}</td>
-                    <td className={TD}><button className="font-medium text-brand-700 hover:underline" onClick={() => setOpen(b)}>{voucherNo(b)}</button></td>
+                    <td className={TD}><button className="inline-flex min-h-6 items-center font-medium text-brand-700 hover:underline" onClick={() => setOpen(b)}>{voucherNo(b)}</button></td>
                     <td className={TD}>{particulars(b)}{b.litres ? ` · ${num(b.litres, 0)} L` : ""}</td>
                     <td className={TD}>{b.vehicle_no ?? ""}</td>
                     <td className={`${TD} text-right`}>{amt(b.amount)}</td>

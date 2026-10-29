@@ -117,3 +117,14 @@ test("invoices: a voucher is one bill (fuel + kiraya), status follows payments F
   assert.ok(x.activity.length >= 4 && x.activity.some((e: any) => e.kind === "payment"));
   assert.equal(ok(await call("admin", "GET", "/api/books/check"), "books").ok, true);
 });
+
+test("hardening: an impossible calendar date is a 400, not a 500; roles and limits hold", async () => {
+  assert.equal((await call("wholesale", "GET", "/api/wholesale/invoices?from=2026-13-45")).status, 400, "bad month");
+  assert.equal((await call("wholesale", "GET", "/api/wholesale/invoices?from=2026-02-30")).status, 400, "30 Feb");
+  assert.equal((await call("wholesale", "GET", `/api/wholesale/clients/${client.id}/statement?from=2026-00-10`)).status, 400, "statement bad date");
+  assert.equal((await call("wholesale", "GET", "/api/wholesale/invoices?from=2026-02-28")).status, 200, "real date ok");
+  assert.equal((await call("wholesale", "GET", "/api/wholesale/invoices/WS-1'%20OR%201=1--")).status, 400, "invoice no shape");
+  assert.equal((await call("wholesale", "POST", `/api/wholesale/clients/${client.id}/voucher/preview`, { station_id: st.id, lines: [{ product: "HSD", litres: -5 }] })).status, 400, "negative litres");
+  assert.equal((await call("wholesale", "POST", `/api/wholesale/clients/${client.id}/voucher/preview`, { station_id: st.id, lines: Array(7).fill({ product: "HSD", litres: 1 }) })).status, 400, "7 lines");
+  assert.equal((await call("wholesale", "GET", "/api/wholesale/requests")).status, 403, "officer cannot see portal requests");
+});

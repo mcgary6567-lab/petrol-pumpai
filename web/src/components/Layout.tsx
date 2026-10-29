@@ -426,6 +426,8 @@ export default function Layout() {
   return (
     <NotificationsProvider>
     <div className="flex min-h-screen">
+      {/* keyboard users: jump past the sidebar straight to the page (WCAG 2.4.1) */}
+      <a href="#main" className="sr-only focus:not-sr-only focus:fixed focus:left-2 focus:top-2 focus:z-[70] focus:rounded-lg focus:bg-brand-600 focus:px-3 focus:py-2 focus:text-sm focus:font-semibold focus:text-white print:hidden" onClick={(e) => { e.preventDefault(); document.getElementById("main")?.focus(); }}>Skip to content · مواد پر جائیں</a>
       {cmd && (
         <div className="fixed inset-0 z-[60] flex items-start justify-center bg-black/40 p-4 pt-[12vh] print:hidden" onClick={() => setCmd(false)}>
           <div className="w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
@@ -469,7 +471,7 @@ export default function Layout() {
           <button onClick={toggleTheme} aria-label="Theme" className="text-slate-500">{dark ? <Sun size={20} /> : <Moon size={20} />}</button>
           <NotificationBell />
         </header>
-        <main className="mx-auto max-w-7xl p-4 lg:p-6 print:max-w-none print:p-0"><PrintHeader /><OfflineBanner /><GoLiveBanner /><div key={pageLoc.pathname} className="animate-page-in"><Outlet /></div><PrintFooter />
+        <main id="main" tabIndex={-1} className="mx-auto max-w-7xl p-4 outline-none lg:p-6 print:max-w-none print:p-0"><PrintHeader /><OfflineBanner /><GoLiveBanner /><div key={pageLoc.pathname} className="animate-page-in"><Outlet /></div><PrintFooter />
           </main>
         <PageGuideButton />
       </div>

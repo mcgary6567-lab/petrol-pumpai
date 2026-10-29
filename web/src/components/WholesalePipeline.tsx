@@ -64,11 +64,11 @@ export function OrderToCash() {
               {!items.length && <div className="rounded-lg border border-dashed border-slate-300 p-3 text-center text-xs text-slate-500">Khaali</div>}
               {items.slice(0, shown).map((x: any) => (
                 <article key={`${c.key}${x.id ?? x.no}`} className="flex flex-col gap-1 rounded-lg border border-slate-200 bg-white p-3 text-sm shadow-sm">
-                  <button className="text-left font-semibold hover:underline" onClick={() => nav(`/wholesale/${x.client_id}`)}>{x.client_name}</button>
+                  <button className="inline-flex min-h-6 items-center text-left font-semibold hover:underline" onClick={() => nav(`/wholesale/${x.client_id}`)}>{x.client_name}</button>
                   {c.key === "requests" && <>
                     <span>{PRODUCTS[x.product] ?? x.product} · {num(x.litres)} L</span>
                     <span className="text-xs text-slate-500">Wants {day(x.want_date)}{x.note ? ` · ${x.note}` : ""}</span>
-                    {ceo ? <div className="mt-1 flex gap-2"><button disabled={busy} className="rounded-md bg-brand-600 px-2.5 py-1 text-xs font-semibold text-white" onClick={() => decide(x, "approve")}>Approve</button><button disabled={busy} className="rounded-md border border-slate-300 px-2.5 py-1 text-xs" onClick={() => decide(x, "reject")}>Reject</button></div>
+                    {ceo ? <div className="mt-1 flex gap-2"><button disabled={busy} className="min-h-6 rounded-md bg-brand-600 px-2.5 py-1 text-xs font-semibold text-white" onClick={() => decide(x, "approve")}>Approve</button><button disabled={busy} className="min-h-6 rounded-md border border-slate-300 px-2.5 py-1 text-xs" onClick={() => decide(x, "reject")}>Reject</button></div>
                       : <Tag cls="bg-violet-50 text-violet-700">CEO approves</Tag>}
                   </>}
                   {c.key === "orders" && <>
@@ -76,15 +76,15 @@ export function OrderToCash() {
                     <span className="text-xs text-slate-500">SO-{x.id} · for {day(x.needed_on)}{x.location ? ` · ${x.location}` : ""}</span>
                     <div className="mt-1 flex flex-wrap items-center gap-2">
                       {x.state === "late" ? <Tag cls="bg-red-50 text-red-700">Late</Tag> : x.state === "today" ? <Tag cls="bg-amber-50 text-amber-800">Today</Tag> : null}
-                      {manage && <button className="rounded-md bg-brand-600 px-2.5 py-1 text-xs font-semibold text-white" onClick={() => nav(`/wholesale/voucher?client=${x.client_id}&order=${x.id}`)}>Make voucher</button>}
+                      {manage && <button className="min-h-6 rounded-md bg-brand-600 px-2.5 py-1 text-xs font-semibold text-white" onClick={() => nav(`/wholesale/voucher?client=${x.client_id}&order=${x.id}`)}>Make voucher</button>}
                     </div>
                   </>}
                   {(c.key === "unpaid" || c.key === "overdue") && <>
-                    <button className="text-left text-brand-700 hover:underline" onClick={() => nav(`/wholesale/invoices?no=${x.no}&client=${x.client_id}&from=2000-01-01`)}>{x.no} · {pkr(x.amount)}</button>
+                    <button className="inline-flex min-h-6 items-center text-left text-brand-700 hover:underline" onClick={() => nav(`/wholesale/invoices?no=${x.no}&client=${x.client_id}&from=2000-01-01`)}>{x.no} · {pkr(x.amount)}</button>
                     <span className="text-xs text-slate-500">{day(x.txn_date)}{x.litres ? ` · ${num(x.litres)} L` : ""}{x.vehicle_no ? ` · ${x.vehicle_no}` : ""}</span>
                     <div className="mt-1 flex flex-wrap items-center gap-2">
                       <Tag cls={c.key === "overdue" ? "bg-red-50 text-red-700" : x.status === "partly" ? "bg-amber-50 text-amber-800" : "bg-sky-50 text-sky-800"}>{c.key === "overdue" ? `${x.days} days · due ${pkr(x.unpaid)}` : x.status === "partly" ? `Partly paid · due ${pkr(x.unpaid)}` : `Due ${pkr(x.unpaid)}`}</Tag>
-                      {manage && <button className="rounded-md border border-brand-600 px-2 py-0.5 text-xs font-semibold text-brand-700" onClick={() => nav(`/wholesale/${x.client_id}?do=payment`)}>Receipt</button>}
+                      {manage && <button className="min-h-6 rounded-md border border-brand-600 px-2 py-0.5 text-xs font-semibold text-brand-700" onClick={() => nav(`/wholesale/${x.client_id}?do=payment`)}>Receipt</button>}
                     </div>
                   </>}
                   {c.key === "paid" && <>

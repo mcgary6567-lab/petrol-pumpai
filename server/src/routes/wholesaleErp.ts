@@ -17,6 +17,8 @@ export const wholesaleErp = Router();
 wholesaleErp.use("/wholesale", requirePerm("wholesale.view"));
 
 const DAY = 86_400_000;
+/** YYYY-MM-DD that is a real calendar day (2026-13-45 matches the shape but is not a date → 400, never a 500 from SQLite). */
+const isoDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((v) => !Number.isNaN(Date.parse(v + "T00:00:00Z")) && new Date(v + "T00:00:00Z").toISOString().slice(0, 10) === v, "Invalid date");
 const OVERDUE_DAYS = 30;
 /** Invoice number of a supply / kiraya line: its voucher's number, else WS-<id> (supply) or JV-<id> (stand-alone kiraya). */
 const KEY = "COALESCE(x.voucher_no, CASE x.type WHEN 'supply' THEN 'WS-' ELSE 'JV-' END || x.id)";
@@ -64,7 +66,7 @@ const invRows = (t: number, where: string, args: (string | number)[]) => all(
 const listQ = z.object({
   status: z.enum(["all", "unpaid", "partly", "overdue", "paid", "void", "open"]).default("all"),
   q: z.string().trim().max(80).optional(), client: z.coerce.number().int().optional(),
-  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  from: isoDay.optional(), to: isoDay.optional(),
 });
 wholesaleErp.get("/wholesale/invoices", h((req) => {
   const t = tid(req), q = parse(listQ, req.query);
