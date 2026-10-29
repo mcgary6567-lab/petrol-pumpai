@@ -5,7 +5,7 @@ import { api, useApi } from "../lib/api";
 import { Empty, ErrorBox, Loading, useAction } from "./ui";
 import { PRODUCTS, num, pkr } from "../lib/format";
 import { useAuth } from "../App";
-import { PrintFooter, PrintHeader, useBusiness } from "./Letterhead";
+import { useBusiness } from "./Letterhead";
 import { askCancel, pinHeader } from "./CancelEntry";
 
 const Ur = ({ children, className = "" }: { children: React.ReactNode; className?: string }) => <span lang="ur" dir="rtl" className={`font-urdu ${className}`}>{children}</span>;
@@ -122,7 +122,7 @@ export function InvoiceView({ no, onChanged }: { no: string; onChanged?: () => v
       </div>
 
       <article className="rounded-xl border border-slate-200 bg-white p-6 print:border-0 print:p-0">
-        <PrintHeader />
+        <div className="hidden text-center text-lg font-extrabold tracking-wide print:block">SUPPLY INVOICE · {i.no}</div>
         <div className="flex flex-wrap items-start justify-between gap-4 border-b-2 border-brand-600 pb-3 print:hidden">
           <div><div className="text-lg font-extrabold">{biz?.name ?? ""}</div><div className="text-xs text-slate-500">{[biz?.place, biz?.biz_phone || biz?.owner_phone].filter(Boolean).join(" · ")}</div></div>
           <div className="text-right"><div className="text-xl font-extrabold tracking-wide text-slate-800">SUPPLY INVOICE</div><div className="text-sm text-slate-600">{i.no}</div></div>
@@ -157,7 +157,6 @@ export function InvoiceView({ no, onChanged }: { no: string; onChanged?: () => v
         </div>
         {live[0]?.note && <p className="mt-3 text-sm"><span className="text-slate-500">Narration: </span>{live[0].note}</p>}
         <div className="mt-8 hidden grid-cols-2 gap-10 text-center text-xs text-slate-600 print:grid"><div className="border-t border-slate-400 pt-1">Received by (client)</div><div className="border-t border-slate-400 pt-1">Authorised signature</div></div>
-        <PrintFooter />
       </article>
 
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2 print:hidden">

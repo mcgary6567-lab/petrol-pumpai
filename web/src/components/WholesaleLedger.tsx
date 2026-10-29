@@ -5,7 +5,6 @@ import { api, linkToken, useApi } from "../lib/api";
 import { Empty, ErrorBox, Loading, useAction } from "./ui";
 import { PRODUCTS, num, pkr } from "../lib/format";
 import { useAuth } from "../App";
-import { PrintFooter, PrintHeader } from "./Letterhead";
 import { WholesaleEntryView } from "./EntryView";
 
 const Ur = ({ children, className = "" }: { children: React.ReactNode; className?: string }) => <span lang="ur" dir="rtl" className={`font-urdu ${className}`}>{children}</span>;
@@ -88,7 +87,6 @@ export function PartyLedger() {
 
   return (
     <div className="space-y-4">
-      <PrintHeader />
       {/* header bar: client, period, actions */}
       <div className="flex flex-wrap items-end gap-3 rounded-xl border border-slate-200 bg-white p-4 print:hidden">
         <div className="mr-2">
@@ -237,7 +235,6 @@ export function PartyLedger() {
             <span>{lines.length} entries</span>
           </div>
         </section>
-        <PrintFooter />
       </>}
       {open && <WholesaleEntryView clientId={Number(clientId)} txnId={Number(open.id)} onClose={() => setOpen(null)} />}
     </div>
