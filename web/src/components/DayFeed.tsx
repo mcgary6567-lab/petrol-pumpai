@@ -13,13 +13,16 @@ import { num, pkr } from "../lib/format";
 
 const today = () => new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 10);
 const daysAgo = (n: number) => new Date(Date.now() + 5 * 3600_000 - n * 86_400_000).toISOString().slice(0, 10);
-/** sum of the shown rows that move money one way — "in" = credit (aaya), "out" = debit (gaya). */
-const sumDir = (rs: any[], dir: "in" | "out") => rs.reduce((a, r) => a + (r.dir === dir ? r.amount : 0), 0);
-/** a row that belongs in the Debit (gaya) column of a print: money out, OR credit maal gaya (wholesale supply / supplier udhaar bill). */
-const isDebitRow = (r: any) => r.dir === "out" || r.kind === "ws_supply" || r.kind === "supply_bill";
-const sumDebit = (rs: any[]) => rs.reduce((a, r) => a + (isDebitRow(r) ? r.amount : 0), 0);
-/** Wholesale statement: the server marks each row Debit (supply di, supplier ko payment) or Credit (udhaar maal, client payment / wapsi). */
-const sumSide = (rs: any[], side: "dr" | "cr") => rs.reduce((a, r) => a + (r.side === side ? r.amount : 0), 0);
+/** Day-book side of any row, every scope: Debit = money out / maal supply di; Credit = money in / udhaar maal aaya. The server
+ *  marks wholesale rows itself; the rest follow their direction. A neutral row (hisaab barabar) sits in neither column. */
+const sideOf = (r: any): "dr" | "cr" | null => r.side ?? (r.dir === "out" || r.kind === "ws_supply" ? "dr" : r.dir === "in" || r.kind === "supply_bill" ? "cr" : null);
+const sumDrCr = (rs: any[], side: "dr" | "cr") => rs.reduce((a, r) => a + (sideOf(r) === side ? r.amount : 0), 0);
+/** Running Dr − Cr down the list, oldest first (the feed is newest first), keyed by row id. */
+function running(rs: any[]): Map<string, number> {
+  const m = new Map<string, number>(); let bal = 0;
+  for (const r of [...rs].reverse()) { const sd = sideOf(r); bal += sd === "dr" ? r.amount : sd === "cr" ? -r.amount : 0; m.set(r.id, bal); }
+  return m;
+}
 /** Debit − Credit, labelled which way it leans */
 const farq = (n: number) => `${pkr(Math.abs(n))} ${n > 0 ? "Dr" : n < 0 ? "Cr" : ""}`.trim();
 /** share the day's summary (totals + count) on WhatsApp — opens the share sheet so any contact can be picked. */
@@ -101,29 +104,20 @@ export function DayFeed({ title = "Aaj ki saari entries", scope = "all" }: { tit
             </div>
           )}
           {data && <button type="button" className="btn-secondary !text-emerald-700" onClick={() => shareWhatsApp(title, data)} title="Is report ka khulasa WhatsApp par bhejein"><MessageCircle size={15} /> WhatsApp</button>}
-          {data && <PrintListButton title={`${title} — ${data.date}`} subtitle={data.is_today ? "aaj (abhi tak)" : data.date} rows={rows} label="Report / Print"
-            note={ws ? `Debit ${pkr(data.totals.debit)} · Credit ${pkr(data.totals.credit)} · Farq ${farq(data.totals.net)} · ${data.totals.count} entries`
-              : `Sales ${pkr(data.totals.sales)} · Kharcha ${pkr(data.totals.expenses)} · Aur aaya ${pkr(data.totals.received)} · Aur gaya ${pkr(data.totals.paid)} · ${data.totals.count} entries`}
-            columns={[
+          {data && <PrintListButton title={`Day Book — ${title}`} subtitle={`${data.is_today ? "aaj (abhi tak)" : data.date}${data.from !== data.to ? ` · ${data.from} → ${data.to}` : ""}`} rows={[...rows].reverse()} label="Report / Print"
+            note={`Debit (gaya / supply di) ${pkr(sumDrCr(rows, "dr"))} · Credit (aaya / udhaar maal) ${pkr(sumDrCr(rows, "cr"))} · Farq ${farq(sumDrCr(rows, "dr") - sumDrCr(rows, "cr"))} · ${rows.length} entries`}
+            columns={(() => { const bal = running(rows); return [
               { label: "Waqt", v: (r: any) => when(r.at, data.from !== data.to) },
-              { label: "Kism", v: (r: any) => KIND[r.kind]?.en ?? r.kind },
-              { label: "Kis ne", v: (r: any) => r.who ?? "—" },
-              { label: "Party", v: (r: any) => r.party ?? "—", total: (rs: any[]) => `${rs.length} entries` },
-              { label: "Tafseel", v: (r: any) => r.label ?? "" },
-              ...(rows.some((r: any) => r.vehicle) ? [{ label: "Gaari", v: (r: any) => r.vehicle ?? "" }] : []),
-              // Litre / Rs-per-litre only when the list has fuel rows (cashier counter entries are money only)
+              { label: "Voucher", v: (r: any) => KIND[r.kind]?.en ?? r.kind, sub: (r: any) => r.ref ?? null },
+              { label: "Particulars", v: (r: any) => [r.party, r.label].filter(Boolean).join(" — ") || "—", sub: (r: any) => [r.who && `by ${r.who}`, r.vehicle && `🚛 ${r.vehicle}`].filter(Boolean).join(" · ") || null, total: (rs: any[]) => `Totals · ${rs.length} entries` },
               ...(rows.some((r: any) => r.litres || r.rate) ? [
-                { label: "Litre", r: true, v: (r: any) => (r.litres ? `${num(r.litres, r.litres % 1 ? 2 : 0)} L` : "") },
-                { label: "Rs/litre", r: true, v: (r: any) => (r.rate ? `Rs ${num(r.rate, 2)}` : "") },
+                { label: "Litre", r: true, v: (r: any) => (r.litres ? num(r.litres, r.litres % 1 ? 2 : 0) : ""), total: (rs: any[]) => num(rs.reduce((x: number, r: any) => x + (r.litres ?? 0), 0)) },
+                { label: "Rate", r: true, v: (r: any) => (r.rate ? num(r.rate, 2) : "") },
               ] : []),
-              ...(ws ? [
-                { label: "Debit", r: true, v: (r: any) => (r.side === "dr" ? pkr(r.amount) : ""), tone: () => "neg" as const, total: (rs: any[]) => pkr(sumSide(rs, "dr")), totalTone: "neg" as const },
-                { label: "Credit", r: true, v: (r: any) => (r.side === "cr" ? pkr(r.amount) : ""), tone: () => "pos" as const, total: (rs: any[]) => pkr(sumSide(rs, "cr")), totalTone: "pos" as const },
-              ] : [
-                { label: "Credit (aaya)", r: true, v: (r: any) => (r.dir === "in" ? pkr(r.amount) : ""), tone: () => "pos" as const, total: (rs: any[]) => pkr(sumDir(rs, "in")), totalTone: "pos" as const },
-                { label: "Debit (gaya)", r: true, v: (r: any) => (isDebitRow(r) ? pkr(r.amount) : ""), tone: () => "neg" as const, total: (rs: any[]) => pkr(sumDebit(rs)), totalTone: "neg" as const },
-              ]),
-            ]} />}
+              { label: "Debit", r: true, v: (r: any) => (sideOf(r) === "dr" ? num(r.amount) : ""), tone: () => "neg" as const, total: (rs: any[]) => num(sumDrCr(rs, "dr")), totalTone: "neg" as const },
+              { label: "Credit", r: true, v: (r: any) => (sideOf(r) === "cr" ? num(r.amount) : ""), tone: () => "pos" as const, total: (rs: any[]) => num(sumDrCr(rs, "cr")), totalTone: "pos" as const },
+              { label: "Balance (Dr − Cr)", r: true, v: (r: any) => farq(bal.get(r.id) ?? 0), total: (rs: any[]) => farq(sumDrCr(rs, "dr") - sumDrCr(rs, "cr")) },
+            ]; })()} />}
         </div>
       </div>
 
@@ -132,7 +126,7 @@ export function DayFeed({ title = "Aaj ki saari entries", scope = "all" }: { tit
           {/* day totals */}
           <div className="mb-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
             {(ws ? [["Debit (Dr)", data.totals.debit, "text-rose-700"], ["Credit (Cr)", data.totals.credit, "text-emerald-700"], ["Farq (Dr − Cr)", data.totals.net, "text-slate-800", farq(data.totals.net)], ["Entries", data.totals.count, "text-slate-800", num(data.totals.count)]]
-              : [["Sales", data.totals.sales, "text-emerald-700"], ["Kharcha", data.totals.expenses, "text-rose-700"], ["Aur aaya", data.totals.received, "text-emerald-700"], ["Aur gaya", data.totals.paid, "text-rose-700"]]).map(([k, v, c, shown]: any) => (
+              : [["Sales", data.totals.sales, "text-emerald-700"], ["Kharcha", data.totals.expenses, "text-rose-700"], ["Debit (gaya)", sumDrCr(data.rows, "dr"), "text-rose-700"], ["Credit (aaya)", sumDrCr(data.rows, "cr"), "text-emerald-700"]]).map(([k, v, c, shown]: any) => (
               <div key={k} className="rounded-xl bg-slate-50 p-2 text-center"><div className="text-[11px] uppercase tracking-wide text-slate-500">{k}</div><div className={`font-bold tabular-nums ${c}`}>{shown ?? pkr(v)}</div></div>
             ))}
           </div>
@@ -170,7 +164,7 @@ export function DayFeed({ title = "Aaj ki saari entries", scope = "all" }: { tit
                   <thead><tr>
                     <th className="th">Waqt</th><th className="th">Kism</th><th className="th">Kis ne</th><th className="th">Party</th><th className="th">Tafseel</th>
                     {vehCol && <th className="th">Gaari</th>}{fuelCols && <><th className="th text-right">Litre</th><th className="th text-right">Rate</th></>}
-                    {ws ? <><th className="th text-right">Debit</th><th className="th text-right">Credit</th></> : <><th className="th text-right">Aaya</th><th className="th text-right">Gaya</th></>}
+                    <th className="th text-right">Debit</th><th className="th text-right">Credit</th>
                   </tr></thead>
                   <tbody>{paged.slice.map((r: any) => (
                     <tr key={r.id}>
@@ -184,20 +178,15 @@ export function DayFeed({ title = "Aaj ki saari entries", scope = "all" }: { tit
                         <td className="td whitespace-nowrap text-right text-xs tabular-nums">{r.litres ? `${num(r.litres, r.litres % 1 ? 2 : 0)} L` : ""}</td>
                         <td className="td whitespace-nowrap text-right text-xs tabular-nums">{r.rate ? `Rs ${num(r.rate, 2)}` : ""}</td>
                       </>}
-                      {ws ? <>
-                        <td className="td whitespace-nowrap text-right tabular-nums text-rose-700">{r.side === "dr" ? pkr(r.amount) : ""}</td>
-                        <td className="td whitespace-nowrap text-right tabular-nums text-emerald-700">{r.side === "cr" ? pkr(r.amount) : !r.side ? <span className="text-slate-400" title="Hisaab barabar kiya — paisa nahi hila">({pkr(r.amount)})</span> : ""}</td>
-                      </> : <>
-                        <td className="td whitespace-nowrap text-right tabular-nums text-emerald-700">{r.dir === "in" ? pkr(r.amount) : ""}</td>
-                        <td className="td whitespace-nowrap text-right tabular-nums text-rose-700">{isDebitRow(r) ? pkr(r.amount) : r.dir === "neutral" ? <span className="text-slate-500">{pkr(r.amount)}</span> : ""}</td>
-                      </>}
+                      <td className="td whitespace-nowrap text-right tabular-nums text-rose-700">{sideOf(r) === "dr" ? pkr(r.amount) : ""}</td>
+                      <td className="td whitespace-nowrap text-right tabular-nums text-emerald-700">{sideOf(r) === "cr" ? pkr(r.amount) : !sideOf(r) ? <span className="text-slate-400" title="Hisaab barabar kiya — paisa nahi hila">({pkr(r.amount)})</span> : ""}</td>
                     </tr>
                   ))}</tbody>
-                  {ws && rows.length > 0 && (
+                  {rows.length > 0 && (
                     <tfoot><tr className="border-t-2 border-slate-300 bg-slate-50 font-semibold tabular-nums">
-                      <td className="td" colSpan={5 + (vehCol ? 1 : 0) + (fuelCols ? 2 : 0)}>Kul ({rows.length} entries) · Farq (Dr − Cr): <span className="text-slate-900">{farq(sumSide(rows, "dr") - sumSide(rows, "cr"))}</span></td>
-                      <td className="td whitespace-nowrap text-right text-rose-700">{pkr(sumSide(rows, "dr"))}</td>
-                      <td className="td whitespace-nowrap text-right text-emerald-700">{pkr(sumSide(rows, "cr"))}</td>
+                      <td className="td" colSpan={5 + (vehCol ? 1 : 0) + (fuelCols ? 2 : 0)}>Kul ({rows.length} entries) · Farq (Dr − Cr): <span className="text-slate-900">{farq(sumDrCr(rows, "dr") - sumDrCr(rows, "cr"))}</span></td>
+                      <td className="td whitespace-nowrap text-right text-rose-700">{pkr(sumDrCr(rows, "dr"))}</td>
+                      <td className="td whitespace-nowrap text-right text-emerald-700">{pkr(sumDrCr(rows, "cr"))}</td>
                     </tr></tfoot>
                   )}
                 </table>
@@ -225,7 +214,7 @@ export function DayFeed({ title = "Aaj ki saari entries", scope = "all" }: { tit
             {!rows.length && <li className="p-4 text-center text-sm text-slate-500">{q ? "Kuch nahi mila" : "Is din koi entry nahi"}</li>}
           </ul>
           <div className="pt-2"><Pager {...paged} /></div>
-          <p className="mt-1 text-[11px] text-slate-400">Sirf dekhne ke liye — {num(data.totals.count)} entries. {scope === "pos" ? "Sirf POS ki sale aur kharch entries." : scope === "cashier" ? "Sirf cashier counter ki receive/pay entries." : scope === "supplier" ? "Sirf supplier ki supply, bill aur payment entries." : scope === "wholesale" ? "Wholesale officer ki entries — Debit: clients ko supply di + supplier ko payment; Credit: supplier se udhaar maal + client payment / wapsi." : "Sale = pump + khata + wholesale; counter receive/pay, khata, supply sab yahan."}</p>
+          <p className="mt-1 text-[11px] text-slate-400">Debit = paisa gaya / maal supply di · Credit = paisa aaya / udhaar maal aaya · Sirf dekhne ke liye — {num(data.totals.count)} entries. {scope === "pos" ? "Sirf POS ki sale aur kharch entries." : scope === "cashier" ? "Sirf cashier counter ki receive/pay entries." : scope === "supplier" ? "Sirf supplier ki supply, bill aur payment entries." : scope === "wholesale" ? "Wholesale officer ki entries — Debit: clients ko supply di + supplier ko payment; Credit: supplier se udhaar maal + client payment / wapsi." : "Sale = pump + khata + wholesale; counter receive/pay, khata, supply sab yahan."}</p>
         </>
       )}
     </div>
