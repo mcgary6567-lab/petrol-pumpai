@@ -13,7 +13,7 @@ import { AppError, audit, createAlert } from "../services.js";
 import { sendToPhone } from "../whatsapp/cloud.js";
 import { config, waLive, aiEnabled } from "../config.js";
 import { vapidPublicKey, saveSubscription, removeSubscription, subscriptionCount, pushToUser } from "../push.js";
-import { PROVIDERS, cloudStatus, cloudPush, cloudPushAll, cloudConfigured, parseServiceAccount, gdriveCheck, gdriveCfg, dropboxCfg, saveCloud, dropboxAuthUrl, dropboxConnect, dropboxCheck, googleAuthUrl, googleConnect, googleConfigured, type Provider } from "../backupCloud.js";
+import { PROVIDERS, cloudStatus, cloudPush, cloudPushAll, cloudConfigured, parseServiceAccount, gdriveCheck, gdriveCfg, dropboxCfg, saveCloud, dropboxAuthUrl, dropboxConnect, dropboxCheck, dropboxDiagnose, googleAuthUrl, googleConnect, googleConfigured, type Provider } from "../backupCloud.js";
 import { randomBytes, pbkdf2Sync, createCipheriv } from "node:crypto";
 /** one-time tickets for encrypted backup downloads: ticket → backup name + password, valid 60 s */
 const encTickets = new Map<string, { name: string; pass: string; exp: number }>();
@@ -114,6 +114,12 @@ export function mountBackupRoutes(r: Router, guard: import("express").RequestHan
       const g = gdriveCfg(), d = dropboxCfg();
       return { ok: true, ...(p === "gdrive" ? await gdriveCheck(g!) : await dropboxCheck(d!)) };
     } catch (e: any) { throw new AppError(400, e.message); }
+  }));
+  /** Dropbox step-by-step probe (token scopes, account, space, folder, tiny uploads) — never throws, each step reports. */
+  r.post("/backups/cloud/dropbox/diagnose", guard, h(async () => {
+    const d = dropboxCfg();
+    if (!d?.refresh_token) throw new AppError(400, "Not connected");
+    return dropboxDiagnose(d);
   }));
   /** Upload the newest backup to one provider now (also what the nightly backup does by itself). */
   r.post("/backups/cloud/:provider/push", guard, h(async (req) => {

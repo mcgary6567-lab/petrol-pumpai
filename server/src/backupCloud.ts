@@ -132,6 +132,42 @@ export async function dropboxConnect(appKey: string, appSecret: string, code: st
   } catch { /* cosmetic */ }
   return cfg;
 }
+/** Step-by-step probe of the Dropbox link, for the Backups card's "Diagnose" button: every call's HTTP status, Dropbox's
+ *  own answer and request id, plus the token's scopes — so a failing nightly copy can be read off without server logs. */
+export async function dropboxDiagnose(cfg: DropboxCfg) {
+  const steps: { step: string; ok: boolean; status: number | null; detail: string; request_id?: string | null }[] = [];
+  const probe = async (step: string, url: string, init: RequestInit) => {
+    try {
+      const res = await fetch(url, init);
+      const text = await res.text();
+      steps.push({ step, ok: res.ok, status: res.status, detail: text.slice(0, 400), request_id: res.headers.get("x-dropbox-request-id") });
+      return res.ok ? (() => { try { return JSON.parse(text); } catch { return text; } })() : null;
+    } catch (e: any) { steps.push({ step, ok: false, status: null, detail: String(e?.message ?? e).slice(0, 300) }); return null; }
+  };
+  const tok = await probe("1. refresh token → access token", "https://api.dropboxapi.com/oauth2/token", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded", authorization: `Basic ${Buffer.from(`${cfg.app_key}:${cfg.app_secret}`).toString("base64")}` },
+    body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: cfg.refresh_token }) });
+  if (tok?.access_token) { steps[steps.length - 1].detail = `ok · scopes: ${tok.scope ?? "(not reported — long-lived / legacy app token)"} · expires_in ${tok.expires_in}s`; }
+  else return { steps, verdict: "Token refresh fail — Disconnect → dobara Connect karein." };
+  const auth = { authorization: `Bearer ${tok.access_token}` };
+  const J = { ...auth, "content-type": "application/json" };
+  const acc = await probe("2. users/get_current_account", "https://api.dropboxapi.com/2/users/get_current_account", { method: "POST", headers: auth });
+  if (acc) steps[steps.length - 1].detail = `${acc.email} · type ${acc.account_type?.[".tag"]} · email_verified ${acc.email_verified} · disabled ${acc.disabled} · team ${acc.team ? acc.team.name : "no"}`;
+  const space = await probe("3. users/get_space_usage", "https://api.dropboxapi.com/2/users/get_space_usage", { method: "POST", headers: auth });
+  if (space) steps[steps.length - 1].detail = `used ${(space.used / 1e9).toFixed(2)} GB of ${(((space.allocation?.allocated ?? 0)) / 1e9).toFixed(2)} GB`;
+  await probe("4. files/list_folder (root)", "https://api.dropboxapi.com/2/files/list_folder", { method: "POST", headers: J, body: JSON.stringify({ path: "", limit: 5 }) });
+  await probe("5. files/create_folder_v2 /" + FOLDER_NAME, "https://api.dropboxapi.com/2/files/create_folder_v2", { method: "POST", headers: J, body: JSON.stringify({ path: `/${FOLDER_NAME}`, autorename: false }) });
+  const H = (a: unknown) => ({ ...auth, "content-type": "application/octet-stream", "Dropbox-API-Arg": JSON.stringify(a) });
+  const tiny = new Blob([`PumpAI test ${new Date().toISOString()}`]);
+  await probe("6. files/upload (tiny, root)", "https://content.dropboxapi.com/2/files/upload", { method: "POST", headers: H({ path: "/_pumpai_write_test.txt", mode: "overwrite", mute: true }), body: tiny });
+  await probe("7. files/upload (tiny, in folder)", "https://content.dropboxapi.com/2/files/upload", { method: "POST", headers: H({ path: `/${FOLDER_NAME}/_pumpai_write_test.txt`, mode: "overwrite", mute: true }), body: tiny });
+  await probe("8. upload_session/start (tiny)", "https://content.dropboxapi.com/2/files/upload_session/start", { method: "POST", headers: H({ close: false }), body: tiny });
+  await probe("9. files/upload (tiny, Buffer body)", "https://content.dropboxapi.com/2/files/upload", { method: "POST", headers: H({ path: "/_pumpai_write_test2.txt", mode: "overwrite", mute: true }), body: Buffer.from("PumpAI buffer test") as unknown as BodyInit });
+  const scopes = String(tok.scope ?? "");
+  const verdict = scopes && !/files\.content\.write/.test(scopes) ? "Token me files.content.write scope NAHI hai — Dropbox App Console → Permissions → files.content.write + files.content.read + files.metadata.read tick → Submit → yahan Disconnect → dobara Connect."
+    : steps.some((x) => /^[6-9]\./.test(x.step) && x.ok) ? (steps.every((x) => x.ok) ? "Sab theek — likhna bhi chal raha hai; 'Send latest backup now' dabayen." : "Kuch calls fail, kuch pass — neeche tafseel dekhein.")
+    : "Account aur folder calls chal rahi hain magar content (upload) calls sab fail — tafseel aur request id neeche; yeh Dropbox support ko bhejne layak hai.";
+  return { steps, verdict };
+}
 async function dropboxToken(cfg: DropboxCfg) {
   const body = new URLSearchParams({ grant_type: "refresh_token", refresh_token: cfg.refresh_token });
   const d = await fetchJson("https://api.dropboxapi.com/oauth2/token", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded", authorization: `Basic ${Buffer.from(`${cfg.app_key}:${cfg.app_secret}`).toString("base64")}` }, body }, "Dropbox sign-in");

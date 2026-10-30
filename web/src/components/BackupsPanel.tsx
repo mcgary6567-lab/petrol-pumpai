@@ -56,8 +56,10 @@ function CloudBackups({ cloud, reload, request, base }: { cloud: any; reload: ()
   const Status = ({ last }: { last: any }) => !last ? <span className="text-xs text-slate-500">No copy sent yet · <span className="font-urdu" lang="ur" dir="rtl">ابھی کاپی نہیں گئی</span></span>
     : last.ok ? <span className="text-xs text-emerald-700">✓ Last copy {when(last)} · {last.file}</span>
     : <span className="text-xs text-red-600">✗ Failed {when(last)} — {last.message}</span>;
+  const [diag, setDiag] = useState<any>(null);
   const Actions = ({ p }: { p: "gdrive" | "dropbox" }) => (
     <div className="flex flex-wrap gap-2">
+      {p === "dropbox" && <button className="btn-secondary !py-1 text-xs" disabled={busy} onClick={() => run(() => request(`${base}/cloud/dropbox/diagnose`, { body: {} }), (r: any) => r.verdict).then((r: any) => { if (r) setDiag(r); })}>Diagnose</button>}
       <button className="btn-secondary !py-1 text-xs" disabled={busy} onClick={() => run(() => request(`${base}/cloud/${p}/push`, { body: {} }), (r: any) => r.result.message).then(reload)}>Send latest backup now</button>
       <button className="btn-secondary !py-1 text-xs" disabled={busy} onClick={() => run(() => request(`${base}/cloud/${p}/check`, { body: {} }), (r: any) => `Connected · ${r.folder ?? r.account ?? "ok"}`)}>Check connection</button>
       <button className="btn-secondary !py-1 text-xs text-red-600" disabled={busy} onClick={() => confirm("Disconnect? Backups stay where they are; new ones will not be sent here.") && run(() => request(`${base}/cloud/${p}`, { method: "DELETE" }), "Disconnected").then(reload)}>Disconnect</button>
@@ -104,6 +106,15 @@ function CloudBackups({ cloud, reload, request, base }: { cloud: any; reload: ()
               <div className="text-xs text-slate-600">Account: {cloud.dropbox.account ?? "—"} · folder <span className="font-mono">/PumpAI backups</span></div>
               <Status last={cloud.dropbox.last} />
               <Actions p="dropbox" />
+              {diag && (
+                <div className="mt-2 rounded-lg bg-white p-2 text-xs ring-1 ring-slate-200">
+                  <div className="mb-1 font-semibold">{diag.verdict}</div>
+                  <ol className="space-y-1">{diag.steps.map((x: any) => (
+                    <li key={x.step} className={x.ok ? "text-emerald-800" : "text-red-700"}>{x.ok ? "✓" : "✗"} {x.step} — HTTP {x.status ?? "—"} · <span className="break-all font-mono">{x.detail}</span>{x.request_id ? <span className="text-slate-500"> · req {x.request_id}</span> : null}</li>
+                  ))}</ol>
+                  <button className="mt-1 text-slate-500 underline" onClick={() => { navigator.clipboard?.writeText(JSON.stringify(diag, null, 2)); }}>Copy</button>
+                </div>
+              )}
             </div>
           ) : cloud?.oneclick?.dropbox ? (
             <div className="space-y-2 text-sm">
