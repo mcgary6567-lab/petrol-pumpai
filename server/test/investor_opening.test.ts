@@ -199,3 +199,13 @@ test("cheques: investor's cheque waits in the register (no credit), clears into 
   near(await bankBal(), 300_000);
   await books();
 });
+
+test("delete an investor from the list: PIN-guarded route; refused once they have entries", async () => {
+  db.setSetting(1, "module_investors", "1"); auth.forgetModules(1);
+  const { isCancelRequest } = auth as any;
+  assert.equal(isCancelRequest("DELETE", "/investors/12"), true, "delete needs the cancel PIN");
+  const tmp = ok(await call("admin", "POST", "/api/investors", { name: "Temp Del Sb" }), "add");
+  ok(await call("admin", "DELETE", `/api/investors/${tmp.id}`), "delete, no history (PIN off in tests)");
+  assert.equal((await call("admin", "GET", `/api/investors/${tmp.id}`)).status, 404);
+  assert.equal((await call("admin", "DELETE", `/api/investors/${inv.id}`)).status, 400, "has entries → refused");
+});

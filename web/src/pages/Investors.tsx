@@ -32,6 +32,13 @@ export default function Investors() {
   const { data: sum, reload: reloadSum } = useApi<any>("/investors-summary");
   const [q, setQ] = useState("");
   const [form, setForm] = useState<any>(null);
+  const { run: runDel } = useAction();
+  const removeInvestor = async (i: any) => {
+    const a = await askCancel({ title: `Investor delete karein — ${i.name}`, needReason: false, button: "Delete",
+      what: <>{i.name} ka profile hamesha ke liye delete ho jayega.{i.capital_in || i.deals ? <> <b>Is ki entries maujood hain</b> — system delete nahi karega; "Band karein" use karein (hisaab mehfooz rehta hai).</> : null}</>,
+      hint: "Sirf wo investor delete ho sakta hai jis ki koi entry (capital, deal, munafa) na ho. Apna login PIN likhein." });
+    if (a) runDel(() => api(`/investors/${i.id}`, { method: "DELETE", headers: pinHeader(a) }), "Investor delete ho gaya").then((r) => { if (r) refresh(); });
+  };
   const rows = useListFilter<any>(data, { q, text: (i) => [i.name, i.phone, i.cnic, i.city].filter(Boolean).join(" ") });
   const paged = usePaged(rows, 10);
   const refresh = () => { reload(); reloadSum(); };
@@ -69,7 +76,10 @@ export default function Investors() {
                   <td className="td text-right tabular-nums text-rose-700">{pkr(i.paid_out)}</td>
                   <td className="td text-right font-semibold tabular-nums">{pkr(i.balance)}</td>
                   <td className="td text-right text-xs">{i.our_pct}% / {100 - i.our_pct}%</td>
-                  <td className="td text-right"><button className="btn-secondary !py-1 text-xs" onClick={(e) => { e.stopPropagation(); setForm(i); }}><Pencil size={13} /> Edit</button></td>
+                  <td className="td whitespace-nowrap text-right">
+                    <button className="btn-secondary !py-1 text-xs" onClick={(e) => { e.stopPropagation(); setForm(i); }}><Pencil size={13} /> Edit</button>{" "}
+                    <button className="btn-secondary !py-1 text-xs !text-rose-700" onClick={(e) => { e.stopPropagation(); removeInvestor(i); }}><Trash2 size={13} /> Delete</button>
+                  </td>
                 </tr>
               ))}</tbody>
             </table>

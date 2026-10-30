@@ -445,7 +445,7 @@ export const tid = (req: Request) => req.user!.tenant_id;
 /** A request that cancels an entry: any …/void or …/undo, a coupon void, deleting an expense or a CEO other-entry. */
 export function isCancelRequest(method: string, path: string): boolean {
   if (method === "POST" && /\/(void|undo)$/.test(path)) return true;
-  if (method === "DELETE" && (/^\/(expenses|other-entries)\/\d+$/.test(path) || /^\/shifts\/\d+\/expenses\/\d+$/.test(path))) return true;
+  if (method === "DELETE" && (/^\/(expenses|other-entries|investors)\/\d+$/.test(path) || /^\/shifts\/\d+\/expenses\/\d+$/.test(path))) return true;
   return false;
 }
 /**

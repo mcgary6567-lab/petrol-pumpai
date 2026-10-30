@@ -28,6 +28,8 @@ const realFetch = globalThis.fetch;
 const calls: { url: string; method: string; headers: Record<string, string>; body?: any }[] = [];
 const drive: { id: string; name: string }[] = [];
 const dbx: string[] = [];
+const dbxSession = { bytes: 0 };
+const bodyLen = async (init: any) => { const b = init?.body; if (!b) return 0; if (typeof b.arrayBuffer === "function") return (await b.arrayBuffer()).byteLength; return (b as Uint8Array).byteLength ?? 0; };
 let googleDown = false;
 const { privateKey, publicKey } = crypto.generateKeyPairSync("rsa", { modulusLength: 2048 });
 const pem = privateKey.export({ type: "pkcs8", format: "pem" }) as string;
@@ -65,7 +67,10 @@ globalThis.fetch = (async (input: any, init: any = {}) => {
   if (url.includes("dropboxapi.com") && headers.authorization !== "Bearer d-token") return json({ error_summary: "invalid_access_token" }, 401);
   if (url.endsWith("/users/get_current_account")) return json({ email: "owner@example.com", name: { display_name: "Owner" } });
   if (url.endsWith("/files/create_folder_v2")) return json({ error_summary: "path/conflict/folder" }, 409);
-  if (url === "https://content.dropboxapi.com/2/files/upload") { const arg = JSON.parse(headers["dropbox-api-arg"]); dbx.push(arg.path); return json({ name: path.basename(arg.path) }); }
+  // upload session: start → append_v2 (offset must match what arrived so far) → finish commits the path
+  if (url === "https://content.dropboxapi.com/2/files/upload_session/start") { dbxSession.bytes = await bodyLen(init); return json({ session_id: "sess-1" }); }
+  if (url === "https://content.dropboxapi.com/2/files/upload_session/append_v2") { const arg = JSON.parse(headers["dropbox-api-arg"]); if (arg.cursor.offset !== dbxSession.bytes) return json({ error_summary: "incorrect_offset/.." }, 409); dbxSession.bytes += await bodyLen(init); return json(null); }
+  if (url === "https://content.dropboxapi.com/2/files/upload_session/finish") { const arg = JSON.parse(headers["dropbox-api-arg"]); if (arg.cursor.offset !== dbxSession.bytes) return json({ error_summary: "incorrect_offset/.." }, 409); if (!/_write-test\.txt$/.test(arg.commit.path)) dbx.push(arg.commit.path); return json({ name: path.basename(arg.commit.path), size: dbxSession.bytes }); }
   if (url.endsWith("/files/list_folder")) return json({ entries: dbx.map((p) => ({ name: path.basename(p), path_lower: p.toLowerCase() })) });
   if (url.endsWith("/files/delete_v2")) { const p = JSON.parse(String(init.body)).path; const i = dbx.findIndex((x) => x.toLowerCase() === p); if (i >= 0) dbx.splice(i, 1); return json({}); }
   return json({ error: `unmocked ${url}` }, 500);

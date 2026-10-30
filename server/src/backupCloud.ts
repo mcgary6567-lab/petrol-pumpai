@@ -38,7 +38,11 @@ const fetchJson = async (url: string, init: RequestInit, what: string) => {
   const res = await fetch(url, init);
   const text = await res.text();
   let data: any = null; try { data = text ? JSON.parse(text) : null; } catch { data = { raw: text.slice(0, 200) }; }
-  if (!res.ok) throw new Error(`${what}: HTTP ${res.status} ${data?.error?.message ?? data?.error_summary ?? data?.error_description ?? data?.error ?? data?.raw ?? ""}`.trim());
+  if (!res.ok) {
+    // keep the whole answer: Dropbox / Google say exactly what is wrong (scope, path, quota) and a truncated tag like "other/..." helps nobody
+    const detail = data?.error?.message ?? data?.error_description ?? (data?.error_summary ? `${data.error_summary}${data?.error && typeof data.error === "object" ? ` ${JSON.stringify(data.error)}` : ""}` : null) ?? (typeof data?.error === "string" ? data.error : data?.error ? JSON.stringify(data.error) : null) ?? data?.raw ?? text.slice(0, 300);
+    throw new Error(`${what}: HTTP ${res.status} ${detail}`.trim());
+  }
   return data;
 };
 
@@ -135,19 +139,52 @@ async function dropboxToken(cfg: DropboxCfg) {
 }
 export async function dropboxCheck(cfg: DropboxCfg) {
   const tok = await dropboxToken(cfg);
-  const acc = await fetchJson("https://api.dropboxapi.com/2/users/get_current_account", { method: "POST", headers: { authorization: `Bearer ${tok}` } }, "Dropbox account");
-  return { account: (acc?.email ?? acc?.name?.display_name ?? null) as string | null };
+  const auth = { authorization: `Bearer ${tok}` };
+  const acc = await fetchJson("https://api.dropboxapi.com/2/users/get_current_account", { method: "POST", headers: auth }, "Dropbox account");
+  // a real write test: the same path and calls the nightly copy uses, so a permissions / folder problem shows up now
+  try {
+    await fetch("https://api.dropboxapi.com/2/files/create_folder_v2", { method: "POST", headers: { ...auth, "content-type": "application/json" }, body: JSON.stringify({ path: `/${FOLDER_NAME}`, autorename: false }) }).catch(() => undefined);
+    await dropboxPutFile(auth, Buffer.from(`PumpAI backup write test ${new Date().toISOString()}\n`), `/${FOLDER_NAME}/_write-test.txt`);
+  } catch (e: any) { throw new Error(dropboxHint(String(e?.message ?? e))); }
+  return { account: (acc?.email ?? acc?.name?.display_name ?? null) as string | null, folder: `/${FOLDER_NAME} (write OK)` };
+}
+/** Turn Dropbox's error tags into what the pump owner should do. */
+function dropboxHint(msg: string): string {
+  if (/missing_scope|files\.content\.write/i.test(msg)) return `${msg} — Dropbox app ke Permissions tab me files.content.write + files.content.read + files.metadata.read tick karein, Submit, phir yahan Disconnect → dobara Connect (purana token nayi permissions nahi leta).`;
+  if (/insufficient_space/i.test(msg)) return `${msg} — Dropbox account bhar gaya hai; jagah banayen.`;
+  if (/no_write_permission|disallowed_name|malformed_path/i.test(msg)) return `${msg} — folder /${FOLDER_NAME} par likhne ki ijazat nahi (shared / team folder?); app ko "App folder" ya "Full Dropbox" access den.`;
+  if (/invalid_access_token|expired_access_token|invalid_grant/i.test(msg)) return `${msg} — Dropbox ne access khatam kar diya; Disconnect → dobara Connect karein.`;
+  return msg;
+}
+const DBX_CHUNK = 8 * 1024 * 1024; // Dropbox asks for multiples of 4 MB per append
+const bytes = (b: Buffer): BodyInit => new Blob([Uint8Array.from(b)]); // a plain copy keeps the fetch typings happy (chunks are ≤ 8 MB)
+/** Upload one file with an upload session (start → append → finish): works for any size, resumable per chunk, and the
+ *  path / mode go only on the final commit — the single-shot files/upload has a 150 MB cap and gives less useful errors. */
+export async function dropboxPutFile(auth: Record<string, string>, buf: Buffer, dest: string) {
+  const arg = (o: unknown) => JSON.stringify(o).replace(/[\u007f-\uffff]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`); // header must be ASCII
+  const H = (a: unknown) => ({ ...auth, "content-type": "application/octet-stream", "Dropbox-API-Arg": arg(a) });
+  const first = buf.subarray(0, Math.min(DBX_CHUNK, buf.length));
+  const st = await fetchJson("https://content.dropboxapi.com/2/files/upload_session/start", { method: "POST", headers: H({ close: false }), body: bytes(first) }, "Dropbox upload (start)");
+  const sid = st.session_id as string;
+  let offset = first.length;
+  while (offset < buf.length) {
+    const part = buf.subarray(offset, Math.min(offset + DBX_CHUNK, buf.length));
+    await fetchJson("https://content.dropboxapi.com/2/files/upload_session/append_v2", { method: "POST", headers: H({ cursor: { session_id: sid, offset }, close: false }), body: bytes(part) }, "Dropbox upload (append)");
+    offset += part.length;
+  }
+  return fetchJson("https://content.dropboxapi.com/2/files/upload_session/finish", { method: "POST", headers: H({ cursor: { session_id: sid, offset }, commit: { path: dest, mode: "overwrite", mute: true } }), body: new Blob([]) }, "Dropbox upload (finish)");
 }
 async function dropboxUpload(cfg: DropboxCfg, file: string) {
   const tok = await dropboxToken(cfg);
   const auth = { authorization: `Bearer ${tok}` };
   const name = path.basename(file);
-  await fetch("https://api.dropboxapi.com/2/files/create_folder_v2", { method: "POST", headers: { ...auth, "content-type": "application/json" }, body: JSON.stringify({ path: `/${FOLDER_NAME}`, autorename: false }) }).catch(() => undefined); // exists → 409, fine
-  await fetchJson("https://content.dropboxapi.com/2/files/upload", { method: "POST", headers: { ...auth, "content-type": "application/octet-stream",
-    "Dropbox-API-Arg": JSON.stringify({ path: `/${FOLDER_NAME}/${name}`, mode: "overwrite", mute: true }) }, body: fs.readFileSync(file) }, "Dropbox upload");
-  const list = await fetchJson("https://api.dropboxapi.com/2/files/list_folder", { method: "POST", headers: { ...auth, "content-type": "application/json" }, body: JSON.stringify({ path: `/${FOLDER_NAME}` }) }, "Dropbox list");
-  const old = ((list.entries ?? []) as { name: string; path_lower: string }[]).filter((x) => NAME.test(x.name)).sort((a, b) => b.name.localeCompare(a.name)).slice(KEEP_CLOUD);
-  for (const o of old) await fetch("https://api.dropboxapi.com/2/files/delete_v2", { method: "POST", headers: { ...auth, "content-type": "application/json" }, body: JSON.stringify({ path: o.path_lower }) }).catch(() => undefined);
+  try {
+    await fetch("https://api.dropboxapi.com/2/files/create_folder_v2", { method: "POST", headers: { ...auth, "content-type": "application/json" }, body: JSON.stringify({ path: `/${FOLDER_NAME}`, autorename: false }) }).catch(() => undefined);
+    await dropboxPutFile(auth, fs.readFileSync(file), `/${FOLDER_NAME}/${name}`);
+    const list = await fetchJson("https://api.dropboxapi.com/2/files/list_folder", { method: "POST", headers: { ...auth, "content-type": "application/json" }, body: JSON.stringify({ path: `/${FOLDER_NAME}` }) }, "Dropbox list");
+    const old = ((list.entries ?? []) as { name: string; path_lower: string }[]).filter((x) => NAME.test(x.name)).sort((a, b) => b.name.localeCompare(a.name)).slice(KEEP_CLOUD);
+    for (const o of old) await fetch("https://api.dropboxapi.com/2/files/delete_v2", { method: "POST", headers: { ...auth, "content-type": "application/json" }, body: JSON.stringify({ path: o.path_lower }) }).catch(() => undefined);
+  } catch (e: any) { throw new Error(dropboxHint(String(e?.message ?? e))); }
   return `${name} → Dropbox (/${FOLDER_NAME})`;
 }
 
