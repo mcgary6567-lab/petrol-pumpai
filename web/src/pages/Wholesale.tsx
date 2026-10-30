@@ -22,6 +22,7 @@ import { FleetPicker, FleetTab, TripForm, TripSheet, TripsTab, fleetBody } from 
 import { ChequeForm, ClientDeskCard, CollectTab, OrderForm, OrdersTab, PromiseForm } from "../components/WholesaleDesk";
 import { WholesaleVoice } from "../components/WholesaleVoice";
 import { BypassPanel, BypassVoucher } from "./Bypass";
+import { BypassStockTab } from "../components/BypassStock";
 import { PartyLedger } from "../components/WholesaleLedger";
 import { SupplyVoucher } from "../components/WholesaleVoucher";
 import { SupplyInvoices } from "../components/WholesaleInvoices";
@@ -53,7 +54,7 @@ function ClientList() {
   const { can } = useAuth();
   const summary = useApi<any>("/wholesale/summary");
   const [params, setParams] = useSearchParams();
-  const tab = (params.get("tab") ?? "dashboard") as "dashboard" | "clients" | "orders" | "collect" | "trips" | "fleet";
+  const tab = (params.get("tab") ?? "dashboard") as "dashboard" | "clients" | "orders" | "collect" | "trips" | "fleet" | "stock";
   const action = params.get("do"); // add-client | trip | rate | tanker | driver (from the menu)
   const setTab = (t: string) => setParams(t === "dashboard" ? {} : { tab: t });
   const clearAction = () => { const p = new URLSearchParams(params); p.delete("do"); setParams(p, { replace: true }); };
@@ -65,7 +66,7 @@ function ClientList() {
     <div className="space-y-5">
       {tab !== "dashboard" && <PageHeader title="Wholesale supply · ہول سیل سپلائی" subtitle="Bulk fuel to dealers and businesses — each client has their own rate card and running account" />}
       <div className="flex gap-1 overflow-x-auto border-b border-slate-200">
-        {([["dashboard", "Dashboard", "ڈیش بورڈ"], ["ledger", "Party ledger", "پارٹی کھاتہ"], ["invoices", "Invoices", "بل"], ["board", "Order to cash", "آرڈر سے وصولی"], ["clients", "Clients", "کلائنٹس"], ["orders", "Order book", "آرڈر بک"], ["collect", "Recovery", "وصولی"], ["trips", "Tanker trips", "ٹینکر ٹرپ"], ["fleet", "Tankers & drivers", "ٹینکر اور ڈرائیور"]] as const).map(([k, l, u]) => (
+        {([["dashboard", "Dashboard", "ڈیش بورڈ"], ["ledger", "Party ledger", "پارٹی کھاتہ"], ["invoices", "Invoices", "بل"], ["board", "Order to cash", "آرڈر سے وصولی"], ["clients", "Clients", "کلائنٹس"], ["stock", "Baqi stock", "باقی اسٹاک"], ["orders", "Order book", "آرڈر بک"], ["collect", "Recovery", "وصولی"], ["trips", "Tanker trips", "ٹینکر ٹرپ"], ["fleet", "Tankers & drivers", "ٹینکر اور ڈرائیور"]] as const).map(([k, l, u]) => (
           <button key={k} onClick={() => (k === "ledger" || k === "invoices" || k === "board" ? nav(`/wholesale/${k}`) : setTab(k))} className={`whitespace-nowrap border-b-2 px-3 py-1.5 text-center text-sm leading-tight ${tab === k ? "border-brand-600 font-medium text-brand-700" : "border-transparent text-slate-600"}`}>{l}<Ur className="block text-xs">{u}</Ur></button>
         ))}
       </div>
@@ -74,6 +75,7 @@ function ClientList() {
       {tab === "orders" && <OrdersTab onTrip={() => setParams({ tab: "orders", do: "trip" })} />}
       {tab === "collect" && <CollectTab />}
       {tab === "clients" && <ClientsTable onAdd={() => setParams({ tab: "clients", do: "add-client" })} />}
+      {tab === "stock" && <BypassStockTab />}
       {tab === "dashboard" && <>
         <WholesaleDashboard key={tripsKey} onTrip={() => setParams({ do: "trip" })} onAddClient={() => setParams({ do: "add-client" })} onFleet={() => setTab("fleet")} onTab={setTab} />
         {s && (

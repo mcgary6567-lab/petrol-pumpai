@@ -138,3 +138,42 @@ test("bypass payment edit: amount / method / bank / day change on a payment WE m
   assert.equal((await call("admin", "PATCH", `/api/bypass/payments/${cd.id}`, { reason: "x", amount: 1 })).status, 400);
   await books();
 });
+
+test("Baqi stock (lots): FIFO per supplier bill, delivered / unloaded taken off oldest first, a bill with fuel already out cannot be voided, over-issue is flagged", async () => {
+  const sups = ok(await call("wholesale", "GET", "/api/bypass/suppliers"), "suppliers").filter((x: any) => !x.client_id);
+  const [A, B] = sups;
+  const clients = ok(await call("admin", "GET", "/api/wholesale/clients"), "clients");
+  const W = (clients.clients ?? clients).find((c: any) => c.rates?.PMG) ?? (clients.clients ?? clients).find((c: any) => c.rates?.HSD);
+  const prod = W.rates?.PMG ? "PMG" : "HSD";
+  const before = ok(await call("admin", "GET", "/api/bypass/lots"), "lots").fuels.find((f: any) => f.product === prod);
+  const b0 = before?.balance ?? 0;
+  // two bills: A 10,000 (older day), B 10,000 (today); 7,000 delivered → all from A; A left 3,000, B untouched
+  const d1 = ok(await call("wholesale", "POST", "/api/bypass/deliveries", { station_id: st, txn_date: dayAgo(2), purchases: [{ supplier_id: A.id, product: prod, litres: 10_000, cost_rate: 300, ref: "A-1" }] }), "bill A");
+  const d2 = ok(await call("admin", "POST", "/api/bypass/deliveries", { station_id: st, purchases: [{ supplier_id: B.id, product: prod, litres: 10_000, cost_rate: 310, ref: "B-1" }], drops: [{ client_id: W.id, product: prod, litres: 7_000, override_limit: true }] }), "bill B + drop");
+  let lots = ok(await call("admin", "GET", "/api/bypass/lots"), "lots").fuels.find((f: any) => f.product === prod);
+  near(lots.balance, b0 + 13_000, "balance = bought − delivered");
+  const la = lots.lots.find((l: any) => l.ref === "A-1"), lb = lots.lots.find((l: any) => l.ref === "B-1");
+  assert.ok(la && lb, "both bills listed while fuel is left");
+  // whatever was held before this test is consumed first (FIFO), then bill A, then B
+  near(la.left + lb.left, 13_000 + Math.min(0, b0) + Math.max(0, b0) - (lots.lots.filter((l: any) => l.ref !== "A-1" && l.ref !== "B-1").reduce((a: number, l: any) => a + l.left, 0)), "FIFO split");
+  assert.equal(la.supplier, A.name); near(lb.cost_rate, 310);
+  assert.ok(lots.lots.every((l: any) => l.left > 0), "only open lots listed");
+  assert.ok(lots.outs.some((o: any) => o.client === W.name && Math.abs(o.litres - 7_000) < 0.01), "the drop is in the outs");
+  // voiding bill A is fine (B still covers the fuel that went out); voiding B after that would drive the stock negative → refused
+  const purA = db.get("SELECT id FROM bypass_purchases WHERE delivery_id=? AND voided=0", d1.id)!.id;
+  const purB = db.get("SELECT id FROM bypass_purchases WHERE delivery_id=? AND voided=0", d2.id)!.id;
+  ok(await call("admin", "POST", `/api/bypass/purchases/${purA}/void`, {}), "void A (stock stays ≥ 0)");
+  const r = await call("admin", "POST", `/api/bypass/purchases/${purB}/void`, {});
+  assert.equal(r.status, 400, "void refused: fuel already out"); assert.match(r.data.error, /pehle hi/);
+  lots = ok(await call("admin", "GET", "/api/bypass/lots"), "lots after void").fuels.find((f: any) => f.product === prod);
+  near(lots.balance, b0 + 3_000, "balance after voiding A");
+  // unload 2,000 into our tank → comes off the stock too, listed as "unloaded"
+  const tank = db.get("SELECT id FROM tanks WHERE station_id=? AND product=? ORDER BY id LIMIT 1", st, prod);
+  if (tank) {
+    ok(await call("wholesale", "POST", "/api/bypass/to-tank", { product: prod, litres: 2_000, tank_id: tank.id }), "unload");
+    lots = ok(await call("admin", "GET", "/api/bypass/lots"), "lots2").fuels.find((f: any) => f.product === prod);
+    near(lots.balance, b0 + 1_000); assert.ok(lots.unloaded >= 2_000);
+  }
+  assert.equal(lots.over.length, 0, "nothing over-issued"); void purB;
+  await books();
+});

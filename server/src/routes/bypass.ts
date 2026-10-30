@@ -310,6 +310,39 @@ export function bypassMonthProfit(tenantId: number) {
   };
 }
 
+/** Lot-wise bypass stock: every purchase (supplier, day, tanker) with what is still left of it after the client drops and
+ *  own-tank unloads are taken off oldest-first (FIFO), plus the per-fuel reconciliation bought − delivered − unloaded. A
+ *  negative balance means more fuel went out than was ever bought — the outs beyond the purchases are listed so the wrong
+ *  entry can be found. This is the "Baqi stock" tab: a lot stays listed until it is sold or unloaded. */
+bypass.get("/bypass/lots", h((req) => {
+  const t = tid(req);
+  const buys = all(`SELECT b.id, b.delivery_id, b.supplier_id, s.name supplier, b.product, b.litres, b.cost_rate, b.amount, b.ref, b.txn_date, b.created_by, d.vehicle_no, d.driver_name
+      FROM bypass_purchases b JOIN suppliers s ON s.id=b.supplier_id LEFT JOIN bypass_deliveries d ON d.id=b.delivery_id
+      WHERE b.tenant_id=? AND b.voided=0 ORDER BY b.txn_date, b.id`, t);
+  const outs = all(`SELECT x.id, x.delivery_id, x.product, x.litres, x.unit_cost, x.cost_amount, x.txn_date, x.created_by, x.tank_id, tk.name tank, c.name client, w.rate sale_rate, w.amount sale_amount
+      FROM bypass_drops x LEFT JOIN tanks tk ON tk.id=x.tank_id LEFT JOIN wholesale_clients c ON c.id=x.client_id LEFT JOIN wholesale_txns w ON w.id=x.wtx_id
+      WHERE x.tenant_id=? AND x.voided=0 ORDER BY x.txn_date, x.id`, t);
+  const products = [...new Set([...buys, ...outs].map((r) => r.product as string))];
+  const fuels = products.map((p) => {
+    const lots = buys.filter((b) => b.product === p).map((b) => ({ ...b, left: round2(b.litres), used: 0 }));
+    const over: typeof outs = []; // outs that found no lot to come from (more out than bought)
+    for (const o of outs.filter((x) => x.product === p)) {
+      let need = round2(o.litres);
+      for (const l of lots) { if (need <= 0.001) break; if (l.left <= 0.001) continue; const take = Math.min(l.left, need); l.left = round2(l.left - take); l.used = round2(l.used + take); need = round2(need - take); }
+      if (need > 0.001) over.push({ ...o, litres: need });
+    }
+    const bought = round2(lots.reduce((a, l) => a + l.litres, 0));
+    const delivered = round2(outs.filter((x) => x.product === p && !x.tank_id).reduce((a, x) => a + x.litres, 0));
+    const unloaded = round2(outs.filter((x) => x.product === p && x.tank_id).reduce((a, x) => a + x.litres, 0));
+    const balance = round2(bought - delivered - unloaded);
+    const openLots = lots.filter((l) => l.left > 0.001).map((l) => ({ ...l, value_left: round2(l.left * l.cost_rate), days: Math.floor((Date.now() - Date.parse(l.txn_date)) / 86_400_000) }));
+    return { product: p, bought, delivered, unloaded, balance, value: round2(openLots.reduce((a, l) => a + l.value_left, 0)),
+      lots: openLots, closed_lots: lots.filter((l) => l.left <= 0.001).length, over,
+      outs: outs.filter((x) => x.product === p).slice(-30).reverse() };
+  });
+  return { fuels, total: { litres: round2(fuels.reduce((a, f) => a + f.balance, 0)), value: round2(fuels.reduce((a, f) => a + f.value, 0)) } };
+}));
+
 /** Bypass stock on hand (bought but not yet delivered), per fuel, with its value and average cost. */
 bypass.get("/bypass/stock", h((req) => {
   const t = tid(req);
@@ -566,6 +599,9 @@ bypass.post("/bypass/purchases/:id/void", requirePerm("wholesale.void"), h((req)
   const t = tid(req);
   const r = get("SELECT * FROM bypass_purchases WHERE id=? AND tenant_id=? AND voided=0", Number(req.params.id), t);
   if (!r) throw new AppError(404, "Entry not found");
+  // the fuel of this bill that already went to clients / our tank cannot vanish with the bill: the stock would go negative
+  const left = round2(bypassStock(t, r.product).litres - r.litres);
+  if (left < -0.01) throw new AppError(400, `${PRODUCTS[r.product] ?? r.product}: is khareed ka ${round2(r.litres - Math.max(0, bypassStock(t, r.product).litres)).toLocaleString()} L pehle hi clients / apne tank ko ja chuka hai — pehle wo drops / unload void karein, ya is line ko Edit karein`);
   tx(() => {
     run("UPDATE bypass_purchases SET voided=1 WHERE id=?", r.id);
     // fuel bought from a client: its settlement against their khata goes too

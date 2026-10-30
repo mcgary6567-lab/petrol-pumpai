@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { askCancel, pinHeader } from "../components/CancelEntry";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell } from "recharts";
 import { Plus, Truck, Factory, Download, Printer, HandCoins, Ban, Pencil } from "lucide-react";
@@ -59,6 +60,7 @@ export function BypassPanel() {
           <h2 className="flex items-center gap-2 font-semibold"><Truck size={16} className="text-slate-500" /> Bacha hua maal (ruka hua stock) · <Ur>باقی مال</Ur></h2>
           <span className="text-sm font-semibold tabular-nums text-slate-700">{num(stock.data?.total?.litres ?? 0)} L · {pkr(stock.data?.total?.value ?? 0)}</span>
         </div>
+        {(stock.data?.total?.litres ?? 0) < -0.01 && <p className="border-b bg-rose-50 px-4 py-2 text-sm text-rose-900"><b>Stock minus me hai</b> — jitna khareeda us se zyada maal nikal chuka hai (kisi delivery me khareed likhna reh gayi). <Link className="underline" to="/wholesale?tab=stock">Baqi stock tab</Link> me fuel-wise hisaab aur ghalat entries dekhein.</p>}
         {!stockLines.length ? (
           <Empty>Koi maal ruka hua nahi — supplier se jitna liya utna client ko de diya.</Empty>
         ) : (
@@ -637,15 +639,29 @@ function LeftoverToTank({ stock, onChanged }: { stock: any[]; onChanged: () => v
         right={matched.length > 8 ? <button type="button" className="text-xs text-brand-700 hover:underline" onClick={() => setShowAll((v) => !v)}>{showAll ? "Show less" : `Show all (${matched.length})`}</button> : null} /></div>}
       {allRows.length > 0 && !rows.length && <Empty>Kuch nahi mila · کچھ نہیں ملا</Empty>}
       {rows.length > 0 && (
-        <ul className="mt-3 divide-y divide-slate-100 text-sm">
-          {rows.map((r: any) => (
-            <li key={r.id} className="flex flex-wrap items-center gap-2 py-2">
-              <span className="min-w-0 flex-1"><b>{num(r.litres)} L {PRODUCTS[r.product] ?? r.product}</b> → {r.tank} <span className="text-slate-500">· {r.station} · {dt(r.txn_date)} · by {r.created_by}</span>{r.note && <span className="block text-xs text-slate-500">{r.note}</span>}</span>
-              <span className="tabular-nums text-slate-600">@ {num(r.unit_cost, 2)} = {pkr(r.cost_amount)}</span>
-              {can("wholesale.void") && <button className="btn-secondary !px-2 !py-1 text-xs text-red-600" disabled={busy} onClick={async () => { const a = await askCancel({ title: "Apne tank wala maal wapas (undo)", what: <><b>{num(r.litres, 0)} L</b> · {r.tank}</>, hint: "Litre tank se nikal kar wapas bypass stock me chale jayenge." }); if (a) run(() => api(`/bypass/to-tank/${r.id}/void`, { body: { reason: a.reason }, headers: pinHeader(a) }), "Undone — bypass stock aur tank wapas").then(() => { list.reload(); onChanged(); }); }}><Ban size={12} /> Undo</button>}
-            </li>
-          ))}
-        </ul>
+        <div className="mt-3 overflow-x-auto">
+          <table className="w-full min-w-[900px] text-sm">
+            <thead><tr><th className="th">Tareekh</th><th className="th">Fuel</th><th className="th text-right">Litre</th><th className="th">Tank</th><th className="th">Station</th><th className="th">Delivery</th><th className="th">Note</th><th className="th">By</th><th className="th text-right">Cost rate</th><th className="th text-right">Amount</th>{can("wholesale.void") && <th className="th"></th>}</tr></thead>
+            <tbody className="tabular-nums">
+              {rows.map((r: any) => (
+                <tr key={r.id} className="border-t border-slate-100">
+                  <td className="td whitespace-nowrap">{dt(r.txn_date)}</td>
+                  <td className="td font-medium">{PRODUCTS[r.product] ?? r.product}</td>
+                  <td className="td text-right font-semibold">{num(r.litres)} L</td>
+                  <td className="td">{r.tank}</td>
+                  <td className="td text-xs text-slate-600">{r.station}</td>
+                  <td className="td text-xs">{r.delivery_id ? `#${r.delivery_id}` : "—"}</td>
+                  <td className="td text-xs text-slate-600">{r.note ?? ""}</td>
+                  <td className="td text-xs text-slate-600">{r.created_by}</td>
+                  <td className="td text-right">Rs {num(r.unit_cost, 2)}</td>
+                  <td className="td text-right font-semibold">{pkr(r.cost_amount)}</td>
+                  {can("wholesale.void") && <td className="td text-right"><button className="btn-secondary !px-2 !py-1 text-xs text-red-600" disabled={busy} onClick={async () => { const a = await askCancel({ title: "Apne tank wala maal wapas (undo)", what: <><b>{num(r.litres, 0)} L</b> · {r.tank}</>, hint: "Litre tank se nikal kar wapas bypass stock me chale jayenge." }); if (a) run(() => api(`/bypass/to-tank/${r.id}/void`, { body: { reason: a.reason }, headers: pinHeader(a) }), "Undone — bypass stock aur tank wapas").then(() => { list.reload(); onChanged(); }); }}><Ban size={13} /> Undo</button></td>}
+                </tr>
+              ))}
+            </tbody>
+            <tfoot><tr className="border-t-2 bg-slate-50 font-semibold tabular-nums"><td className="td" colSpan={2}>Kul · {rows.length} entries</td><td className="td text-right">{num(rows.reduce((a: number, r: any) => a + r.litres, 0))} L</td><td className="td" colSpan={6}></td><td className="td text-right">{pkr(rows.reduce((a: number, r: any) => a + r.cost_amount, 0))}</td>{can("wholesale.void") && <td className="td"></td>}</tr></tfoot>
+          </table>
+        </div>
       )}
       <Modal open={open} onClose={() => setOpen(false)} title="Bacha hua tel apne tank mein · بچا ہوا تیل">
         <form className="space-y-3" onSubmit={async (e) => {
