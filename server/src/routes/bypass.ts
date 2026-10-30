@@ -500,6 +500,41 @@ bypass.post("/bypass/suppliers/:id/payment", requirePerm("wholesale.manage"), h(
   return { payment: get("SELECT * FROM bypass_supplier_payments WHERE id=?", out), bypass_owed: bypassOwed(s.id), client_due: client ? clientDue(client.id) : undefined };
 }));
 
+/** Edit a bypass purchase (the officer's "maal supplier se liya" line): supplier, litres, cost (rate or full amount), day,
+ *  ref, note. The payable and the bypass stock follow from the row; drops already made keep their booked cost. Fuel bought
+ *  from a CLIENT is settled against their khata at entry, so that line is voided and re-entered instead. */
+bypass.patch("/bypass/purchases/:id", requirePerm("entries.edit"), h((req) => {
+  const t = tid(req);
+  const r = get("SELECT * FROM bypass_purchases WHERE id=? AND tenant_id=? AND voided=0", Number(req.params.id), t);
+  if (!r) throw new AppError(404, "Entry not found");
+  if (get("SELECT 1 x FROM bypass_supplier_payments WHERE tenant_id=? AND ref=? AND voided=0", t, `cfuel:${r.id}`)) throw new AppError(400, "Ye maal ek client se liya tha (us ke khate se kata) — edit nahi, void kar ke dobara likhein");
+  const b = parse(z.object({
+    reason: z.string().trim().min(3, "Wajah likhein (kam se kam 3 harf)"),
+    supplier_id: z.number().int().optional(), litres: z.number().positive().max(200_000).optional(),
+    cost_rate: z.number().positive().optional(), amount: z.number().positive().max(100_000_000).optional(),
+    txn_date: day.optional(), ref: z.string().max(60).optional().nullable(), note: z.string().max(200).optional().nullable(),
+  }), req.body);
+  if (b.supplier_id && b.supplier_id !== r.supplier_id) {
+    const sup = get("SELECT id, client_id FROM suppliers WHERE id=? AND tenant_id=?", b.supplier_id, t);
+    if (!sup) throw new AppError(400, "Supplier not found");
+    if (sup.client_id) throw new AppError(400, "Client wale supplier par shift nahi ho sakta — void kar ke client se khareed likhein");
+  }
+  const litres = round2(b.litres ?? r.litres);
+  // cost: a typed amount wins; a typed rate reprices; litres alone keep the old rate
+  const amount = b.amount != null ? round2(b.amount) : b.cost_rate != null ? round2(litres * b.cost_rate) : round2(litres * r.cost_rate);
+  const cost_rate = round2(amount / litres);
+  // the fuel already delivered / unloaded from this stock must still fit in what was bought
+  const stockAfter = round2(bypassStock(t, r.product).litres - r.litres + litres);
+  if (stockAfter < -0.01) throw new AppError(400, `${PRODUCTS[r.product] ?? r.product}: is stock me se maal pehle hi clients / apne tank ko ja chuka hai — litres kam az kam ${round2(r.litres - bypassStock(t, r.product).litres).toLocaleString()} L rakhein`);
+  const ts = b.txn_date ? stampFor(b.txn_date) : r.txn_date;
+  const before = { supplier_id: r.supplier_id, litres: r.litres, cost_rate: r.cost_rate, amount: r.amount, txn_date: r.txn_date, ref: r.ref, note: r.note };
+  run("UPDATE bypass_purchases SET supplier_id=?, litres=?, cost_rate=?, amount=?, txn_date=?, ref=?, note=? WHERE id=?",
+    b.supplier_id ?? r.supplier_id, litres, cost_rate, amount, ts, b.ref !== undefined ? b.ref : r.ref, b.note !== undefined ? b.note : r.note, r.id);
+  const after = get("SELECT * FROM bypass_purchases WHERE id=?", r.id)!;
+  audit(t, req.user!, "bypass_purchase_edit", `byppur:${r.id}`, { reason: b.reason, before, after: { supplier_id: after.supplier_id, litres, cost_rate, amount, txn_date: ts, ref: after.ref, note: after.note } });
+  return { ok: true, purchase: after, bypass_owed: bypassOwed(after.supplier_id), bypass_stock: bypassStock(t, r.product) };
+}));
+
 /** Void a bypass purchase or payment (correction). */
 bypass.post("/bypass/purchases/:id/void", requirePerm("wholesale.void"), h((req) => {
   const t = tid(req);

@@ -8,7 +8,7 @@ import { all, get, run, tx, now, getSetting, pkDate, pkDayStart, pkStart, pkEnd,
 import { meterSales } from "./reports.js";
 import { h, parse, tid, requirePerm, requireAny, scopedStation, can, modulesOf } from "../auth.js";
 import { resolveCategory } from "./expenses.js";
-import { AppError, recordSale, undoSale, audit, UNDO_SECONDS, currentPrices, createAlert, round2, pkr, rateFmt, correctTo15, priceOf, type SaleInput } from "../services.js";
+import { AppError, recordSale, undoSale, audit, UNDO_SECONDS, currentPrices, createAlert, round2, pkr, rateFmt, correctTo15, priceOf, khataSpecialRate, type SaleInput } from "../services.js";
 import { productSchema } from "../products.js";
 import { moneyMethods, SPECIAL_METHODS } from "./lookups.js";
 import { sendWhatsApp, sendToPhone } from "../whatsapp/cloud.js";
@@ -19,7 +19,7 @@ import { bankAccountFor } from "./banks.js";
 import { isCheque } from "./capture.js";
 import { khataFillReceipt, wholesaleRateMessage, receiptUrl } from "../billing.js";
 import { chargeShortage } from "./staff.js";
-import { closeOrderOnDelivery, litresFromCm } from "./backoffice.js";
+import { closeOrderOnDelivery, litresFromCm, backdateAt } from "./backoffice.js";
 import { linkPhotos, photosFor, proofPhotos, proofCol } from "./capture.js";
 import { settleShift, shiftReadings, shiftSummary, shiftReport, shiftFuels, shiftDipRecon } from "../shifts.js";
 import { notify, staff, announce } from "../notifications.js";
@@ -109,6 +109,8 @@ saleRoutes.post("/sales", requirePerm("sales.create"), h((req) => {
     discount_ref: z.string().trim().max(120).optional().nullable(),
     /** when the sale was made on a tablet without internet; billed at the price in force then */
     offline_at: z.string().datetime({ offset: true }).nullable().optional(),
+  /** manager / CEO: a missed sale entered on its real past day (YYYY-MM-DD) — dated and priced there */
+  entry_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
     /** a wholesale client fuelled from the nozzle: billed at their wholesale rate. payment_method is then the settlement
      * (khata = on credit, or cash / a money method / cheque = paid now). */
     wholesale_client_id: z.number().int().positive().nullable().optional(),
@@ -167,25 +169,38 @@ saleRoutes.post("/sales", requirePerm("sales.create"), h((req) => {
     if (b.discount > max && !can(req.user, "customers.edit"))
       throw new AppError(403, `${direct ? "Direct discount" : "Discount"} above ${pkr(max)} needs the manager / CEO. Ask them to enter it.`);
   }
-  const at = b.offline_at ? new Date(b.offline_at).toISOString() : null;
+  // when the fuel actually went out: an offline tablet's own clock, or (manager / CEO) a missed entry on its real past day —
+  // the sale is dated there and priced at THAT day's board rate, and it lands on the shift that was open then
+  let at = b.offline_at ? new Date(b.offline_at).toISOString() : null;
   if (at && (Date.parse(at) > Date.now() + 60_000 || Date.parse(at) < Date.now() - 48 * 3600_000))
     throw new AppError(400, "Offline sale time is not valid (must be within the last 48 hours)");
+  if (!at && b.entry_date && req.user!.role !== "salesman") at = backdateAt(req, tid(req), b.entry_date) ?? null;
   if (b.client_uid) {
     const dup = get("SELECT * FROM sales WHERE client_uid=? AND station_id=?", b.client_uid, b.station_id);
     if (dup) return { ...dup, duplicate: true };
   }
   const salesman = req.user!.role === "salesman";
   // a salesman's sale goes on their own shift (the one open when an offline sale was made); others use the station's open shift
-  const shift = salesman
+  let shift = salesman
     ? at
       ? get("SELECT * FROM shifts WHERE station_id=? AND attendant=? AND opened_at<=? ORDER BY id DESC LIMIT 1", b.station_id, req.user!.name, at)
       : get("SELECT * FROM shifts WHERE station_id=? AND status='open' AND attendant=? ORDER BY id DESC LIMIT 1", b.station_id, req.user!.name)
-    : get("SELECT * FROM shifts WHERE station_id=? AND status='open' ORDER BY id DESC LIMIT 1", b.station_id);
+    : at
+      ? get("SELECT * FROM shifts WHERE station_id=? AND opened_at<=? AND (closed_at IS NULL OR closed_at>=?) ORDER BY id DESC LIMIT 1", b.station_id, at, at)
+      : get("SELECT * FROM shifts WHERE station_id=? AND status='open' ORDER BY id DESC LIMIT 1", b.station_id);
   if (salesman && !shift) throw new AppError(400, "Start your shift first (Shifts page) before recording sales");
+  // a manager's back-dated entry that lands on a CLOSED shift: if that shift's meter settlement still holds these litres as
+  // cash, the sale is moved out of it (below, like a late offline sale); if the meter never saw this fuel (the entry was
+  // simply missed from the books), it is booked plainly on its day, off the shift
+  if (shift && shift.status !== "open" && at && !salesman && b.payment_method !== "cash") {
+    const want = b.litres ?? (b.amount ? b.amount / priceOf(tid(req), b.product, at) : 0);
+    const meter = get("SELECT litres FROM sales WHERE shift_id=? AND product=? AND source='meter' AND created_by IS NULL ORDER BY litres DESC LIMIT 1", shift.id, b.product);
+    if (!meter || meter.litres + 0.01 < want) shift = null;
+  }
   if (shift && shift.status !== "open") {
     // a sale made on the tablet without internet that only uploads after the shift was closed: the meters already
     // settled those litres as cash, so move them to the right book instead of losing the entry
-    if (!(salesman && at)) throw new AppError(409, "This shift is already closed; its litres were counted from the meter. Tell the manager about this sale.");
+    if (!at) throw new AppError(409, "This shift is already closed; its litres were counted from the meter. Tell the manager about this sale.");
     if (b.account_id && !get("SELECT id FROM bank_accounts WHERE id=? AND tenant_id=? AND active=1", b.account_id, tid(req))) throw new AppError(400, "Bank account not found");
     const { offline_at: _o, ...sale } = b;
     const late = rebookLateSale(req, shift, sale, at);
@@ -344,6 +359,15 @@ const account_idInvalid = (t: number, id?: number | null) => id != null && !get(
  * brought in (6–10 days later), when it is billed at that day's pump rate. These endpoints list what is still
  * waiting and clear one or many at once. Owner / manager / cashier only.
  */
+/** Board prices as they stood on a past day (noon PK) — the POS shows and uses these for a back-dated entry. */
+saleRoutes.get("/sales/prices-on", h((req) => {
+  const day = String(req.query.date ?? "");
+  const ms = Date.parse(`${day}T12:00:00+05:00`);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || Number.isNaN(ms)) throw new AppError(400, "date=YYYY-MM-DD");
+  const at = new Date(ms).toISOString();
+  return { date: day, prices: Object.fromEntries(Object.entries(currentPrices(tid(req), at)).map(([k, v]) => [k, v.price])) };
+}));
+
 saleRoutes.get("/sales/pending", requirePerm("khata.clear_pending"), h((req) => {
   const t = tid(req);
   const prices = currentPrices(t);
@@ -376,8 +400,10 @@ saleRoutes.post("/sales/clear", requirePerm("khata.clear_pending"), h((req) => {
       const s = get(`SELECT s.* FROM sales s JOIN stations st ON st.id=s.station_id WHERE s.id=? AND st.tenant_id=? AND s.pending=1`, id, t);
       if (!s) throw new AppError(404, `Pending hold #${id} not found — it may already be cleared`);
       if (!s.customer_id) throw new AppError(400, `Hold #${id} has no khata customer`);
-      const rate = b.rate ?? prices[s.product]?.price;
-      if (!(rate > 0)) throw new AppError(400, `No current price set for ${PRODUCTS[s.product] ?? s.product}`);
+      const board = prices[s.product]?.price;
+      if (!(board > 0) && b.rate == null) throw new AppError(400, `No current price set for ${PRODUCTS[s.product] ?? s.product}`);
+      // today's board rate, then the customer's own rate card (fixed / pump − X) — an explicit override rate wins
+      const rate = b.rate ?? khataSpecialRate(t, s.customer_id, s.product, board);
       const amount = round2(s.litres * rate);
       const c = get("SELECT * FROM customers WHERE id=?", s.customer_id)!;
       // the fuel is already out, so this must be billed — lock the clear-day rate on the sale and raise the khata debit

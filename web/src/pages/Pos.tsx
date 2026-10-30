@@ -83,6 +83,15 @@ export default function Pos() {
   const [product, setProduct] = useState<string | null>(null);
   const [mode, setMode] = useState<"amount" | "litres">("amount");
   const [entry, setEntry] = useState("");
+  // manager / CEO: a missed sale entered on its real past day — dated there and priced at THAT day's board rate
+  const [entryDate, setEntryDate] = useState("");
+  const [histPrices, setHistPrices] = useState<Record<string, number> | null>(null);
+  useEffect(() => {
+    if (!entryDate) { setHistPrices(null); return; }
+    let live = true;
+    api<any>(`/sales/prices-on?date=${entryDate}`).then((r) => { if (live) setHistPrices(r.prices); }).catch(() => { if (live) setHistPrices(null); });
+    return () => { live = false; };
+  }, [entryDate]);
   const [pay, setPay] = useState<string | null>(null);
   const [khata, setKhata] = useState<{ account: any; vehicle: string; slip: string; photo_id?: number | null; pending?: boolean; discount?: number; cashOn?: boolean; cashBack?: number; cashBackLitres?: number; fullCash?: boolean; itemsOn?: boolean; itemsCost?: number; itemsNote?: string } | null>(null);
   // direct (walk-in) discount on a cash / card / online sale: fixed rupees or Rs per litre; the reference (who / why) is typed right after saving
@@ -146,7 +155,8 @@ export default function Pos() {
   }, [pay, khata?.account?.id, khata?.vehicle]);
 
   const d = today.data ?? cacheGet<any>(cacheKey);
-  const pumpRate = product && d ? d.prices[product] : 0;
+  const prices: Record<string, number> = entryDate && histPrices ? histPrices : (d?.prices ?? {});
+  const pumpRate = product && d ? (prices[product] ?? 0) : 0;
   // a wholesale fill is always litres-based and priced at the client's own wholesale rate, not the pump rate
   const wsRate = pay === "wholesale" && product ? Number(ws?.client?.rates?.[product] ?? 0) : 0;
   // a khata customer the CEO gave a special rate: fixed, or pump rate − X (capped at the pump rate = discount only)
@@ -209,7 +219,7 @@ export default function Pos() {
 
   const save = async () => {
     if (!ready || !d || saving) return;
-    const body: any = { station_id: d.station.id, product, payment_method: pay, [mode]: value, client_uid: newUid() };
+    const body: any = { station_id: d.station.id, product, payment_method: pay, [mode]: value, client_uid: newUid(), ...(entryDate && !isSalesman ? { entry_date: entryDate } : {}) };
     if (pay === "wholesale" && ws) {
       // the fill always goes to the client's wholesale khata; payment_method carries how it is settled now
       Object.assign(body, { payment_method: ws.settle, litres, wholesale_client_id: ws.client.id });
@@ -326,17 +336,23 @@ export default function Pos() {
 
       {/* Aaj ke rates — bada aur saaf; CEO/admin side se set hote hain, salesman sirf dekhta hai */}
       <div className="mb-3 rounded-2xl border border-amber-200 bg-amber-50 p-3 shadow-sm">
-        <div className="mb-2 flex items-center justify-between">
-          <span className="text-sm font-bold text-amber-900">Aaj ke rate · <Ur>آج کے ریٹ</Ur></span>
-          <span className="text-xs text-amber-700">CEO/admin set karte hain</span>
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <span className="text-sm font-bold text-amber-900">{entryDate ? <>{entryDate} ke rate · <Ur>اس دن کے ریٹ</Ur></> : <>Aaj ke rate · <Ur>آج کے ریٹ</Ur></>}</span>
+          {isSalesman ? <span className="text-xs text-amber-700">CEO/admin set karte hain</span> : (
+            <label className="flex items-center gap-2 text-xs text-amber-900">Purani tareekh ki entry · <Ur>پرانی تاریخ</Ur>
+              <input type="date" className="input !h-8 !w-auto !py-0 text-xs" max={new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 10)} value={entryDate} onChange={(e) => setEntryDate(e.target.value)} aria-label="Entry ki tareekh" />
+              {entryDate && <button type="button" className="underline" onClick={() => setEntryDate("")}>aaj</button>}
+            </label>
+          )}
         </div>
+        {entryDate && <p className="mb-2 rounded-lg bg-white/70 px-2 py-1 text-xs text-amber-900">Entry <b>{entryDate}</b> par darj hogi, us din ke rate par (khata rate card bhi usi par lagega). Band din sirf CEO.{!histPrices && " Us din ke rate load ho rahe hain…"}</p>}
         <div className={`grid gap-2 ${d.products.length >= 3 ? "grid-cols-3" : "grid-cols-2"}`}>
           {d.products.map((p: string) => (
             <div key={p} className="rounded-xl bg-white px-3 py-2 text-center shadow-sm ring-1 ring-amber-100">
               <div className="flex items-center justify-center gap-1.5 text-sm font-semibold" style={{ color: fuelOf(p).color }}>
                 <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: fuelOf(p).color }} />{fuelOf(p).en}
               </div>
-              <div className="text-2xl font-extrabold tabular-nums text-slate-900">Rs {d.prices[p]?.toFixed(2)}</div>
+              <div className="text-2xl font-extrabold tabular-nums text-slate-900">Rs {prices[p]?.toFixed(2)}</div>
               <Ur className="text-xs text-slate-500">{fuelOf(p).ur}</Ur>
             </div>
           ))}

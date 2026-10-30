@@ -1,0 +1,116 @@
+/** Three field fixes: (1) a manager's back-dated POS entry is priced at THAT day's board rate, (2) a khata customer's rate
+ *  card applies on every path (POS sending the board rate, a cleared card-pending hold), (3) a bypass purchase line can be edited. */
+import { test, before, after } from "node:test";
+import assert from "node:assert/strict";
+import os from "node:os";
+import path from "node:path";
+import fs from "node:fs";
+import type { Server } from "node:http";
+
+const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pumpai-backdate-"));
+process.env.DB_PATH = path.join(dir, "test.db");
+process.env.NODE_ENV = "test";
+process.env.ANTHROPIC_API_KEY = "";
+process.env.WA_TOKEN = "";
+
+let server: Server; let base = ""; let db: typeof import("../src/db.js");
+const tokens: Record<string, string> = {};
+async function call(who: string, method: string, url: string, body?: unknown) {
+  const res = await fetch(base + url, { method, headers: { "content-type": "application/json", ...(tokens[who] ? { authorization: `Bearer ${tokens[who]}` } : {}) }, body: body ? JSON.stringify(body) : undefined });
+  return { status: res.status, data: (await res.json().catch(() => null)) as any };
+}
+const ok = (r: { status: number; data: any }, m: string) => { assert.equal(r.status, 200, `${m}: ${JSON.stringify(r.data)}`); return r.data; };
+const near = (a: number, b: number, m?: string) => assert.ok(Math.abs(a - b) < 0.05, `${m ?? ""} ${a} ≈ ${b}`);
+const books = async () => { const b = ok(await call("admin", "GET", "/api/books/check"), "books"); assert.equal(b.ok, true, JSON.stringify(b.checks.filter((c: any) => !c.ok))); };
+const dayAgo = (n: number) => new Date(Date.now() - n * 86_400_000 + 5 * 3600_000).toISOString().slice(0, 10);
+
+before(async () => {
+  const { app } = await import("../src/index.js");
+  db = await import("../src/db.js");
+  await new Promise<void>((r) => { server = app.listen(0, () => r()); });
+  base = `http://127.0.0.1:${(server.address() as any).port}`;
+  for (const who of ["admin", "manager", "salesman", "wholesale"]) tokens[who] = (await call("", "POST", "/api/auth/login", { email: `${who}@pumpai.pk`, password: "demo1234" })).data.token;
+});
+after(() => { server?.close(); fs.rmSync(dir, { recursive: true, force: true }); });
+
+let t: number, st: number, cust: any, todayHSD: number, oldHSD: number;
+test("back-dated POS entry (manager / CEO): dated on that day, priced at that day's board rate; salesman cannot back-date", async () => {
+  t = db.get("SELECT id FROM tenants ORDER BY id LIMIT 1")!.id as number;
+  st = db.get("SELECT id FROM stations WHERE tenant_id=? ORDER BY id LIMIT 1", t)!.id as number;
+  cust = db.get("SELECT id, name FROM customers WHERE tenant_id=? AND credit_limit > 0 ORDER BY credit_limit DESC LIMIT 1", t)!;
+  db.run("UPDATE customers SET credit_limit=100000000, khata_rates=NULL WHERE id=?", cust.id);
+  todayHSD = (db.get("SELECT price FROM prices WHERE tenant_id=? AND product='HSD' ORDER BY effective_from DESC, id DESC LIMIT 1", t)!.price as number);
+  // the board 10 days ago was Rs 20 lower; the current price took effect 5 days ago
+  oldHSD = Math.round((todayHSD - 20) * 100) / 100;
+  db.run("DELETE FROM prices WHERE tenant_id=? AND product='HSD'", t);
+  db.run("INSERT INTO prices (tenant_id,product,price,effective_from,created_by) VALUES (?,?,?,?,?)", t, "HSD", oldHSD, new Date(Date.now() - 10 * 86_400_000).toISOString(), "test");
+  db.run("INSERT INTO prices (tenant_id,product,price,effective_from,created_by) VALUES (?,?,?,?,?)", t, "HSD", todayHSD, new Date(Date.now() - 5 * 86_400_000).toISOString(), "test");
+  // what the POS would show for that day
+  const on = ok(await call("admin", "GET", `/api/sales/prices-on?date=${dayAgo(8)}`), "prices-on");
+  near(on.prices.HSD, oldHSD, "board 8 days ago");
+  near(ok(await call("admin", "GET", `/api/sales/prices-on?date=${dayAgo(0)}`), "prices today").prices.HSD, todayHSD);
+  assert.equal((await call("admin", "GET", "/api/sales/prices-on?date=2026-13-45")).status, 400);
+  // the entry itself: 100 L khata, 8 days ago
+  const s = ok(await call("admin", "POST", "/api/sales", { station_id: st, product: "HSD", litres: 100, payment_method: "khata", customer_id: cust.id, vehicle_no: "LEA-1", slip_no: "OLD-1", entry_date: dayAgo(8) }), "back-dated sale");
+  near(s.rate, oldHSD, "priced at that day's rate"); near(s.amount, 100 * oldHSD);
+  assert.equal(String(s.created_at).slice(0, 10), dayAgo(8), "dated that day");
+  // the same entry today → today's rate
+  const s2 = ok(await call("admin", "POST", "/api/sales", { station_id: st, product: "HSD", litres: 100, payment_method: "khata", customer_id: cust.id, vehicle_no: "LEA-1", slip_no: "NEW-1" }), "today sale");
+  near(s2.rate, todayHSD);
+  // a salesman's entry_date is ignored (their late sales come with offline_at only)
+  ok(await call("salesman", "POST", "/api/shifts/open", {}), "open shift");
+  const s3 = ok(await call("salesman", "POST", "/api/sales", { station_id: st, product: "HSD", litres: 10, payment_method: "cash", entry_date: dayAgo(8) }), "salesman");
+  near(s3.rate, todayHSD, "salesman cannot back-date");
+  assert.equal(String(s3.created_at).slice(0, 10), dayAgo(0));
+  await books();
+});
+
+test("khata rate card applies on every path: board rate sent by the POS, back-dated day, and a cleared card-pending hold", async () => {
+  ok(await call("admin", "POST", `/api/customers/${cust.id}/khata-rates`, { rates: { HSD: { mode: "minus", value: 5 } } }), "card: pump − 5");
+  // POS-style (no rate) today
+  const a = ok(await call("admin", "POST", "/api/sales", { station_id: st, product: "HSD", litres: 50, payment_method: "khata", customer_id: cust.id, vehicle_no: "LEA-2", slip_no: "C-1" }), "khata today");
+  near(a.rate, todayHSD - 5, "card applied today");
+  // back-dated: card on that day's board
+  const b = ok(await call("admin", "POST", "/api/sales", { station_id: st, product: "HSD", litres: 50, payment_method: "khata", customer_id: cust.id, vehicle_no: "LEA-2", slip_no: "C-2", entry_date: dayAgo(8) }), "khata back-dated");
+  near(b.rate, oldHSD - 5, "card applied on the old day's board");
+  // card-pending hold: no rate now; cleared today at today's board − 5
+  const h = ok(await call("admin", "POST", "/api/sales", { station_id: st, product: "HSD", litres: 40, payment_method: "khata", customer_id: cust.id, vehicle_no: "LEA-2", slip_no: "P-1", pending: true }), "pending");
+  const cl = ok(await call("admin", "POST", "/api/sales/clear", { ids: [h.id] }), "clear");
+  near(cl.cleared[0].rate, todayHSD - 5, "cleared at the card rate");
+  near(cl.cleared[0].amount, 40 * (todayHSD - 5));
+  // an explicit override rate on clear still wins
+  const h2 = ok(await call("admin", "POST", "/api/sales", { station_id: st, product: "HSD", litres: 10, payment_method: "khata", customer_id: cust.id, vehicle_no: "LEA-2", slip_no: "P-2", pending: true }), "pending 2");
+  near(ok(await call("admin", "POST", "/api/sales/clear", { ids: [h2.id], rate: 300 }), "clear override").cleared[0].rate, 300);
+  await books();
+});
+
+test("bypass purchase edit: litres / cost / day change, supplier payable and stock follow, cannot go below what was delivered, client-fuel line refused", async () => {
+  const sups = ok(await call("wholesale", "GET", "/api/bypass/suppliers"), "suppliers");
+  const S = sups.find((x: any) => !x.client_id) ?? sups[0];
+  const owed0 = S.bypass_owed as number;
+  const clients = ok(await call("admin", "GET", "/api/wholesale/clients"), "clients");
+  const W = (clients.clients ?? clients).find((c: any) => c.rates?.HSD);
+  const del = ok(await call("wholesale", "POST", "/api/bypass/deliveries", { station_id: st,
+    purchases: [{ supplier_id: S.id, product: "HSD", litres: 1000, cost_rate: 250, ref: "INV-9" }],
+    drops: [{ client_id: W.id, product: "HSD", litres: 600, override_limit: true }] }), "delivery");
+  const pur = db.get("SELECT * FROM bypass_purchases WHERE delivery_id=? AND voided=0", del.id)!;
+  // officer (wholesale.manage) has no entries.edit → 403; admin edits
+  assert.equal((await call("wholesale", "PATCH", `/api/bypass/purchases/${pur.id}`, { reason: "rate galat", cost_rate: 251 })).status, 403);
+  assert.equal((await call("admin", "PATCH", `/api/bypass/purchases/${pur.id}`, { cost_rate: 251 })).status, 400, "reason needed");
+  const e1 = ok(await call("admin", "PATCH", `/api/bypass/purchases/${pur.id}`, { reason: "invoice par rate 251", cost_rate: 251 }), "rate edit");
+  near(e1.purchase.amount, 1000 * 251); near(e1.bypass_owed, owed0 + 1000 * 251, "payable follows");
+  const e2 = ok(await call("admin", "PATCH", `/api/bypass/purchases/${pur.id}`, { reason: "bilty 1200 L", litres: 1200, amount: 300_000, txn_date: dayAgo(3), ref: "INV-9A" }), "litres + amount + day");
+  near(e2.purchase.cost_rate, 250); near(e2.purchase.litres, 1200); assert.equal(String(e2.purchase.txn_date).slice(0, 10), dayAgo(3)); assert.equal(e2.purchase.ref, "INV-9A");
+  near(e2.bypass_stock.litres, 1200 - 600, "stock follows");
+  // 600 L already went to the client: litres cannot drop under that
+  const bad = await call("admin", "PATCH", `/api/bypass/purchases/${pur.id}`, { reason: "kam", litres: 500 });
+  assert.equal(bad.status, 400); assert.match(bad.data.error, /kam az kam 600/);
+  const st2 = ok(await call("wholesale", "GET", `/api/bypass/suppliers/${S.id}/statement`), "statement");
+  near(st2.closing_balance, owed0 + 300_000);
+  assert.ok(db.get("SELECT 1 x FROM audit_log WHERE tenant_id=? AND action='bypass_purchase_edit'", t), "audited");
+  // fuel bought from a client (settled against their khata) is not editable here
+  const del2 = ok(await call("wholesale", "POST", "/api/bypass/deliveries", { station_id: st, purchases: [{ client_id: W.id, product: "HSD", litres: 100, cost_rate: 240 }] }), "client fuel");
+  const pur2 = db.get("SELECT * FROM bypass_purchases WHERE delivery_id=? AND voided=0", del2.id)!;
+  assert.equal((await call("admin", "PATCH", `/api/bypass/purchases/${pur2.id}`, { reason: "x", litres: 90 })).status, 400);
+  await books();
+});

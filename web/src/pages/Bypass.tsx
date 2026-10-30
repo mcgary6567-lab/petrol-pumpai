@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { askCancel, pinHeader } from "../components/CancelEntry";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell } from "recharts";
-import { Plus, Truck, Factory, Download, Printer, HandCoins, Ban } from "lucide-react";
+import { Plus, Truck, Factory, Download, Printer, HandCoins, Ban, Pencil } from "lucide-react";
 import { api, linkToken, useApi } from "../lib/api";
 import { Empty, ErrorBox, Field, ListTools, Loading, Modal, Stat, useAction, useListFilter } from "../components/ui";
 import { PRODUCTS, activeProducts, dt, num, phone, pkr, pkrShort } from "../lib/format";
@@ -485,12 +485,52 @@ function QuickAdd({ placeholder, onAdd, onCancel }: { placeholder: string; onAdd
   );
 }
 
+/** Edit one bypass purchase line (litres, cost as rate or full amount, day, ref, note). Supplier payable + bypass stock follow. */
+function EditPurchase({ x, onClose, onDone }: { x: any; onClose: () => void; onDone: () => void }) {
+  const { busy, run } = useAction();
+  const [litres, setLitres] = useState(String(x.litres ?? ""));
+  const [rate, setRate] = useState(String(x.cost_rate ?? ""));
+  const [amount, setAmount] = useState(String(x.amount ?? ""));
+  const [last, setLast] = useState<"rate" | "amount">("rate");
+  const [date, setDate] = useState(String(x.txn_date ?? "").slice(0, 10));
+  const [ref, setRef] = useState(x.ref ?? "");
+  const [note, setNote] = useState(x.note ?? "");
+  const [reason, setReason] = useState("");
+  const L = Number(litres) || 0;
+  const amt = last === "rate" ? Math.round(L * (Number(rate) || 0) * 100) / 100 : Number(amount) || 0;
+  const r = L > 0 ? Math.round((amt / L) * 100) / 100 : 0;
+  const save = () => run(() => api(`/bypass/purchases/${x.id}`, { method: "PATCH", body: { reason, litres: L, ...(last === "rate" ? { cost_rate: Number(rate) } : { amount: amt }), txn_date: date || undefined, ref: ref || null, note: note || null } }), "Khareed update — supplier ka hisaab aur stock theek")
+    .then((ok) => { if (ok) onDone(); });
+  return (
+    <Modal open title={`Khareed edit — #${x.id} · ${PRODUCTS[x.product] ?? x.product}`} onClose={onClose}>
+      <div className="space-y-3">
+        <p className="rounded-xl bg-amber-50 p-2.5 text-xs text-amber-900">Supplier ka "we owe" aur bypass stock is line se khud theek ho jayenge. Jo maal pehle hi clients ko ja chuka hai us se kam litres nahi ho sakte. Audit log me pehle / baad aur wajah rahegi.</p>
+        <div className="grid grid-cols-3 gap-2">
+          <Field label="Litres"><input className="input" type="number" inputMode="decimal" value={litres} onChange={(e) => setLitres(e.target.value)} /></Field>
+          <Field label="Rate (Rs/L)"><input className="input" type="number" inputMode="decimal" step="0.01" value={last === "rate" ? rate : String(r)} onChange={(e) => { setRate(e.target.value); setLast("rate"); }} /></Field>
+          <Field label="Kul amount (Rs)"><input className="input" type="number" inputMode="decimal" value={last === "amount" ? amount : String(amt)} onChange={(e) => { setAmount(e.target.value); setLast("amount"); }} /></Field>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="Tareekh"><input className="input" type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
+          <Field label="Ref / invoice"><input className="input" value={ref} onChange={(e) => setRef(e.target.value)} /></Field>
+        </div>
+        <Field label="Note"><input className="input" value={note} onChange={(e) => setNote(e.target.value)} /></Field>
+        <Field label="Wajah (zaroori)"><input className="input" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. invoice par rate 251 tha" /></Field>
+        <div className="rounded-xl bg-slate-50 p-2.5 text-sm">Naya: <b>{num(L)} L</b> × Rs {r} = <b>{pkr(amt)}</b>{Math.abs(amt - (x.amount ?? 0)) > 0.5 && <span className="text-xs text-slate-500"> (pehle {pkr(x.amount)})</span>}</div>
+        <div className="flex justify-end gap-2"><button className="btn-secondary" onClick={onClose}>Cancel</button>
+          <button className="btn-primary" disabled={busy || !(L > 0) || !(amt > 0) || reason.trim().length < 3} onClick={save}>Save</button></div>
+      </div>
+    </Modal>
+  );
+}
+
 function SupplierStatement({ id, onClose, onChanged }: { id: number; onClose: () => void; onChanged: () => void }) {
   const { can } = useAuth();
   const [range, setRange] = useState({ from: "", to: "" });
   const qs = [range.from && `from=${range.from}`, range.to && `to=${range.to}`].filter(Boolean).join("&");
   const { data, reload } = useApi<any>(`/bypass/suppliers/${id}/statement${qs ? `?${qs}` : ""}`);
   const [pay, setPay] = useState(false);
+  const [edit, setEdit] = useState<any>(null);
   const [q, setQ] = useState("");
   const [kind, setKind] = useState("");
   const refresh = () => { reload(); onChanged(); };
@@ -533,7 +573,10 @@ function SupplierStatement({ id, onClose, onChanged }: { id: number; onClose: ()
                     <td className="text-right tabular-nums text-rose-600">{l.debit ? pkr(l.debit) : ""}</td>
                     <td className="text-right tabular-nums text-emerald-600">{l.credit ? pkr(l.credit) : ""}</td>
                     <td className="text-right font-medium tabular-nums">{pkr(l.balance)}</td>
-                    {can("wholesale.void") && <td className="text-right">{<button className="text-rose-600 hover:underline" title="Void" onClick={async () => { if (confirm("Void this entry?")) { await api(`/bypass/${l.kind === "purchase" ? "purchases" : "payments"}/${l.id}/void`, { body: {} }).catch((e) => alert(e.message)); refresh(); } }}><Ban size={14} /></button>}</td>}
+                    {can("wholesale.void") && <td className="whitespace-nowrap text-right">
+                      {l.kind === "purchase" && can("entries.edit") && <button className="mr-2 text-slate-500 hover:text-brand-700" title="Edit" onClick={() => setEdit(l)}><Pencil size={14} /></button>}
+                      <button className="text-rose-600 hover:underline" title="Void" onClick={async () => { if (confirm("Void this entry?")) { await api(`/bypass/${l.kind === "purchase" ? "purchases" : "payments"}/${l.id}/void`, { body: {} }).catch((e) => alert(e.message)); refresh(); } }}><Ban size={14} /></button>
+                    </td>}
                   </tr>
                 ))}
                 <tr className="border-t-2 font-bold"><td className="py-2" colSpan={4}>Closing (we owe)</td><td className="text-right tabular-nums">{pkr(data.closing_balance)}</td>{can("wholesale.void") && <td></td>}</tr>
@@ -543,6 +586,7 @@ function SupplierStatement({ id, onClose, onChanged }: { id: number; onClose: ()
         </div>
       )}
       {pay && <PaySupplier id={id} owed={s?.bypass_owed ?? 0} onClose={() => setPay(false)} onDone={() => { setPay(false); refresh(); }} />}
+      {edit && <EditPurchase x={edit} onClose={() => setEdit(null)} onDone={() => { setEdit(null); refresh(); }} />}
     </Modal>
   );
 }

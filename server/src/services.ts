@@ -89,6 +89,8 @@ export interface SaleInput {
   vehicle_no?: string | null;
   slip_no?: string | null;
   created_at?: string;
+  /** the moment whose board price applies when `rate` is not given (default: created_at) */
+  price_at?: string;
   created_by?: number | null;
   /** POS-generated id: the same sale synced twice (offline queue) is saved once. */
   client_uid?: string | null;
@@ -131,6 +133,20 @@ export interface SaleInput {
   items_note?: string | null;
 }
 
+/** The rate a khata customer's fill bills at: their rate card (fixed, or pump − X) capped at the board rate; else the board rate. */
+export function khataSpecialRate(tenantId: number, customerId: number, product: string, boardRate: number): number {
+  const raw = get("SELECT khata_rates FROM customers WHERE id=? AND tenant_id=?", customerId, tenantId)?.khata_rates;
+  if (!raw) return boardRate;
+  try {
+    const r = (JSON.parse(raw) as Record<string, { mode: "fixed" | "minus"; value: number }>)[product];
+    if (r && Number.isFinite(r.value)) {
+      const special = r.mode === "minus" ? boardRate - r.value : r.value;
+      if (special > 0) return round2(Math.min(boardRate, special)); // discount-only
+    }
+  } catch { /* malformed card → board rate */ }
+  return boardRate;
+}
+
 export function recordSale(tenantId: number, s: SaleInput): Row {
   const station = get("SELECT * FROM stations WHERE id=? AND tenant_id=?", s.station_id, tenantId);
   if (!station) throw new AppError(404, "Station not found");
@@ -138,19 +154,16 @@ export function recordSale(tenantId: number, s: SaleInput): Row {
     const dup = get("SELECT * FROM sales WHERE client_uid=? AND station_id=?", s.client_uid, s.station_id);
     if (dup) return { ...dup, duplicate: true };
   }
-  let rate = s.rate ?? priceOf(tenantId, s.product, s.created_at);
+  // the board price of the moment the fuel went out (a back-dated entry prices at ITS day, not today)
+  const board = s.payment_method === "wholesale" && s.rate != null ? s.rate : priceOf(tenantId, s.product, s.price_at ?? s.created_at);
+  let rate = s.rate ?? board;
   // A khata customer the CEO gave a special rate (customers.khata_rates): a fixed per-litre rate, or "pump rate − X".
   // It applies only to that customer's own khata fills (never a locked rate / pending hold), and is capped at the pump
-  // rate (discount-only, so no one is billed above the board rate). The litres/meter/stock are unaffected.
-  if (s.payment_method === "khata" && s.customer_id && s.rate == null && !s.pending) {
-    const raw = get("SELECT khata_rates FROM customers WHERE id=? AND tenant_id=?", s.customer_id, tenantId)?.khata_rates;
-    if (raw) { try {
-      const r = (JSON.parse(raw) as Record<string, { mode: "fixed" | "minus"; value: number }>)[s.product];
-      if (r && Number.isFinite(r.value)) {
-        const special = r.mode === "minus" ? rate - r.value : r.value;
-        if (special > 0) rate = round2(Math.min(rate, special)); // discount-only
-      }
-    } catch { /* ignore a malformed rate card — fall back to the pump rate */ } }
+  // rate (discount-only, so no one is billed above the board rate). The litres/meter/stock are unaffected. A caller that
+  // sends the plain board rate (the POS, a shift close) still gets the card applied; only a deliberately different rate
+  // (an edit keeping the old rate, a cleared hold) is left alone.
+  if (s.payment_method === "khata" && s.customer_id && !s.pending && (s.rate == null || Math.abs(s.rate - board) < 0.005)) {
+    rate = khataSpecialRate(tenantId, s.customer_id, s.product, rate);
   }
   // A wholesale client fuelled straight from the nozzle, at their own wholesale rate. The litres leave the tank and run
   // through the meter like any sale (so the stock register and shift settlement count them once), but the money is NOT
