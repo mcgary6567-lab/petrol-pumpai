@@ -364,7 +364,7 @@ function investorBody(c: any, q: IQ, code: string): string {
     const what = l.type === "payout" ? (l.purpose === "capital" ? "Asal raqam wapas" : "Munafa diya") : l.deal_id && l.product ? `Deal #${l.deal_id} · ${n2(l.sold_litres ?? l.litres ?? 0)} L ${PRODUCTS[l.product] ?? l.product}${l.deal_pct != null ? ` · ${100 - l.deal_pct}% hissa` : ""}` : "";
     const extra = l.type === "profit" || l.type === "loss" ? null : l.note; // a share's note only repeats the deal number
     return `<div class="e ${cls}"><div class=ic>${ic}</div><div class=l><div class=m>${esc(dateStr(l.created_at))}</div><div class=et>${esc(en)} · <span class=ur>${ur}</span></div>
-      <div class=m>${esc([what, l.method && l.type !== "profit" && l.type !== "loss" ? l.method : null, extra].filter(Boolean).join(" · "))}</div></div>
+      <div class=m>${esc([what, l.method && l.type !== "profit" && l.type !== "loss" ? l.method : null, l.ref && l.type !== "profit" && l.type !== "loss" ? `#${l.ref}` : null, extra].filter(Boolean).join(" · "))}</div></div>
       <div class=r>${l.credit ? `<b class=g>+${n2(l.credit)}</b><div class=m>Credit</div>` : `<b class=red>−${n2(l.debit)}</b><div class=m>Debit</div>`}<div class=m>Baqi · <span class=ur>باقی</span> ${n2(l.balance)}</div></div></div>`;
   }).join("");
   const chips = [`<a href="${esc(code)}#entries" class="${month || from || to ? "" : "on"}">All · <span class=ur>سب</span></a>`, ...monthsBack(6).map((m) => `<a href="${qs({ m, from: undefined, to: undefined })}#entries" class="${month === m ? "on" : ""}">${esc(monthName(m))}</a>`)].join("");

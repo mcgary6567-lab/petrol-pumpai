@@ -215,18 +215,20 @@ const money = z.object({
   account_id: accountIdField,
   /** a payout: "profit" (munafa diya) or "capital" (asal raqam wapas) — only for the statement wording */
   purpose: z.enum(["capital", "profit"]).optional().nullable(),
+  /** slip / transaction ID / IBFT ref the money came or went with — shows on the statement and the investor's portal */
+  ref: z.string().trim().max(60).optional().nullable(),
   note: z.string().trim().max(200).optional().nullable(),
 });
 
 /** write one money txn and its cash / bank row (ref inv:<txn>) */
-function moneyTxn(t: number, by: string, i: any, m: { dir: "in" | "out"; amount: number; method?: string | null; account_id?: number | null; purpose?: string | null; note?: string | null; deal_id?: number | null }) {
+function moneyTxn(t: number, by: string, i: any, m: { dir: "in" | "out"; amount: number; method?: string | null; account_id?: number | null; purpose?: string | null; ref?: string | null; note?: string | null; deal_id?: number | null }) {
   const amount = round2(m.amount);
   const type = m.dir === "in" ? "capital_in" : "payout";
   const purpose = m.dir === "in" ? "capital" : (m.purpose ?? "profit");
-  const id = run(`INSERT INTO investor_txns (tenant_id,investor_id,type,purpose,amount,method,account_id,deal_id,note,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-    t, i.id, type, purpose, amount, m.method || "Cash", null, m.deal_id ?? null, m.note || null, by, now()).id;
+  const id = run(`INSERT INTO investor_txns (tenant_id,investor_id,type,purpose,amount,method,account_id,deal_id,ref,note,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+    t, i.id, type, purpose, amount, m.method || "Cash", null, m.deal_id ?? null, m.ref || null, m.note || null, by, now()).id;
   const label = m.dir === "in" ? "Investor capital received" : purpose === "capital" ? "Investor capital returned" : "Investor profit paid";
-  const src = otherMoney(t, { dir: m.dir, amount, method: m.method ?? "cash", account_id: m.account_id, party: i.name, category: label, note: m.note, ref: `inv:${id}`, by });
+  const src = otherMoney(t, { dir: m.dir, amount, method: m.method ?? "cash", account_id: m.account_id, party: i.name, category: label, note: [m.ref ? `Ref ${m.ref}` : null, m.note].filter(Boolean).join(" · ") || null, ref: `inv:${id}`, by });
   // the bank account actually used (checked to be this pump's by otherMoney) — never the raw id from the request
   const bankId = src.startsWith("bank:") ? get("SELECT account_id FROM bank_txns WHERE id=?", Number(src.slice(5)))?.account_id ?? null : null;
   run("UPDATE investor_txns SET src=?, account_id=? WHERE id=?", src, bankId, id);

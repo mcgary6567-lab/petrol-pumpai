@@ -123,3 +123,23 @@ test("manual profit: fixed % on capital and a cash figure; loss; period once; vo
   const ed = ok(await call("admin", "PATCH", `/api/investors/${i2.id}`, { name: "Fixed Return Sb", our_pct: 60, profit_mode: "deal" }), "edit");
   assert.equal(ed.profit_mode, "deal"); assert.equal(ed.profit_pct, null);
 });
+
+test("payment method + reference: capital by Raast with a TID lands on the statement, the bank book and the portal; cash has no ref", async () => {
+  db.setSetting(1, "module_investors", "1"); auth.forgetModules(1);
+  const i3 = ok(await call("admin", "POST", "/api/investors", { name: "Method Test Sb" }), "add");
+  const acc = ok(await call("admin", "POST", "/api/bank/accounts", { bank: "Meezan Bank", account_no: "0101 9988", opening_balance: 0 }), "bank").id;
+  const r = ok(await call("admin", "POST", `/api/investors/${i3.id}/money`, { dir: "in", amount: 250_000, method: "Raast", account_id: acc, ref: "RST-77881", note: "pehli qist" }), "raast in");
+  const c = ok(await call("admin", "POST", `/api/investors/${i3.id}/money`, { dir: "in", amount: 50_000, method: "Cash" }), "cash in");
+  const st = ok(await call("admin", "GET", `/api/investors/${i3.id}`), "st");
+  const a = st.lines.find((x: any) => x.id === r.id), b = st.lines.find((x: any) => x.id === c.id);
+  assert.equal(a.method, "Raast"); assert.equal(a.ref, "RST-77881"); assert.equal(a.acc_bank, "Meezan Bank"); assert.equal(a.account_id, acc);
+  assert.equal(b.method, "Cash"); assert.equal(b.ref, null); assert.equal(b.acc_bank, null);
+  // the bank statement carries the ref
+  const bank = ok(await call("admin", "GET", `/api/bank/accounts/${acc}/statement`), "bank statement");
+  assert.ok(bank.lines.some((l: any) => /RST-77881/.test(String(l.text ?? "") + String(l.note ?? ""))), "bank book shows the ref: " + JSON.stringify(bank.lines.slice(0, 3)));
+  // portal
+  const portal = ok(await call("admin", "GET", `/api/investors/${i3.id}/portal`), "portal");
+  const page = await (await fetch(base + new URL(portal.url).pathname, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: `pin=${portal.pin}` })).text();
+  assert.match(page, /Raast/); assert.match(page, /#RST-77881/);
+  await books();
+});

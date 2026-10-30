@@ -225,6 +225,7 @@ function InvestorDetail({ id, onBack, onEdit, form, setForm }: { id: number; onB
               columns={[
                 { label: "Tareekh", v: (x: any) => dt(x.created_at) },
                 { label: "Kism", v: (x: any) => TYPE[x.type]?.en ?? x.type, total: (rs: any[]) => `${rs.length} entries` },
+                { label: "Kaise", v: (x: any) => how(x) },
                 { label: "Tafseel", v: (x: any) => describe(x) },
                 { label: "Debit", r: true, v: (x: any) => (x.debit ? pkr(x.debit) : ""), tone: () => "neg" as const, total: (rs: any[]) => pkr(rs.reduce((a, x) => a + x.debit, 0)), totalTone: "neg" as const },
                 { label: "Credit", r: true, v: (x: any) => (x.credit ? pkr(x.credit) : ""), tone: () => "pos" as const, total: (rs: any[]) => pkr(rs.reduce((a, x) => a + x.credit, 0)), totalTone: "pos" as const },
@@ -233,14 +234,15 @@ function InvestorDetail({ id, onBack, onEdit, form, setForm }: { id: number; onB
           </div>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[760px] text-sm">
-            <thead><tr><th className="th">Tareekh</th><th className="th">Kism</th><th className="th">Tafseel</th><th className="th text-right">Debit</th><th className="th text-right">Credit</th><th className="th text-right">Balance</th><th className="th"></th></tr></thead>
+          <table className="w-full min-w-[860px] text-sm">
+            <thead><tr><th className="th">Tareekh</th><th className="th">Kism</th><th className="th">Kaise</th><th className="th">Tafseel</th><th className="th text-right">Debit</th><th className="th text-right">Credit</th><th className="th text-right">Balance</th><th className="th"></th></tr></thead>
             <tbody>
-              <tr className="bg-slate-50 text-xs"><td className="td" colSpan={5}>Opening balance</td><td className="td text-right font-semibold tabular-nums">{pkr(data.opening)}</td><td className="td"></td></tr>
+              <tr className="bg-slate-50 text-xs"><td className="td" colSpan={6}>Opening balance</td><td className="td text-right font-semibold tabular-nums">{pkr(data.opening)}</td><td className="td"></td></tr>
               {paged.slice.map((x: any) => (
                 <tr key={x.id} className={`border-t ${x.voided ? "text-slate-400 line-through" : ""}`}>
                   <td className="td whitespace-nowrap text-xs">{dt(x.created_at)}</td>
                   <td className="td"><span className={`whitespace-nowrap rounded-md px-1.5 py-0.5 text-[11px] font-semibold ${TYPE[x.type]?.cls ?? ""}`}>{TYPE[x.type]?.en ?? x.type}</span></td>
+                  <td className="td whitespace-nowrap text-xs text-slate-700">{how(x)}</td>
                   <td className="td text-xs text-slate-600">{describe(x)}{x.voided ? ` — mansookh: ${x.void_reason ?? ""}` : ""}</td>
                   <td className="td text-right tabular-nums text-rose-700">{x.debit ? pkr(x.debit) : ""}</td>
                   <td className="td text-right tabular-nums text-emerald-700">{x.credit ? pkr(x.credit) : ""}</td>
@@ -250,7 +252,7 @@ function InvestorDetail({ id, onBack, onEdit, form, setForm }: { id: number; onB
               ))}
             </tbody>
             <tfoot><tr className="border-t-2 border-slate-300 bg-slate-50 font-semibold tabular-nums">
-              <td className="td" colSpan={3}>Kul · closing balance</td>
+              <td className="td" colSpan={4}>Kul · closing balance</td>
               <td className="td text-right text-rose-700">{pkr(data.totals.debit)}</td><td className="td text-right text-emerald-700">{pkr(data.totals.credit)}</td>
               <td className="td text-right">{pkr(data.closing)}</td><td className="td"></td>
             </tr></tfoot>
@@ -270,12 +272,19 @@ function InvestorDetail({ id, onBack, onEdit, form, setForm }: { id: number; onB
   );
 }
 
+/** how the money moved: method · bank · ref (money rows only; shares / opening / manual have no cash leg) */
+function how(x: any) {
+  if (x.type !== "capital_in" && x.type !== "payout") return "";
+  if (x.method === "Opening") return "—";
+  return [x.method, x.acc_bank, x.ref ? `#${x.ref}` : null].filter(Boolean).join(" · ");
+}
+
 /** what an entry was, in words */
 function describe(x: any) {
   if (x.method === "Manual") return [x.type === "profit" ? "Manual munafa" : "Manual nuqsan", x.note].filter(Boolean).join(" · ");
   if (x.method === "Opening") return [x.type === "profit" ? "Opening — munafa baqi (go-live se pehle)" : "Opening — capital (go-live se pehle)", x.note].filter(Boolean).join(" · ");
-  if (x.type === "capital_in") return [x.method, x.acc_bank, x.note].filter(Boolean).join(" · ");
-  if (x.type === "payout") return [x.purpose === "capital" ? "Asal raqam wapas" : "Munafa diya", x.method, x.acc_bank, x.note].filter(Boolean).join(" · ");
+  if (x.type === "capital_in") return x.note ?? "";
+  if (x.type === "payout") return [x.purpose === "capital" ? "Asal raqam wapas" : "Munafa diya", x.note].filter(Boolean).join(" · ");
   // profit / loss share: the deal in words + the investor's % (the stored note only repeats the deal number)
   const d = x.deal_id ? `Deal #${x.deal_id}${x.product ? ` · ${num(x.sold_litres ?? x.litres ?? 0)} L ${PRODUCTS[x.product] ?? x.product}` : ""}${x.deal_profit != null ? ` · deal ${x.deal_profit < 0 ? "nuqsan" : "munafa"} ${pkr(Math.abs(x.deal_profit))}` : ""}${x.deal_pct != null ? ` · ${100 - x.deal_pct}% hissa` : ""}` : "";
   return d || x.note || "";
@@ -364,11 +373,12 @@ function MoneyForm({ i, dir, onClose, onDone }: { i: any; dir: "in" | "out"; onC
   const [method, setMethod] = useState("Cash");
   const [account, setAccount] = useState<number | null>(null);
   const [purpose, setPurpose] = useState<"profit" | "capital">("profit");
+  const [ref, setRef] = useState("");
   const [note, setNote] = useState("");
   useEffect(() => { setAccount(null); }, [method]);
   const amt = Number(amount);
   const tooMuch = dir === "out" && amt > i.free + 0.5;
-  const save = () => run(() => api(`/investors/${i.id}/money`, { body: { dir, amount: amt, method, account_id: isCash(method) ? null : account, purpose: dir === "out" ? purpose : undefined, note: note || null } }),
+  const save = () => run(() => api(`/investors/${i.id}/money`, { body: { dir, amount: amt, method, account_id: isCash(method) ? null : account, purpose: dir === "out" ? purpose : undefined, ref: ref || null, note: note || null } }),
     dir === "in" ? "Paisa darj — investor ke khate me credit" : "Payment darj — investor ke khate me debit").then((r) => { if (r) { onDone(); onClose(); } });
   return (
     <Modal open title={dir === "in" ? `Paisa aaya — ${i.name}` : `Paisa diya — ${i.name}`} onClose={onClose}>
@@ -385,6 +395,7 @@ function MoneyForm({ i, dir, onClose, onDone }: { i: any; dir: "in" | "out"; onC
         {tooMuch && <p className="text-sm text-rose-700">Free balance se zyada nahi de sakte.</p>}
         <Field label="Kaise · طریقہ"><div className="flex flex-wrap gap-1.5">{PAY.map((m) => <button key={m} onClick={() => setMethod(m)} className={`rounded-full px-3 py-1 text-xs font-semibold ${method === m ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-600"}`}>{m}</button>)}</div></Field>
         <AccountPicker value={account} onChange={setAccount} method={method} required />
+        {!isCash(method) && <Field label="Transaction ID / slip no. (optional)"><input className="input" value={ref} onChange={(e) => setRef(e.target.value)} placeholder={/raast|transfer/i.test(method) ? "IBFT / Raast ref" : "TID"} /></Field>}
         <Field label="Note"><input className="input" value={note} onChange={(e) => setNote(e.target.value)} /></Field>
         <div className="flex justify-end gap-2"><button className="btn-secondary" onClick={onClose}>Cancel</button>
           <button className="btn-primary" disabled={busy || !(amt > 0) || tooMuch || (!isCash(method) && !account)} onClick={save}>Save</button></div>

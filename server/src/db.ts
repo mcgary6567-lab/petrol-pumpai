@@ -959,6 +959,7 @@ export function migrate() {
   }
   // Investors module flag (added later): a pump that already has investors stays on; every other existing pump is off
   // investor profit setup (additive): how the investor earns — per-deal split (default) or a fixed % of capital per month
+  addColumn("investor_txns", "ref", "TEXT"); // slip / transaction ID / cheque no. the investor paid or was paid with
   addColumn("investors", "profit_mode", "TEXT");
   addColumn("investors", "profit_pct", "REAL");
   if (!get("SELECT value FROM settings WHERE tenant_id=0 AND key='mig_module_investors'")) {
