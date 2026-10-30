@@ -81,7 +81,7 @@ function Panel({ onLogout }: { onLogout: () => void }) {
   useEffect(() => { load(); const id = setInterval(load, 60_000); return () => clearInterval(id); }, [load]);
 
   const act = async (id: number, action: string) => { await pfetch(`/platform/tenants/${id}/${action}`, {}).then(load).catch((e) => setErr(e.message)); };
-  const toggleModule = async (id: number, on: boolean) => { await pfetch(`/platform/tenants/${id}/module`, { module: "wholesale", on }).then(load).catch((e) => setErr(e.message)); };
+  const toggleModule = async (id: number, on: boolean, module: "wholesale" | "investors" = "wholesale") => { await pfetch(`/platform/tenants/${id}/module`, { module, on }).then(load).catch((e) => setErr(e.message)); };
   const [codePlan, setCodePlan] = useState("lifetime");
   const makeCode = async () => { const r = await pfetch("/platform/codes", { count: 1, plan: codePlan }).catch((e) => setErr(e.message)); if (r) { setMade(r.codes); load(); } };
   const [resetFor, setResetFor] = useState<any>(null);
@@ -119,6 +119,7 @@ function Panel({ onLogout }: { onLogout: () => void }) {
       {t.status !== "active" && <button className="rounded-lg bg-emerald-600 px-2 py-1 text-xs font-semibold text-white" onClick={() => act(t.id, "activate")}>Activate</button>}
       {t.status !== "suspended" && <button className="rounded-lg bg-rose-600 px-2 py-1 text-xs font-semibold text-white" onClick={() => { if (confirm(`${t.name} suspend? Pump band ho jayega.`)) act(t.id, "suspend"); }}>Suspend</button>}
       <button className={`rounded-lg px-2 py-1 text-xs font-semibold ${t.module_wholesale ? "bg-indigo-600 text-white" : "border border-indigo-300 text-indigo-700"}`} title="Wholesale & carriage module (paid add-on)" onClick={() => toggleModule(t.id, !t.module_wholesale)}>Wholesale {t.module_wholesale ? "ON" : "OFF"}</button>
+      <button className={`rounded-lg px-2 py-1 text-xs font-semibold ${t.module_investors ? "bg-teal-600 text-white" : "border border-teal-300 text-teal-700"}`} title="Investors module (capital, deals, munafa ka batwara, investor portal)" onClick={() => toggleModule(t.id, !t.module_investors, "investors")}>Investors {t.module_investors ? "ON" : "OFF"}</button>
       <button className="rounded-lg border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700" title="CEO ka email / phone / password / PIN reset" onClick={() => setResetFor(t)}>CEO login</button>
       <button className="rounded-lg border border-rose-300 px-2 py-1 text-xs font-semibold text-rose-700" title="Pump aur uska poora data delete (pehle backup banta hai)" onClick={() => setDeleteFor(t)}>Delete</button>
     </div>

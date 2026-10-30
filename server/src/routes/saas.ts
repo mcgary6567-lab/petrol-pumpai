@@ -130,12 +130,13 @@ platform.get("/tenants", h(() =>
   ({ tenants: all(`SELECT t.id, t.name, t.slug, t.owner_name, t.owner_phone, t.status, t.trial_ends_at, t.activated_at, t.plan, t.paid_until, t.note, t.created_at,
        (SELECT COUNT(*) FROM users u WHERE u.tenant_id=t.id) users,
        (SELECT email FROM users u WHERE u.tenant_id=t.id AND u.role='admin' ORDER BY u.id LIMIT 1) admin_email,
-       (SELECT value FROM settings s WHERE s.tenant_id=t.id AND s.key='module_wholesale')='1' module_wholesale
-     FROM tenants t ORDER BY t.id DESC`).map((r) => ({ ...r, module_wholesale: Boolean(r.module_wholesale), pump_url: r.slug ? `${config.publicUrl}/p/${r.slug}` : null })) })));
+       (SELECT value FROM settings s WHERE s.tenant_id=t.id AND s.key='module_wholesale')='1' module_wholesale,
+       (SELECT value FROM settings s WHERE s.tenant_id=t.id AND s.key='module_investors')='1' module_investors
+     FROM tenants t ORDER BY t.id DESC`).map((r) => ({ ...r, module_wholesale: Boolean(r.module_wholesale), module_investors: Boolean(r.module_investors), pump_url: r.slug ? `${config.publicUrl}/p/${r.slug}` : null })) })));
 // turn a paid add-on module on/off for one pump (extra payment taken offline) — only the super-admin can do this
 platform.post("/tenants/:id/module", h((req) => {
   const id = Number(req.params.id);
-  const b = parse(z.object({ module: z.enum(["wholesale"]), on: z.boolean() }), req.body);
+  const b = parse(z.object({ module: z.enum(["wholesale", "investors"]), on: z.boolean() }), req.body);
   if (!get("SELECT id FROM tenants WHERE id=?", id)) throw new AppError(404, "Pump nahi mila");
   setSetting(id, `module_${b.module}`, b.on ? "1" : "0");
   forgetModules(id);
@@ -268,13 +269,14 @@ platform.get("/overview", h(() => {
        (SELECT COUNT(*) FROM stations s WHERE s.tenant_id=t.id) stations,
        (SELECT email FROM users u WHERE u.tenant_id=t.id AND u.role='admin' ORDER BY u.id LIMIT 1) admin_email,
        (SELECT value FROM settings s WHERE s.tenant_id=t.id AND s.key='module_wholesale')='1' module_wholesale,
+       (SELECT value FROM settings s WHERE s.tenant_id=t.id AND s.key='module_investors')='1' module_investors,
        (SELECT MAX(created_at) FROM audit_log a WHERE a.tenant_id=t.id) last_activity,
        (SELECT COALESCE(SUM(sa.amount),0) FROM sales sa JOIN stations s ON s.id=sa.station_id WHERE s.tenant_id=t.id AND sa.created_at>=?) sales_30d,
        (SELECT COALESCE(SUM(sa.amount),0) FROM sales sa JOIN stations s ON s.id=sa.station_id WHERE s.tenant_id=t.id AND sa.created_at>=?) sales_today,
        (SELECT COALESCE(SUM(sa.litres),0) FROM sales sa JOIN stations s ON s.id=sa.station_id WHERE s.tenant_id=t.id AND sa.created_at>=?) litres_today,
        (SELECT COUNT(*) FROM sessions se WHERE se.tenant_id=t.id AND se.revoked_at IS NULL AND se.last_seen_at>=?) online
      FROM tenants t ORDER BY t.id DESC`, d30, todayUtc, todayUtc, new Date(Date.now() - 15 * 60_000).toISOString())
-    .map((r) => ({ ...r, module_wholesale: Boolean(r.module_wholesale), pump_url: r.slug ? `${config.publicUrl}/p/${r.slug}` : null, ...pick(tenantState(r.id), ["days_left", "locked", "lifetime", "plan_expired"]) }));
+    .map((r) => ({ ...r, module_wholesale: Boolean(r.module_wholesale), module_investors: Boolean(r.module_investors), pump_url: r.slug ? `${config.publicUrl}/p/${r.slug}` : null, ...pick(tenantState(r.id), ["days_left", "locked", "lifetime", "plan_expired"]) }));
   const byStatus = (s: string) => tenants.filter((t) => t.status === s).length;
   const attention: { kind: string; tenant_id: number; name: string; text: string }[] = [];
   for (const t of tenants) {

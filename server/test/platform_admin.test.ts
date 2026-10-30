@@ -222,3 +222,19 @@ test("platform login: 5 wrong passwords lock the account for 15 minutes; even th
   run("UPDATE platform_admins SET locked_until=NULL, login_fails=0");
   ok(await call("", "POST", "/api/platform/login", { email: "owner@petrolpumpai.pk", password: "platform-pass-123" }), "unlocked after the wait");
 });
+
+test("modules per pump: the super-admin turns Investors (and Wholesale) on/off; the list shows both flags; the pump's API follows", async () => {
+  const p = ok(await call("", "POST", "/api/platform/login", { email: "owner@petrolpumpai.pk", password: "platform-pass-123" }), "platform login").token;
+  const a = ok(await call("", "POST", "/api/signup", signup("Pump M", "ceo-m@test.pk")), "signup M");
+  const t = a.user.tenant_id, ceo = a.token;
+  const row = async () => ok(await call(p, "GET", "/api/platform/tenants"), "tenants").tenants.find((x: any) => x.id === t);
+  assert.equal((await row()).module_investors, false, "a new pump starts with investors OFF");
+  assert.equal((await call(ceo, "GET", "/api/investors")).status, 403, "CEO blocked while off");
+  ok(await call(p, "POST", `/api/platform/tenants/${t}/module`, { module: "investors", on: true }), "turn on");
+  assert.equal((await row()).module_investors, true);
+  ok(await call(ceo, "GET", "/api/investors"), "CEO can use it now");
+  assert.equal(ok(await call(ceo, "GET", "/api/me"), "me").modules.investors, true);
+  ok(await call(p, "POST", `/api/platform/tenants/${t}/module`, { module: "investors", on: false }), "turn off");
+  assert.equal((await call(ceo, "GET", "/api/investors")).status, 403, "off again");
+  assert.equal((await call(p, "POST", `/api/platform/tenants/${t}/module`, { module: "bogus", on: true })).status, 400, "unknown module");
+});
