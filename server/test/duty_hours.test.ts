@@ -42,7 +42,7 @@ test("24h duty: off days of the a-day-on/a-day-off cycle are not absent and not 
   ok(await call("manager", "PATCH", `/api/staff/${u.id}/duty`, { duty_hours: 24 }), "set 24h duty");
 
   // check-ins on the odd days up to today; even days in between are his off days
-  const maxDay = Math.min(dayOfMonth, 27);
+  const maxDay = dayOfMonth; // every odd day up to today — capping earlier left a 2-day unworked tail at month end, which is a real absence
   for (let d = 1; d <= maxDay; d += 2) {
     const day = `${month}-${String(d).padStart(2, "0")}`;
     db.run("INSERT INTO attendance (tenant_id,user_id,day,check_in,late_minutes,source) VALUES (1,?,?,?,0,'test')", u.id, day, `${day}T08:00:00+05:00`);

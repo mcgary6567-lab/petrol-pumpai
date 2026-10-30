@@ -12,7 +12,7 @@ import express from "express";
 import crypto from "node:crypto";
 import jwt from "jsonwebtoken";
 import { get, run, now, pkDate } from "../db.js";
-import { h, tid, requirePerm } from "../auth.js";
+import { h, tid, requirePerm, modulesOf } from "../auth.js";
 import { AppError, normalizePhone, currentPrices, paymentLink, createAlert } from "../services.js";
 import { config, PRODUCTS } from "../config.js";
 import { statement, rateCard, clientDue } from "./wholesale.js";
@@ -46,6 +46,7 @@ function fromCode(kind: Kind, code: string) {
   const id = Number(m[1]), v = Number(m[2]);
   if (!crypto.timingSafeEqual(Buffer.from(codeOf(kind, id, v)), Buffer.from(code))) return null;
   const c = get(`SELECT * FROM ${TABLE[kind]} WHERE id=?`, id);
+  if (kind === "i" && c && !modulesOf(c.tenant_id as number).investors) return null; // module off → the link is dead
   // a newer link was made (version went up) or the page is off
   if (!c || (c.portal_v ?? 0) > v || c.portal_off || c.active === 0) return null;
   return { c, v };

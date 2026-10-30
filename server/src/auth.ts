@@ -110,18 +110,24 @@ export const forgetRoleOverrides = (t: number) => overrides.delete(t);
  * per-tenant setting; cached here because allowed() is a hot path.
  */
 const WHOLESALE_MODULE_PERMS = (p: string) => p.startsWith("wholesale.") || p.startsWith("carriage.");
-const moduleOn = new Map<number, boolean>(); // tenant → "Wholesale & carriage" on
-function wholesaleModuleOn(t: number) {
-  let v = moduleOn.get(t);
-  if (v === undefined) { v = getSetting(t, "module_wholesale", "0") === "1"; moduleOn.set(t, v); }
+const INVESTOR_MODULE_PERMS = (p: string) => p.startsWith("investors.");
+const moduleOn = new Map<string, boolean>(); // "<module>:<tenant>" → on
+function moduleFlag(key: "module_wholesale" | "module_investors", t: number) {
+  const k = `${key}:${t}`;
+  let v = moduleOn.get(k);
+  if (v === undefined) { v = getSetting(t, key, "0") === "1"; moduleOn.set(k, v); }
   return v;
 }
-export const forgetModules = (t: number) => moduleOn.delete(t);
-export const modulesOf = (t: number) => ({ wholesale: wholesaleModuleOn(t) });
+const wholesaleModuleOn = (t: number) => moduleFlag("module_wholesale", t);
+/** "Investors" is a paid add-on too: off by default (most pumps run on the owner's money), on from the install wizard / Go-live. */
+const investorsModuleOn = (t: number) => moduleFlag("module_investors", t);
+export const forgetModules = (t: number) => { moduleOn.delete(`module_wholesale:${t}`); moduleOn.delete(`module_investors:${t}`); };
+export const modulesOf = (t: number) => ({ wholesale: wholesaleModuleOn(t), investors: investorsModuleOn(t) });
 
 export function allowed(tenantId: number, role: Role, perm: Permission): boolean {
   // paid module gate: with "Wholesale & carriage" off, nobody at this pump — not even the owner — has these
   if (WHOLESALE_MODULE_PERMS(perm) && !wholesaleModuleOn(tenantId)) return false;
+  if (INVESTOR_MODULE_PERMS(perm) && !investorsModuleOn(tenantId)) return false;
   if (role === "admin") return true;
   const o = tenantOverrides(tenantId).get(`${perm}|${role}`);
   return o ?? (PERMISSIONS[perm] as readonly Role[]).includes(role);

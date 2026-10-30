@@ -18,7 +18,7 @@ import { gdriveCfg, dropboxCfg } from "../backupCloud.js";
 
 export const golive = Router();
 
-export const GOLIVE_KEYS = ["cash", "bank", "staff", "opening", "fuel_cost", "shift", "khata", "reorder", "alerts", "letterhead", "backup", "whatsapp_ai", "sample", "wholesale"] as const;
+export const GOLIVE_KEYS = ["cash", "bank", "staff", "opening", "fuel_cost", "shift", "khata", "reorder", "alerts", "letterhead", "backup", "whatsapp_ai", "sample", "wholesale", "investors"] as const;
 type Key = (typeof GOLIVE_KEYS)[number];
 
 const mark = (t: number, k: Key) => getSetting(t, `golive:${k}`, "") as "" | "done" | "skip";
@@ -58,6 +58,7 @@ function detect(t: number): Record<Key, { auto: boolean; info: Record<string, un
     whatsapp_ai: { auto: Boolean(config.wa.token) || aiProvider() !== "none", info: { whatsapp: Boolean(config.wa.token), ai: aiProvider(), saas: SAAS } },
     sample: { auto: false, info: { available: demo } },
     wholesale: { auto: has(t, "module_wholesale"), info: { on: getSetting(t, "module_wholesale", "0") === "1" } },
+    investors: { auto: has(t, "module_investors"), info: { on: getSetting(t, "module_investors", "0") === "1" } },
   };
 }
 
@@ -123,6 +124,16 @@ golive.post("/golive/wholesale", requirePerm("settings.manage"), h((req) => {
   setSetting(t, "module_wholesale", on ? "1" : "0");
   (authMod as { forgetModules?: (t: number) => void }).forgetModules?.(t); // SaaS caches the module flag per tenant
   audit(t, req.user!, "module_wholesale", "settings", { on });
+  return goliveState(t);
+}));
+
+/** Investors module on/off — pumps that run on investors' money (capital, fuel deals, profit split). */
+golive.post("/golive/investors", requirePerm("settings.manage"), h((req) => {
+  const t = tid(req);
+  const { on } = parse(z.object({ on: z.boolean() }), req.body);
+  setSetting(t, "module_investors", on ? "1" : "0");
+  (authMod as { forgetModules?: (t: number) => void }).forgetModules?.(t);
+  audit(t, req.user!, "module_investors", "settings", { on });
   return goliveState(t);
 }));
 

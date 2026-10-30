@@ -314,9 +314,12 @@ function journalNow(t: number, fromDay: string, toDay: string, showPrivate = tru
 
   // investors: each closed deal's investor share — profit: Dr investor share expense / Cr Investors payable; loss: the reverse
   // (their capital and payouts move through the cashier / bank rows above with ref "inv:")
-  for (const r of all(`SELECT x.*, i.name FROM investor_txns x JOIN investors i ON i.id=x.investor_id WHERE x.tenant_id=? AND x.voided=0 AND x.type IN ('profit','loss') AND x.created_at >= ? AND x.created_at < ?`, ...P))
+  for (const r of all(`SELECT x.*, i.name FROM investor_txns x JOIN investors i ON i.id=x.investor_id WHERE x.tenant_id=? AND x.voided=0 AND (x.type IN ('profit','loss') OR x.src='open:') AND x.created_at >= ? AND x.created_at < ?`, ...P)) {
+    // go-live opening (an old pump's existing investor): capital / profit already owed, booked against the opening equity — no cash, no P&L
+    if (r.src === OPEN_REF) { add(day(r.created_at), "Opening", `Opening balance — investor ${r.name}${r.type === "profit" ? " (munafa baqi)" : ""}`, [dr(OPENING_EQ, r.amount), cr(INVESTORS, r.amount)]); continue; }
     add(day(r.created_at), "Journal", `Investor ${r.type === "profit" ? "profit" : "loss"} share — ${r.name}${r.deal_id ? ` (deal #${r.deal_id})` : ""}`,
       r.type === "profit" ? [dr(INVESTOR_SHARE, r.amount), cr(INVESTORS, r.amount)] : [dr(INVESTORS, r.amount), cr(INVESTOR_SHARE, r.amount)]);
+  }
 
   // cash counts: the counted cash is the truth. The first count starts the cash book (its difference from what the books
   // made of the cash so far is the owner's — cash taken or put in without an entry); later counts' short / over is booked

@@ -227,6 +227,34 @@ function moneyTxn(t: number, by: string, i: any, m: { dir: "in" | "out"; amount:
   return id;
 }
 
+/** An old pump going live with investors already on board: what the pump already held of theirs on the go-live day —
+ *  capital in hand (or already turned into fuel) and profit earned but not yet paid. No cash / bank moves: the ledger books
+ *  it against the go-live opening equity, like every other opening balance. Dated the as-of day so the statement opens there. */
+const openingBody = z.object({
+  as_of: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  capital: z.number().min(0).max(10_000_000_000),
+  profit_due: z.number().min(0).max(10_000_000_000).default(0),
+  note: z.string().trim().max(200).optional().nullable(),
+});
+investors.post("/investors/:id/opening", P, h((req) => {
+  const t = tid(req), i = own(t, Number(req.params.id)), b = parse(openingBody, req.body);
+  if (b.capital + b.profit_due <= 0) throw new AppError(400, "Capital ya munafa — kam az kam ek raqam likhein");
+  if (b.as_of > pkDate()) throw new AppError(400, "Opening ki tareekh aaj se aage nahi ho sakti");
+  if (get("SELECT 1 x FROM investor_txns WHERE investor_id=? AND voided=0 AND src='open:'", i.id)) throw new AppError(400, "Opening balance pehle se darj hai — pehle usay mansookh karein");
+  const at = new Date(`${b.as_of}T12:00:00+05:00`).toISOString();
+  const note = b.note || `Opening balance (go-live ${b.as_of})`;
+  const ids = tx(() => {
+    const out: number[] = [];
+    if (b.capital > 0) out.push(run(`INSERT INTO investor_txns (tenant_id,investor_id,type,purpose,amount,method,src,note,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)`,
+      t, i.id, "capital_in", "capital", round2(b.capital), "Opening", "open:", note, req.user!.name, at).id);
+    if (b.profit_due > 0) out.push(run(`INSERT INTO investor_txns (tenant_id,investor_id,type,purpose,amount,method,src,note,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)`,
+      t, i.id, "profit", "profit", round2(b.profit_due), "Opening", "open:", `${note} — munafa baqi`, req.user!.name, at).id);
+    return out;
+  });
+  audit(t, req.user!, "investor_opening", `investor:${i.id}`, { ids, ...b });
+  return { ids, balance: investorBalance(i.id) };
+}));
+
 investors.post("/investors/:id/money", P, h((req) => {
   const t = tid(req), i = own(t, Number(req.params.id)), b = parse(money, req.body);
   if (!i.active) throw new AppError(400, `${i.name} band hai — pehle chalu karein`);
@@ -245,7 +273,7 @@ investors.post("/investor-txns/:id/void", P, h((req) => {
   const t = tid(req);
   const x = get("SELECT * FROM investor_txns WHERE id=? AND tenant_id=? AND voided=0", Number(req.params.id), t);
   if (!x) throw new AppError(404, "Entry nahi mili");
-  if (x.type === "profit" || x.type === "loss") throw new AppError(400, "Ye munafa / nuqsan deal ka hai — deal mansookh karein");
+  if ((x.type === "profit" || x.type === "loss") && x.src !== "open:") throw new AppError(400, "Ye munafa / nuqsan deal ka hai — deal mansookh karein");
   const reason = String(req.body?.reason ?? "").trim();
   if (reason.length < 3) throw new AppError(400, "Wajah likhein (kam se kam 3 harf)");
   if (x.type === "capital_in") {

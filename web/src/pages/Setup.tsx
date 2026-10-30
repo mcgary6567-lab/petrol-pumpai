@@ -60,6 +60,7 @@ export default function Setup({ signup = false }: { signup?: boolean }) {
   const [step, setStep] = useState(0);
   const [doneUrl, setDoneUrl] = useState<string | null>(null); // SaaS: the pump's own sign-in link, shown once the pump is made
   const [wholesale, setWholesale] = useState(false); // "Wholesale & carriage" module — off unless this pump does wholesale supply
+  const [investors, setInvestors] = useState(false); // "Investors" module — off unless the pump runs on investors' money
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [code, setCode] = useState("");
@@ -144,7 +145,7 @@ export default function Setup({ signup = false }: { signup?: boolean }) {
               nozzles: t.meters.map((m) => ({ meter_no: ++no, label: m.label.trim() || undefined, totalizer: Number(m.totalizer) || 0 })) })) };
         }),
         prices: Object.fromEntries(used.map((p) => [p, Number(prices[p])])),
-        modules: { wholesale },
+        modules: { wholesale, investors },
       } });
       try { localStorage.removeItem(DRAFT_KEY); } catch { /* ignore */ }
       await login(r.token);
@@ -206,6 +207,11 @@ export default function Setup({ signup = false }: { signup?: boolean }) {
               <input type="checkbox" className="mt-0.5 h-5 w-5 shrink-0" checked={wholesale} onChange={(e) => setWholesale(e.target.checked)} />
               <span className="text-sm"><span className="font-semibold">Wholesale supply + carriage</span> — kya ye pump doosre pumps / dealers ko tanker se wholesale fuel supply ya kiraya (carriage) karta hai?
                 <span className="mt-0.5 block text-xs text-slate-500">Aam pump ye nahi karte — isliye ye <b>band</b> rehta hai. Baad me zaroorat ho to support se on karwa sakte hain. · <span lang="ur" dir="rtl" className="font-urdu">عام طور پر بند رکھیں</span></span></span>
+            </label>
+            <label className="mt-1 flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+              <input type="checkbox" className="mt-0.5 h-5 w-5 shrink-0" checked={investors} onChange={(e) => setInvestors(e.target.checked)} />
+              <span className="text-sm"><span className="font-semibold">Investors module</span> — kya is pump mein investors ka paisa laga hai (capital, un ke paise se fuel ki deal, munafa ka batwara, investor portal)?
+                <span className="mt-0.5 block text-xs text-slate-500">Aam pump malik ke apne paise par chalta hai — isliye ye <b>band</b> rehta hai. Baad mein Go-live checklist se on ho sakta hai. · <span lang="ur" dir="rtl" className="font-urdu">سرمایہ کار ماڈیول</span></span></span>
             </label>
             <Hint>Phone, address, NTN, logo and social pages come on a later (optional) screen.</Hint>
           </>}

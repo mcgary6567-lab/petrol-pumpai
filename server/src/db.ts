@@ -957,6 +957,15 @@ export function migrate() {
     }
     run("INSERT INTO settings (tenant_id,key,value) VALUES (0,'mig_module_wholesale','1')");
   }
+  // Investors module flag (added later): a pump that already has investors stays on; every other existing pump is off
+  if (!get("SELECT value FROM settings WHERE tenant_id=0 AND key='mig_module_investors'")) {
+    for (const t of all("SELECT id FROM tenants")) {
+      if (get("SELECT value FROM settings WHERE tenant_id=? AND key='module_investors'", t.id)) continue;
+      const has = Boolean(get("SELECT 1 x FROM investors WHERE tenant_id=? LIMIT 1", t.id));
+      run("INSERT INTO settings (tenant_id,key,value) VALUES (?, 'module_investors', ?)", t.id, has ? "1" : "0");
+    }
+    run("INSERT INTO settings (tenant_id,key,value) VALUES (0,'mig_module_investors','1')");
+  }
   // a quantity typed into an item's Unit box ("10") is not a unit: back to pieces (the stock itself is entered via Stock in)
   db.exec("UPDATE shop_items SET unit='pc' WHERE TRIM(COALESCE(unit,''))='' OR unit NOT GLOB '*[A-Za-z]*'");
 }

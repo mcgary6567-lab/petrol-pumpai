@@ -90,7 +90,7 @@ test("1. sign up 'Test Pump' + staff of every role, all log in", async () => {
     stations: [{ name: "Test Pump Station", tanks: [
       { name: "Tank-1 Petrol", product: "PMG", capacity_l: 30000, current_l: 10000, nozzles: 2 },
       { name: "Tank-2 Diesel", product: "HSD", capacity_l: 30000, current_l: 8000, nozzles: 2 }] }],
-    prices: { PMG: 295, HSD: 280 }, modules: { wholesale: true },
+    prices: { PMG: 295, HSD: 280 }, modules: { wholesale: true, investors: true },
   }), "signup");
   assert.equal(s.user.role, "admin");
   tok.admin = s.token;

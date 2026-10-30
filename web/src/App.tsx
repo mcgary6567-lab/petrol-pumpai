@@ -86,7 +86,7 @@ loadBranding().catch(() => {});
 
 type User = { id: number; name: string; email: string; role: "admin" | "manager" | "salesman" | "wholesale" | "cashier"; tenant_id: number; station_id: number | null; station_name: string | null };
 type Account = { saas: boolean; locked?: boolean; status?: string; days_left?: number };
-type Modules = { wholesale: boolean };
+type Modules = { wholesale: boolean; investors: boolean };
 type Auth = {
   user: User | null; tenant: { id: number; name: string; color?: string | null; logo_url?: string | null } | null; permissions: string[]; account: Account; modules: Modules;
   can: (perm: string) => boolean; login: (token: string) => Promise<void>; logout: () => void; refresh: () => Promise<void>;
@@ -103,7 +103,7 @@ function brandFor(t: { name?: string; color?: string | null; slug?: string | nul
 }
 
 function AuthProvider({ children }: { children: ReactNode }) {
-  const empty = { user: null, tenant: null, permissions: [] as string[], account: { saas: false } as Account, modules: { wholesale: false } as Modules, ready: true };
+  const empty = { user: null, tenant: null, permissions: [] as string[], account: { saas: false } as Account, modules: { wholesale: false, investors: false } as Modules, ready: true };
   const [state, setState] = useState<{ user: User | null; tenant: Auth["tenant"]; permissions: string[]; account: Account; modules: Modules; ready: boolean }>({ ...empty, ready: false });
   const load = async () => {
     if (!getToken()) return setState(empty);
@@ -113,7 +113,7 @@ function AuthProvider({ children }: { children: ReactNode }) {
       loadLookups().catch(() => {}); // admin-managed lists for every dropdown
       loadProducts().catch(() => {}); // admin-managed fuel products
       brandFor(me.tenant);
-      setState({ user: me.user, tenant: me.tenant, permissions: me.permissions, account: me.account ?? { saas: false }, modules: me.modules ?? { wholesale: false }, ready: true });
+      setState({ user: me.user, tenant: me.tenant, permissions: me.permissions, account: me.account ?? { saas: false }, modules: me.modules ?? { wholesale: false, investors: false }, ready: true });
     } catch {
       setState(empty);
     }

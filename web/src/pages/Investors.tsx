@@ -8,7 +8,7 @@ import { PortalCard } from "../components/PortalCard";
 import { PrintListButton } from "../components/PrintList";
 import { Ur } from "../components/VoiceShell";
 import { pkr, num, dt, PRODUCTS, activeProducts } from "../lib/format";
-import { Plus, Pencil, Trash2, ArrowDownCircle, ArrowUpCircle, Fuel, CheckCircle2, Ban, ChevronLeft, Power } from "lucide-react";
+import { Plus, Pencil, Trash2, ArrowDownCircle, ArrowUpCircle, Fuel, CheckCircle2, Ban, ChevronLeft, Power, BookOpen } from "lucide-react";
 
 /**
  * CEO-only: investors. They give money; we buy fuel with it in "deals"; when a deal is sold its profit (or loss) is split
@@ -128,6 +128,7 @@ function InvestorDetail({ id, onBack, onEdit, form, setForm }: { id: number; onB
   const qs = [range.from && `from=${range.from}`, range.to && `to=${range.to}`].filter(Boolean).join("&");
   const { data, reload } = useApi<any>(`/investors/${id}${qs ? `?${qs}` : ""}`);
   const [money, setMoney] = useState<"in" | "out" | null>(null);
+  const [opening, setOpening] = useState(false);
   const [deal, setDeal] = useState<any>(null);
   const [closing, setClosing] = useState<any>(null);
   const { busy, run } = useAction();
@@ -154,6 +155,7 @@ function InvestorDetail({ id, onBack, onEdit, form, setForm }: { id: number; onB
           <button className="btn-primary !bg-emerald-600" disabled={!i.active} onClick={() => setMoney("in")}><ArrowDownCircle size={16} /> Paisa aaya</button>
           <button className="btn-secondary !text-rose-700" disabled={!i.active} onClick={() => setMoney("out")}><ArrowUpCircle size={16} /> Paisa diya</button>
           <button className="btn-secondary" disabled={!i.active || i.free <= 0} title={i.free <= 0 ? "Free paisa nahi" : ""} onClick={() => setDeal({})}><Fuel size={16} /> Nayi deal</button>
+          {!data.lines.some((x: any) => !x.voided && x.method === "Opening") && <button className="btn-secondary" disabled={!i.active} onClick={() => setOpening(true)} title="Purana investor: go-live se pehle ka hisab"><BookOpen size={15} /> Opening balance</button>}
           <button className="btn-secondary" onClick={() => onEdit(i)}><Pencil size={15} /> Edit</button>
           <button className="btn-secondary" disabled={busy} onClick={toggle}><Power size={15} /> {i.active ? "Band karein" : "Chalu karein"}</button>
         </div>} />
@@ -230,7 +232,7 @@ function InvestorDetail({ id, onBack, onEdit, form, setForm }: { id: number; onB
                   <td className="td text-right tabular-nums text-rose-700">{x.debit ? pkr(x.debit) : ""}</td>
                   <td className="td text-right tabular-nums text-emerald-700">{x.credit ? pkr(x.credit) : ""}</td>
                   <td className="td text-right font-semibold tabular-nums">{x.voided ? "" : pkr(x.balance)}</td>
-                  <td className="td text-right">{!x.voided && (x.type === "capital_in" || x.type === "payout") && <button className="text-slate-400 hover:text-rose-600" onClick={() => voidTxn(x)} aria-label="Mansookh"><Ban size={15} /></button>}</td>
+                  <td className="td text-right">{!x.voided && (x.type === "capital_in" || x.type === "payout" || x.method === "Opening") && <button className="text-slate-400 hover:text-rose-600" onClick={() => voidTxn(x)} aria-label="Mansookh"><Ban size={15} /></button>}</td>
                 </tr>
               ))}
             </tbody>
@@ -246,6 +248,7 @@ function InvestorDetail({ id, onBack, onEdit, form, setForm }: { id: number; onB
       <div className="print:hidden"><PortalCard base={`/investors/${i.id}/portal`} name={i.name} phone={i.phone} canManage /></div>
 
       {money && <MoneyForm i={i} dir={money} onClose={() => setMoney(null)} onDone={reload} />}
+      {opening && <OpeningForm i={i} onClose={() => setOpening(false)} onDone={reload} />}
       {deal && <DealForm i={i} d={deal} onClose={() => setDeal(null)} onDone={reload} />}
       {closing && <CloseDeal i={i} d={closing} onClose={() => setClosing(null)} onDone={reload} />}
       {form && <InvestorForm i={form} onClose={() => setForm(null)} onDone={reload} />}
@@ -255,11 +258,40 @@ function InvestorDetail({ id, onBack, onEdit, form, setForm }: { id: number; onB
 
 /** what an entry was, in words */
 function describe(x: any) {
+  if (x.method === "Opening") return [x.type === "profit" ? "Opening — munafa baqi (go-live se pehle)" : "Opening — capital (go-live se pehle)", x.note].filter(Boolean).join(" · ");
   if (x.type === "capital_in") return [x.method, x.acc_bank, x.note].filter(Boolean).join(" · ");
   if (x.type === "payout") return [x.purpose === "capital" ? "Asal raqam wapas" : "Munafa diya", x.method, x.acc_bank, x.note].filter(Boolean).join(" · ");
   // profit / loss share: the deal in words + the investor's % (the stored note only repeats the deal number)
   const d = x.deal_id ? `Deal #${x.deal_id}${x.product ? ` · ${num(x.sold_litres ?? x.litres ?? 0)} L ${PRODUCTS[x.product] ?? x.product}` : ""}${x.deal_profit != null ? ` · deal ${x.deal_profit < 0 ? "nuqsan" : "munafa"} ${pkr(Math.abs(x.deal_profit))}` : ""}${x.deal_pct != null ? ` · ${100 - x.deal_pct}% hissa` : ""}` : "";
   return d || x.note || "";
+}
+
+/** Old pump, investor already on board: what we held of theirs on the go-live day. No cash moves — booked against go-live opening equity. */
+function OpeningForm({ i, onClose, onDone }: { i: any; onClose: () => void; onDone: () => void }) {
+  const { busy, run } = useAction();
+  const today = new Date().toISOString().slice(0, 10);
+  const [asOf, setAsOf] = useState(today);
+  const [capital, setCapital] = useState("");
+  const [profit, setProfit] = useState("");
+  const [note, setNote] = useState("");
+  const cap = Number(capital) || 0, pr = Number(profit) || 0;
+  const save = () => run(() => api(`/investors/${i.id}/opening`, { body: { as_of: asOf, capital: cap, profit_due: pr, note: note || null } }), "Opening balance darj — investor ke khate me credit")
+    .then((r) => { if (r) { onDone(); onClose(); } });
+  return (
+    <Modal open title={`Opening balance — ${i.name}`} onClose={onClose}>
+      <div className="space-y-3">
+        <p className="rounded-xl bg-amber-50 p-2.5 text-sm text-amber-900">Purana investor: software se <b>pehle</b> ka hisab yahan likhein. Cash / bank nahi hilta — sirf investor ka khata <b>Credit</b> hota hai (go-live opening ke muqabil). Aaj se aage ka sab kuch "Paisa aaya / diya" aur deals se chalega.</p>
+        <Field label="Kis tareekh tak ka hisab (as of)"><input type="date" className="input w-auto" max={today} value={asOf} onChange={(e) => setAsOf(e.target.value)} /></Field>
+        <Field label="Capital jo pump ke paas hai (Rs)"><input className="input text-lg font-semibold" type="number" inputMode="decimal" autoFocus value={capital} onChange={(e) => setCapital(e.target.value)} /></Field>
+        <p className="-mt-2 text-xs text-slate-500">Nakad ho ya pehle se fuel me laga ho — kul asal raqam. Jo fuel abhi bika nahi, uski deal baad me purani tareekh se banayen.</p>
+        <Field label="Munafa jo banta hai magar diya nahi (Rs)"><input className="input" type="number" inputMode="decimal" value={profit} onChange={(e) => setProfit(e.target.value)} /></Field>
+        <Field label="Note"><input className="input" value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. purane register ke mutabiq" /></Field>
+        <div className="rounded-xl bg-slate-50 p-2.5 text-sm">Khate me credit: <b>{pkr(cap + pr)}</b></div>
+        <div className="flex justify-end gap-2"><button className="btn-secondary" onClick={onClose}>Cancel</button>
+          <button className="btn-primary" disabled={busy || cap + pr <= 0 || cap < 0 || pr < 0 || asOf > today} onClick={save}>Save</button></div>
+      </div>
+    </Modal>
+  );
 }
 
 function MoneyForm({ i, dir, onClose, onDone }: { i: any; dir: "in" | "out"; onClose: () => void; onDone: () => void }) {

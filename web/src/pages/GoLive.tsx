@@ -7,7 +7,7 @@ import { Link } from "react-router-dom";
 import { api, useApi } from "../lib/api";
 import { Field, Loading, PageHeader, Badge, useAction } from "../components/ui";
 import { pkr, num } from "../lib/format";
-import { Check, SkipForward, RotateCcw, Wallet, Landmark, Users, BookOpenCheck, Clock, BookOpen, Fuel, Bell, FileText, CloudUpload, Bot, FlaskConical, Truck, ExternalLink, Loader2 } from "lucide-react";
+import { Check, SkipForward, RotateCcw, Wallet, Landmark, Users, BookOpenCheck, Clock, BookOpen, Fuel, Bell, FileText, CloudUpload, Bot, FlaskConical, Truck, ExternalLink, Loader2, PiggyBank } from "lucide-react";
 
 type Item = { key: string; status: "done" | "skipped" | "pending"; auto: boolean; mark: string } & Record<string, any>;
 type State = { items: Item[]; pending: number; done: number; skipped: number; dismissed: boolean };
@@ -27,6 +27,7 @@ const META: Record<string, { icon: any; en: string; ur: string; why: string; lin
   whatsapp_ai: { icon: Bot, en: "WhatsApp + AI", ur: "واٹس ایپ اور اے آئی", why: "Khata reminders, receipts aur Ask-AI ke liye. SaaS par platform ki keys khud lagti hain.", link: { to: "/settings", label: "Settings → Integrations" } },
   sample: { icon: FlaskConical, en: "Sample pump dekhein", ur: "نمونہ ڈیٹا", why: "Khali screens ke bajaye ek bhara hua sample pump dekh kar seekhein. Aap ka apna data saaf rehta hai." },
   wholesale: { icon: Truck, en: "Wholesale & carriage module", ur: "ہول سیل ماڈیول", why: "Kya ye pump doosre pumps/dealers ko tanker se fuel supply ya kiraya (carriage) karta hai?" },
+  investors: { icon: PiggyBank, en: "Investors module", ur: "سرمایہ کار ماڈیول", why: "Kya is pump mein investors ka paisa laga hai? (capital, un ke paise se fuel deals, munafa ka batwara, investor portal). Purane investors ka opening balance Investors page par darj hota hai." },
 };
 
 export default function GoLive() {
@@ -101,6 +102,7 @@ function Summary({ it }: { it: Item }) {
     case "whatsapp_ai": return <div className={c}>WhatsApp {it.whatsapp ? "connected" : "nahi"} · AI {it.ai === "none" ? "rules only" : it.ai}</div>;
     case "sample": return <div className={c}>{it.available ? "Sample pump is server par mojood hai" : "Is server par sample pump nahi (production)"}</div>;
     case "wholesale": return <div className={c}>Module {it.on ? "ON" : "OFF"}</div>;
+    case "investors": return <div className={c}>Module {it.on ? "ON" : "OFF"}</div>;
     default: return null;
   }
 }
@@ -195,6 +197,12 @@ function Form({ it, post, busy }: { it: Item; post: (p: string, body?: any, msg?
     case "sample": return it.available
       ? <div className="text-sm text-slate-600">Sample pump: <a className="underline" href="/login?role=admin" target="_blank" rel="noreferrer">admin@pumpai.pk / demo1234</a> (naye tab me). Dekh kar wapas aayein aur "Ho gaya" dabayein.</div>
       : <div className="text-sm text-slate-600">Is server par sample data nahi hai. Training ke liye <Link className="underline" to="/help">User guide</Link> ki videos dekhein, phir Skip karein.</div>;
+    case "investors": return (
+      <div className="flex flex-wrap items-center gap-2">
+        <button className={`rounded-xl border px-4 py-3 text-sm ${it.on ? "border-brand-600 bg-brand-50 font-semibold" : "border-slate-200"}`} onClick={() => post("/golive/investors", { on: true }, "Investors module ON")}>Haan — module ON</button>
+        <button className={`rounded-xl border px-4 py-3 text-sm ${!it.on ? "border-brand-600 bg-brand-50 font-semibold" : "border-slate-200"}`} onClick={() => post("/golive/investors", { on: false }, "Investors module OFF")}>Nahi — OFF rakhein</button>
+        <span className="text-xs text-slate-500">Badalne ke baad dobara login karein taake menu update ho.</span>
+      </div>);
     case "wholesale": return (
       <div className="flex flex-wrap items-center gap-2">
         <button className={`rounded-xl border px-4 py-3 text-sm ${it.on ? "border-brand-600 bg-brand-50 font-semibold" : "border-slate-200"}`} onClick={() => post("/golive/wholesale", { on: true }, "Wholesale module ON")}>Haan — module ON</button>

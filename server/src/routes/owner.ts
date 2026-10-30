@@ -6,7 +6,7 @@
 import { investorsOwed, investorBalance, investorsSummary } from "./investors.js";
 import { Router } from "express";
 import { all, get, pkDate, pkDayStart, pkStart } from "../db.js";
-import { h, tid, requirePerm } from "../auth.js";
+import { h, tid, requirePerm, can } from "../auth.js";
 import { round2 } from "../services.js";
 import { cashPosition } from "./backoffice.js";
 import { bankAccounts } from "./banks.js";
@@ -117,7 +117,7 @@ owner.get("/owner/overview", requirePerm("reports.view"), h((req) => {
     net_position: round2(money.total + sum(owedToUs) - sum(weOwe)),
     today: today_, activity, online,
     // CEO-only: what the investors' money earned (ours vs theirs) and what we still owe them
-    investors: req.user!.role === "admin" && get("SELECT 1 x FROM investors WHERE tenant_id=? LIMIT 1", t) ? investorsSummary(t) : null,
+    investors: can(req.user, "investors.manage") && get("SELECT 1 x FROM investors WHERE tenant_id=? LIMIT 1", t) ? investorsSummary(t) : null,
     month: { month: pl.month, income: pl.income.total, gross_profit: pl.gross_profit, expenses: pl.expenses.total, net_profit: pl.net_profit, margin_pct: pl.margin_pct },
   };
 }));
