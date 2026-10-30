@@ -114,3 +114,27 @@ test("bypass purchase edit: litres / cost / day change, supplier payable and sto
   assert.equal((await call("admin", "PATCH", `/api/bypass/purchases/${pur2.id}`, { reason: "x", litres: 90 })).status, 400);
   await books();
 });
+
+test("bypass payment edit: amount / method / bank / day change on a payment WE made; client legs refused; payable follows", async () => {
+  const sups = ok(await call("wholesale", "GET", "/api/bypass/suppliers"), "suppliers");
+  const S = sups.find((x: any) => !x.client_id) ?? sups[0];
+  const acc = ok(await call("admin", "POST", "/api/bank/accounts", { bank: "Bank Alfalah", account_no: "0101 7766", opening_balance: 5_000_000 }), "bank").id;
+  const owed0 = ok(await call("wholesale", "GET", `/api/bypass/suppliers/${S.id}/statement`), "st").closing_balance as number;
+  const pay = ok(await call("wholesale", "POST", `/api/bypass/suppliers/${S.id}/payment`, { amount: 100_000, mode: "we_pay", method: "Bank transfer", account_id: acc, ref: "TT-1" }), "pay").payment;
+  assert.equal((await call("wholesale", "PATCH", `/api/bypass/payments/${pay.id}`, { reason: "x", amount: 1 })).status, 403, "officer cannot edit");
+  const e = ok(await call("admin", "PATCH", `/api/bypass/payments/${pay.id}`, { reason: "slip par 1,20,000", amount: 120_000, txn_date: dayAgo(2), ref: "TT-1A" }), "edit");
+  near(e.payment.amount, 120_000); assert.equal(e.payment.ref, "TT-1A"); assert.equal(String(e.payment.txn_date).slice(0, 10), dayAgo(2));
+  near(ok(await call("wholesale", "GET", `/api/bypass/suppliers/${S.id}/statement`), "st2").closing_balance, owed0 - 120_000, "payable follows");
+  const bank = ok(await call("admin", "GET", `/api/bank/accounts/${acc}/statement`), "bank st");
+  near(bank.closing, 5_000_000 - 120_000, "bank book follows the edited amount");
+  // to cash: the bank gets its money back, cash goes out
+  const e2 = ok(await call("admin", "PATCH", `/api/bypass/payments/${pay.id}`, { reason: "asal me cash diya tha", method: "Cash" }), "to cash");
+  assert.equal(e2.payment.account_id, null);
+  near(ok(await call("admin", "GET", `/api/bank/accounts/${acc}/statement`), "bank st2").closing, 5_000_000);
+  // a client's leg is not editable here
+  const clients = ok(await call("admin", "GET", "/api/wholesale/clients"), "clients");
+  const W = (clients.clients ?? clients).find((c: any) => c.rates?.HSD);
+  const cd = ok(await call("wholesale", "POST", `/api/bypass/suppliers/${S.id}/payment`, { amount: 1000, mode: "client_direct", client_id: W.id }), "client direct").payment;
+  assert.equal((await call("admin", "PATCH", `/api/bypass/payments/${cd.id}`, { reason: "x", amount: 1 })).status, 400);
+  await books();
+});

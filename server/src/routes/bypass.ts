@@ -535,6 +535,32 @@ bypass.patch("/bypass/purchases/:id", requirePerm("entries.edit"), h((req) => {
   return { ok: true, purchase: after, bypass_owed: bypassOwed(after.supplier_id), bypass_stock: bypassStock(t, r.product) };
 }));
 
+/** Edit a bypass supplier payment WE made (amount, method / bank, day, ref, note). A client's leg (paid direct / through us)
+ *  is tied to that client's khata, so those are voided and re-entered instead. The payable and the cash / bank books follow. */
+bypass.patch("/bypass/payments/:id", requirePerm("entries.edit"), h((req) => {
+  const t = tid(req);
+  const r = get("SELECT * FROM bypass_supplier_payments WHERE id=? AND tenant_id=? AND voided=0", Number(req.params.id), t);
+  if (!r) throw new AppError(404, "Payment not found");
+  if (r.mode !== "we_pay") throw new AppError(400, "Ye client wali adaigi hai (us ke khate se judi) — edit nahi, void kar ke dobara likhein");
+  if (String(r.ref ?? "").startsWith("cfuel:")) throw new AppError(400, "Ye client se liye maal ki settlement hai — khareed void karein");
+  const b = parse(z.object({
+    reason: z.string().trim().min(3, "Wajah likhein (kam se kam 3 harf)"),
+    amount: z.number().positive().max(1_000_000_000).optional(), method: z.string().max(30).optional().nullable(), account_id: accountIdField,
+    txn_date: day.optional(), ref: z.string().max(60).optional().nullable(), note: z.string().max(200).optional().nullable(),
+  }), req.body);
+  const method = b.method !== undefined ? b.method : r.method;
+  const acc = /^cash$/i.test(String(method ?? "")) ? null : bankAccountFor(t, b.account_id !== undefined ? b.account_id : r.account_id, method ?? "bank");
+  if (!/^cash$/i.test(String(method ?? "")) && !acc) throw new AppError(400, "Bank / wallet account chunein");
+  const amount = round2(b.amount ?? r.amount);
+  const ts = b.txn_date ? stampFor(b.txn_date) : r.txn_date;
+  const before = { amount: r.amount, method: r.method, account_id: r.account_id, txn_date: r.txn_date, ref: r.ref, note: r.note };
+  run("UPDATE bypass_supplier_payments SET amount=?, method=?, account_id=?, txn_date=?, ref=?, note=? WHERE id=?",
+    amount, method ?? null, acc, ts, b.ref !== undefined ? b.ref : r.ref, b.note !== undefined ? b.note : r.note, r.id);
+  const after = get("SELECT * FROM bypass_supplier_payments WHERE id=?", r.id)!;
+  audit(t, req.user!, "bypass_payment_edit", `byppay:${r.id}`, { reason: b.reason, before, after: { amount, method, account_id: acc, txn_date: ts, ref: after.ref, note: after.note } });
+  return { ok: true, payment: after, bypass_owed: bypassOwed(r.supplier_id) };
+}));
+
 /** Void a bypass purchase or payment (correction). */
 bypass.post("/bypass/purchases/:id/void", requirePerm("wholesale.void"), h((req) => {
   const t = tid(req);

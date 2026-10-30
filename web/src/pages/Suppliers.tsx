@@ -2,6 +2,7 @@ import { useState } from "react";
 import { CancelForm, pinHeader } from "../components/CancelEntry";
 import { useAuth } from "../App";
 import { FullEditEntry } from "../components/FullEdit";
+import { EditBypassPurchase, EditBypassPayment } from "../components/BypassEdit";
 import { Plus, Printer, Wallet, Building2, Pencil, Download, Trash2 } from "lucide-react";
 import { ImportExport } from "../components/ImportExport";
 import { PrintListButton } from "../components/PrintList";
@@ -237,11 +238,16 @@ function SupplierDetail({ id, onClose, onChanged, depots, onDepots }: { id: numb
   // voided with a reason; a bypass purchase or payment is voided (then re-entered on the Bypass page — its client leg follows)
   const [editLine, setEditLine] = useState<any>(null);
   const [voidLine, setVoidLine] = useState<any>(null);
+  // a bypass line (the wholesale officer's supplier purchase, or a payment we made) has its own editor; client legs are void + re-enter
+  const [bypEdit, setBypEdit] = useState<any>(null);
+  const bypId = (t: any) => Number(String(t.id).replace(/^b/, ""));
+  const canEditBypass = (t: any) => t.source === "bypass" && can("entries.edit") && (t.type === "purchase" || (t.type === "payment" && t.mode === "we_pay"));
   const canEdit = (t: any) => t.source !== "bypass" && can("entries.edit") && !String(t.ref ?? "").match(/^(wtx:|claim:|shopbuy:)/) && t.method !== "WHT" && !t.delivery_id && !t.trip_id;
   const canVoid = (t: any) => t.source === "bypass" ? can("wholesale.void") : can("corrections.manage") && !String(t.ref ?? "").match(/^(wtx:|claim:|shopbuy:)/) && t.method !== "WHT" && !t.delivery_id;
   const lineActions = (t: any) => (
     <>
       {canEdit(t) && <button className="btn-secondary !px-2 !py-1" aria-label="Edit entry" title="Edit (CEO)" onClick={() => setEditLine(t)}><Pencil size={14} /></button>}
+      {canEditBypass(t) && <button className="btn-secondary !px-2 !py-1" aria-label="Edit entry" title="Edit (CEO)" onClick={() => setBypEdit(t)}><Pencil size={14} /></button>}
       {canVoid(t) && <button className="btn-secondary !px-2 !py-1 !text-red-700" aria-label="Void entry" title="Void (CEO)" onClick={() => setVoidLine(t)}><Trash2 size={14} /></button>}
     </>
   );
@@ -384,6 +390,8 @@ function SupplierDetail({ id, onClose, onChanged, depots, onDepots }: { id: numb
             {allLines.length > 0 && !lines.length && lineFiltered && <Empty>Kuch nahi mila · کچھ نہیں ملا</Empty>}
           </div>
           {editLine && <FullEditEntry kind="supplier" id={editLine.id} onClose={() => setEditLine(null)} onDone={() => { setEditLine(null); reload(); onChanged(); }} />}
+          {bypEdit && bypEdit.type === "purchase" && <EditBypassPurchase x={{ ...bypEdit, id: bypId(bypEdit), cost_rate: bypEdit.rate }} onClose={() => setBypEdit(null)} onDone={() => { setBypEdit(null); reload(); onChanged(); }} />}
+          {bypEdit && bypEdit.type === "payment" && <EditBypassPayment x={{ ...bypEdit, id: bypId(bypEdit) }} onClose={() => setBypEdit(null)} onDone={() => { setBypEdit(null); reload(); onChanged(); }} />}
           {voidLine && <VoidLine t={voidLine} supplier={label(s)} onClose={() => setVoidLine(null)} onDone={() => { setVoidLine(null); reload(); onChanged(); }} />}
         </div>
       )}
