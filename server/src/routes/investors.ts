@@ -52,6 +52,7 @@ function figures(i: any) {
   const s = get(`SELECT
       COALESCE(SUM(CASE WHEN type='capital_in' THEN amount END),0) capital_in,
       COALESCE(SUM(CASE WHEN type='payout' THEN amount END),0) paid_out,
+      COALESCE(SUM(CASE WHEN type='payout' AND purpose='capital' THEN amount END),0) capital_back,
       COALESCE(SUM(CASE WHEN type='profit' THEN amount END),0) profit,
       COALESCE(SUM(CASE WHEN type='loss' THEN amount END),0) loss
     FROM investor_txns WHERE investor_id=? AND voided=0`, i.id)!;
@@ -63,6 +64,8 @@ function figures(i: any) {
   const capital = round2(s.capital_in), net = round2(s.profit - s.loss);
   return {
     capital_in: round2(s.capital_in), paid_out: round2(s.paid_out), profit_share: round2(s.profit), loss_share: round2(s.loss),
+    /** capital still with the pump (given − returned): the base a fixed-% profit is worked on */
+    capital_net: round2(Math.max(0, s.capital_in - s.capital_back)),
     balance, in_deals: busy, free: round2(Math.max(0, balance - busy)),
     deals: d.n, open_deals: d.open_n, deal_profit: round2(d.deal_profit), our_share: round2(d.our_share), litres: round2(d.litres),
     /** the investor's net profit share as % of the capital they put in */
@@ -83,6 +86,9 @@ const profile = z.object({
   note: z.string().trim().max(300).optional().nullable(),
   /** OUR share of each deal's profit, % (the investor gets the rest) */
   our_pct: z.number().min(0).max(100).default(60),
+  /** how this investor earns: "deal" = split of each deal's profit; "fixed" = a fixed % of their capital per month (entered manually) */
+  profit_mode: z.enum(["deal", "fixed"]).default("deal"),
+  profit_pct: z.number().min(0).max(100).optional().nullable(),
 });
 
 investors.get("/investors", P, h((req) => {
@@ -94,16 +100,16 @@ investors.get("/investors", P, h((req) => {
 investors.post("/investors", P, h((req) => {
   const t = tid(req), b = parse(profile, req.body);
   if (get("SELECT id FROM investors WHERE tenant_id=? AND LOWER(name)=LOWER(?) AND active=1", t, b.name)) throw new AppError(400, `"${b.name}" naam ka investor pehle se hai`);
-  const id = run(`INSERT INTO investors (tenant_id,name,phone,cnic,address,city,bank_name,bank_account,note,our_pct,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-    t, b.name, b.phone || null, b.cnic || null, b.address || null, b.city || null, b.bank_name || null, b.bank_account || null, b.note || null, b.our_pct, req.user!.name, now()).id;
+  const id = run(`INSERT INTO investors (tenant_id,name,phone,cnic,address,city,bank_name,bank_account,note,our_pct,profit_mode,profit_pct,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    t, b.name, b.phone || null, b.cnic || null, b.address || null, b.city || null, b.bank_name || null, b.bank_account || null, b.note || null, b.our_pct, b.profit_mode, b.profit_mode === "fixed" ? (b.profit_pct ?? null) : null, req.user!.name, now()).id;
   audit(t, req.user!, "investor_add", `investor:${id}`, b);
   return own(t, id);
 }));
 
 investors.patch("/investors/:id", P, h((req) => {
   const t = tid(req), i = own(t, Number(req.params.id)), b = parse(profile, req.body);
-  run(`UPDATE investors SET name=?, phone=?, cnic=?, address=?, city=?, bank_name=?, bank_account=?, note=?, our_pct=?, updated_at=? WHERE id=?`,
-    b.name, b.phone || null, b.cnic || null, b.address || null, b.city || null, b.bank_name || null, b.bank_account || null, b.note || null, b.our_pct, now(), i.id);
+  run(`UPDATE investors SET name=?, phone=?, cnic=?, address=?, city=?, bank_name=?, bank_account=?, note=?, our_pct=?, profit_mode=?, profit_pct=?, updated_at=? WHERE id=?`,
+    b.name, b.phone || null, b.cnic || null, b.address || null, b.city || null, b.bank_name || null, b.bank_account || null, b.note || null, b.our_pct, b.profit_mode, b.profit_mode === "fixed" ? (b.profit_pct ?? null) : null, now(), i.id);
   audit(t, req.user!, "investor_edit", `investor:${i.id}`, { before: i, after: b });
   return own(t, i.id);
 }));
@@ -227,6 +233,47 @@ function moneyTxn(t: number, by: string, i: any, m: { dir: "in" | "out"; amount:
   return id;
 }
 
+/** Manual profit (or loss) share — for investors on a fixed return rather than per-deal split, or any agreed amount.
+ *  Two ways: a cash figure, or a % of a base (default: the capital still with us). Books: Dr Investor profit share expense /
+ *  Cr Investors payable (loss: the reverse) via the ledger's investor_txns pass — same as a deal's share, just without a deal. */
+const manualProfitBody = z.object({
+  kind: z.enum(["profit", "loss"]).default("profit"),
+  mode: z.enum(["amount", "percent"]),
+  amount: z.number().positive().max(10_000_000_000).optional(),
+  pct: z.number().positive().max(100).optional(),
+  base: z.number().min(0).max(10_000_000_000).optional().nullable(),
+  period: z.string().regex(/^\d{4}-\d{2}$/).optional().nullable(),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
+  note: z.string().trim().max(200).optional().nullable(),
+});
+investors.post("/investors/:id/profit", P, h((req) => {
+  const t = tid(req), i = own(t, Number(req.params.id)), b = parse(manualProfitBody, req.body);
+  if (!i.active) throw new AppError(400, `${i.name} band hai — pehle chalu karein`);
+  const f = figures(i);
+  let amount: number, basis: string;
+  if (b.mode === "percent") {
+    if (!b.pct) throw new AppError(400, "% likhein");
+    const base = round2(b.base ?? f.capital_net);
+    if (base <= 0) throw new AppError(400, "Base raqam 0 hai — capital nahi ya base khud likhein");
+    amount = round2((base * b.pct) / 100);
+    basis = `${b.pct}% of Rs ${base.toLocaleString("en-IN")}`;
+  } else {
+    if (!b.amount) throw new AppError(400, "Raqam likhein");
+    amount = round2(b.amount); basis = "fixed amount";
+  }
+  if (amount <= 0) throw new AppError(400, "Raqam 0 ban rahi hai");
+  if (b.kind === "loss" && amount > investorBalance(i.id) + 0.5) throw new AppError(400, "Nuqsan investor ke balance se zyada nahi ho sakta");
+  if (b.date && b.date > pkDate()) throw new AppError(400, "Tareekh aaj se aage nahi ho sakti");
+  if (b.period && get("SELECT 1 x FROM investor_txns WHERE investor_id=? AND voided=0 AND src='manual:' AND type=? AND note LIKE ?", i.id, b.kind, `%[${b.period}]%`))
+    throw new AppError(400, `${b.period} ka ${b.kind === "profit" ? "munafa" : "nuqsan"} pehle se darj hai`);
+  const at = b.date ? new Date(`${b.date}T12:00:00+05:00`).toISOString() : now();
+  const note = [b.period ? `[${b.period}]` : null, basis, b.note || null].filter(Boolean).join(" · ");
+  const id = run(`INSERT INTO investor_txns (tenant_id,investor_id,type,purpose,amount,method,src,note,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)`,
+    t, i.id, b.kind, b.kind, amount, "Manual", "manual:", note, req.user!.name, at).id;
+  audit(t, req.user!, "investor_manual_" + b.kind, `investor:${i.id}`, { id, amount, ...b });
+  return { id, amount, balance: investorBalance(i.id) };
+}));
+
 /** An old pump going live with investors already on board: what the pump already held of theirs on the go-live day —
  *  capital in hand (or already turned into fuel) and profit earned but not yet paid. No cash / bank moves: the ledger books
  *  it against the go-live opening equity, like every other opening balance. Dated the as-of day so the statement opens there. */
@@ -273,7 +320,7 @@ investors.post("/investor-txns/:id/void", P, h((req) => {
   const t = tid(req);
   const x = get("SELECT * FROM investor_txns WHERE id=? AND tenant_id=? AND voided=0", Number(req.params.id), t);
   if (!x) throw new AppError(404, "Entry nahi mili");
-  if ((x.type === "profit" || x.type === "loss") && x.src !== "open:") throw new AppError(400, "Ye munafa / nuqsan deal ka hai — deal mansookh karein");
+  if ((x.type === "profit" || x.type === "loss") && x.src !== "open:" && x.src !== "manual:") throw new AppError(400, "Ye munafa / nuqsan deal ka hai — deal mansookh karein");
   const reason = String(req.body?.reason ?? "").trim();
   if (reason.length < 3) throw new AppError(400, "Wajah likhein (kam se kam 3 harf)");
   if (x.type === "capital_in") {

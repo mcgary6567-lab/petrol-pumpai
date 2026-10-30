@@ -81,3 +81,45 @@ test("module switch: off → investors API 403 and /me says so; Go-live toggle t
   ok(await call("admin", "GET", "/api/investors"), "investors back");
   await books();
 });
+
+test("manual profit: fixed % on capital and a cash figure; loss; period once; void; books tally; portal shows it", async () => {
+  db.setSetting(1, "module_investors", "1"); auth.forgetModules(1);
+  const i2 = ok(await call("admin", "POST", "/api/investors", { name: "Fixed Return Sb", profit_mode: "fixed", profit_pct: 2.5 }), "add fixed");
+  assert.equal(i2.profit_mode, "fixed"); assert.equal(i2.profit_pct, 2.5);
+  ok(await call("admin", "POST", `/api/investors/${i2.id}/money`, { dir: "in", amount: 1_000_000, method: "Cash" }), "capital");
+  const cash0 = await cashNow();
+  // % of capital (default base) — 2.5% of 10 lakh = 25,000
+  const p1 = ok(await call("admin", "POST", `/api/investors/${i2.id}/profit`, { mode: "percent", pct: 2.5, period: "2026-09" }), "pct profit");
+  near(p1.amount, 25_000); near(p1.balance, 1_025_000);
+  assert.equal((await call("admin", "POST", `/api/investors/${i2.id}/profit`, { mode: "percent", pct: 2.5, period: "2026-09" })).status, 400, "same month twice refused");
+  // cash figure, custom base ignored in amount mode
+  const p2 = ok(await call("admin", "POST", `/api/investors/${i2.id}/profit`, { mode: "amount", amount: 12_000, period: "2026-10", date: "2026-10-05", note: "tay shuda" }), "amount profit");
+  near(p2.amount, 12_000); near(p2.balance, 1_037_000);
+  // % of a custom base (e.g. the pump's month profit)
+  const p3 = ok(await call("admin", "POST", `/api/investors/${i2.id}/profit`, { mode: "percent", pct: 10, base: 300_000 }), "pct of base");
+  near(p3.amount, 30_000);
+  // loss share
+  const l = ok(await call("admin", "POST", `/api/investors/${i2.id}/profit`, { kind: "loss", mode: "amount", amount: 7_000 }), "loss");
+  near(l.balance, 1_060_000);
+  assert.equal((await call("admin", "POST", `/api/investors/${i2.id}/profit`, { kind: "loss", mode: "amount", amount: 9_000_000 })).status, 400, "loss over balance");
+  assert.equal((await call("admin", "POST", `/api/investors/${i2.id}/profit`, { mode: "percent", pct: 0 })).status, 400, "zero pct");
+  assert.equal((await call("manager", "POST", `/api/investors/${i2.id}/profit`, { mode: "amount", amount: 1 })).status, 403, "CEO only");
+  near(await cashNow(), cash0, "no cash moved");
+  await books();
+  const st = ok(await call("admin", "GET", `/api/investors/${i2.id}`), "st");
+  near(st.investor.profit_share, 67_000); near(st.investor.loss_share, 7_000); near(st.investor.capital_net, 1_000_000);
+  const manual = st.lines.filter((x: any) => x.method === "Manual");
+  assert.equal(manual.length, 4);
+  assert.ok(manual.some((x: any) => /\[2026-09\] · 2\.5% of Rs 10,00,000/.test(x.note)), "note carries period + basis: " + manual.map((x: any) => x.note).join(" | "));
+  // the P&L carries the expense: investor profit share
+  const pl = ok(await call("admin", "GET", "/api/owner/overview"), "ov");
+  assert.ok(pl.we_owe.investors >= 1_060_000 - 0.05);
+  // void the loss and one profit
+  ok(await call("admin", "POST", `/api/investor-txns/${l.id}/void`, { reason: "ghalat entry" }), "void loss");
+  ok(await call("admin", "POST", `/api/investor-txns/${p3.id}/void`, { reason: "double" }), "void profit");
+  near(ok(await call("admin", "GET", `/api/investors/${i2.id}`), "st2").investor.balance, 1_037_000);
+  await books();
+  // switch the investor back to deal mode: pct cleared
+  const ed = ok(await call("admin", "PATCH", `/api/investors/${i2.id}`, { name: "Fixed Return Sb", our_pct: 60, profit_mode: "deal" }), "edit");
+  assert.equal(ed.profit_mode, "deal"); assert.equal(ed.profit_pct, null);
+});

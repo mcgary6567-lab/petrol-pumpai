@@ -958,6 +958,9 @@ export function migrate() {
     run("INSERT INTO settings (tenant_id,key,value) VALUES (0,'mig_module_wholesale','1')");
   }
   // Investors module flag (added later): a pump that already has investors stays on; every other existing pump is off
+  // investor profit setup (additive): how the investor earns — per-deal split (default) or a fixed % of capital per month
+  addColumn("investors", "profit_mode", "TEXT");
+  addColumn("investors", "profit_pct", "REAL");
   if (!get("SELECT value FROM settings WHERE tenant_id=0 AND key='mig_module_investors'")) {
     for (const t of all("SELECT id FROM tenants")) {
       if (get("SELECT value FROM settings WHERE tenant_id=? AND key='module_investors'", t.id)) continue;

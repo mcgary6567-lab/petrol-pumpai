@@ -8,7 +8,7 @@ import { PortalCard } from "../components/PortalCard";
 import { PrintListButton } from "../components/PrintList";
 import { Ur } from "../components/VoiceShell";
 import { pkr, num, dt, PRODUCTS, activeProducts } from "../lib/format";
-import { Plus, Pencil, Trash2, ArrowDownCircle, ArrowUpCircle, Fuel, CheckCircle2, Ban, ChevronLeft, Power, BookOpen } from "lucide-react";
+import { Plus, Pencil, Trash2, ArrowDownCircle, ArrowUpCircle, Fuel, CheckCircle2, Ban, ChevronLeft, Power, BookOpen, Percent } from "lucide-react";
 
 /**
  * CEO-only: investors. They give money; we buy fuel with it in "deals"; when a deal is sold its profit (or loss) is split
@@ -91,10 +91,10 @@ export default function Investors() {
 
 function InvestorForm({ i, onClose, onDone }: { i: any; onClose: () => void; onDone: () => void }) {
   const { busy, run } = useAction();
-  const [f, setF] = useState({ name: i.name ?? "", phone: i.phone ?? "", cnic: i.cnic ?? "", city: i.city ?? "", address: i.address ?? "", bank_name: i.bank_name ?? "", bank_account: i.bank_account ?? "", note: i.note ?? "", our_pct: String(i.our_pct ?? 60) });
+  const [f, setF] = useState({ name: i.name ?? "", phone: i.phone ?? "", cnic: i.cnic ?? "", city: i.city ?? "", address: i.address ?? "", bank_name: i.bank_name ?? "", bank_account: i.bank_account ?? "", note: i.note ?? "", our_pct: String(i.our_pct ?? 60), profit_mode: (i.profit_mode ?? "deal") as "deal" | "fixed", profit_pct: i.profit_pct != null ? String(i.profit_pct) : "" });
   const set = (k: keyof typeof f) => (e: any) => setF({ ...f, [k]: e.target.value });
   const pct = Number(f.our_pct);
-  const save = () => run(() => api(i.id ? `/investors/${i.id}` : "/investors", { method: i.id ? "PATCH" : "POST", body: { ...f, our_pct: pct } }), i.id ? "Investor update ho gaya" : "Investor add ho gaya").then((r) => { if (r) { onDone(); onClose(); } });
+  const save = () => run(() => api(i.id ? `/investors/${i.id}` : "/investors", { method: i.id ? "PATCH" : "POST", body: { ...f, our_pct: pct, profit_pct: f.profit_mode === "fixed" && f.profit_pct !== "" ? Number(f.profit_pct) : null } }), i.id ? "Investor update ho gaya" : "Investor add ho gaya").then((r) => { if (r) { onDone(); onClose(); } });
   const del = () => { if (confirm(`${i.name} ko delete karein? (sirf tab hota hai jab koi entry na ho)`)) run(() => api(`/investors/${i.id}`, { method: "DELETE" }), "Delete ho gaya").then((r) => { if (r) { onDone(); onClose(); } }); };
   return (
     <Modal open wide title={i.id ? `Edit — ${i.name}` : "Naya investor · نیا سرمایہ کار"} onClose={onClose}>
@@ -106,10 +106,21 @@ function InvestorForm({ i, onClose, onDone }: { i: any; onClose: () => void; onD
         <Field label="Address · پتہ"><input className="input" value={f.address} onChange={set("address")} /></Field>
         <Field label="Bank (us ka)"><input className="input" value={f.bank_name} onChange={set("bank_name")} placeholder="e.g. Meezan Bank" /></Field>
         <Field label="Account / IBAN"><input className="input" value={f.bank_account} onChange={set("bank_account")} /></Field>
-        <Field label="Munafa ka hissa — hamara %">
-          <div className="flex items-center gap-2"><input className="input w-24" type="number" min={0} max={100} value={f.our_pct} onChange={set("our_pct")} />
-            <span className="text-sm text-slate-600">Hamara <b>{pct || 0}%</b> · investor ka <b>{100 - (pct || 0)}%</b></span></div>
-        </Field>
+        <div className="sm:col-span-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
+          <div className="mb-2 text-sm font-semibold">Munafa ka setup · <Ur>منافع کا طریقہ</Ur></div>
+          <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Munafa ka setup">
+            {([["deal", "Deal ka hissa (%)"], ["fixed", "Fixed % mahana (capital par)"]] as const).map(([k, l]) => (
+              <button key={k} type="button" role="radio" aria-checked={f.profit_mode === k} onClick={() => setF({ ...f, profit_mode: k })} className={`rounded-full px-3 py-1 text-xs font-semibold ${f.profit_mode === k ? "bg-brand-600 text-white" : "bg-white text-slate-600 ring-1 ring-slate-200"}`}>{l}</button>
+            ))}
+          </div>
+          {f.profit_mode === "deal" ? (
+            <div className="mt-2 flex flex-wrap items-center gap-2"><label className="text-sm" htmlFor="inv-our-pct">Hamara %</label><input id="inv-our-pct" className="input w-24" type="number" min={0} max={100} value={f.our_pct} onChange={set("our_pct")} />
+              <span className="text-sm text-slate-600">Hamara <b>{pct || 0}%</b> · investor ka <b>{100 - (pct || 0)}%</b> — har deal band hone par khud hisab.</span></div>
+          ) : (
+            <div className="mt-2 flex flex-wrap items-center gap-2"><label className="text-sm" htmlFor="inv-fixed-pct">Investor ka % mahana</label><input id="inv-fixed-pct" className="input w-24" type="number" min={0} max={100} step="0.1" value={f.profit_pct} onChange={set("profit_pct")} placeholder="e.g. 2.5" />
+              <span className="text-sm text-slate-600">Capital par mahana; har mahine "Munafa darj" se Rs ya % mein likhein (ye % wahan pehle se bhara aayega).</span></div>
+          )}
+        </div>
         <Field label="Note"><input className="input" value={f.note} onChange={set("note")} /></Field>
       </div>
       {i.id && !!i.capital_in && <p className="mt-2 text-xs text-slate-500">% badalne se sirf nayi deals par asar hoga — purani deals apne % par rahengi.</p>}
@@ -129,6 +140,7 @@ function InvestorDetail({ id, onBack, onEdit, form, setForm }: { id: number; onB
   const { data, reload } = useApi<any>(`/investors/${id}${qs ? `?${qs}` : ""}`);
   const [money, setMoney] = useState<"in" | "out" | null>(null);
   const [opening, setOpening] = useState(false);
+  const [profitForm, setProfitForm] = useState(false);
   const [deal, setDeal] = useState<any>(null);
   const [closing, setClosing] = useState<any>(null);
   const { busy, run } = useAction();
@@ -155,6 +167,7 @@ function InvestorDetail({ id, onBack, onEdit, form, setForm }: { id: number; onB
           <button className="btn-primary !bg-emerald-600" disabled={!i.active} onClick={() => setMoney("in")}><ArrowDownCircle size={16} /> Paisa aaya</button>
           <button className="btn-secondary !text-rose-700" disabled={!i.active} onClick={() => setMoney("out")}><ArrowUpCircle size={16} /> Paisa diya</button>
           <button className="btn-secondary" disabled={!i.active || i.free <= 0} title={i.free <= 0 ? "Free paisa nahi" : ""} onClick={() => setDeal({})}><Fuel size={16} /> Nayi deal</button>
+          <button className="btn-secondary !text-blue-700" disabled={!i.active} onClick={() => setProfitForm(true)}><Percent size={15} /> Munafa darj</button>
           {!data.lines.some((x: any) => !x.voided && x.method === "Opening") && <button className="btn-secondary" disabled={!i.active} onClick={() => setOpening(true)} title="Purana investor: go-live se pehle ka hisab"><BookOpen size={15} /> Opening balance</button>}
           <button className="btn-secondary" onClick={() => onEdit(i)}><Pencil size={15} /> Edit</button>
           <button className="btn-secondary" disabled={busy} onClick={toggle}><Power size={15} /> {i.active ? "Band karein" : "Chalu karein"}</button>
@@ -162,7 +175,7 @@ function InvestorDetail({ id, onBack, onEdit, form, setForm }: { id: number; onB
       <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Stat label="Baqi dena (balance)" value={pkr(i.balance)} hint={`deal me ${pkr(i.in_deals)} · free ${pkr(i.free)}`} tone="blue" />
         <Stat label="Capital diya" value={pkr(i.capital_in)} hint={`${i.deals} deals · ${num(i.litres)} L`} />
-        <Stat label="Unka munafa" value={pkr(i.profit_share - i.loss_share)} hint={`${100 - i.our_pct}% hissa${i.loss_share ? ` · nuqsan ${pkr(i.loss_share)}` : ""}`} tone="green" />
+        <Stat label="Unka munafa" value={pkr(i.profit_share - i.loss_share)} hint={`${i.profit_mode === "fixed" ? `${i.profit_pct ?? "—"}% mahana (fixed)` : `${100 - i.our_pct}% hissa`}${i.loss_share ? ` · nuqsan ${pkr(i.loss_share)}` : ""}`} tone="green" />
         <Stat label="Hamara munafa" value={pkr(i.our_share)} hint={`${i.our_pct}% · kul deal munafa ${pkr(i.deal_profit)}`} tone="green" />
       </div>
 
@@ -232,7 +245,7 @@ function InvestorDetail({ id, onBack, onEdit, form, setForm }: { id: number; onB
                   <td className="td text-right tabular-nums text-rose-700">{x.debit ? pkr(x.debit) : ""}</td>
                   <td className="td text-right tabular-nums text-emerald-700">{x.credit ? pkr(x.credit) : ""}</td>
                   <td className="td text-right font-semibold tabular-nums">{x.voided ? "" : pkr(x.balance)}</td>
-                  <td className="td text-right">{!x.voided && (x.type === "capital_in" || x.type === "payout" || x.method === "Opening") && <button className="text-slate-400 hover:text-rose-600" onClick={() => voidTxn(x)} aria-label="Mansookh"><Ban size={15} /></button>}</td>
+                  <td className="td text-right">{!x.voided && (x.type === "capital_in" || x.type === "payout" || x.method === "Opening" || x.method === "Manual") && <button className="text-slate-400 hover:text-rose-600" onClick={() => voidTxn(x)} aria-label="Mansookh"><Ban size={15} /></button>}</td>
                 </tr>
               ))}
             </tbody>
@@ -249,6 +262,7 @@ function InvestorDetail({ id, onBack, onEdit, form, setForm }: { id: number; onB
 
       {money && <MoneyForm i={i} dir={money} onClose={() => setMoney(null)} onDone={reload} />}
       {opening && <OpeningForm i={i} onClose={() => setOpening(false)} onDone={reload} />}
+      {profitForm && <ProfitForm i={i} onClose={() => setProfitForm(false)} onDone={reload} />}
       {deal && <DealForm i={i} d={deal} onClose={() => setDeal(null)} onDone={reload} />}
       {closing && <CloseDeal i={i} d={closing} onClose={() => setClosing(null)} onDone={reload} />}
       {form && <InvestorForm i={form} onClose={() => setForm(null)} onDone={reload} />}
@@ -258,12 +272,62 @@ function InvestorDetail({ id, onBack, onEdit, form, setForm }: { id: number; onB
 
 /** what an entry was, in words */
 function describe(x: any) {
+  if (x.method === "Manual") return [x.type === "profit" ? "Manual munafa" : "Manual nuqsan", x.note].filter(Boolean).join(" · ");
   if (x.method === "Opening") return [x.type === "profit" ? "Opening — munafa baqi (go-live se pehle)" : "Opening — capital (go-live se pehle)", x.note].filter(Boolean).join(" · ");
   if (x.type === "capital_in") return [x.method, x.acc_bank, x.note].filter(Boolean).join(" · ");
   if (x.type === "payout") return [x.purpose === "capital" ? "Asal raqam wapas" : "Munafa diya", x.method, x.acc_bank, x.note].filter(Boolean).join(" · ");
   // profit / loss share: the deal in words + the investor's % (the stored note only repeats the deal number)
   const d = x.deal_id ? `Deal #${x.deal_id}${x.product ? ` · ${num(x.sold_litres ?? x.litres ?? 0)} L ${PRODUCTS[x.product] ?? x.product}` : ""}${x.deal_profit != null ? ` · deal ${x.deal_profit < 0 ? "nuqsan" : "munafa"} ${pkr(Math.abs(x.deal_profit))}` : ""}${x.deal_pct != null ? ` · ${100 - x.deal_pct}% hissa` : ""}` : "";
   return d || x.note || "";
+}
+
+/** Manual profit / loss share — Rs figure or % of a base (default: capital still with us). Books it like a deal's share, without a deal. */
+function ProfitForm({ i, onClose, onDone }: { i: any; onClose: () => void; onDone: () => void }) {
+  const { busy, run } = useAction();
+  const today = new Date().toISOString().slice(0, 10);
+  const fixed = i.profit_mode === "fixed";
+  const [kind, setKind] = useState<"profit" | "loss">("profit");
+  const [mode, setMode] = useState<"amount" | "percent">(fixed ? "percent" : "amount");
+  const [amount, setAmount] = useState("");
+  const [pct, setPct] = useState(fixed && i.profit_pct != null ? String(i.profit_pct) : "");
+  const [base, setBase] = useState(String(i.capital_net ?? 0));
+  const [period, setPeriod] = useState(today.slice(0, 7));
+  const [date, setDate] = useState(today);
+  const [note, setNote] = useState("");
+  const baseN = Number(base) || 0, pctN = Number(pct) || 0;
+  const amt = mode === "percent" ? Math.round(((baseN * pctN) / 100) * 100) / 100 : Number(amount) || 0;
+  const bad = amt <= 0 || date > today || (kind === "loss" && amt > i.balance + 0.5);
+  const save = () => run(() => api(`/investors/${i.id}/profit`, { body: { kind, mode, amount: mode === "amount" ? Number(amount) : undefined, pct: mode === "percent" ? pctN : undefined, base: mode === "percent" ? baseN : undefined, period: period || null, date, note: note || null } }),
+    kind === "profit" ? "Munafa darj — investor ke khate me credit" : "Nuqsan darj — investor ke khate me debit").then((r) => { if (r) { onDone(); onClose(); } });
+  const Pill = ({ on, onClick, children }: { on: boolean; onClick: () => void; children: any }) => (
+    <button type="button" role="radio" aria-checked={on} onClick={onClick} className={`rounded-full px-3 py-1 text-xs font-semibold ${on ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-600"}`}>{children}</button>);
+  return (
+    <Modal open title={`Munafa darj karein — ${i.name}`} onClose={onClose}>
+      <div className="space-y-3">
+        <p className="rounded-xl bg-blue-50 p-2.5 text-sm text-blue-900">Bina deal ke munafa (ya nuqsan) ka hissa — fixed return wale investor ke liye ya koi tay shuda raqam. Cash nahi hilta: investor ke khate me <b>{kind === "profit" ? "Credit" : "Debit"}</b>, books me {kind === "profit" ? "investor profit share expense" : "expense wapas"}. Dene ke liye baad me "Paisa diya".</p>
+        <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Kism"><Pill on={kind === "profit"} onClick={() => setKind("profit")}>Munafa</Pill><Pill on={kind === "loss"} onClick={() => setKind("loss")}>Nuqsan</Pill></div>
+        <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Tareeqa"><Pill on={mode === "amount"} onClick={() => setMode("amount")}>Rs raqam</Pill><Pill on={mode === "percent"} onClick={() => setMode("percent")}>% se hisab</Pill></div>
+        {mode === "amount" ? (
+          <Field label="Raqam (Rs)"><input className="input text-lg font-semibold" type="number" inputMode="decimal" autoFocus value={amount} onChange={(e) => setAmount(e.target.value)} /></Field>
+        ) : (
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="Fisad (%)"><input className="input text-lg font-semibold" type="number" inputMode="decimal" step="0.1" autoFocus value={pct} onChange={(e) => setPct(e.target.value)} placeholder={fixed ? "" : "e.g. 2.5"} /></Field>
+            <Field label="Kis raqam par (base)"><input className="input" type="number" inputMode="decimal" value={base} onChange={(e) => setBase(e.target.value)} /></Field>
+            <p className="col-span-2 -mt-1 text-xs text-slate-500">Base pehle se = capital jo abhi hamare paas hai ({pkr(i.capital_net ?? 0)}). Pump ke mahine ke munafe par % dena ho to base me woh raqam likhein.</p>
+          </div>
+        )}
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="Kis mahine ka"><input type="month" className="input" max={today.slice(0, 7)} value={period} onChange={(e) => setPeriod(e.target.value)} /></Field>
+          <Field label="Entry ki tareekh"><input type="date" className="input" max={today} value={date} onChange={(e) => setDate(e.target.value)} /></Field>
+        </div>
+        <Field label="Note"><input className="input" value={note} onChange={(e) => setNote(e.target.value)} /></Field>
+        <div className={`rounded-xl p-2.5 text-sm ${kind === "profit" ? "bg-emerald-50" : "bg-rose-50"}`}>Khate me {kind === "profit" ? "credit" : "debit"}: <b>{pkr(amt)}</b>{mode === "percent" && amt > 0 ? <span className="text-xs text-slate-600"> ({pctN}% × {pkr(baseN)})</span> : null}</div>
+        {kind === "loss" && amt > i.balance + 0.5 && <p className="text-sm text-rose-700">Nuqsan investor ke balance ({pkr(i.balance)}) se zyada nahi ho sakta.</p>}
+        <div className="flex justify-end gap-2"><button className="btn-secondary" onClick={onClose}>Cancel</button>
+          <button className="btn-primary" disabled={busy || bad} onClick={save}>Save</button></div>
+      </div>
+    </Modal>
+  );
 }
 
 /** Old pump, investor already on board: what we held of theirs on the go-live day. No cash moves — booked against go-live opening equity. */
