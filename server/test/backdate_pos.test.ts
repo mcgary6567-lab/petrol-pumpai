@@ -177,3 +177,27 @@ test("Baqi stock (lots): FIFO per supplier bill, delivered / unloaded taken off 
   assert.equal(lots.over.length, 0, "nothing over-issued"); void purB;
   await books();
 });
+
+test("own-tank unload edit (officer): litres / tank / day change; bypass stock, tank and stock register follow; sold-out litres refuse", async () => {
+  const sups = ok(await call("wholesale", "GET", "/api/bypass/suppliers"), "suppliers").filter((x: any) => !x.client_id);
+  const tank = db.get("SELECT * FROM tanks WHERE station_id=? AND product='HSD' ORDER BY id LIMIT 1", st)!;
+  ok(await call("wholesale", "POST", "/api/bypass/deliveries", { station_id: st, purchases: [{ supplier_id: sups[0].id, product: "HSD", litres: 3_000, cost_rate: 260 }] }), "buy 3000");
+  const stock0 = ok(await call("admin", "GET", "/api/bypass/lots"), "lots").fuels.find((f: any) => f.product === "HSD").balance as number;
+  const tank0 = db.get("SELECT current_l FROM tanks WHERE id=?", tank.id)!.current_l as number;
+  const u = ok(await call("wholesale", "POST", "/api/bypass/to-tank", { product: "HSD", litres: 1_000, tank_id: tank.id, note: "bacha" }), "unload 1000");
+  near(db.get("SELECT current_l FROM tanks WHERE id=?", tank.id)!.current_l, tank0 + 1_000);
+  assert.equal((await call("wholesale", "PATCH", `/api/bypass/to-tank/${u.id}`, { litres: 1_500 })).status, 400, "reason needed");
+  const e = ok(await call("wholesale", "PATCH", `/api/bypass/to-tank/${u.id}`, { reason: "asal 1,500 the", litres: 1_500, txn_date: dayAgo(1), note: "bacha (theek)" }), "officer edits");
+  near(e.litres, 1_500);
+  near(db.get("SELECT current_l FROM tanks WHERE id=?", tank.id)!.current_l, tank0 + 1_500, "tank follows");
+  const lots = ok(await call("admin", "GET", "/api/bypass/lots"), "lots2").fuels.find((f: any) => f.product === "HSD");
+  near(lots.balance, stock0 - 1_500, "bypass stock follows");
+  assert.equal(db.get("SELECT voided FROM bypass_drops WHERE id=?", u.id)!.voided, 1, "old row reversed");
+  const row = db.get("SELECT * FROM bypass_drops WHERE id=?", e.id)!;
+  assert.equal(String(row.txn_date).slice(0, 10), dayAgo(1)); assert.equal(row.note, "bacha (theek)");
+  assert.ok(db.get("SELECT 1 x FROM deliveries WHERE id=?", row.to_delivery_id), "stock-register row re-made");
+  // more than the stock → refused, and the old entry stays as it was
+  assert.equal((await call("wholesale", "PATCH", `/api/bypass/to-tank/${e.id}`, { reason: "x", litres: 1_000_000 })).status, 400);
+  assert.equal(db.get("SELECT voided FROM bypass_drops WHERE id=?", e.id)!.voided, 0, "tx rolled back");
+  await books();
+});

@@ -269,6 +269,39 @@ bypass.post("/bypass/to-tank/:id/void", requirePerm("wholesale.void"), h((req) =
   return { ok: true, stock: bypassStock(t, d.product) };
 }));
 
+/** Edit an own-tank unload (the officer's "bacha hua tel apne tank mein"): litres, tank, day, note, cost amount. The old
+ *  transfer is reversed (litres out of that tank, its stock-register row removed) and a fresh one is made, so the bypass
+ *  stock, the pump stock register and the books all follow. Refused when the old litres are already sold out of the tank. */
+bypass.patch("/bypass/to-tank/:id", requirePerm("wholesale.manage"), h((req) => {
+  const t = tid(req);
+  const b = parse(z.object({ reason: z.string().trim().min(3).max(200), litres: z.number().positive().max(200_000).optional(), tank_id: z.number().int().optional(),
+    txn_date: day.optional(), note: z.string().max(200).optional().nullable(), amount: z.number().positive().max(100_000_000).optional().nullable() }), req.body);
+  const d = get("SELECT * FROM bypass_drops WHERE id=? AND tenant_id=? AND tank_id IS NOT NULL AND voided=0", Number(req.params.id), t);
+  if (!d) throw new AppError(404, "Transfer not found");
+  const oldTank = get("SELECT * FROM tanks WHERE id=?", d.tank_id)!;
+  if (oldTank.current_l < d.litres - 0.01) throw new AppError(400, `${oldTank.name} me ab sirf ${Math.round(oldTank.current_l)} L hai — ye ${d.litres} L bik chuke, edit nahi ho sakta`);
+  const tank = get("SELECT tk.*, s.tenant_id FROM tanks tk JOIN stations s ON s.id=tk.station_id WHERE tk.id=?", b.tank_id ?? d.tank_id);
+  if (!tank || tank.tenant_id !== t) throw new AppError(404, "Tank not found");
+  if (tank.product !== d.product) throw new AppError(400, `${tank.name} ${PRODUCTS[tank.product] ?? tank.product} ka tank hai — ${PRODUCTS[d.product] ?? d.product} ka tank chunein`);
+  const litres = round2(b.litres ?? d.litres);
+  const ts = b.txn_date ? stampFor(b.txn_date) : d.txn_date;
+  const note = b.note !== undefined ? b.note : d.note;
+  const out = tx(() => {
+    // 1) reverse the old transfer
+    run("UPDATE bypass_drops SET voided=1, note=COALESCE(note,'') || ? WHERE id=?", ` [edited: ${b.reason}]`, d.id);
+    if (d.to_delivery_id) run("DELETE FROM deliveries WHERE id=?", d.to_delivery_id);
+    run("UPDATE tanks SET current_l = current_l - ? WHERE id=?", d.litres, oldTank.id);
+    // 2) the new one must fit the bypass stock and the tank
+    const st = bypassStock(t, d.product);
+    if (litres > st.litres + 0.01) throw new AppError(400, `Sirf ${st.litres} L ${PRODUCTS[d.product] ?? d.product} bypass stock hai — ${litres} L tank me nahi dal sakte`);
+    const cur = get("SELECT current_l FROM tanks WHERE id=?", tank.id)!.current_l as number;
+    if (cur + litres > tank.capacity_l * 1.001) throw new AppError(400, `${tank.name} capacity (${Math.round(tank.capacity_l)} L) se upar ho jata`);
+    return unloadToTank(t, req.user!.name, { tank: { ...tank, current_l: cur }, product: d.product, litres, unit: st.avg_cost, amount: b.amount ?? (b.litres == null && b.amount === undefined ? d.cost_amount : null), delivery_id: d.delivery_id ?? null, note, ts });
+  });
+  audit(t, req.user!, "bypass_to_tank_edit", `bypdrop:${out.drop}`, { reason: b.reason, before: { id: d.id, litres: d.litres, tank: oldTank.name, txn_date: d.txn_date, cost: d.cost_amount, note: d.note }, after: { litres, tank: tank.name, txn_date: ts, cost: out.cost, note } });
+  return { ok: true, id: out.drop, old_id: d.id, litres, cost: out.cost, stock: bypassStock(t, d.product) };
+}));
+
 /** Void a client drop of a bypass delivery: the litres go back to the bypass stock, the client's bill is voided.
  *  Refused when money already hangs off the client's row (cashier voucher / bypass supplier payment). */
 bypass.post("/bypass/drops/:wtxId/void", requirePerm("wholesale.void"), h((req) => {

@@ -611,6 +611,37 @@ function PaySupplier({ id, owed, onClose, onDone }: { id: number; owed: number; 
  * The tanker had more than the clients took: the rest is emptied into OUR tank. Bypass stock goes down at its average
  * cost, the pump's tank goes up, a stock-register delivery is written at that cost — no new supplier bill.
  */
+/** Edit one own-tank unload: litres, tank (same fuel), day, note, cost amount; the old transfer is reversed and re-made. */
+function EditToTank({ r, tanks, onClose, onDone }: { r: any; tanks: any[]; onClose: () => void; onDone: () => void }) {
+  const { busy, run } = useAction();
+  const [litres, setLitres] = useState(String(r.litres ?? ""));
+  const [tankId, setTankId] = useState(String(tanks.find((t: any) => t.name === r.tank && t.product === r.product)?.id ?? tanks.find((t: any) => t.product === r.product)?.id ?? ""));
+  const [date, setDate] = useState(String(r.txn_date ?? "").slice(0, 10));
+  const [note, setNote] = useState(r.note ?? "");
+  const [amount, setAmount] = useState("");
+  const [reason, setReason] = useState("");
+  const L = Number(litres) || 0;
+  const save = () => run(() => api(`/bypass/to-tank/${r.id}`, { method: "PATCH", body: { reason, litres: L, tank_id: Number(tankId) || undefined, txn_date: date || undefined, note: note || null, amount: amount ? Number(amount) : undefined } }), "Unload update — stock aur tank theek")
+    .then((ok) => { if (ok) onDone(); });
+  return (
+    <Modal open title={`Unload edit — ${num(r.litres)} L ${PRODUCTS[r.product] ?? r.product}`} onClose={onClose}>
+      <div className="space-y-3">
+        <p className="rounded-xl bg-amber-50 p-2.5 text-xs text-amber-900">Purani entry ulti ho kar nayi banegi: bypass stock, pump ka tank aur stock register sab saath badlenge. Tank se ye litre bik chuke hon to edit nahi hoga. Audit log me pehle / baad aur wajah.</p>
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="Litre"><input className="input text-lg font-semibold" type="number" inputMode="decimal" value={litres} onChange={(e) => setLitres(e.target.value)} /></Field>
+          <Field label="Tank"><select className="input" value={tankId} onChange={(e) => setTankId(e.target.value)}>{tanks.filter((t: any) => t.product === r.product).map((t: any) => <option key={t.id} value={t.id}>{t.name} · {t.station}</option>)}</select></Field>
+          <Field label="Tareekh"><input className="input" type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
+          <Field label="Cost amount (khali = average cost)"><input className="input" type="number" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder={`abhi ${pkr(r.cost_amount)}`} /></Field>
+        </div>
+        <Field label="Note"><input className="input" value={note} onChange={(e) => setNote(e.target.value)} /></Field>
+        <Field label="Wajah (zaroori)"><input className="input" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. litre 3,000 nahi 2,500 the" /></Field>
+        <div className="flex justify-end gap-2"><button className="btn-secondary" onClick={onClose}>Cancel</button>
+          <button className="btn-primary" disabled={busy || !(L > 0) || !tankId || reason.trim().length < 3} onClick={save}>Save</button></div>
+      </div>
+    </Modal>
+  );
+}
+
 function LeftoverToTank({ stock, onChanged }: { stock: any[]; onChanged: () => void }) {
   const { can } = useAuth();
   const stations = useApi<any[]>("/stations");
@@ -624,6 +655,7 @@ function LeftoverToTank({ stock, onChanged }: { stock: any[]; onChanged: () => v
   const unit = onHand?.avg_cost ?? 0, litres = Number(f.litres) || 0;
   const [lq, setLq] = useState("");
   const [showAll, setShowAll] = useState(false);
+  const [editRow, setEditRow] = useState<any>(null);
   const allRows = (list.data ?? []).filter((r: any) => !r.voided);
   const matched = useListFilter(allRows, { q: lq, text: (r: any) => [r.product, PRODUCTS[r.product], r.tank, r.station, r.note, r.created_by, r.litres].filter((v) => v != null && v !== "").join(" ") });
   const rows = showAll || lq ? matched : matched.slice(0, 8);
@@ -641,7 +673,7 @@ function LeftoverToTank({ stock, onChanged }: { stock: any[]; onChanged: () => v
       {rows.length > 0 && (
         <div className="mt-3 overflow-x-auto">
           <table className="w-full min-w-[900px] text-sm">
-            <thead><tr><th className="th">Tareekh</th><th className="th">Fuel</th><th className="th text-right">Litre</th><th className="th">Tank</th><th className="th">Station</th><th className="th">Delivery</th><th className="th">Note</th><th className="th">By</th><th className="th text-right">Cost rate</th><th className="th text-right">Amount</th>{can("wholesale.void") && <th className="th"></th>}</tr></thead>
+            <thead><tr><th className="th">Tareekh</th><th className="th">Fuel</th><th className="th text-right">Litre</th><th className="th">Tank</th><th className="th">Station</th><th className="th">Delivery</th><th className="th">Note</th><th className="th">By</th><th className="th text-right">Cost rate</th><th className="th text-right">Amount</th>{(can("wholesale.void") || can("wholesale.manage")) && <th className="th"></th>}</tr></thead>
             <tbody className="tabular-nums">
               {rows.map((r: any) => (
                 <tr key={r.id} className="border-t border-slate-100">
@@ -655,14 +687,15 @@ function LeftoverToTank({ stock, onChanged }: { stock: any[]; onChanged: () => v
                   <td className="td text-xs text-slate-600">{r.created_by}</td>
                   <td className="td text-right">Rs {num(r.unit_cost, 2)}</td>
                   <td className="td text-right font-semibold">{pkr(r.cost_amount)}</td>
-                  {can("wholesale.void") && <td className="td text-right"><button className="btn-secondary !px-2 !py-1 text-xs text-red-600" disabled={busy} onClick={async () => { const a = await askCancel({ title: "Apne tank wala maal wapas (undo)", what: <><b>{num(r.litres, 0)} L</b> · {r.tank}</>, hint: "Litre tank se nikal kar wapas bypass stock me chale jayenge." }); if (a) run(() => api(`/bypass/to-tank/${r.id}/void`, { body: { reason: a.reason }, headers: pinHeader(a) }), "Undone — bypass stock aur tank wapas").then(() => { list.reload(); onChanged(); }); }}><Ban size={13} /> Undo</button></td>}
+                  {(can("wholesale.void") || can("wholesale.manage")) && <td className="td whitespace-nowrap text-right">{can("wholesale.manage") && <button className="btn-secondary mr-1 !px-2 !py-1 text-xs" title="Edit" onClick={() => setEditRow(r)}><Pencil size={13} /> Edit</button>}{can("wholesale.void") && <button className="btn-secondary !px-2 !py-1 text-xs text-red-600" disabled={busy} onClick={async () => { const a = await askCancel({ title: "Apne tank wala maal wapas (undo)", what: <><b>{num(r.litres, 0)} L</b> · {r.tank}</>, hint: "Litre tank se nikal kar wapas bypass stock me chale jayenge." }); if (a) run(() => api(`/bypass/to-tank/${r.id}/void`, { body: { reason: a.reason }, headers: pinHeader(a) }), "Undone — bypass stock aur tank wapas").then(() => { list.reload(); onChanged(); }); }}><Ban size={13} /> Undo</button>}</td>}
                 </tr>
               ))}
             </tbody>
-            <tfoot><tr className="border-t-2 bg-slate-50 font-semibold tabular-nums"><td className="td" colSpan={2}>Kul · {rows.length} entries</td><td className="td text-right">{num(rows.reduce((a: number, r: any) => a + r.litres, 0))} L</td><td className="td" colSpan={6}></td><td className="td text-right">{pkr(rows.reduce((a: number, r: any) => a + r.cost_amount, 0))}</td>{can("wholesale.void") && <td className="td"></td>}</tr></tfoot>
+            <tfoot><tr className="border-t-2 bg-slate-50 font-semibold tabular-nums"><td className="td" colSpan={2}>Kul · {rows.length} entries</td><td className="td text-right">{num(rows.reduce((a: number, r: any) => a + r.litres, 0))} L</td><td className="td" colSpan={6}></td><td className="td text-right">{pkr(rows.reduce((a: number, r: any) => a + r.cost_amount, 0))}</td>{(can("wholesale.void") || can("wholesale.manage")) && <td className="td"></td>}</tr></tfoot>
           </table>
         </div>
       )}
+      {editRow && <EditToTank r={editRow} tanks={tanks} onClose={() => setEditRow(null)} onDone={() => { setEditRow(null); list.reload(); onChanged(); }} />}
       <Modal open={open} onClose={() => setOpen(false)} title="Bacha hua tel apne tank mein · بچا ہوا تیل">
         <form className="space-y-3" onSubmit={async (e) => {
           e.preventDefault();
