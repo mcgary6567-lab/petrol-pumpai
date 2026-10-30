@@ -23,6 +23,7 @@ import { chargeShortage } from "./staff.js";
 import { clientDue, clientDueAll, insertTxn } from "./wholesale.js";
 import { promises } from "./wholesaleDesk.js";
 import { supplierOwed, supplierOwedAll } from "./suppliers.js";
+import { investorChequeCleared } from "./investors.js";
 import { staffBalance } from "./staff.js";
 import { createExpense } from "./expenses.js";
 import { notify, staff } from "../notifications.js";
@@ -564,6 +565,9 @@ cashier.post("/cashier/cheques/:id/:action", requirePerm("cheques.manage"), h(as
       } else if (q.direction === "out" && q.party_type === "staff" && q.party_id) {
         ref = `staff:${run("INSERT INTO staff_ledger (tenant_id,user_id,type,amount,note,created_by,created_at,method,account_id) VALUES (?,?,?,?,?,?,?,?,?)",
           t, q.party_id, "advance", q.amount, note, req.user!.name, stamp, "Cheque", acc).id}`;
+      } else if (q.party_type === "investor" && q.party_id) {
+        // an investor's cheque: their khata and the bank move today, through the investors module (keeps its own books rule)
+        ref = investorChequeCleared(t, req.user!.name, q as any, acc);
       } else if (q.direction === "out" && q.party_type === "expense") {
         // the expense is booked the day the bank pays the cheque
         ref = `expense:${run(`INSERT INTO expenses (tenant_id,category,amount,paid_to,method,note,receipt_ref,status,created_by,approved_by,expense_date,created_at,account_id)

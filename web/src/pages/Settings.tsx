@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
+import { Building2, SlidersHorizontal, ShieldCheck, HardDrive, Fuel } from "lucide-react";
 import { api, linkToken, useApi } from "../lib/api";
 import { Field, Loading, Modal, PageHeader, useAction } from "../components/ui";
 import { StationForm, TankForm } from "../components/QuickAdd";
@@ -10,34 +11,76 @@ import { MeterResetModal } from "../components/ShiftParts";
 import { PRODUCTS, num } from "../lib/format";
 
 
+/** Settings in five tabs (the URL keeps the open tab: /settings?tab=rules). The old one-long-page anchors still work via ?tab. */
+const TABS = [
+  { k: "profile", en: "Pump profile", ur: "پمپ کی معلومات", icon: Building2 },
+  { k: "rules", en: "Rules & limits", ur: "قواعد و حدود", icon: SlidersHorizontal },
+  { k: "security", en: "Security", ur: "حفاظت", icon: ShieldCheck },
+  { k: "system", en: "System & backups", ur: "سسٹم و بیک اپ", icon: HardDrive },
+  { k: "pump", en: "Stations & team", ur: "اسٹیشن و عملہ", icon: Fuel },
+] as const;
+type TabKey = (typeof TABS)[number]["k"];
+const ANCHOR_TAB: Record<string, TabKey> = { "set-team": "pump", "set-stations": "pump", "set-limits": "rules", "set-messages": "rules", "set-khata": "rules", "set-safety": "security", "set-hardware": "system", "set-alerts": "rules", "set-backups": "system" };
+
 export default function SettingsPage() {
   const { data, reload } = useApi<any>("/settings");
   const { account } = useAuth();
+  const [params, setParams] = useSearchParams();
+  const hash = typeof window !== "undefined" ? window.location.hash.replace(/^#/, "") : "";
+  const tab: TabKey = (TABS.find((t) => t.k === params.get("tab"))?.k ?? ANCHOR_TAB[hash] ?? "profile") as TabKey;
+  const go = (k: TabKey) => { setParams(k === "profile" ? {} : { tab: k }); window.scrollTo({ top: 0 }); };
+  useEffect(() => { if (hash && ANCHOR_TAB[hash]) setTimeout(() => document.getElementById(hash)?.scrollIntoView({ block: "start" }), 50); }, [hash, data]);
   if (!data) return <Loading />;
   const i = data.integrations;
 
   return (
     <div className="space-y-5">
       <PageHeader title="Settings" />
-      <About />
-      <BusinessProfile />
-      <AutoSwitches values={data.automation ?? {}} review={data.google_review_url} onSaved={reload} />
-      <KhataRules r={data.khata_rules} onSaved={reload} />
-      <Limits l={data.limits} loyaltyRate={data.loyalty_rate} onSaved={reload} />
-      <AlertSensitivity s={data.sensitivity} onSaved={reload} />
-      <Safety twofa={data.admin_2fa} voidPin={data.void_pin} faceMatch={data.attend_face_match} idleHours={data.session_idle_hours} allowedIps={data.login_allowed_ips} yourIp={data.your_ip} onTwofa={reload} />
-      {account.saas ? <SaasBackupsNote /> : <BackupsPanel request={(p, i) => api(p, i as any)} base="/backups" downloadUrl={(n) => `/api/backups/${n}?token=${linkToken()}`} canRestart />}
-      <Hardware />
-      <Integrations ai={i.claude.connected} provider={i.claude.provider} wa={i.whatsapp.connected} />
-      <StationsSection />
-      <div className="card flex items-center justify-between p-4">
-        <div><h2 id="set-team" className="scroll-mt-20 font-semibold">Team & access</h2><p className="text-sm text-slate-600">Create Admin, Manager and Salesman logins and control what each can do.</p></div>
-        <Link to="/users" className="btn-secondary">Manage users →</Link>
+      <div role="tablist" aria-label="Settings sections" className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1">
+        {TABS.map((t) => {
+          const Icon = t.icon, on = t.k === tab;
+          return (
+            <button key={t.k} role="tab" aria-selected={on} data-tab={t.k} onClick={() => go(t.k)}
+              className={`flex shrink-0 items-center gap-2 rounded-xl border px-3.5 py-2 text-sm transition ${on ? "border-brand-600 bg-brand-600 text-white shadow-sm" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"}`}>
+              <Icon size={16} /><span className="font-semibold">{t.en}</span><span lang="ur" dir="rtl" className={`font-urdu text-xs ${on ? "text-white/80" : "text-slate-500"}`}>{t.ur}</span>
+            </button>
+          );
+        })}
       </div>
-      <div className="card flex items-center justify-between p-4">
-        <div><h2 className="font-semibold">Lists</h2><p className="text-sm text-slate-600">Customer types, machine types, shop categories, utility bills, booking services, training topics, job titles, complaint categories — add or change anything the dropdowns offer.</p></div>
-        <Link to="/lists" className="btn-secondary">Manage lists →</Link>
-      </div>
+
+      {tab === "profile" && <>
+        <About />
+        <BusinessProfile />
+        <Integrations ai={i.claude.connected} provider={i.claude.provider} wa={i.whatsapp.connected} />
+      </>}
+      {tab === "rules" && <>
+        <AutoSwitches values={data.automation ?? {}} review={data.google_review_url} onSaved={reload} />
+        <KhataRules r={data.khata_rules} onSaved={reload} />
+        <Limits l={data.limits} loyaltyRate={data.loyalty_rate} onSaved={reload} />
+        <AlertSensitivity s={data.sensitivity} onSaved={reload} />
+      </>}
+      {tab === "security" && <>
+        <Safety twofa={data.admin_2fa} voidPin={data.void_pin} faceMatch={data.attend_face_match} idleHours={data.session_idle_hours} allowedIps={data.login_allowed_ips} yourIp={data.your_ip} onTwofa={reload} />
+        <div className="card flex items-center justify-between p-4">
+          <div><h2 className="font-semibold">Audit log & security score</h2><p className="text-sm text-slate-600">Har tabdeeli ka record (pehle / baad), aur pump ki security ka score.</p></div>
+          <div className="flex gap-2"><Link to="/audit" className="btn-secondary">Audit log →</Link><Link to="/security" className="btn-secondary">Security score →</Link></div>
+        </div>
+      </>}
+      {tab === "system" && <>
+        {account.saas ? <SaasBackupsNote /> : <BackupsPanel request={(p, i) => api(p, i as any)} base="/backups" downloadUrl={(n) => `/api/backups/${n}?token=${linkToken()}`} canRestart />}
+        <Hardware />
+      </>}
+      {tab === "pump" && <>
+        <StationsSection />
+        <div className="card flex items-center justify-between p-4">
+          <div><h2 id="set-team" className="scroll-mt-20 font-semibold">Team & access</h2><p className="text-sm text-slate-600">Create Admin, Manager and Salesman logins and control what each can do.</p></div>
+          <Link to="/users" className="btn-secondary">Manage users →</Link>
+        </div>
+        <div className="card flex items-center justify-between p-4">
+          <div><h2 className="font-semibold">Lists</h2><p className="text-sm text-slate-600">Customer types, machine types, shop categories, utility bills, booking services, training topics, job titles, payment methods, fuel products.</p></div>
+          <Link to="/lists" className="btn-secondary">Manage lists →</Link>
+        </div>
+      </>}
     </div>
   );
 }

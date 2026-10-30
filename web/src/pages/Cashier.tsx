@@ -270,7 +270,7 @@ function EditVoucherBasic({ v, onClose, onDone }: { v: any; onClose: () => void;
   const changed = !sameParty || amount !== Number(v.amount) || f.method !== v.method || (f.category || "") !== (v.category || "") || (f.note || "") !== (v.note || "") || (isCash(f.method) ? null : account) !== (v.account_id ?? null);
   const partyOk = needsParty ? !!party : ptype === "expense" ? f.category.trim().length > 0 : freeName.trim().length >= 2;
   const canSave = amount > 0 && f.reason.trim().length >= 3 && changed && partyOk && !busy;
-  const kindLabel: Record<string, string> = { khata: "Khata customer", wholesale: "Wholesale client", supplier: "Supplier", expense: "Expense", staff: "Staff advance", other: "Other", salesman: "Salesman cash", rent: "Rent", owner: "Owner" };
+  const kindLabel: Record<string, string> = { khata: "Khata customer", wholesale: "Wholesale client", supplier: "Supplier", expense: "Expense", staff: "Staff advance", other: "Other", salesman: "Salesman cash", rent: "Rent", owner: "Owner", investor: "Investor" };
   const save = () =>
     run(() => api(`/cashier/vouchers/${v.id}/edit`, { body: { amount, method: f.method, account_id: isCash(f.method) ? null : account, category: f.category.trim() || null, note: f.note.trim() || null, reason: f.reason.trim(),
       ...(sameParty ? {} : { direction: dir, party_type: ptype, party_id: needsParty ? party?.id ?? null : null, party_name: needsParty ? null : ptype === "expense" ? (freeName.trim() || null) : freeName.trim() }) } }),

@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { askCancel, pinHeader } from "../components/CancelEntry";
 import { api, useApi } from "../lib/api";
 import { Field, ListTools, Loading, Modal, Pager, PageHeader, Stat, useAction, useListFilter, usePaged } from "../components/ui";
-import { AccountPicker } from "../components/BankParts";
+import { AccountPicker, BankNamePicker } from "../components/BankParts";
 import { PortalCard } from "../components/PortalCard";
 import { PrintListButton } from "../components/PrintList";
 import { Ur } from "../components/VoiceShell";
@@ -15,7 +15,8 @@ import { Plus, Pencil, Trash2, ArrowDownCircle, ArrowUpCircle, Fuel, CheckCircle
  * (default 60% ours / 40% theirs). Each investor has a Debit / Credit ledger: money they gave + their profit share = Credit
  * (we owe them), money we paid them + their loss share = Debit. Cash / bank and the books move with every entry.
  */
-const PAY = ["Cash", "Bank transfer", "Raast", "JazzCash", "Easypaisa"];
+const PAY = ["Cash", "Bank transfer", "Raast", "JazzCash", "Easypaisa", "Cheque"];
+const isChq = (m: string) => /cheque/i.test(m);
 const isCash = (m: string) => /^cash$/i.test(m);
 const TYPE: Record<string, { en: string; ur: string; cls: string }> = {
   capital_in: { en: "Paisa aaya (capital)", ur: "سرمایہ", cls: "bg-emerald-100 text-emerald-700" },
@@ -173,7 +174,7 @@ function InvestorDetail({ id, onBack, onEdit, form, setForm }: { id: number; onB
           <button className="btn-secondary" disabled={busy} onClick={toggle}><Power size={15} /> {i.active ? "Band karein" : "Chalu karein"}</button>
         </div>} />
       <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Stat label="Baqi dena (balance)" value={pkr(i.balance)} hint={`deal me ${pkr(i.in_deals)} · free ${pkr(i.free)}`} tone="blue" />
+        <Stat label="Baqi dena (balance)" value={pkr(i.balance)} hint={`deal me ${pkr(i.in_deals)}${i.cheques_issued ? ` · cheque diya ${pkr(i.cheques_issued)}` : ""} · free ${pkr(i.free)}`} tone="blue" />
         <Stat label="Capital diya" value={pkr(i.capital_in)} hint={`${i.deals} deals · ${num(i.litres)} L`} />
         <Stat label="Unka munafa" value={pkr(i.profit_share - i.loss_share)} hint={`${i.profit_mode === "fixed" ? `${i.profit_pct ?? "—"}% mahana (fixed)` : `${100 - i.our_pct}% hissa`}${i.loss_share ? ` · nuqsan ${pkr(i.loss_share)}` : ""}`} tone="green" />
         <Stat label="Hamara munafa" value={pkr(i.our_share)} hint={`${i.our_pct}% · kul deal munafa ${pkr(i.deal_profit)}`} tone="green" />
@@ -212,6 +213,28 @@ function InvestorDetail({ id, onBack, onEdit, form, setForm }: { id: number; onB
           </div>
         )}
       </div>
+
+      {/* cheques waiting in the register: not money yet */}
+      {data.cheques?.length > 0 && (
+        <div className="card mb-4 p-4">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <h2 className="font-semibold">Cheques · <Ur>چیک</Ur> <span className="text-xs font-normal text-slate-500">register me — clear hone par khata chalta hai</span></h2>
+            <Link to="/cashier?tab=cheques" className="btn-secondary !py-1 text-xs">Cheque register →</Link>
+          </div>
+          <ul className="divide-y text-sm">
+            {data.cheques.map((q: any) => {
+              const st: Record<string, [string, string]> = { in_hand: ["Haath me", "bg-amber-100 text-amber-800"], deposited: ["Bank me jama", "bg-sky-100 text-sky-800"], issued: ["Diya hua · bank ne abhi nahi kata", "bg-violet-100 text-violet-800"], bounced: ["Bounce", "bg-rose-100 text-rose-800"] };
+              const [lbl, cls] = st[q.status] ?? [q.status, "bg-slate-100"];
+              return (
+                <li key={q.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
+                  <span>{q.direction === "in" ? "Investor ka cheque" : `Hamara cheque (${q.purpose === "capital" ? "asal raqam wapas" : "munafa"})`} · {q.bank} #{q.cheque_no} · dated {q.cheque_date}{q.note ? <span className="text-xs text-slate-500"> · {q.note}</span> : null}</span>
+                  <span className="flex items-center gap-2"><span className={`rounded-md px-1.5 py-0.5 text-[11px] font-semibold ${cls}`}>{lbl}</span><b className="tabular-nums">{pkr(q.amount)}</b></span>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
 
       {/* ledger */}
       <div className="card mb-4 p-4">
@@ -375,11 +398,18 @@ function MoneyForm({ i, dir, onClose, onDone }: { i: any; dir: "in" | "out"; onC
   const [purpose, setPurpose] = useState<"profit" | "capital">("profit");
   const [ref, setRef] = useState("");
   const [note, setNote] = useState("");
+  const today = new Date().toISOString().slice(0, 10);
+  const [chq, setChq] = useState({ bank: "", cheque_no: "", cheque_date: today });
   useEffect(() => { setAccount(null); }, [method]);
   const amt = Number(amount);
+  const cheque = isChq(method);
   const tooMuch = dir === "out" && amt > i.free + 0.5;
-  const save = () => run(() => api(`/investors/${i.id}/money`, { body: { dir, amount: amt, method, account_id: isCash(method) ? null : account, purpose: dir === "out" ? purpose : undefined, ref: ref || null, note: note || null } }),
-    dir === "in" ? "Paisa darj — investor ke khate me credit" : "Payment darj — investor ke khate me debit").then((r) => { if (r) { onDone(); onClose(); } });
+  const chqOk = !cheque || (chq.cheque_no.trim().length >= 2 && chq.cheque_date && (dir === "out" ? !!account : chq.bank.trim().length >= 2));
+  const save = () => run(() => api(`/investors/${i.id}/money`, { body: { dir, amount: amt, method, account_id: isCash(method) ? null : account, purpose: dir === "out" ? purpose : undefined, ref: ref || null, note: note || null,
+      cheque: cheque ? { bank: dir === "out" ? (ourBank ?? chq.bank) : chq.bank, cheque_no: chq.cheque_no.trim(), cheque_date: chq.cheque_date } : null } }),
+    cheque ? "Cheque register me — clear hone par khata chalega" : dir === "in" ? "Paisa darj — investor ke khate me credit" : "Payment darj — investor ke khate me debit").then((r) => { if (r) { onDone(); onClose(); } });
+  const { data: picks } = useApi<any>(cheque && dir === "out" ? "/bank/accounts/pick" : null);
+  const ourBank: string | null = cheque && dir === "out" && account ? picks?.accounts?.find((a: any) => a.id === account)?.bank ?? null : null;
   return (
     <Modal open title={dir === "in" ? `Paisa aaya — ${i.name}` : `Paisa diya — ${i.name}`} onClose={onClose}>
       <div className="space-y-3">
@@ -394,11 +424,21 @@ function MoneyForm({ i, dir, onClose, onDone }: { i: any; dir: "in" | "out"; onC
         <Field label="Amount (Rs)"><input className="input text-lg font-semibold" type="number" inputMode="decimal" autoFocus value={amount} onChange={(e) => setAmount(e.target.value)} /></Field>
         {tooMuch && <p className="text-sm text-rose-700">Free balance se zyada nahi de sakte.</p>}
         <Field label="Kaise · طریقہ"><div className="flex flex-wrap gap-1.5">{PAY.map((m) => <button key={m} onClick={() => setMethod(m)} className={`rounded-full px-3 py-1 text-xs font-semibold ${method === m ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-600"}`}>{m}</button>)}</div></Field>
-        <AccountPicker value={account} onChange={setAccount} method={method} required />
-        {!isCash(method) && <Field label="Transaction ID / slip no. (optional)"><input className="input" value={ref} onChange={(e) => setRef(e.target.value)} placeholder={/raast|transfer/i.test(method) ? "IBFT / Raast ref" : "TID"} /></Field>}
+        {!(cheque && dir === "in") && <AccountPicker value={account} onChange={setAccount} method={cheque ? "bank" : method} required label={cheque ? "Cheque hamare kis account ka hai? · کس اکاؤنٹ کا چیک" : undefined} />}
+        {cheque && (
+          <div className="space-y-2 rounded-xl bg-violet-50 p-3">
+            <p className="text-sm text-violet-900">{dir === "in" ? "Cheque register me jayega. Bank me clear hone par investor ke khate me credit aur bank me jama hoga — tab tak balance nahi badlega." : "Cheque register me jayega. Bank ke paas karne par investor ke khate me debit hoga — tab tak ye raqam 'diya hua' gini jayegi (free balance se kat jayegi)."} Cashier → Cheques se clear / bounce karein.</p>
+            {dir === "in" && <div><span className="label">Kis bank ka cheque? · <Ur>کس بینک کا چیک</Ur></span><BankNamePicker required value={chq.bank} onChange={(v) => setChq({ ...chq, bank: v })} /></div>}
+            <div className="grid grid-cols-2 gap-2">
+              <Field label="Cheque no. *"><input className="input" inputMode="numeric" value={chq.cheque_no} onChange={(e) => setChq({ ...chq, cheque_no: e.target.value })} /></Field>
+              <Field label="Cheque date *"><input className="input" type="date" value={chq.cheque_date} onChange={(e) => setChq({ ...chq, cheque_date: e.target.value })} /></Field>
+            </div>
+          </div>
+        )}
+        {!isCash(method) && !cheque && <Field label="Transaction ID / slip no. (optional)"><input className="input" value={ref} onChange={(e) => setRef(e.target.value)} placeholder={/raast|transfer/i.test(method) ? "IBFT / Raast ref" : "TID"} /></Field>}
         <Field label="Note"><input className="input" value={note} onChange={(e) => setNote(e.target.value)} /></Field>
         <div className="flex justify-end gap-2"><button className="btn-secondary" onClick={onClose}>Cancel</button>
-          <button className="btn-primary" disabled={busy || !(amt > 0) || tooMuch || (!isCash(method) && !account)} onClick={save}>Save</button></div>
+          <button className="btn-primary" disabled={busy || !(amt > 0) || tooMuch || (!isCash(method) && !(cheque && dir === "in") && !account) || !chqOk} onClick={save}>Save</button></div>
       </div>
     </Modal>
   );

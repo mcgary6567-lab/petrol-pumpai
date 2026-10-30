@@ -19,7 +19,8 @@ import { z } from "zod";
 import { all, get, run, tx, now, pkDate, pkStart } from "../db.js";
 import { h, parse, tid, requirePerm } from "../auth.js";
 import { AppError, round2, audit, currentPrices, createAlert } from "../services.js";
-import { otherMoney, accountIdField } from "./banks.js";
+import { otherMoney, accountIdField, chequeToRegister, bankAccountFor } from "./banks.js";
+import { isCheque } from "./capture.js";
 
 export const investors = Router();
 const P = requirePerm("investors.manage");
@@ -47,6 +48,12 @@ const ownDeal = (t: number, id: number) => {
   return d;
 };
 
+/** our cheques to this investor still unpaid by the bank — promised money, so not "free" to pay again */
+const issuedCheques = (id: number) => round2(get("SELECT COALESCE(SUM(amount),0) v FROM cheques WHERE party_type='investor' AND party_id=? AND direction='out' AND status='issued'", id)!.v as number);
+/** this investor's cheques still open in the register (received: not yet cleared; ours: not yet paid) + recent bounces */
+const openCheques = (id: number) => all(`SELECT id, direction, amount, bank, cheque_no, cheque_date, status, category purpose, note, created_at, updated_at FROM cheques
+  WHERE party_type='investor' AND party_id=? AND (status IN ('in_hand','deposited','issued') OR (status='bounced' AND updated_at >= ?)) ORDER BY cheque_date, id`, id, new Date(Date.now() - 30 * 86400_000).toISOString());
+
 /** one investor's numbers */
 function figures(i: any) {
   const s = get(`SELECT
@@ -60,13 +67,13 @@ function figures(i: any) {
       COALESCE(SUM(CASE WHEN status='closed' THEN profit END),0) deal_profit, COALESCE(SUM(CASE WHEN status='closed' THEN our_share END),0) our_share,
       COALESCE(SUM(CASE WHEN status='closed' THEN litres END),0) litres
     FROM investor_deals WHERE investor_id=? AND voided=0`, i.id)!;
-  const balance = investorBalance(i.id), busy = inDeals(i.id);
+  const balance = investorBalance(i.id), busy = inDeals(i.id), promised = issuedCheques(i.id);
   const capital = round2(s.capital_in), net = round2(s.profit - s.loss);
   return {
     capital_in: round2(s.capital_in), paid_out: round2(s.paid_out), profit_share: round2(s.profit), loss_share: round2(s.loss),
     /** capital still with the pump (given − returned): the base a fixed-% profit is worked on */
     capital_net: round2(Math.max(0, s.capital_in - s.capital_back)),
-    balance, in_deals: busy, free: round2(Math.max(0, balance - busy)),
+    balance, in_deals: busy, cheques_issued: promised, free: round2(Math.max(0, balance - busy - promised)),
     deals: d.n, open_deals: d.open_n, deal_profit: round2(d.deal_profit), our_share: round2(d.our_share), litres: round2(d.litres),
     /** the investor's net profit share as % of the capital they put in */
     roi_pct: capital > 0 ? round2((net / capital) * 100) : 0,
@@ -150,7 +157,7 @@ export function investorStatement(t: number, id: number, from?: string, to?: str
   });
   const deals = all("SELECT d.*, s.name supplier FROM investor_deals d LEFT JOIN suppliers s ON s.id=d.supplier_id AND s.tenant_id=d.tenant_id WHERE d.investor_id=? AND d.voided=0 ORDER BY d.deal_date DESC, d.id DESC", id);
   const requests = all("SELECT * FROM investor_requests WHERE investor_id=? ORDER BY id DESC LIMIT 30", id);
-  return { investor: { ...i, ...figures(i) }, opening, closing: bal, lines, deals, requests, monthly: investorMonthly(id),
+  return { investor: { ...i, ...figures(i) }, opening, closing: bal, lines, deals, requests, monthly: investorMonthly(id), cheques: openCheques(id),
     totals: { credit: round2(lines.reduce((a, l) => a + l.credit, 0)), debit: round2(lines.reduce((a, l) => a + l.debit, 0)) } };
 }
 investors.get("/investors/:id", P, h((req) => {
@@ -217,6 +224,8 @@ const money = z.object({
   purpose: z.enum(["capital", "profit"]).optional().nullable(),
   /** slip / transaction ID / IBFT ref the money came or went with — shows on the statement and the investor's portal */
   ref: z.string().trim().max(60).optional().nullable(),
+  /** method "Cheque": the cheque itself — it waits in the cheque register and counts only when the bank clears / pays it */
+  cheque: z.object({ bank: z.string().trim().min(2).max(80), cheque_no: z.string().trim().min(2).max(30), cheque_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }).optional().nullable(),
   note: z.string().trim().max(200).optional().nullable(),
 });
 
@@ -233,6 +242,16 @@ function moneyTxn(t: number, by: string, i: any, m: { dir: "in" | "out"; amount:
   const bankId = src.startsWith("bank:") ? get("SELECT account_id FROM bank_txns WHERE id=?", Number(src.slice(5)))?.account_id ?? null : null;
   run("UPDATE investor_txns SET src=?, account_id=? WHERE id=?", src, bankId, id);
   return id;
+}
+
+/** The cashier cleared an investor's cheque (received) or the bank paid ours (issued): now the money entry is made on the
+ *  investor's khata and the bank — same as a bank transfer on this day. Returns the src ref the cheque row keeps. */
+export function investorChequeCleared(t: number, by: string, q: { party_id: number; direction: "in" | "out"; amount: number; bank: string; cheque_no: string; cheque_date: string; category?: string | null; note?: string | null }, accountId: number) {
+  const i = get("SELECT * FROM investors WHERE id=? AND tenant_id=?", q.party_id, t);
+  if (!i) throw new AppError(404, "Investor nahi mila");
+  const id = moneyTxn(t, by, i, { dir: q.direction, amount: q.amount, method: "Cheque", account_id: accountId, purpose: q.category === "capital" ? "capital" : "profit", ref: q.cheque_no,
+    note: [`${q.bank} cheque ${q.cheque_no} dated ${q.cheque_date} — cleared`, q.note].filter(Boolean).join(" · ") });
+  return `invtx:${id}`;
 }
 
 /** Manual profit (or loss) share — for investors on a fixed return rather than per-deal split, or any agreed amount.
@@ -308,9 +327,26 @@ investors.post("/investors/:id/money", P, h((req) => {
   const t = tid(req), i = own(t, Number(req.params.id)), b = parse(money, req.body);
   if (!i.active) throw new AppError(400, `${i.name} band hai — pehle chalu karein`);
   if (b.dir === "out") {
-    // never pay out more than we owe, and never the money still tied up in an open deal
-    const free = round2(investorBalance(i.id) - inDeals(i.id));
-    if (b.amount > free + 0.5) throw new AppError(400, `Itna nahi de sakte — ${i.name} ka free balance Rs ${Math.round(Math.max(0, free)).toLocaleString("en-IN")} hai${inDeals(i.id) > 0 ? " (baqi deal me laga hai)" : ""}`);
+    // never pay out more than we owe, and never the money still tied up in an open deal or promised on an unpaid cheque
+    const free = round2(investorBalance(i.id) - inDeals(i.id) - issuedCheques(i.id));
+    if (b.amount > free + 0.5) throw new AppError(400, `Itna nahi de sakte — ${i.name} ka free balance Rs ${Math.round(Math.max(0, free)).toLocaleString("en-IN")} hai${inDeals(i.id) > 0 ? " (baqi deal me laga hai)" : ""}${issuedCheques(i.id) > 0 ? " (ek cheque pehle se diya hua hai)" : ""}`);
+  }
+  if (isCheque(b.method)) {
+    // a cheque is not money until the bank clears (received) or pays (ours) it: it waits in the cheque register, and the
+    // investor's khata moves on that day (cashier → Cheques → clear). Nothing is credited / debited now.
+    if (!b.cheque) throw new AppError(400, "Cheque ka bank, number aur tareekh likhein");
+    const ourAcc = b.dir === "out" ? bankAccountFor(t, b.account_id, "bank") : null;
+    if (b.dir === "out" && !ourAcc) throw new AppError(400, "Cheque hamare kis account ka hai — bank chunein");
+    const purpose = b.dir === "out" ? (b.purpose ?? "profit") : "capital";
+    const cid = tx(() => {
+      const id = chequeToRegister(t, { direction: b.dir, party_type: "investor", party_id: i.id, party_name: i.name, amount: round2(b.amount), bank: b.cheque!.bank, cheque_no: b.cheque!.cheque_no, cheque_date: b.cheque!.cheque_date,
+        account_id: ourAcc, note: b.note || null, by: req.user!.name });
+      run("UPDATE cheques SET category=? WHERE id=?", purpose, id);
+      return id;
+    });
+    audit(t, req.user!, b.dir === "in" ? "investor_cheque_in" : "investor_cheque_out", `investor:${i.id}`, { cheque: cid, ...b });
+    return { id: null, cheque_id: cid, pending: true, balance: investorBalance(i.id),
+      message: b.dir === "in" ? `Cheque ${b.cheque.cheque_no} register me hai — clear hone par ${i.name} ke khate me credit hoga.` : `Cheque ${b.cheque.cheque_no} register me hai — bank ke paas karne par ${i.name} ke khate me debit hoga.` };
   }
   const id = tx(() => moneyTxn(t, req.user!.name, i, b));
   audit(t, req.user!, b.dir === "in" ? "investor_capital_in" : "investor_payout", `investor:${i.id}`, { txn: id, ...b });

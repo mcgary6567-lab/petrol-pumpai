@@ -143,3 +143,59 @@ test("payment method + reference: capital by Raast with a TID lands on the state
   assert.match(page, /Raast/); assert.match(page, /#RST-77881/);
   await books();
 });
+
+test("cheques: investor's cheque waits in the register (no credit), clears into the khata + bank; our cheque to them reduces free money, is debited when the bank pays; bounce reverses nothing", async () => {
+  db.setSetting(1, "module_investors", "1"); auth.forgetModules(1);
+  const i4 = ok(await call("admin", "POST", "/api/investors", { name: "Cheque Wala Sb" }), "add");
+  const acc = ok(await call("admin", "POST", "/api/bank/accounts", { bank: "Habib Bank (HBL)", account_no: "0101 5544", opening_balance: 0 }), "bank").id;
+  const bankBal = async () => ok(await call("admin", "GET", `/api/bank/accounts/${acc}/statement`), "bank st").closing as number;
+  // received by cheque: nothing moves yet
+  assert.equal((await call("admin", "POST", `/api/investors/${i4.id}/money`, { dir: "in", amount: 300_000, method: "Cheque" })).status, 400, "cheque details needed");
+  const r = ok(await call("admin", "POST", `/api/investors/${i4.id}/money`, { dir: "in", amount: 300_000, method: "Cheque", cheque: { bank: "Meezan Bank", cheque_no: "771122", cheque_date: "2026-10-01" }, note: "pehli raqam" }), "cheque in");
+  assert.equal(r.pending, true); assert.ok(r.cheque_id); near(r.balance, 0);
+  let st = ok(await call("admin", "GET", `/api/investors/${i4.id}`), "st");
+  near(st.investor.balance, 0); assert.equal(st.lines.length, 0);
+  assert.equal(st.cheques.length, 1); assert.equal(st.cheques[0].status, "in_hand"); assert.equal(st.cheques[0].direction, "in");
+  near(await bankBal(), 0);
+  // it shows in the cashier's register under the investor's name
+  const reg = ok(await call("admin", "GET", "/api/cashier/cheques"), "register");
+  const q = reg.cheques.find((x: any) => x.id === r.cheque_id && x.src === "c");
+  assert.ok(q && q.party_type === "investor" && q.party_name === "Cheque Wala Sb", "in register");
+  await books();
+  // deposit + clear → credited to the investor, money in the bank, method Cheque with the cheque no. as ref
+  ok(await call("admin", "POST", `/api/cashier/cheques/${r.cheque_id}/deposit`, { account_id: acc }), "deposit");
+  ok(await call("admin", "POST", `/api/cashier/cheques/${r.cheque_id}/clear`, { account_id: acc }), "clear");
+  st = ok(await call("admin", "GET", `/api/investors/${i4.id}`), "st2");
+  near(st.investor.balance, 300_000); near(st.investor.capital_in, 300_000);
+  assert.equal(st.cheques.length, 0);
+  const line = st.lines[0];
+  assert.equal(line.type, "capital_in"); assert.equal(line.method, "Cheque"); assert.equal(line.ref, "771122"); assert.equal(line.account_id, acc);
+  near(await bankBal(), 300_000);
+  await books();
+  // a second cheque bounces: still nothing on the khata
+  const r2 = ok(await call("admin", "POST", `/api/investors/${i4.id}/money`, { dir: "in", amount: 50_000, method: "Cheque", cheque: { bank: "Meezan Bank", cheque_no: "771123", cheque_date: "2026-10-02" } }), "cheque 2");
+  ok(await call("admin", "POST", `/api/cashier/cheques/${r2.cheque_id}/bounce`, { reason: "insufficient funds" }), "bounce");
+  st = ok(await call("admin", "GET", `/api/investors/${i4.id}`), "st3");
+  near(st.investor.balance, 300_000); assert.equal(st.cheques.find((x: any) => x.id === r2.cheque_id)?.status, "bounced");
+  await books();
+  // our cheque to the investor (capital back): issued → promised money, free drops; the bank pays → debit
+  assert.equal((await call("admin", "POST", `/api/investors/${i4.id}/money`, { dir: "out", amount: 100_000, method: "Cheque", purpose: "capital", cheque: { bank: "x", cheque_no: "000451", cheque_date: "2026-10-20" } })).status, 400, "our account needed");
+  const o = ok(await call("admin", "POST", `/api/investors/${i4.id}/money`, { dir: "out", amount: 100_000, method: "Cheque", purpose: "capital", account_id: acc, cheque: { bank: "Habib Bank (HBL)", cheque_no: "000451", cheque_date: "2026-10-20" } }), "cheque out");
+  assert.equal(o.pending, true);
+  st = ok(await call("admin", "GET", `/api/investors/${i4.id}`), "st4");
+  near(st.investor.balance, 300_000); near(st.investor.cheques_issued, 100_000); near(st.investor.free, 200_000);
+  assert.equal((await call("admin", "POST", `/api/investors/${i4.id}/money`, { dir: "out", amount: 250_000, method: "Cash" })).status, 400, "promised cheque counts against free money");
+  near(await bankBal(), 300_000);
+  ok(await call("admin", "POST", `/api/cashier/cheques/${o.cheque_id}/clear`, {}), "bank paid our cheque");
+  st = ok(await call("admin", "GET", `/api/investors/${i4.id}`), "st5");
+  near(st.investor.balance, 200_000); near(st.investor.cheques_issued, 0); near(st.investor.free, 200_000); near(st.investor.paid_out, 100_000);
+  const pay = st.lines.find((x: any) => x.type === "payout");
+  assert.equal(pay.method, "Cheque"); assert.equal(pay.purpose, "capital"); assert.equal(pay.ref, "000451");
+  near(await bankBal(), 200_000);
+  await books();
+  // void the cleared payout: bank row goes, balance back
+  ok(await call("admin", "POST", `/api/investor-txns/${pay.id}/void`, { reason: "ghalat cheque" }), "void");
+  near(ok(await call("admin", "GET", `/api/investors/${i4.id}`), "st6").investor.balance, 300_000);
+  near(await bankBal(), 300_000);
+  await books();
+});
