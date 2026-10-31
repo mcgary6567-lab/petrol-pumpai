@@ -219,7 +219,8 @@ function journalNow(t: number, fromDay: string, toDay: string, showPrivate = tru
   }
   for (const r of all(`SELECT b.*, s.name FROM bypass_supplier_payments b JOIN suppliers s ON s.id=b.supplier_id WHERE b.tenant_id=? AND b.voided=0 AND b.txn_date >= ? AND b.txn_date < ?`, ...P)) {
     const d = day(r.txn_date);
-    if (r.mode === "we_pay") add(d, "Payment", `Bypass supplier paid — ${r.name}${r.ref ? ` (${r.ref})` : ""}`, [dr("Bypass suppliers payable", r.amount), cr(via(r.method, r.account_id), r.amount)]);
+    if (r.mode === "we_pay" && String(r.ref ?? "").startsWith("reclass:")) add(d, "Journal", `Pump → bypass account transfer — ${r.name}`, [dr("Bypass suppliers payable", r.amount), cr(`Payable — ${r.name}`, r.amount)]);
+    else if (r.mode === "we_pay") add(d, "Payment", `Bypass supplier paid — ${r.name}${r.ref ? ` (${r.ref})` : ""}`, [dr("Bypass suppliers payable", r.amount), cr(via(r.method, r.account_id), r.amount)]);
     else if (r.mode === "through_us") add(d, "Payment", `Bypass forwarded to ${r.name} (through us)${r.ref ? ` (${r.ref})` : ""}`, [dr("Bypass suppliers payable", r.amount), cr(via(r.method, r.account_id), r.amount)]);
     else if (r.mode === "client_direct") add(d, "Journal", `Bypass — client paid ${r.name} direct${r.ref ? ` (${r.ref})` : ""}`, [dr("Bypass suppliers payable", r.amount), cr("Wholesale receivable", r.amount)]);
   }
@@ -230,6 +231,7 @@ function journalNow(t: number, fromDay: string, toDay: string, showPrivate = tru
     else if (r.type === "purchase") add(d, "Purchase", `Fuel purchase — ${r.name} ${r.litres} L ${PRODUCTS[r.product] ?? ""} @ ${r.rate}${r.ref ? ` (${r.ref})` : ""}`, [dr("Fuel purchases", r.amount), cr(pay, r.amount)]);
     if (r.type === "payment" && r.method === DEPOT_PAY) continue; // booked with the client's payment above
     if (r.type === "payment") add(d, "Payment", `${r.method === "WHT" ? "Income tax withheld" : "Paid"} — ${r.name}${r.ref ? ` (${r.ref})` : ""}`, [dr(pay, r.amount), cr(r.method === "WHT" ? "Withholding tax payable" : via(r.method, r.account_id), r.amount)]);
+    if (r.type === "adjustment" && String(r.ref ?? "").startsWith("reclass:")) continue; // booked once, from the bypass row (pump ↔ bypass transfer)
     if (r.type === "adjustment" && isRefund(r.ref)) add(d, "Receipt", `Overpayment refund — ${r.name}${r.note ? ` (${r.note})` : ""}`, [dr(via(r.method, r.account_id), r.amount), cr(pay, r.amount)]);
     else if (r.type === "adjustment") add(d, "Journal", `Supplier adjustment — ${r.name}${r.note ? ` (${r.note})` : ""}`, [dr(r.amount < 0 ? pay : "Supplier adjustments", Math.abs(r.amount)), cr(r.amount < 0 ? "Shortage claims recovered" : pay, Math.abs(r.amount))]);
   }

@@ -6,7 +6,7 @@ import { all, get, run, now, tx } from "../db.js";
 import { linkPhotos, proofPhotos, proofCol, requireProof, isCheque } from "./capture.js";
 import { bankAccountFor, accountIdField, chequeToRegister, accountName } from "./banks.js";
 import { h, parse, tid, can, requirePerm } from "../auth.js";
-import { AppError, assertNoDuplicateParty, normalizePhone, round2, pkr, partyBalance, partyBalanceAll } from "../services.js";
+import { AppError, assertNoDuplicateParty, normalizePhone, round2, pkr, partyBalance, partyBalanceAll, audit } from "../services.js";
 import { announce } from "../notifications.js";
 import { bypassOwed, bypassOwedAll } from "./bypass.js";
 import { gateBigPayment, registerPayExecutor } from "./payRequests.js";
@@ -206,11 +206,24 @@ export function supplierPayment(req: Request, supplierId: number, b: z.infer<typ
     linkPhotos(t, b.photo_ids, `chq:${id}`);
     return { owed: supplierOwed(s.id), cheque_pending: true, message: "Cheque is in the register — mark it cleared when the bank pays it" };
   }
-  let pid = 0;
+  // One supplier, two accounts: the pump's own purchases and the bypass (client-fuel) purchases. A payment settles what is
+  // owed on the bypass account first — a bypass-only supplier's whole balance sits there — and the rest goes on the pump
+  // account. Posting everything on the pump account (as before) left pump negative / bypass positive for the same money.
+  const bypDue = bypassOwed(s.id);
+  const toBypass = bypDue > 0.5 ? Math.min(round2(b.amount), round2(bypDue)) : 0;
+  const toPump = round2(b.amount - toBypass);
+  let pid = 0, bid = 0;
   tx(() => {
-    pid = run("INSERT INTO supplier_txns (tenant_id,supplier_id,type,amount,method,ref,note,created_by,txn_date,created_at,account_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-      t, s.id, "payment", b.amount, b.method, b.ref ?? null, b.note ?? null, req.user!.name, ts, now(), accountId).id;
-    linkPhotos(t, b.photo_ids, `stx:${pid}`);
+    if (toBypass > 0) {
+      bid = run(`INSERT INTO bypass_supplier_payments (tenant_id,supplier_id,amount,mode,client_id,wtx_id,method,account_id,ref,note,created_by,txn_date,created_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`, t, s.id, toBypass, "we_pay", null, null, b.method, accountId, b.ref ?? null, b.note ?? null, req.user!.name, ts, now()).id;
+      linkPhotos(t, b.photo_ids, `byp:pay:${bid}`);
+    }
+    if (toPump > 0.005 || b.withholding) {
+      pid = run("INSERT INTO supplier_txns (tenant_id,supplier_id,type,amount,method,ref,note,created_by,txn_date,created_at,account_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        t, s.id, "payment", toPump, b.method, b.ref ?? null, b.note ?? null, req.user!.name, ts, now(), accountId).id;
+      if (!bid) linkPhotos(t, b.photo_ids, `stx:${pid}`);
+    }
     if (b.withholding) {
       const w = run("INSERT INTO supplier_txns (tenant_id,supplier_id,type,amount,method,ref,note,created_by,txn_date,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
         t, s.id, "payment", b.withholding, "WHT", b.ref ?? null, "Income tax withheld", req.user!.name, ts, now()).id;
@@ -218,10 +231,59 @@ export function supplierPayment(req: Request, supplierId: number, b: z.infer<typ
         rate: round2((b.withholding / (b.amount + b.withholding)) * 100), amount: b.withholding, note: b.ref ? `Payment ${b.ref}` : null, by: req.user!.name, date: ts });
     }
   });
-  // the payment as saved, for the voucher printed straight after
+  // the payment as saved, for the voucher printed straight after (the full amount, whichever account(s) it settled)
   const acc = accountId ? get("SELECT * FROM bank_accounts WHERE id=?", accountId) : null;
-  return { owed: supplierOwed(s.id), payment: { ...get("SELECT * FROM supplier_txns WHERE id=?", pid), account_name: acc ? accountName(acc) : null, withholding: b.withholding ?? 0 } };
+  const row = pid ? get("SELECT * FROM supplier_txns WHERE id=?", pid)! : { ...get("SELECT * FROM bypass_supplier_payments WHERE id=?", bid)!, type: "payment" };
+  return { owed: supplierOwed(s.id), bypass_owed: bypassOwed(s.id), total_owed: round2(supplierOwed(s.id) + bypassOwed(s.id)),
+    split: { bypass: toBypass, pump: toPump }, payment: { ...row, amount: round2(b.amount), account_name: acc ? accountName(acc) : null, withholding: b.withholding ?? 0 } };
 }
+
+/* ---- pump ↔ bypass account mismatch: money that was paid on the pump account while the bill sat on the bypass account ---- */
+/** Suppliers whose pump account is negative (overpaid) while the bypass account still shows a balance — the same money sitting on the wrong side. */
+export function reclassCandidates(t: number) {
+  const pump = supplierOwedAll(t), byp = bypassOwedAll(t);
+  return all("SELECT id, name, company FROM suppliers WHERE tenant_id=? AND COALESCE(active,1)=1", t)
+    .map((s) => ({ ...s, pump_owed: round2(pump.get(s.id) ?? 0), bypass_owed: round2(byp.get(s.id) ?? 0) }))
+    .filter((s) => s.pump_owed < -0.5 && s.bypass_owed > 0.5)
+    .map((s) => ({ ...s, amount: round2(Math.min(-s.pump_owed, s.bypass_owed)) }));
+}
+/** Move `amount` of the supplier's balance from the pump account to the bypass account: no cash moves — a journal
+ *  Dr Bypass suppliers payable / Cr Payable (pump). Two linked rows (ref reclass:) so both statements show it. */
+export function reclassSupplier(t: number, by: string, supplierId: number, amount: number, note?: string | null) {
+  const s = get("SELECT * FROM suppliers WHERE id=? AND tenant_id=?", supplierId, t);
+  if (!s) throw new AppError(404, "Supplier not found");
+  const pump = supplierOwed(s.id), byp = bypassOwed(s.id);
+  const max = round2(Math.min(-pump, byp));
+  if (!(max > 0.5)) throw new AppError(400, `${s.name}: pump account minus aur bypass account plus dono nahi — kuch muntaqil karne ko nahi`);
+  const amt = round2(amount);
+  if (!(amt > 0) || amt > max + 0.01) throw new AppError(400, `Zyada se zyada ${pkr(max)} muntaqil ho sakta hai (pump par ${pkr(-pump)} zyada diya, bypass par ${pkr(byp)} baqi)`);
+  const ts = now();
+  const text = note || "Pump account par di gayi adaigi bypass (client wale maal) ke hisaab par muntaqil";
+  const ids = tx(() => {
+    const stx = run("INSERT INTO supplier_txns (tenant_id,supplier_id,type,amount,method,ref,note,created_by,txn_date,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+      t, s.id, "adjustment", amt, "Transfer", "reclass:bypass", text, by, ts, ts).id;
+    const bp = run(`INSERT INTO bypass_supplier_payments (tenant_id,supplier_id,amount,mode,client_id,wtx_id,method,account_id,ref,note,created_by,txn_date,created_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`, t, s.id, amt, "we_pay", null, null, "Pump account", null, `reclass:${stx}`, text, by, ts, ts).id;
+    return { stx, bp };
+  });
+  return { ...ids, amount: amt, pump_owed: supplierOwed(s.id), bypass_owed: bypassOwed(s.id) };
+}
+suppliers.get("/suppliers-reclass/candidates", h((req) => ({ suppliers: reclassCandidates(tid(req)) })));
+suppliers.post("/suppliers/:id/reclass", requirePerm("entries.edit"), h((req) => {
+  const t = tid(req);
+  const b = parse(z.object({ amount: z.number().positive().optional(), note: z.string().max(200).optional().nullable() }), req.body ?? {});
+  const s = own(t, Number(req.params.id));
+  const amount = b.amount ?? round2(Math.min(-supplierOwed(s.id), bypassOwed(s.id)));
+  const r = reclassSupplier(t, req.user!.name, s.id, amount, b.note);
+  audit(t, req.user!, "supplier_reclass", `supplier:${s.id}`, r);
+  return { ok: true, ...r };
+}));
+suppliers.post("/suppliers-reclass/all", requirePerm("entries.edit"), h((req) => {
+  const t = tid(req);
+  const done = reclassCandidates(t).map((c) => ({ id: c.id, name: c.name, ...reclassSupplier(t, req.user!.name, c.id, c.amount) }));
+  audit(t, req.user!, "supplier_reclass_all", "suppliers", { count: done.length, total: round2(done.reduce((a, d) => a + d.amount, 0)) });
+  return { ok: true, done };
+}))
 
 suppliers.post("/suppliers/:id/adjustment", h((req) => {
   const s = own(tid(req), Number(req.params.id));

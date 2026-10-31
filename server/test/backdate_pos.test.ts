@@ -22,6 +22,7 @@ async function call(who: string, method: string, url: string, body?: unknown) {
 const ok = (r: { status: number; data: any }, m: string) => { assert.equal(r.status, 200, `${m}: ${JSON.stringify(r.data)}`); return r.data; };
 const near = (a: number, b: number, m?: string) => assert.ok(Math.abs(a - b) < 0.05, `${m ?? ""} ${a} ≈ ${b}`);
 const books = async () => { const b = ok(await call("admin", "GET", "/api/books/check"), "books"); assert.equal(b.ok, true, JSON.stringify(b.checks.filter((c: any) => !c.ok))); };
+const cashNow = async () => ok(await call("admin", "GET", "/api/cash"), "cash").cash_in_hand as number;
 const dayAgo = (n: number) => new Date(Date.now() - n * 86_400_000 + 5 * 3600_000).toISOString().slice(0, 10);
 
 before(async () => {
@@ -232,4 +233,43 @@ test("cashier → Pay → Supplier: a bypass-only supplier shows what we owe and
   ok(await call("admin", "POST", `/api/cashier/vouchers/${pay2.voucher.id}/void`, { reason: "test wapas" }), "void 2");
   near(ok(await call("admin", "GET", `/api/suppliers/${S.id}`), "sup4").owed, pump0);
   await books();
+});
+
+test("Suppliers page payment settles the bypass account first; the pump ↔ bypass mismatch of old data is fixed by reclass (no cash, books tally)", async () => {
+  const sups = ok(await call("wholesale", "GET", "/api/bypass/suppliers"), "suppliers").filter((x: any) => !x.client_id);
+  const S = sups[0];
+  const pump0 = ok(await call("admin", "GET", `/api/suppliers/${S.id}`), "sup").owed as number;
+  const byp0 = ok(await call("wholesale", "GET", `/api/bypass/suppliers/${S.id}/statement`), "byp").closing_balance as number;
+  ok(await call("wholesale", "POST", "/api/bypass/deliveries", { station_id: st, purchases: [{ supplier_id: S.id, product: "HSD", litres: 1_000, cost_rate: 200 }] }), "bypass bill 2 lakh");
+  // Suppliers page → Record payment 1.5 lakh cash → all on the bypass account
+  const p1 = ok(await call("admin", "POST", `/api/suppliers/${S.id}/payment`, { amount: 150_000, method: "Cash", note: "supplier page" }), "pay");
+  near(p1.split.bypass, 150_000); near(p1.split.pump, 0); near(p1.payment.amount, 150_000);
+  near(ok(await call("wholesale", "GET", `/api/bypass/suppliers/${S.id}/statement`), "byp2").closing_balance, byp0 + 50_000);
+  near(ok(await call("admin", "GET", `/api/suppliers/${S.id}`), "sup2").owed, pump0, "pump account untouched");
+  await books();
+  // old-data mismatch: simulate a payment that was posted on the pump account while the bill sat on the bypass account
+  db.run("INSERT INTO supplier_txns (tenant_id,supplier_id,type,amount,method,note,created_by,txn_date,created_at) VALUES (?,?,?,?,?,?,?,?,?)", t, S.id, "payment", byp0 + 50_000 + 30_000, "Cash", "purani ghalat jagah", "test", db.now(), db.now());
+  const cash0 = await cashNow();
+  const cands = ok(await call("admin", "GET", "/api/suppliers-reclass/candidates"), "cands").suppliers;
+  const c = cands.find((x: any) => x.id === S.id);
+  assert.ok(c, "flagged: pump minus + bypass plus");
+  near(c.amount, Math.min(-(pump0 - (byp0 + 80_000)), byp0 + 50_000), "transfer amount = the overlap");
+  assert.equal((await call("wholesale", "POST", `/api/suppliers/${S.id}/reclass`, {})).status, 403, "officer cannot reclass");
+  const r = ok(await call("admin", "POST", `/api/suppliers/${S.id}/reclass`, {}), "reclass");
+  near(r.amount, c.amount);
+  near(await cashNow(), cash0, "no cash moved");
+  const after = ok(await call("admin", "GET", `/api/suppliers/${S.id}`), "sup3");
+  near(after.owed + after.bypass_owed, pump0 - 30_000, "total unchanged");
+  assert.ok(after.bypass_owed <= 0.5 || after.owed >= -0.5, "one side is now settled");
+  assert.ok(after.lines.some((l: any) => l.ref === "reclass:bypass"), "pump statement shows the transfer line");
+  const bl = ok(await call("wholesale", "GET", `/api/bypass/suppliers/${S.id}/statement`), "byp3").lines;
+  assert.ok(bl.some((l: any) => String(l.ref).startsWith("reclass:")), "bypass statement shows the transfer line");
+  assert.equal((await call("admin", "POST", `/api/suppliers/${S.id}/reclass`, {})).status, 400, "nothing left to move");
+  assert.ok(!ok(await call("admin", "GET", "/api/suppliers-reclass/candidates"), "cands2").suppliers.some((x: any) => x.id === S.id));
+  await books();
+  // the ledger carries it as a journal between the two payables, not as cash
+  const day = new Date(Date.now() + 5 * 3600e3).toISOString().slice(0, 10);
+  const lg = ok(await call("admin", "GET", `/api/ledger?from=${day}&to=${day}`), "ledger");
+  const txt = JSON.stringify(lg);
+  assert.match(txt, /Pump → bypass account transfer/);
 });

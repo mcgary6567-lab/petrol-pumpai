@@ -35,6 +35,8 @@ export default function Suppliers() {
   if (!data) return <Loading />;
   const total = data.reduce((a, s) => a + Math.max(0, s.total_owed ?? s.owed), 0);
   const bypassTotal = data.reduce((a, s) => a + Math.max(0, s.bypass_owed ?? 0), 0);
+  // the same money on two sides: pump account minus (overpaid) while the bypass account still shows the bill
+  const split = data.filter((s) => (s.owed ?? 0) < -0.5 && (s.bypass_owed ?? 0) > 0.5);
   // group the contacts under their depot (only this page's rows); standalone ones go last under "No depot"
   const byDepot = new Map<string, { depot: any; rows: any[] }>();
   for (const s of paged.slice) {
@@ -46,6 +48,7 @@ export default function Suppliers() {
 
   return (
     <div className="space-y-5">
+      {split.length > 0 && <ReclassBanner rows={split} onDone={() => reload()} />}
       <PageHeader title="Suppliers & depots" subtitle="Har depot ke andar company aur banda — order aur payment sahi aadmi ko. Tanker deliveries bhi yahan khud-ba-khud aati hain."
         actions={<div className="flex flex-wrap gap-2">
           <PrintListButton title="Suppliers & depots · سپلائرز" subtitle={q ? `search "${q}"` : "All suppliers"} rows={groups.flatMap((g) => g.rows)}
@@ -283,6 +286,7 @@ function SupplierDetail({ id, onClose, onChanged, depots, onDepots }: { id: numb
       {edit && s && <SupplierForm initial={s} depots={depots} onClose={() => setEdit(false)} onSaved={() => { setEdit(false); reload(); onChanged(); }} onDepots={onDepots} />}
       {!s ? <Loading /> : (
         <div className="space-y-4">
+          {(s.owed ?? 0) < -0.5 && (s.bypass_owed ?? 0) > 0.5 && <ReclassBanner rows={[s]} onDone={() => { reload(); onChanged(); }} />}
           {/* on paper: the supplier's account, oldest entry first, like a bank statement */}
           <div className="own-title hidden print:block">
             <div className="flex items-end justify-between border-b border-slate-300 pb-2">
@@ -410,4 +414,29 @@ function VoidLine({ t, supplier, onClose, onDone }: { t: any; supplier: string; 
     what={<><b>{what}</b><div className="text-xs">{dt(t.txn_date)}{t.ref ? ` · ${t.ref}` : ""}{t.note ? ` · ${t.note}` : ""}</div></>}
     hint={isBypass ? "Bypass entry mansookh hogi (payment ke saath client ki taraf wali entry bhi). Sahi entry Bypass page se dobara karein." : "Entry hat jayegi: supplier ka baqaya, cash/bank aur ledger sab wapas ho jayenge. Audit log me wajah ke saath record rahega."}
     onDone={async (a) => { if (await run(() => api(url, { body: { reason: a.reason }, headers: pinHeader(a) }), "Entry mansookh ho gayi")) onDone(); }} />;
+}
+
+/** Pump account minus + bypass account plus for the same supplier = a payment that was posted on the wrong account. One click
+ *  moves it (a journal, no cash): both statements then read right and the total stays the same. */
+function ReclassBanner({ rows, onDone }: { rows: any[]; onDone: () => void }) {
+  const { can } = useAuth();
+  const { busy, run } = useAction();
+  const amt = (s: any) => Math.min(-(s.owed ?? 0), s.bypass_owed ?? 0);
+  const total = rows.reduce((a, s) => a + amt(s), 0);
+  const fix = async () => {
+    if (!confirm(`${rows.length} supplier${rows.length > 1 ? "s" : ""} ka ${pkr(total)} pump account se bypass account par muntaqil karein? Cash / bank nahi hilega, sirf dono statements theek honge.`)) return;
+    const r = rows.length === 1 ? await run(() => api(`/suppliers/${rows[0].id}/reclass`, { body: {} }), "Hisaab barabar — dono account theek") : await run(() => api("/suppliers-reclass/all", { body: {} }), (x: any) => `${x.done.length} suppliers ka hisaab barabar`);
+    if (r) onDone();
+  };
+  return (
+    <div className="print:hidden rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <b>Hisaab do accounts me bikhra hai</b> — {rows.length === 1 ? <>{rows[0].name}: pump account par <b>{pkr(-(rows[0].owed ?? 0))}</b> zyada diya hua, bypass account par <b>{pkr(rows[0].bypass_owed)}</b> baqi.</> : <>{rows.length} suppliers: pump account minus, bypass account plus — kul <b>{pkr(total)}</b>.</>}
+          <span className="block text-xs">Wajah: adaigi pump account par likhi gayi jab ke bill bypass (client wale maal) ka tha. Ab se adaigi khud pehle bypass par lagti hai. Purani entries ek click se theek: cash / bank nahi hilta, kul "we owe" wahi rehta hai, dono statements me "Pump → bypass transfer" ki line aati hai.</span>
+        </div>
+        {can("entries.edit") && <button className="btn-primary !bg-amber-600" disabled={busy} onClick={fix}>Hisaab barabar karein · {pkr(total)}</button>}
+      </div>
+    </div>
+  );
 }
