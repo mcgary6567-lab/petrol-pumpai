@@ -77,13 +77,7 @@ function ClientList() {
       {tab === "clients" && <ClientsTable onAdd={() => setParams({ tab: "clients", do: "add-client" })} />}
       {tab === "stock" && <BypassStockTab />}
       {tab === "dashboard" && <>
-        <WholesaleDashboard key={tripsKey} onTrip={() => setParams({ do: "trip" })} onAddClient={() => setParams({ do: "add-client" })} onFleet={() => setTab("fleet")} onTab={setTab} />
-        {s && (
-          <div className="card">
-            <h2 className="p-4 pb-2 font-semibold">Recent wholesale entries</h2>
-            <LedgerTable rows={s.recent} showClient />
-          </div>
-        )}
+        <WholesaleDashboard key={tripsKey} recent={s?.recent ?? []} onTrip={() => setParams({ do: "trip" })} onAddClient={() => setParams({ do: "add-client" })} onFleet={() => setTab("fleet")} onTab={setTab} />
       </>}
       {action === "trip" && <TripForm onClose={clearAction} onDone={(t) => { clearAction(); summary.reload(); setTripsKey((k) => k + 1); setSheet(t); }} />}
       {action === "rate" && <ClientPicker title="Change rate — which client?" onClose={clearAction} onPick={(c) => nav(`/wholesale/${c.id}?do=rates`)} />}

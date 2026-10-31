@@ -4,7 +4,7 @@ import { askCancel, pinHeader } from "../components/CancelEntry";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell } from "recharts";
 import { Plus, Truck, Factory, Download, Printer, HandCoins, Ban, Pencil } from "lucide-react";
 import { api, linkToken, useApi } from "../lib/api";
-import { Empty, ErrorBox, Field, ListTools, Loading, Modal, Stat, useAction, useListFilter } from "../components/ui";
+import { Empty, ErrorBox, Field, ListTools, Loading, Modal, Pager, Stat, useAction, useListFilter, usePaged } from "../components/ui";
 import { PRODUCTS, activeProducts, dt, num, phone, pkr, pkrShort } from "../lib/format";
 import { useAuth } from "../App";
 import { ProofPhotos, ProofThumbs } from "../components/Capture";
@@ -26,6 +26,7 @@ export function BypassPanel() {
   useEffect(() => { const t = setTimeout(() => setDqDebounced(dq.trim()), 300); return () => clearTimeout(t); }, [dq]);
   const delsQs = new URLSearchParams({ ...(dqDebounced ? { q: dqDebounced } : {}), ...(dRange.from ? { from: dRange.from } : {}), ...(dRange.to ? { to: dRange.to } : {}), limit: String(dLimit) }).toString();
   const dels = useApi<any[]>(`/bypass/deliveries?${delsQs}`);
+  const delsPaged = usePaged((dels.data ?? []) as any[], 10);
   const delsFiltered = Boolean(dqDebounced || dRange.from || dRange.to);
   const stock = useApi<any>("/bypass/stock");
   const monthly = useApi<any[]>("/bypass/monthly?months=6");
@@ -107,24 +108,44 @@ export function BypassPanel() {
         <div className="px-4 pt-3"><ListTools q={dq} onQ={setDq} placeholder="Tanker / client / supplier / fuel… · تلاش" from={dRange.from} to={dRange.to} onFrom={(v) => setDRange({ ...dRange, from: v })} onTo={(v) => setDRange({ ...dRange, to: v })}
           right={delsFiltered ? <button type="button" className="text-xs text-brand-700 hover:underline" onClick={() => { setDq(""); setDRange({ from: "", to: "" }); }}>Clear</button> : null} /></div>
         {dels.loading && !dels.data ? <Loading /> : !(dels.data ?? []).length ? <Empty>{delsFiltered ? "Kuch nahi mila · کچھ نہیں ملا" : "Abhi tak koi delivery nahi."}</Empty> : (
-          <ul className="divide-y divide-slate-100 text-sm">
-            {(dels.data ?? []).map((d) => (
-              <li key={d.id} className="flex items-center justify-between gap-3 px-4 py-2.5">
-                <button className="min-w-0 flex-1 text-left" onClick={() => setVoucher(d.id)}><div className="font-medium">#{d.id} · {num(d.drop_litres || d.litres)} L {d.drop_litres > 0 && <span className="text-xs font-normal text-brand-700">· voucher</span>}</div><div className="flex flex-wrap items-center gap-1 text-xs text-slate-400">{dt(d.txn_date)}{d.vehicle_no ? ` · ${d.vehicle_no}` : ""}{d.note ? ` · ${d.note}` : ""}</div></button>
-                <div className="flex shrink-0 items-center gap-3">
-                  <ProofThumbs ids={d.proof_ids} onChanged={() => dels.reload()} />
-                  <div className="text-right tabular-nums">
-                    {d.margin == null
-                      ? <><div className="font-semibold text-amber-700">munafa — cost darj nahi</div><div className="text-xs text-slate-400">{pkr(d.billed)} billed · purchase cost 0</div></>
-                      : <><div className={`font-semibold ${d.margin > 0 ? "text-emerald-600" : d.margin < 0 ? "text-rose-600" : "text-slate-500"}`}>munafa {pkr(d.margin)}</div>
-                        <div className="text-xs text-slate-400">{pkr(d.billed)} − cost {pkr(d.sold_cost)}</div></>}
-                  </div>
-                  {d.drop_litres > 0 && <button className="btn-secondary !px-2 !py-1.5" title="Open voucher / challan" onClick={() => setVoucher(d.id)}><Printer size={15} /></button>}
-                </div>
-              </li>
-            ))}
-          </ul>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[1000px] text-sm">
+              <thead><tr><th className="th">Tareekh</th><th className="th">Delivery</th><th className="th">Tanker · driver</th><th className="th text-right">Khareeda</th><th className="th text-right">Client ko</th><th className="th text-right">Apne tank</th><th className="th text-right">Cost</th><th className="th text-right">Billed</th><th className="th text-right">Munafa</th><th className="th">Proof</th><th className="th"></th></tr></thead>
+              <tbody className="tabular-nums">
+                {delsPaged.slice.map((d: any) => {
+                  const tankers: any[] = (() => { try { return d.tankers ? JSON.parse(d.tankers) : []; } catch { return []; } })();
+                  const who = tankers.length ? tankers.map((x) => [x.vehicle_no, x.driver_name].filter(Boolean).join(" · ")).join(" + ") : [d.vehicle_no, d.driver_name].filter(Boolean).join(" · ");
+                  return (
+                    <tr key={d.id} className="border-t border-slate-100">
+                      <td className="td whitespace-nowrap text-xs">{dt(d.txn_date)}</td>
+                      <td className="td whitespace-nowrap"><button className="font-mono text-xs text-brand-700 underline" onClick={() => setVoucher(d.id)}>BYP-{d.id}</button>{d.note ? <div className="max-w-[160px] truncate text-xs text-slate-500" title={d.note}>{d.note}</div> : null}</td>
+                      <td className="td text-xs">{who || "—"}</td>
+                      <td className="td text-right">{d.litres ? `${num(d.litres)} L` : <span className="text-amber-700">—</span>}</td>
+                      <td className="td text-right">{d.drop_litres ? `${num(d.drop_litres)} L` : ""}</td>
+                      <td className="td text-right">{d.to_tank_litres ? `${num(d.to_tank_litres)} L` : ""}</td>
+                      <td className="td text-right">{d.cost ? pkr(d.cost) : <span className="text-amber-700" title="Is delivery me supplier wali khareed darj nahi">cost nahi</span>}</td>
+                      <td className="td text-right">{d.billed ? pkr(d.billed) : ""}</td>
+                      <td className={`td text-right font-semibold ${d.margin == null ? "text-amber-700" : d.margin > 0 ? "text-emerald-700" : d.margin < 0 ? "text-rose-700" : "text-slate-500"}`}>{d.margin == null ? "—" : pkr(d.margin)}</td>
+                      <td className="td"><ProofThumbs ids={d.proof_ids} onChanged={() => dels.reload()} /></td>
+                      <td className="td text-right">{d.drop_litres > 0 && <button className="btn-secondary !px-2 !py-1" title="Voucher / challan" onClick={() => setVoucher(d.id)}><Printer size={14} /></button>}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              <tfoot><tr className="border-t-2 bg-slate-50 font-semibold tabular-nums">
+                <td className="td" colSpan={3}>Kul · {(dels.data ?? []).length} deliveries{delsFiltered ? " (filter)" : ""}</td>
+                <td className="td text-right">{num((dels.data ?? []).reduce((a: number, d: any) => a + (d.litres || 0), 0))} L</td>
+                <td className="td text-right">{num((dels.data ?? []).reduce((a: number, d: any) => a + (d.drop_litres || 0), 0))} L</td>
+                <td className="td text-right">{num((dels.data ?? []).reduce((a: number, d: any) => a + (d.to_tank_litres || 0), 0))} L</td>
+                <td className="td text-right">{pkr((dels.data ?? []).reduce((a: number, d: any) => a + (d.cost || 0), 0))}</td>
+                <td className="td text-right">{pkr((dels.data ?? []).reduce((a: number, d: any) => a + (d.billed || 0), 0))}</td>
+                <td className="td text-right">{pkr((dels.data ?? []).reduce((a: number, d: any) => a + (d.margin || 0), 0))}</td>
+                <td className="td" colSpan={2}></td>
+              </tr></tfoot>
+            </table>
+          </div>
         )}
+        {(dels.data ?? []).length > 10 && <div className="border-t px-3 py-2"><Pager page={delsPaged.page} pages={delsPaged.pages} setPage={delsPaged.setPage} total={delsPaged.total} size={delsPaged.size} /></div>}
         {(dels.data ?? []).length >= dLimit && dLimit < 500 && <div className="p-3"><button type="button" className="btn-secondary w-full" onClick={() => setDLimit((n) => Math.min(500, n + 60))}>Show more · <Ur>مزید دکھائیں</Ur></button></div>}
       </div>
 

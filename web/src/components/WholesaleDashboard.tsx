@@ -1,12 +1,14 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Cell } from "recharts";
 import { ArrowDownRight, ArrowUpRight, Banknote, BookOpen, CalendarClock, ChevronRight, ClipboardList, FilePlus2, Plus, Receipt, Route, Search, Truck, Wallet } from "lucide-react";
 import { ErpBar } from "./WholesaleErp";
 import { ChequeForm, OrderForm, PromiseForm } from "./WholesaleDesk";
 import { WholesaleVoice } from "./WholesaleVoice";
 import { useApi } from "../lib/api";
-import { Loading, Modal, Pager, usePaged } from "./ui";
+import { Badge, Loading, Modal, Pager, usePaged } from "./ui";
+import { ErpSearch } from "./WholesaleErp";
+import { dt } from "../lib/format";
 import { PRODUCTS, PRODUCT_COLORS, num, pkr, pkrShort } from "../lib/format";
 import { useAuth } from "../App";
 
@@ -61,7 +63,7 @@ function BypassHeldBanner({ onDeliver }: { onDeliver?: () => void }) {
 }
 
 /** Wholesale home: today's actions, KPIs, suggestions, trends, ageing and client health. */
-export function WholesaleDashboard({ onTrip, onAddClient, onTab }: { onTrip: () => void; onAddClient: () => void; onFleet: () => void; onTab: (t: string) => void }) {
+export function WholesaleDashboard({ onTrip, onAddClient, onTab, recent = [] }: { onTrip: () => void; onAddClient: () => void; onFleet: () => void; onTab: (t: string) => void; recent?: any[] }) {
   const { can } = useAuth();
   const nav = useNavigate();
   const { data, reload } = useApi<any>("/wholesale/dashboard");
@@ -105,6 +107,7 @@ export function WholesaleDashboard({ onTrip, onAddClient, onTab }: { onTrip: () 
       </div>
 
       <WholesaleVoice compact onDone={reload} />
+      <RecentEntries rows={recent} />
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-5">
         <div className="card p-4 xl:col-span-2">
@@ -269,3 +272,61 @@ export function WholesaleDashboard({ onTrip, onAddClient, onTab }: { onTrip: () 
   );
 }
 
+
+/* ---------------- Recent wholesale entries: the day's postings right under the voice box, ERP style ---------------- */
+const KIND: Record<string, { label: string; tone: "blue" | "green" | "amber" | "violet" | "slate" | "red"; vch: string }> = {
+  supply: { label: "Supply", tone: "blue", vch: "WS" }, payment: { label: "Payment", tone: "green", vch: "RV" }, return: { label: "Return", tone: "amber", vch: "CN" },
+  adjustment: { label: "Adjustment", tone: "violet", vch: "JV" }, carriage: { label: "Carriage", tone: "slate", vch: "JV" }, fuel_note: { label: "Fuel note", tone: "slate", vch: "FN" },
+};
+function RecentEntries({ rows: all }: { rows: any[] }) {
+  const [q, setQ] = useState("");
+  const [kind, setKind] = useState("");
+  const side = (r: any) => {
+    if (r.type === "fuel_note") return { dr: 0, cr: 0 };
+    const dr = r.type === "supply" || r.type === "carriage" || (r.type === "adjustment" && r.amount > 0) ? Math.abs(r.amount) : 0;
+    return { dr, cr: dr ? 0 : Math.abs(r.amount) };
+  };
+  const vch = (r: any) => r.voucher_no ?? `${KIND[r.type]?.vch ?? "TX"}-${r.id}`;
+  const text = (r: any) => [vch(r), r.client_name, KIND[r.type]?.label, r.product && PRODUCTS[r.product], r.vehicle_no, r.driver_name, r.ref, r.note, r.method, r.location, r.amount, r.created_by].filter((v) => v != null && v !== "").join(" ").toLowerCase();
+  const rows = all.filter((r) => (!kind || r.type === kind) && (!q.trim() || text(r).includes(q.trim().toLowerCase())));
+  const paged = usePaged(rows, 10);
+  const kinds = ["supply", "payment", "return", "adjustment", "carriage"].map((k) => ({ k, n: all.filter((r) => r.type === k).length })).filter((x) => x.n > 0);
+  const totals = rows.reduce((a, r) => { const s = side(r); if (!r.voided) { a.dr += s.dr; a.cr += s.cr; } return a; }, { dr: 0, cr: 0 });
+  return (
+    <section className="card overflow-hidden" aria-label="Recent wholesale entries">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b p-3 sm:px-4">
+        <h2 className="font-bold">Recent wholesale entries · <Ur className="font-normal">حالیہ اندراجات</Ur> <span className="text-xs font-normal text-slate-500">aakhri {all.length} · Debit = client par barha · Credit = wasool / kam hua</span></h2>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <ErpSearch value={q} onChange={setQ} placeholder="Voucher / client / gaari / ref… · تلاش" />
+          <button onClick={() => setKind("")} className={`rounded-full px-2.5 py-1 text-xs font-semibold ${!kind ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-600"}`}>All · {all.length}</button>
+          {kinds.map((x) => <button key={x.k} onClick={() => setKind(x.k === kind ? "" : x.k)} className={`rounded-full px-2.5 py-1 text-xs font-semibold ${kind === x.k ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-600"}`}>{KIND[x.k].label} · {x.n}</button>)}
+        </div>
+      </div>
+      {!rows.length ? <p className="p-4 text-sm text-slate-500">{all.length ? "Kuch nahi mila · کچھ نہیں ملا" : "Abhi koi entry nahi."}</p> : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[1000px] text-sm">
+            <thead><tr><th className="th">Tareekh</th><th className="th">Voucher</th><th className="th">Client</th><th className="th">Kism</th><th className="th">Fuel</th><th className="th text-right">Litre</th><th className="th text-right">Rate</th><th className="th text-right">Debit</th><th className="th text-right">Credit</th><th className="th">Tafseel</th><th className="th">By</th></tr></thead>
+            <tbody className="tabular-nums">
+              {paged.slice.map((r: any) => { const s = side(r); return (
+                <tr key={r.id} className={`border-t ${r.voided ? "text-slate-400 line-through" : ""}`}>
+                  <td className="td whitespace-nowrap text-xs">{dt(r.txn_date)}</td>
+                  <td className="td whitespace-nowrap"><Link to={`/wholesale/ledger?client=${r.client_id}`} className="font-mono text-xs text-brand-700 underline">{vch(r)}</Link>{r.voided ? <Badge tone="red">VOID</Badge> : null}</td>
+                  <td className="td"><Link to={`/wholesale/${r.client_id}`} className="font-medium hover:underline">{r.client_name}</Link></td>
+                  <td className="td"><Badge tone={KIND[r.type]?.tone ?? "slate"}>{KIND[r.type]?.label ?? r.type}</Badge></td>
+                  <td className="td text-xs">{r.product ? PRODUCTS[r.product] ?? r.product : r.method ?? "—"}</td>
+                  <td className="td text-right">{r.litres ? `${num(r.litres)} L` : ""}</td>
+                  <td className="td text-right">{r.rate ? num(r.rate, 2) : ""}</td>
+                  <td className="td text-right text-rose-700">{s.dr ? pkr(s.dr) : ""}</td>
+                  <td className="td text-right text-emerald-700">{s.cr ? pkr(s.cr) : ""}</td>
+                  <td className="td max-w-[260px] truncate text-xs text-slate-600" title={[r.vehicle_no, r.driver_name, r.location, r.ref, r.note, r.voided && r.void_reason].filter(Boolean).join(" · ")}>{[r.vehicle_no && `🚛 ${r.vehicle_no}`, r.driver_name, r.location && `📍 ${r.location}`, r.ref, r.note, r.voided && `mansookh: ${r.void_reason ?? ""}`].filter(Boolean).join(" · ")}</td>
+                  <td className="td text-xs text-slate-500">{r.created_by ?? ""}</td>
+                </tr>); })}
+            </tbody>
+            <tfoot><tr className="border-t-2 bg-slate-50 font-semibold tabular-nums"><td className="td" colSpan={7}>Kul · {rows.length} entries{kind ? ` · ${KIND[kind]?.label}` : ""}</td><td className="td text-right text-rose-700">{pkr(totals.dr)}</td><td className="td text-right text-emerald-700">{pkr(totals.cr)}</td><td className="td" colSpan={2}></td></tr></tfoot>
+          </table>
+        </div>
+      )}
+      {rows.length > 10 && <div className="border-t px-3 py-2"><Pager page={paged.page} pages={paged.pages} setPage={paged.setPage} total={paged.total} size={paged.size} /></div>}
+    </section>
+  );
+}
