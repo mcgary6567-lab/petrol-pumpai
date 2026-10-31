@@ -116,6 +116,52 @@ test("bypass purchase edit: litres / cost / day change, supplier payable and sto
   await books();
 });
 
+test("shift an old supplier-card purchase onto the client it was bought from: client khata drops, old supplier owed drops, refused once that supplier was paid", async () => {
+  const sups = ok(await call("wholesale", "GET", "/api/bypass/suppliers"), "suppliers").filter((x: any) => !x.client_id);
+  const S = sups[0];
+  const clients = ok(await call("admin", "GET", "/api/wholesale/clients"), "clients");
+  const W = (clients.clients ?? clients).find((c: any) => c.rates?.HSD);
+  const due0 = ok(await call("admin", "GET", `/api/wholesale/clients/${W.id}/statement`), "stmt").closing_balance as number;
+  // the old way: the client's fuel written as a plain supplier bill
+  const del = ok(await call("wholesale", "POST", "/api/bypass/deliveries", { station_id: st, txn_date: dayAgo(5), purchases: [{ supplier_id: S.id, product: "HSD", litres: 100, cost_rate: 250, ref: "OLD-1" }] }), "old bill");
+  const pur = db.get("SELECT * FROM bypass_purchases WHERE delivery_id=? AND voided=0", del.id)!;
+  const owedBefore = ok(await call("wholesale", "GET", `/api/bypass/suppliers/${S.id}/statement`), "st").closing_balance as number;
+  assert.equal((await call("wholesale", "POST", `/api/bypass/purchases/${pur.id}/to-client`, { client_id: W.id, reason: "client ka maal tha" })).status, 403, "officer cannot");
+  assert.equal((await call("admin", "POST", `/api/bypass/purchases/${pur.id}/to-client`, { client_id: W.id })).status, 400, "reason needed");
+  const sh = ok(await call("admin", "POST", `/api/bypass/purchases/${pur.id}/to-client`, { client_id: W.id, reason: "client ka maal tha" }), "shift");
+  near(sh.old_supplier_owed, owedBefore - 25_000, "old supplier no longer owed for it");
+  near(sh.client_due, due0 - 25_000, "client khata dropped by the fuel value");
+  const after = db.get("SELECT * FROM bypass_purchases WHERE id=?", pur.id)!;
+  assert.notEqual(after.supplier_id, S.id);
+  const sup2 = db.get("SELECT client_id FROM suppliers WHERE id=?", after.supplier_id)!;
+  assert.equal(sup2.client_id, W.id, "now on the client's supplier side");
+  const wtx = db.get("SELECT * FROM wholesale_txns WHERE id=?", sh.wtx_id)!;
+  assert.equal(wtx.type, "payment"); assert.equal(String(wtx.txn_date).slice(0, 10), dayAgo(5), "dated like the bill");
+  const stl = db.get("SELECT * FROM bypass_supplier_payments WHERE id=?", sh.settlement_id)!;
+  assert.equal(stl.mode, "client_direct"); assert.equal(stl.ref, `cfuel:${pur.id}`);
+  near(ok(await call("wholesale", "GET", `/api/bypass/suppliers/${after.supplier_id}/statement`), "cs").closing_balance, 0, "client's supplier side nets to zero");
+  // the client-side statement now flags the line, and it cannot be shifted twice or edited like a plain line
+  const cs = ok(await call("wholesale", "GET", `/api/bypass/suppliers/${after.supplier_id}/statement`), "cs");
+  assert.equal(cs.lines.find((l: any) => l.kind === "purchase" && l.id === pur.id)?.client_fuel, 1);
+  assert.equal((await call("admin", "POST", `/api/bypass/purchases/${pur.id}/to-client`, { client_id: W.id, reason: "dobara" })).status, 400);
+  assert.equal((await call("admin", "PATCH", `/api/bypass/purchases/${pur.id}`, { reason: "x", litres: 900 })).status, 400);
+  // a bill the supplier was already paid for cannot be shifted
+  const S2 = ok(await call("admin", "POST", "/api/suppliers", { name: "Shift Test Depot" }), "new supplier");
+  const del2 = ok(await call("wholesale", "POST", "/api/bypass/deliveries", { station_id: st, purchases: [{ supplier_id: S2.id, product: "HSD", litres: 100, cost_rate: 200, ref: "OLD-2" }] }), "bill 2");
+  const pur2 = db.get("SELECT * FROM bypass_purchases WHERE delivery_id=? AND voided=0", del2.id)!;
+  ok(await call("wholesale", "POST", `/api/bypass/suppliers/${S2.id}/payment`, { amount: 20_000, mode: "we_pay", method: "Cash" }), "pay him off");
+  const bad = await call("admin", "POST", `/api/bypass/purchases/${pur2.id}/to-client`, { client_id: W.id, reason: "client ka tha" });
+  assert.equal(bad.status, 400); assert.match(bad.data.error, /adaigi/);
+  assert.ok(db.get("SELECT 1 x FROM audit_log WHERE tenant_id=? AND action='bypass_purchase_to_client'", t), "audited");
+  await books();
+  // undo for the tests that follow: voiding the shifted bill takes its khata settlement with it; the cash payment goes back too
+  ok(await call("admin", "POST", `/api/bypass/purchases/${pur.id}/void`, { reason: "test" }), "void shifted");
+  near(ok(await call("admin", "GET", `/api/wholesale/clients/${W.id}/statement`), "stmt").closing_balance, due0, "client due restored");
+  const payId = db.get("SELECT id FROM bypass_supplier_payments WHERE supplier_id=? AND voided=0", S2.id)!.id;
+  ok(await call("admin", "POST", `/api/bypass/payments/${payId}/void`, { reason: "test" }), "void pay");
+  await books();
+});
+
 test("bypass payment edit: amount / method / bank / day change on a payment WE made; client legs refused; payable follows", async () => {
   const sups = ok(await call("wholesale", "GET", "/api/bypass/suppliers"), "suppliers");
   const S = sups.find((x: any) => !x.client_id) ?? sups[0];

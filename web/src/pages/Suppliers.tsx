@@ -394,7 +394,7 @@ function SupplierDetail({ id, onClose, onChanged, depots, onDepots }: { id: numb
             {allLines.length > 0 && !lines.length && lineFiltered && <Empty>Kuch nahi mila · کچھ نہیں ملا</Empty>}
           </div>
           {editLine && <FullEditEntry kind="supplier" id={editLine.id} onClose={() => setEditLine(null)} onDone={() => { setEditLine(null); reload(); onChanged(); }} />}
-          {bypEdit && bypEdit.type === "purchase" && <EditBypassPurchase x={{ ...bypEdit, id: bypId(bypEdit), cost_rate: bypEdit.rate }} onClose={() => setBypEdit(null)} onDone={() => { setBypEdit(null); reload(); onChanged(); }} />}
+          {bypEdit && bypEdit.type === "purchase" && <EditBypassPurchase x={{ ...bypEdit, id: bypId(bypEdit), cost_rate: bypEdit.rate, supplier_name: s?.name, client_fuel: bypEdit.client_fuel || s?.client_id }} onClose={() => setBypEdit(null)} onDone={() => { setBypEdit(null); reload(); onChanged(); }} />}
           {bypEdit && bypEdit.type === "payment" && <EditBypassPayment x={{ ...bypEdit, id: bypId(bypEdit) }} onClose={() => setBypEdit(null)} onDone={() => { setBypEdit(null); reload(); onChanged(); }} />}
           {voidLine && <VoidLine t={voidLine} supplier={label(s)} onClose={() => setVoidLine(null)} onDone={() => { setVoidLine(null); reload(); onChanged(); }} />}
         </div>

@@ -142,7 +142,8 @@ export function supplierLines(s: { id: number; opening_balance: number }) {
   // the tanker that carried a purchase: the stock-in delivery, the depot-direct trip, or the bypass delivery
   const pump = all(`SELECT x.*, ${proofCol("'stx:'||x.id")}, COALESCE(d.tanker_no, tr.vehicle_no) vehicle_no, tr.driver_name
       FROM supplier_txns x LEFT JOIN deliveries d ON d.id=x.delivery_id LEFT JOIN wholesale_trips tr ON tr.id=x.trip_id WHERE x.supplier_id=?`, s.id).map((t) => ({ ...t, source: "pump", effect: t.type === "payment" ? -t.amount : t.amount }));
-  const byPur = all(`SELECT p.id, 'purchase' type, p.txn_date, p.created_at, p.product, p.litres, p.cost_rate rate, p.amount, p.ref, p.note, p.created_by, bd.vehicle_no, bd.driver_name
+  const byPur = all(`SELECT p.id, 'purchase' type, p.txn_date, p.created_at, p.product, p.litres, p.cost_rate rate, p.amount, p.ref, p.note, p.created_by, bd.vehicle_no, bd.driver_name,
+      EXISTS(SELECT 1 FROM bypass_supplier_payments f WHERE f.ref='cfuel:'||p.id AND f.voided=0) client_fuel
       FROM bypass_purchases p LEFT JOIN bypass_deliveries bd ON bd.id=p.delivery_id WHERE p.supplier_id=? AND p.voided=0`, s.id)
     .map((t) => ({ ...t, id: `b${t.id}`, source: "bypass", effect: t.amount }));
   const byPay = all(`SELECT p.id, 'payment' type, p.txn_date, p.created_at, p.amount, p.mode, p.method, p.account_id, p.ref, p.note, p.created_by, c.name client_name, ${proofCol("'byp:pay:'||p.id")} FROM bypass_supplier_payments p

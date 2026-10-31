@@ -77,7 +77,7 @@ export function clientSupplier(t: number, clientId: number): number {
 bypass.get("/bypass/suppliers", h((req) => {
   const t = tid(req);
   const byp = bypassOwedAll(t), pump = supplierOwedAll(t);
-  return all(`SELECT s.id, s.name, s.phone, s.depot_id, s.company, d.name depot_name FROM suppliers s LEFT JOIN depots d ON d.id=s.depot_id
+  return all(`SELECT s.id, s.name, s.phone, s.depot_id, s.company, s.client_id, d.name depot_name FROM suppliers s LEFT JOIN depots d ON d.id=s.depot_id
     WHERE s.tenant_id=? AND COALESCE(s.active,1)=1 ORDER BY COALESCE(d.name,''), s.company, s.name`, t)
     .map((s) => { const b = byp.get(s.id) ?? 0, p = pump.get(s.id) ?? 0; return { ...s, bypass_owed: b, pump_owed: p, total_owed: round2(b + p) }; });
 }));
@@ -490,7 +490,8 @@ export function bypassStatement(tenantId: number, supplierId: number, from?: str
   const fromIso = from ? new Date(`${from}T00:00:00+05:00`).toISOString() : undefined;
   const toIso = to ? new Date(`${to}T23:59:59+05:00`).toISOString() : undefined;
   const opening = fromIso ? bypassOwed(s.id, fromIso) : 0;
-  const purchases = all(`SELECT id, 'purchase' kind, txn_date, product, litres, cost_rate, amount, ref, note FROM bypass_purchases
+  const purchases = all(`SELECT id, 'purchase' kind, txn_date, product, litres, cost_rate, amount, ref, note, supplier_id,
+      EXISTS(SELECT 1 FROM bypass_supplier_payments f WHERE f.ref='cfuel:'||bypass_purchases.id AND f.voided=0) client_fuel FROM bypass_purchases
     WHERE supplier_id=? AND voided=0 ${fromIso ? "AND txn_date >= ?" : ""} ${toIso ? "AND txn_date < ?" : ""}`,
     ...[s.id, ...(fromIso ? [fromIso] : []), ...(toIso ? [toIso] : [])]);
   const payments = all(`SELECT p.id, 'payment' kind, p.txn_date, p.amount, p.mode, p.method, p.ref, p.note, c.name client_name, ${proofCol("'byp:pay:'||p.id")} FROM bypass_supplier_payments p
@@ -626,6 +627,37 @@ bypass.patch("/bypass/payments/:id", requirePerm("entries.edit"), h((req) => {
   audit(t, req.user!, "bypass_payment_edit", `byppay:${r.id}`, { reason: b.reason, before, after: { amount, method, account_id: acc, txn_date: ts, ref: after.ref, note: after.note } });
   return { ok: true, payment: after, bypass_owed: bypassOwed(r.supplier_id) };
 }));
+
+/** Shift an old bypass purchase that was written against a plain supplier onto the wholesale CLIENT it was really bought
+ *  from ("client se maal" came later; earlier entries sat on a supplier card). Same books as a fresh client purchase:
+ *  the line moves to the client's supplier side, the client's khata drops by the amount (BYPASS_PAY payment) and the
+ *  settlement row (client_direct, cfuel:<id>) closes it on the bypass account. The old supplier's "we owe" falls by the
+ *  amount — so it is refused when that supplier was already paid for it (shifting would leave him over-paid). */
+bypass.post("/bypass/purchases/:id/to-client", requirePerm("entries.edit"), h((req) => {
+  const t = tid(req);
+  const r = get("SELECT * FROM bypass_purchases WHERE id=? AND tenant_id=? AND voided=0", Number(req.params.id), t);
+  if (!r) throw new AppError(404, "Entry not found");
+  if (get("SELECT 1 x FROM bypass_supplier_payments WHERE tenant_id=? AND ref=? AND voided=0", t, `cfuel:${r.id}`)) throw new AppError(400, "Ye khareed pehle hi client ke khate se judi hui hai");
+  const b = parse(z.object({ client_id: z.number().int(), reason: z.string().trim().min(3, "Wajah likhein (kam se kam 3 harf)") }), req.body);
+  const client = get("SELECT * FROM wholesale_clients WHERE id=? AND tenant_id=?", b.client_id, t);
+  if (!client) throw new AppError(400, "Client not found");
+  const oldSup = get("SELECT id, name, client_id FROM suppliers WHERE id=?", r.supplier_id)!;
+  if (oldSup.client_id === client.id) throw new AppError(400, "Ye khareed pehle hi isi client ke supplier card par hai");
+  const owed = bypassOwed(r.supplier_id);
+  if (owed + 0.01 < (r.amount as number)) throw new AppError(400, `${oldSup.name} ka bypass account sirf ${pkr0(owed)} baqi hai — is khareed (${pkr0(r.amount as number)}) ki adaigi us ko ho chuki hai. Pehle wo adaigi void / shift karein, phir client par shift karein`);
+  const supplierId = clientSupplier(t, client.id);
+  const note = `Client se maal · ${r.litres} L ${PRODUCTS[r.product as string] ?? r.product} @ ${r.cost_rate} (shift: pehle ${oldSup.name} par likhi thi)`;
+  const out = tx(() => {
+    run("UPDATE bypass_purchases SET supplier_id=? WHERE id=?", supplierId, r.id);
+    const wtx = insertTxn(req, client.id, { type: "payment", amount: r.amount, method: BYPASS_PAY, ref: r.ref ?? (r.delivery_id ? `BYP-${r.delivery_id}` : `BYP#${r.id}`), note, txn_date: r.txn_date, silent: true }).id as number;
+    const { id } = run(`INSERT INTO bypass_supplier_payments (tenant_id,supplier_id,amount,mode,client_id,wtx_id,method,account_id,ref,note,created_by,txn_date,created_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`, t, supplierId, r.amount, "client_direct", client.id, wtx, null, null, `cfuel:${r.id}`, note, req.user!.name, r.txn_date, now());
+    audit(t, req.user!, "bypass_purchase_to_client", `byppur:${r.id}`, { reason: b.reason, from_supplier_id: r.supplier_id, from_supplier: oldSup.name, client_id: client.id, client: client.name, amount: r.amount, wtx_id: wtx, settlement_id: id });
+    return { wtx_id: wtx, settlement_id: id };
+  });
+  return { ok: true, ...out, old_supplier_owed: bypassOwed(r.supplier_id as number), client_due: clientDue(client.id) };
+}));
+const pkr0 = (n: number) => `Rs ${Math.round(n).toLocaleString("en-PK")}`;
 
 /** Void a bypass purchase or payment (correction). */
 bypass.post("/bypass/purchases/:id/void", requirePerm("wholesale.void"), h((req) => {

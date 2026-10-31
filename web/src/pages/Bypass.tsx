@@ -571,7 +571,7 @@ function SupplierStatement({ id, onClose, onChanged }: { id: number; onClose: ()
         </div>
       )}
       {pay && <PaySupplier id={id} owed={s?.bypass_owed ?? 0} onClose={() => setPay(false)} onDone={() => { setPay(false); refresh(); }} />}
-      {edit && <EditBypassPurchase x={edit} onClose={() => setEdit(null)} onDone={() => { setEdit(null); refresh(); }} />}
+      {edit && <EditBypassPurchase x={{ ...edit, supplier_name: s?.name, client_fuel: edit.client_fuel || s?.client_id }} onClose={() => setEdit(null)} onDone={() => { setEdit(null); refresh(); }} />}
     </Modal>
   );
 }

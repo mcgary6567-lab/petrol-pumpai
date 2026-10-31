@@ -1,6 +1,6 @@
 /** CEO edits of the wholesale officer's bypass lines, used from the Bypass page and the supplier's merged statement. */
 import { useState } from "react";
-import { api } from "../lib/api";
+import { api, useApi } from "../lib/api";
 import { Field, Modal, useAction } from "./ui";
 import { AccountPicker } from "./BankParts";
 import { PRODUCTS, num, pkr } from "../lib/format";
@@ -42,8 +42,36 @@ export function EditBypassPurchase({ x, onClose, onDone }: { x: any; onClose: ()
         <div className="rounded-xl bg-slate-50 p-2.5 text-sm">Naya: <b>{num(L)} L</b> × Rs {r} = <b>{pkr(amt)}</b>{Math.abs(amt - (x.amount ?? 0)) > 0.5 && <span className="text-xs text-slate-500"> (pehle {pkr(x.amount)})</span>}</div>
         <div className="flex justify-end gap-2"><button className="btn-secondary" onClick={onClose}>Cancel</button>
           <button className="btn-primary" disabled={busy || !(L > 0) || !(amt > 0) || reason.trim().length < 3} onClick={save}>Save</button></div>
+        {!x.client_fuel && <ShiftToClient x={x} onDone={onDone} />}
       </div>
     </Modal>
+  );
+}
+
+/** "Client se maal" came later: a bill that was written on a plain supplier card can be moved onto the wholesale client
+ *  it was really bought from. Same books as a fresh client purchase (khata drops by the amount, settlement on the bypass
+ *  account); the old supplier's "we owe" falls by the same amount. */
+function ShiftToClient({ x, onDone }: { x: any; onDone: () => void }) {
+  const { busy, run } = useAction();
+  const clients = useApi<any[]>("/wholesale/clients");
+  const [open, setOpen] = useState(false);
+  const [client, setClient] = useState("");
+  const [reason, setReason] = useState("");
+  const pick = (clients.data ?? []).find((c: any) => String(c.id) === client);
+  const shift = () => run(() => api(`/bypass/purchases/${x.id}/to-client`, { body: { client_id: Number(client), reason } }), "Client ke khate par shift ho gaya")
+    .then((ok) => { if (ok) onDone(); });
+  if (!open) return <button type="button" className="text-xs font-semibold text-brand-700 underline" onClick={() => setOpen(true)}>🤝 Ye maal asal me kisi client se liya tha? — client par shift karein</button>;
+  return (
+    <div className="space-y-2 rounded-xl border border-brand-200 bg-brand-50 p-3">
+      <div className="text-sm font-semibold">Client par shift karein · <span className="font-normal text-slate-500">کلائنٹ کے کھاتے پر منتقل</span></div>
+      <p className="text-xs text-slate-600">Ye line {x.supplier_name ? <b>{x.supplier_name}</b> : "supplier"} ke card se hat kar us client ke khate par chali jayegi: client ka baqaya <b>{pkr(x.amount)}</b> kam hoga aur supplier ka "we owe" bhi itna hi kam. Litre / rate / tareekh wahi rahenge. Agar us supplier ko is bill ki adaigi ho chuki hai to shift nahi hoga.</p>
+      <Field label="Kis client se liya tha?"><select className="input" value={client} onChange={(e) => setClient(e.target.value)}>
+        <option value="">— client —</option>{(clients.data ?? []).filter((c: any) => c.active).map((c: any) => <option key={c.id} value={c.id}>{c.name}{c.city ? ` · ${c.city}` : ""}</option>)}</select></Field>
+      <Field label="Wajah (zaroori)"><input className="input" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. client ka maal tha, option baad me aaya" /></Field>
+      {pick && <div className="rounded-lg bg-white p-2 text-xs">{pick.name}: baqaya {pkr(pick.due ?? 0)} → <b>{pkr((pick.due ?? 0) - (x.amount ?? 0))}</b></div>}
+      <div className="flex justify-end gap-2"><button type="button" className="btn-secondary min-h-9" onClick={() => setOpen(false)}>Rehne dein</button>
+        <button type="button" className="btn-primary min-h-9" disabled={busy || !client || reason.trim().length < 3} onClick={shift}>Shift karein</button></div>
+    </div>
   );
 }
 
