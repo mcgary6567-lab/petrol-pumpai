@@ -49,8 +49,9 @@ const dow = new Date(T + "T00:00:00Z").getUTCDay();
 const next = (d: number) => pk(((d - dow + 7) % 7) || 7);
 const ym = T.slice(0, 8);
 // "15 tareekh" means the coming 15th: this month while it is still ahead, next month once it has passed
-const dayOfMonth = (d: number) => { const dt = new Date(T + "T00:00:00Z"); if (dt.getUTCDate() > d) dt.setUTCMonth(dt.getUTCMonth() + 1); dt.setUTCDate(d); return dt.toISOString().slice(0, 10); };
-const nextMonth = (() => { const d = new Date(T + "T00:00:00Z"); d.setUTCMonth(d.getUTCMonth() + 1); return d.toISOString().slice(0, 10); })();
+// (day set to 1 before the month moves, else the 31st rolls over — Oct 31 + 1 month would land on Dec 1)
+const dayOfMonth = (d: number) => { const dt = new Date(T + "T00:00:00Z"); const past = dt.getUTCDate() > d; dt.setUTCDate(1); if (past) dt.setUTCMonth(dt.getUTCMonth() + 1); dt.setUTCDate(d); return dt.toISOString().slice(0, 10); };
+const nextMonth = (() => { const d = new Date(T + "T00:00:00Z"); const day = d.getUTCDate(); d.setUTCDate(1); d.setUTCMonth(d.getUTCMonth() + 1); const last = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate(); d.setUTCDate(Math.min(day, last)); return d.toISOString().slice(0, 10); })();
 
 /** What the /ai/parse-sale route does: an expense when the sentence is one, otherwise a sale. */
 const pos = (text: string) => {
