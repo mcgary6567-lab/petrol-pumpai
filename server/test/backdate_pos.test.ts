@@ -201,3 +201,35 @@ test("own-tank unload edit (officer): litres / tank / day change; bypass stock, 
   assert.equal(db.get("SELECT voided FROM bypass_drops WHERE id=?", e.id)!.voided, 0, "tx rolled back");
   await books();
 });
+
+test("cashier → Pay → Supplier: a bypass-only supplier shows what we owe and a payment settles the bypass account (then the pump account); void restores", async () => {
+  const sups = ok(await call("wholesale", "GET", "/api/bypass/suppliers"), "suppliers").filter((x: any) => !x.client_id);
+  const S = sups[sups.length - 1];
+  const pump0 = ok(await call("admin", "GET", `/api/suppliers/${S.id}`), "sup").owed as number;
+  const byp0 = S.bypass_owed as number;
+  // bypass purchase of 14 lakh with no drop (held stock)
+  ok(await call("wholesale", "POST", "/api/bypass/deliveries", { station_id: st, purchases: [{ supplier_id: S.id, product: "HSD", litres: 1_000, cost_rate: 280 }] }), "buy 2.8 lakh");
+  const parties = ok(await call("admin", "GET", "/api/cashier/parties?kind=supplier"), "parties").supplier;
+  const row = parties.find((x: any) => x.id === S.id);
+  near(row.bypass_owed, byp0 + 280_000, "bypass owed shown"); near(row.balance, pump0 + byp0 + 280_000, "cashier sees pump + bypass");
+  // pay 14 lakh cash → all of it on the bypass account
+  const pay = ok(await call("admin", "POST", "/api/cashier/pay", { party_type: "supplier", party_id: S.id, amount: 280_000, method: "Cash", note: "Foji ko diya" }), "pay");
+  assert.match(String(pay.voucher.src), /^byppay:\d+$/, "settled on the bypass account");
+  near(pay.balance_after, pump0 + byp0, "balance after = what was owed before this bill");
+  near(ok(await call("wholesale", "GET", `/api/bypass/suppliers/${S.id}/statement`), "byp st").closing_balance, byp0, "bypass account cleared");
+  near(ok(await call("admin", "GET", `/api/suppliers/${S.id}`), "sup2").owed, pump0, "pump account untouched");
+  await books();
+  // void the voucher → the bypass payment is voided, owed comes back
+  ok(await call("admin", "POST", `/api/cashier/vouchers/${pay.voucher.id}/void`, { reason: "ghalat entry" }), "void");
+  near(ok(await call("wholesale", "GET", `/api/bypass/suppliers/${S.id}/statement`), "byp st2").closing_balance, byp0 + 280_000, "owed is back");
+  await books();
+  // a payment bigger than the bypass due spills onto the pump account (two legs)
+  const pay2 = ok(await call("admin", "POST", "/api/cashier/pay", { party_type: "supplier", party_id: S.id, amount: byp0 + 280_000 + 50_000, method: "Cash" }), "pay over");
+  assert.match(String(pay2.voucher.src), /^byppay:\d+\+stx:\d+$/, "two legs");
+  near(ok(await call("wholesale", "GET", `/api/bypass/suppliers/${S.id}/statement`), "byp st3").closing_balance, 0, "bypass cleared");
+  near(ok(await call("admin", "GET", `/api/suppliers/${S.id}`), "sup3").owed, pump0 - 50_000, "rest on the pump account");
+  assert.equal((await call("admin", "POST", `/api/cashier/vouchers/${pay2.voucher.id}/edit`, { reason: "x", amount: 1 })).status, 400, "two-leg voucher: void + re-enter, not edit");
+  ok(await call("admin", "POST", `/api/cashier/vouchers/${pay2.voucher.id}/void`, { reason: "test wapas" }), "void 2");
+  near(ok(await call("admin", "GET", `/api/suppliers/${S.id}`), "sup4").owed, pump0);
+  await books();
+});

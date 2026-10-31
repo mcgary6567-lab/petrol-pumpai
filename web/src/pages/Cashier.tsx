@@ -553,7 +553,7 @@ function PartyPicker({ kind, value, onChange, dir }: { kind: string; value: any;
   if (value) return (
     <div className="flex items-center gap-3 rounded-xl bg-brand-50 p-3 ring-1 ring-brand-200">
       <span className="min-w-0 flex-1"><b className="block">{value.name}</b><span className="text-xs text-slate-600">{value.phone ? phone(value.phone) : value.role ?? ""}</span></span>
-      <span className="text-right"><span className="block font-semibold tabular-nums">{pkr(value.balance)}</span><span className="text-[11px] text-slate-500">{kind === "supplier" ? "we owe" : kind === "staff" ? "advance" : "owes"}</span></span>
+      <span className="text-right"><span className="block font-semibold tabular-nums">{pkr(value.balance)}</span><span className="text-[11px] text-slate-500">{kind === "supplier" ? (value.bypass_owed > 0.5 ? `we owe · pump ${pkr(value.pump_owed ?? 0)} + bypass ${pkr(value.bypass_owed)}` : "we owe") : kind === "staff" ? "advance" : "owes"}</span></span>
       <button type="button" className="-mr-1 p-2.5 text-slate-500" onClick={() => onChange(null)} aria-label="Change"><X size={20} /></button>
     </div>
   );

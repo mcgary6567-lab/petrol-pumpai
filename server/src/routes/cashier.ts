@@ -23,6 +23,7 @@ import { chargeShortage } from "./staff.js";
 import { clientDue, clientDueAll, insertTxn } from "./wholesale.js";
 import { promises } from "./wholesaleDesk.js";
 import { supplierOwed, supplierOwedAll } from "./suppliers.js";
+import { bypassOwed, bypassOwedAll } from "./bypass.js";
 import { investorChequeCleared } from "./investors.js";
 import { staffBalance } from "./staff.js";
 import { createExpense } from "./expenses.js";
@@ -103,7 +104,7 @@ function party(t: number, type: string, id: number | null | undefined) {
 
 const balanceOf = (type: string, id: number) =>
   type === "khata" ? round2(get("SELECT balance FROM customers WHERE id=?", id)!.balance) : type === "wholesale" ? round2(clientDue(id))
-    : type === "supplier" ? round2(supplierOwed(id)) : type === "staff" ? staffBalance(id) : null;
+    : type === "supplier" ? round2(supplierOwed(id) + bypassOwed(id)) : type === "staff" ? staffBalance(id) : null;
 
 cashier.get("/cashier/parties", requirePerm("cashier.desk"), h((req) => {
   const t = tid(req);
@@ -114,9 +115,10 @@ cashier.get("/cashier/parties", requirePerm("cashier.desk"), h((req) => {
     ORDER BY (balance > 0) DESC, balance DESC, name LIMIT 30`, t, q, q);
   if (!kind || kind === "wholesale") { const d = clientDueAll(t); out.wholesale = all("SELECT id, name, phone, business_name FROM wholesale_clients WHERE tenant_id=? AND active=1 AND (name LIKE ? OR COALESCE(business_name,'') LIKE ? OR COALESCE(phone,'') LIKE ?) ORDER BY name LIMIT 30", t, q, q, q)
     .map((c) => ({ ...c, balance: round2(d.get(c.id) ?? 0) })).sort((a, b) => b.balance - a.balance); }
-  if (!kind || kind === "supplier") { const d = supplierOwedAll(t); out.supplier = all(`SELECT s.id, s.name, s.phone, s.company, s.depot_id, d.name depot_name FROM suppliers s LEFT JOIN depots d ON d.id=s.depot_id
+  // a supplier is owed on two accounts: the pump's own purchases and the bypass (client) purchases — the cashier sees the whole
+  if (!kind || kind === "supplier") { const d = supplierOwedAll(t), by = bypassOwedAll(t); out.supplier = all(`SELECT s.id, s.name, s.phone, s.company, s.depot_id, d.name depot_name FROM suppliers s LEFT JOIN depots d ON d.id=s.depot_id
     WHERE s.tenant_id=? AND (s.name LIKE ? OR COALESCE(s.company,'') LIKE ? OR COALESCE(d.name,'') LIKE ?) ORDER BY COALESCE(d.name,''), s.company, s.name LIMIT 30`, t, q, q, q)
-    .map((s) => ({ ...s, balance: round2(d.get(s.id) ?? 0) })).sort((a, b) => b.balance - a.balance); }
+    .map((s) => { const pump = round2(d.get(s.id) ?? 0), bypass = round2(by.get(s.id) ?? 0); return { ...s, balance: round2(pump + bypass), pump_owed: pump, bypass_owed: bypass }; }).sort((a, b) => b.balance - a.balance); }
   if (!kind || kind === "staff") out.staff = all("SELECT id, name, phone, role FROM users WHERE tenant_id=? AND active=1 AND role<>'admin' AND name LIKE ? ORDER BY name LIMIT 30", t, q)
     .map((u) => ({ ...u, balance: staffBalance(u.id) }));
   return out;
@@ -248,10 +250,26 @@ async function doPay(req: Request, b: z.infer<typeof payBody>, skipCashCheck = f
     src = `chq:${newCheque(req, { direction: "out", party_type: b.party_type, party_id: p?.id ?? null, party_name: name, amount: b.amount, account_id: account, note: b.note, category: b.category ?? null, ...b.cheque }, b.photo_ids).id}`;
     message = `Cheque ${b.cheque.cheque_no} is in the register. Mark it cleared when the bank pays it.`;
   } else if (b.party_type === "supplier") {
-    const pid = run("INSERT INTO supplier_txns (tenant_id,supplier_id,type,amount,method,ref,note,created_by,txn_date,created_at,account_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-      t, p!.id, "payment", b.amount, b.method, b.ref ?? null, b.note ?? null, req.user!.name, now(), now(), account).id;
-    linkPhotos(t, b.photo_ids, `stx:${pid}`);
-    src = `stx:${pid}`;
+    // what is owed on the bypass account is settled first (that is where a bypass-only supplier's whole balance sits);
+    // anything beyond it goes on the pump account as before. Two legs → two source refs joined with "+".
+    const byp = bypassOwed(p!.id);
+    const toBypass = byp > 0.5 ? Math.min(round2(b.amount), round2(byp)) : 0;
+    const toPump = round2(b.amount - toBypass);
+    const parts: string[] = [];
+    if (toBypass > 0) {
+      const bid = run(`INSERT INTO bypass_supplier_payments (tenant_id,supplier_id,amount,mode,client_id,wtx_id,method,account_id,ref,note,created_by,txn_date,created_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`, t, p!.id, toBypass, "we_pay", null, null, b.method, account, b.ref ?? null, b.note ?? "Cashier se adaigi (bypass)", req.user!.name, now(), now()).id;
+      linkPhotos(t, b.photo_ids, `byp:pay:${bid}`);
+      parts.push(`byppay:${bid}`);
+    }
+    if (toPump > 0.005) {
+      const pid = run("INSERT INTO supplier_txns (tenant_id,supplier_id,type,amount,method,ref,note,created_by,txn_date,created_at,account_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        t, p!.id, "payment", toPump, b.method, b.ref ?? null, b.note ?? null, req.user!.name, now(), now(), account).id;
+      if (!toBypass) linkPhotos(t, b.photo_ids, `stx:${pid}`);
+      parts.push(`stx:${pid}`);
+    }
+    src = parts.join("+");
+    if (toBypass > 0) message = toPump > 0.005 ? `${pkr(toBypass)} bypass account par, ${pkr(toPump)} pump account par laga.` : `Poori raqam bypass (client wale maal) ke hisaab par lagi.`;
   } else if (b.party_type === "expense") {
     if (!b.category) throw new AppError(400, "Choose the expense head");
     const method = (cheque ? "cheque" : b.method.toLowerCase().replace(/\s+transfer$/, "")) as any;
@@ -309,9 +327,14 @@ function ownedElsewhere(src: string | null | undefined, verb: string) {
 /** Reverse the money / balance a voucher's source row moved, in the SAME table it was written to (books stay tallied).
  *  Does not touch the voucher row itself. */
 function reverseVoucherSrc(t: number, v: Row, who: string, reason: string) {
-  const [kind, idStr] = String(v.src ?? "").split(":");
+  for (const part of String(v.src ?? "").split("+")) reverseOneSrc(t, v, who, reason, part);
+}
+function reverseOneSrc(t: number, v: Row, who: string, reason: string, src: string) {
+  const [kind, idStr] = src.split(":");
   const srcId = Number(idStr);
-  if (kind === "khata") {
+  if (kind === "byppay") {
+    run("UPDATE bypass_supplier_payments SET voided=1 WHERE id=? AND tenant_id=?", srcId, t);
+  } else if (kind === "khata") {
     const k = get("SELECT type, amount FROM khata_ledger WHERE id=?", srcId);
     if (k) {
       run("DELETE FROM khata_ledger WHERE id=?", srcId);
@@ -334,9 +357,13 @@ function reverseVoucherSrc(t: number, v: Row, who: string, reason: string) {
 }
 /** A re-routed voucher keeps its original date: stamp the freshly posted source row with it (ledger day stays right). */
 function backdateSrc(t: number, src: string | null, at: string) {
-  const [kind, idStr] = String(src ?? "").split(":"); const id = Number(idStr);
+  for (const part of String(src ?? "").split("+")) backdateOneSrc(t, part, at);
+}
+function backdateOneSrc(t: number, src: string, at: string) {
+  const [kind, idStr] = src.split(":"); const id = Number(idStr);
   if (!id) return;
-  if (kind === "khata") run("UPDATE khata_ledger SET created_at=? WHERE id=?", at, id);
+  if (kind === "byppay") run("UPDATE bypass_supplier_payments SET txn_date=? WHERE id=? AND tenant_id=?", at, id, t);
+  else if (kind === "khata") run("UPDATE khata_ledger SET created_at=? WHERE id=?", at, id);
   else if (kind === "wtx") run("UPDATE wholesale_txns SET txn_date=?, created_at=? WHERE id=? AND tenant_id=?", at, at, id, t);
   else if (kind === "stx") run("UPDATE supplier_txns SET txn_date=?, created_at=? WHERE id=? AND tenant_id=?", at, at, id, t);
   else if (kind === "staff") run("UPDATE staff_ledger SET created_at=? WHERE id=? AND tenant_id=?", at, id, t);
@@ -376,6 +403,7 @@ cashier.post("/cashier/vouchers/:id/edit", requirePerm("entries.edit"), h(async 
   const v = get("SELECT * FROM cashier_vouchers WHERE id=? AND tenant_id=?", Number(req.params.id), t);
   if (!v) throw new AppError(404, "Voucher nahi mila");
   if (v.voided) throw new AppError(400, "Yeh voucher void ho chuka hai");
+  if (String(v.src ?? "").includes("+")) throw new AppError(400, "Ye adaigi do hisson me gayi (bypass + pump account) — edit nahi, void kar ke dobara likhein");
   const [kind, idStr] = String(v.src ?? "").split(":"); const srcId = Number(idStr);
   if (kind === "chq" || kind === "wchq") throw new AppError(400, "Ye cheque entry hai — cheque register se badlein.");
   ownedElsewhere(v.src, "badlein");
@@ -454,6 +482,8 @@ cashier.post("/cashier/vouchers/:id/edit", requirePerm("entries.edit"), h(async 
       const nid = run(`INSERT INTO supplier_txns (tenant_id,supplier_id,type,amount,method,ref,note,created_by,txn_date,created_at,account_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
         t, v.party_id, "payment", amount, method, old?.ref ?? null, note ?? null, v.created_by ?? req.user!.name, old?.txn_date ?? v.created_at, now(), acc).id;
       newSrc = `stx:${nid}`;
+    } else if (kind === "byppay") {
+      run("UPDATE bypass_supplier_payments SET amount=?, method=?, account_id=? WHERE id=? AND tenant_id=?", amount, method, acc, srcId, t);
     } else if (kind === "staff") {
       run("UPDATE staff_ledger SET amount=?, method=?, account_id=? WHERE id=? AND tenant_id=?", amount, method, acc, srcId, t);
     } else if (kind === "expense") {
