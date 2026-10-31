@@ -178,8 +178,11 @@ export default function Pos() {
   const directMax = d?.direct_discount_max ?? null;
   const directOver = directMax != null && directDiscount > directMax;
   // "poora parcha cash": no fuel pumped, so the main amount may be empty — readiness comes from the parchi litres instead
-  const fullCashKhata = pay === "khata" && Boolean(khata?.cashOn && khata?.fullCash);
+  // "poora parcha cash" (fullCash), or shop saman against a parchi with nothing pumped: no nozzle litres, readiness
+  // comes from the parchi litres. With fuel pumped as well, the main amount is the nozzle leg and baqi litres are extra.
+  const fullCashKhata = pay === "khata" && Boolean(khata?.cashOn && (khata?.fullCash || (khata?.itemsOn && !(value > 0))));
   const amountReady = fullCashKhata ? (khata!.cashBackLitres ?? 0) > 0 && rate > 0 : value > 0;
+  const khataNeeds = pay === "khata" && khata?.cashOn && !amountReady ? (fullCashKhata ? (khata.fullCash ? "Parchi litres likhein" : "Nozzle amount ya Baqi litres likhein") : "Amount / litres likhein") : null;
   const ready = Boolean(product && amountReady && pay && (pay !== "khata" || khata) && (pay !== "loyalty" || pointsCust) && (pay !== "coupon" || coupon) && (pay !== "wallet" || walletAcct) && (pay !== "wholesale" || (ws && wsRate > 0))) && (!discount || discount < amount) && !directOver;
   const reset = () => { setProduct(null); setEntry(""); setPay(null); setKhata(null); setWs(null); setMode("amount"); setHeard(null); setPointsCust(null); setCoupon(null); setWalletAcct(null); setCardBank(null); setDirect(null); setRefText(""); };
 
@@ -502,7 +505,7 @@ export default function Pos() {
                   const mode = !khata.cashOn ? null : khata.itemsOn ? "saman" : khata.fullCash ? "fullcash" : "cash";
                   const pick = (m: "cash" | "fullcash" | "saman") => setKhata(mode === m
                     ? { ...khata, cashOn: false, fullCash: false, itemsOn: false, cashBackLitres: 0, cashBack: 0, itemsCost: 0, itemsNote: "" }
-                    : { ...khata, cashOn: true, fullCash: m !== "cash", itemsOn: m === "saman", ...(m !== "saman" ? { itemsCost: 0, itemsNote: "" } : {}) });
+                    : { ...khata, cashOn: true, fullCash: m === "fullcash", itemsOn: m === "saman", ...(m !== "saman" ? { itemsCost: 0, itemsNote: "" } : {}) });
                   const btn = (m: "cash" | "fullcash" | "saman", en: string, ur: string) => (
                     <button type="button" onClick={() => pick(m)}
                       className={`min-h-11 rounded-xl px-3 py-2 text-left text-sm font-semibold ring-1 transition ${mode === m ? "bg-amber-600 text-white ring-amber-600" : "bg-white text-amber-900 ring-amber-300 hover:bg-amber-100"}`}>
@@ -518,14 +521,15 @@ export default function Pos() {
                   );
                 })()}
                 {khata.cashOn && (() => {
-                  const pumped = khata.fullCash ? 0 : (litres || 0);
+                  const pumped = fullCashKhata ? 0 : (litres || 0);
                   const baqiVal = Math.round((khata.cashBackLitres || 0) * (rate || 0));
                   const itemsCost = khata.itemsOn ? (khata.itemsCost || 0) : 0;
                   const cashDi = khata.cashBack ?? (khata.fullCash ? Math.max(0, baqiVal - itemsCost) : 0);
                   const khareed = Math.max(0, baqiVal - cashDi - itemsCost);
                   return (
                   <div className="mt-2 grid grid-cols-2 gap-2">
-                    <label className="block"><span className="text-xs text-slate-600">{khata.fullCash ? "Parchi litres" : "Baqi litres"}</span>
+                    {khata.itemsOn && <p className="col-span-2 text-xs text-slate-600">Tel bhi diya hai to upar nozzle ka amount likhein; parchi ka jo hissa saman / cash me gaya wo neeche <b>Baqi litres</b> me. Sirf saman diya hai to upar khaali chhor kar poore parchi litres yahan likhein.</p>}
+                    <label className="block"><span className="text-xs text-slate-600">{fullCashKhata ? "Parchi litres" : "Baqi litres"}</span>
                       <input className="input min-h-10" type="number" min={0} step="0.01" inputMode="decimal" value={khata.cashBackLitres ?? ""} placeholder="e.g. 70"
                         onChange={(e) => { const v = e.target.value; setKhata({ ...khata, cashBackLitres: v === "" ? undefined : Math.max(0, Number(v)) }); }} /></label>
                     <label className="block"><span className="text-xs text-slate-600">Baqi value (auto · {rate || 0}/L)</span>
@@ -544,7 +548,7 @@ export default function Pos() {
                     <label className="block"><span className="text-xs text-emerald-700">Khareed (munafa · auto)</span>
                       <input className="input min-h-10 bg-emerald-50 font-semibold text-emerald-800" readOnly value={khareed ? pkr(khareed) : "Rs 0"} /></label>
                     <p className="col-span-2 text-xs text-slate-600">
-                      Parchi <b>{num(pumped + (khata.cashBackLitres || 0), 2)} L</b> = nozzle <b>{num(pumped, 2)} L</b> tel + {khata.fullCash ? "poora" : "baqi"} <b>{num(khata.cashBackLitres || 0, 2)} L</b>. Khata par poora bill ({pkr(Math.round(pumped * (rate || 0)) + baqiVal)}), {cashDi > 0 ? <>cash bag se <b>{pkr(cashDi)}</b>, </> : null}{itemsCost > 0 ? <>shop saman <b>{pkr(itemsCost)}</b> (stock par asar nahi), </> : null}Khareed munafa <b>{pkr(khareed)}</b>. CEO ko notification jayegi.
+                      Parchi <b>{num(pumped + (khata.cashBackLitres || 0), 2)} L</b> = nozzle <b>{num(pumped, 2)} L</b> tel + {fullCashKhata ? "poora" : "baqi"} <b>{num(khata.cashBackLitres || 0, 2)} L</b>. Khata par poora bill ({pkr(Math.round(pumped * (rate || 0)) + baqiVal)}), {cashDi > 0 ? <>cash bag se <b>{pkr(cashDi)}</b>, </> : null}{itemsCost > 0 ? <>shop saman <b>{pkr(itemsCost)}</b> (stock par asar nahi), </> : null}Khareed munafa <b>{pkr(khareed)}</b>. CEO ko notification jayegi.
                     </p>
                   </div>
                   );
@@ -609,6 +613,7 @@ export default function Pos() {
                 </div>
               </div>
             ) : <div className="mb-3 hidden text-center text-lg text-slate-500 sm:block">① fuel · ② amount · ③ payment — <Ur>تیل، رقم اور ادائیگی چنیں</Ur></div>}
+            {khataNeeds && <p className="mb-2 rounded-lg bg-amber-50 px-3 py-1.5 text-sm font-medium text-amber-800 ring-1 ring-amber-200">Save ke liye: {khataNeeds}</p>}
             <div className="grid grid-cols-[auto_1fr] gap-3">
               <button onClick={reset} className="flex items-center justify-center gap-1 whitespace-nowrap rounded-xl bg-slate-200 px-3 py-3 text-base font-semibold text-slate-700 active:bg-slate-300 sm:px-5 sm:py-4 sm:text-lg"><X size={20} /> Cancel<span className="hidden sm:inline"> · <Ur>منسوخ</Ur></span></button>
               <button onClick={save} disabled={!ready || saving || (!training && ((!shiftOpen && isSalesman) || !!priceLock))}

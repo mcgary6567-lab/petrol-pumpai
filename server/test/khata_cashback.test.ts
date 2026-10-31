@@ -180,4 +180,14 @@ test("khata parchi against shop goods: full slip on khata, shop stock untouched,
   ok(await call("salesman", "POST", `/api/sales/${sale.id}/undo`, {}), "undo");
   near(db.get("SELECT balance FROM customers WHERE id=?", cust.id)!.balance as number, balBefore, "khata back");
   await tallyBooks("after undo (shop goods)");
+  // fuel pumped AND shop goods against the rest of the parchi (the POS "saman" mode with a nozzle amount): both legs book
+  const balMid = db.get("SELECT balance FROM customers WHERE id=?", cust.id)!.balance as number;
+  const mixed = ok(await call("salesman", "POST", "/api/sales", {
+    station_id: live.shift.station_id, product: "HSD", payment_method: "khata", customer_id: cust.id, litres: 20,
+    slip_no: "SG-2", cash_back_litres: 10, items_cost: 1000, items_note: "1 L oil",
+  }), "fuel + shop goods");
+  near(mixed.litres, 20, "nozzle litres kept"); near(mixed.amount, 20 * rate, "fuel revenue kept");
+  near(mixed.items_cost, 1000); near(mixed.khareed, Math.round(10 * rate) - 1000, "khareed on the baqi part only");
+  near((db.get("SELECT balance FROM customers WHERE id=?", cust.id)!.balance as number) - balMid, 20 * rate + Math.round(10 * rate), "khata billed fuel + baqi");
+  await tallyBooks("fuel + shop goods");
 });
