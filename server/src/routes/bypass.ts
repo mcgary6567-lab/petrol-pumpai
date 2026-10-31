@@ -412,7 +412,7 @@ bypass.get("/bypass/deliveries", h((req) => {
       OR EXISTS (SELECT 1 FROM bypass_drops bd JOIN wholesale_clients c ON c.id=bd.client_id WHERE bd.delivery_id=d.id AND (c.name LIKE ? OR c.business_name LIKE ?))
       OR EXISTS (SELECT 1 FROM bypass_purchases bp JOIN suppliers sp ON sp.id=bp.supplier_id WHERE bp.delivery_id=d.id AND sp.name LIKE ?)
       ${prodKeys.length ? `OR EXISTS (SELECT 1 FROM bypass_purchases bp WHERE bp.delivery_id=d.id AND bp.product IN (${prodKeys.map(() => "?").join(",")}))` : ""})`);
-    args.push(like, like, like, qp.q.replace(/^#/, ""), like, like, like, ...prodKeys);
+    args.push(like, like, like, qp.q.replace(/^(#|byp-|del-)/i, ""), like, like, like, ...prodKeys);
   }
   return all(`SELECT d.*, ${proofCol("'byp:'||d.id")}, (SELECT COALESCE(SUM(amount),0) FROM bypass_purchases WHERE delivery_id=d.id AND voided=0) cost,
       (SELECT COALESCE(SUM(litres),0) FROM bypass_purchases WHERE delivery_id=d.id AND voided=0) litres,

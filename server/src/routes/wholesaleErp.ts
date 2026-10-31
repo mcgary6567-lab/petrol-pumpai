@@ -82,7 +82,7 @@ wholesaleErp.get("/wholesale/invoices", h((req) => {
     overdue: round2(live.filter((i) => i.status === "overdue").reduce((a, i) => a + i.unpaid, 0)) };
   if (q.status === "open") list = list.filter((i) => i.unpaid > 0.5);
   else if (q.status !== "all") list = list.filter((i) => i.status === q.status);
-  if (q.q) { const s = q.q.toLowerCase(); list = list.filter((i) => [i.no, i.client_name, i.ref, i.vehicle_no, i.city].some((v) => String(v ?? "").toLowerCase().includes(s))); }
+  if (q.q) { const s = q.q.toLowerCase().replace(/^#/, ""); list = list.filter((i) => [i.no, i.client_name, i.ref, i.vehicle_no, i.city, i.status, i.amount, i.unpaid, i.created_by].some((v) => String(v ?? "").toLowerCase().includes(s))); }
   return { from, to: q.to ?? null, counts, totals, invoices: list.slice(0, 500).map(({ lines, ...i }) => ({ ...i, lines: lines.length })) };
 }));
 

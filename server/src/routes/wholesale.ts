@@ -642,10 +642,10 @@ wholesale.get("/wholesale/clients/:id/statement", h((req) => {
     const m = months.get(k)!; m.dr = round2(m.dr + l.debit); m.cr = round2(m.cr + l.credit); m.n++; bal = l.balance; m.closing = bal;
     if (l.type === "supply") m.litres = round2(m.litres + (l.litres ?? 0));
   }
-  const needle = (q.q ?? "").toLowerCase();
+  const needle = (q.q ?? "").toLowerCase().replace(/^#/, ""); // "#125" / "WS-125" / "125" all find voucher WS-125
   const no = (l: Row) => l.voucher_no ?? `${l.type === "supply" ? "WS" : l.type === "payment" ? "RV" : l.type === "return" ? "CN" : "JV"}-${l.id}`;
   const rows = s.lines.filter((l) => (q.voided || !l.voided) && (!needle ||
-    [no(l), l.type, l.product && PRODUCTS[l.product], l.vehicle_no, l.driver_name, l.ref, l.note, l.method, l.location, l.litres, l.rate, l.amount, l.txn_date?.slice(0, 10)].some((v) => String(v ?? "").toLowerCase().includes(needle))));
+    [no(l), l.id, l.type, l.product && PRODUCTS[l.product], l.vehicle_no, l.driver_name, l.ref, l.note, l.method, l.location, l.litres, l.rate, l.amount, l.txn_date?.slice(0, 10), l.created_by].some((v) => String(v ?? "").toLowerCase().includes(needle))));
   const pages = Math.max(1, Math.ceil(rows.length / q.size)), page = Math.min(q.page, pages);
   return { ...s, lines: rows.slice((page - 1) * q.size, page * q.size), page, pages, size: q.size, total: rows.length, period, months: [...months.values()] };
 }));
@@ -1030,7 +1030,7 @@ wholesale.get("/wholesale/trips", h((req) => {
   if (qp.q) {
     const like = `%${qp.q}%`;
     where.push(`(tr.vehicle_no LIKE ? OR tr.driver_name LIKE ? OR sp.name LIKE ? OR CAST(tr.id AS TEXT)=? OR EXISTS (SELECT 1 FROM wholesale_txns w JOIN wholesale_clients c ON c.id=w.client_id WHERE w.trip_id=tr.id AND (c.name LIKE ? OR c.business_name LIKE ?)))`);
-    args.push(like, like, like, qp.q.replace(/^#/, ""), like, like);
+    args.push(like, like, like, qp.q.replace(/^(#|tr-|trip-)/i, ""), like, like);
   }
   return all(`SELECT tr.*, s.name station_name, sp.name supplier_name FROM wholesale_trips tr JOIN stations s ON s.id=tr.station_id LEFT JOIN suppliers sp ON sp.id=tr.supplier_id
     WHERE ${where.join(" AND ")} ORDER BY tr.trip_date DESC, tr.id DESC LIMIT ?`, ...args, qp.limit);

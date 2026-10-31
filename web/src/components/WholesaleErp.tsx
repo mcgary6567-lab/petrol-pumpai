@@ -1,3 +1,4 @@
+import { SEARCH_HELP } from "../lib/search";
 import { Link } from "react-router-dom";
 import { Search } from "lucide-react";
 import { num } from "../lib/format";
@@ -23,7 +24,7 @@ export function ErpSearch({ value, onChange, placeholder = "Dhoondein… · تل
   return (
     <label className={`relative block ${className}`}>
       <Search size={15} className="absolute left-2.5 top-2.5 text-slate-400" />
-      <input className="input pl-8" placeholder={placeholder} value={value} onChange={(e) => onChange(e.target.value)} aria-label="Search" />
+      <input className="input pl-8" placeholder={placeholder} value={value} onChange={(e) => onChange(e.target.value)} aria-label="Search" title={SEARCH_HELP} />
       {value && <button type="button" aria-label="Clear" className="absolute right-2 top-1.5 px-1 text-slate-400 hover:text-slate-700" onClick={() => onChange("")}>×</button>}
     </label>
   );

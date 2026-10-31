@@ -6,7 +6,7 @@ import { ErpBar } from "./WholesaleErp";
 import { ChequeForm, OrderForm, PromiseForm } from "./WholesaleDesk";
 import { WholesaleVoice } from "./WholesaleVoice";
 import { useApi } from "../lib/api";
-import { Badge, Loading, Modal, Pager, usePaged } from "./ui";
+import { Badge, Loading, Modal, Pager, usePaged, useListFilter } from "./ui";
 import { ErpSearch } from "./WholesaleErp";
 import { dt } from "../lib/format";
 import { PRODUCTS, PRODUCT_COLORS, num, pkr, pkrShort } from "../lib/format";
@@ -288,7 +288,7 @@ function RecentEntries({ rows: all }: { rows: any[] }) {
   };
   const vch = (r: any) => r.voucher_no ?? `${KIND[r.type]?.vch ?? "TX"}-${r.id}`;
   const text = (r: any) => [vch(r), r.client_name, KIND[r.type]?.label, r.product && PRODUCTS[r.product], r.vehicle_no, r.driver_name, r.ref, r.note, r.method, r.location, r.amount, r.created_by].filter((v) => v != null && v !== "").join(" ").toLowerCase();
-  const rows = all.filter((r) => (!kind || r.type === kind) && (!q.trim() || text(r).includes(q.trim().toLowerCase())));
+  const rows = useListFilter(all, { q, keep: (r) => !kind || r.type === kind, text: (r) => `${text(r)} ${r.id}` });
   const paged = usePaged(rows, 10);
   const kinds = ["supply", "payment", "return", "adjustment", "carriage"].map((k) => ({ k, n: all.filter((r) => r.type === k).length })).filter((x) => x.n > 0);
   const totals = rows.reduce((a, r) => { const s = side(r); if (!r.voided) { a.dr += s.dr; a.cr += s.cr; } return a; }, { dr: 0, cr: 0 });
