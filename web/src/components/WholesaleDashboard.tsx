@@ -278,9 +278,18 @@ const KIND: Record<string, { label: string; tone: "blue" | "green" | "amber" | "
   supply: { label: "Supply", tone: "blue", vch: "WS" }, payment: { label: "Payment", tone: "green", vch: "RV" }, return: { label: "Return", tone: "amber", vch: "CN" },
   adjustment: { label: "Adjustment", tone: "violet", vch: "JV" }, carriage: { label: "Carriage", tone: "slate", vch: "JV" }, fuel_note: { label: "Fuel note", tone: "slate", vch: "FN" },
 };
+const GROUPS: Record<string, { label: string; ur: string; kinds: string[] }> = {
+  supply: { label: "Supply entries", ur: "سپلائی", kinds: ["supply", "return", "carriage"] },
+  account: { label: "Account entries", ur: "حساب", kinds: ["payment", "adjustment", "fuel_note"] },
+};
+const groupOf = (type: string) => (GROUPS.supply.kinds.includes(type) ? "supply" : "account");
 function RecentEntries({ rows: all }: { rows: any[] }) {
   const [q, setQ] = useState("");
   const [kind, setKind] = useState("");
+  const [group, setGroupRaw] = useState("");
+  const setGroup = (g: string) => { setGroupRaw(g); setKind(""); };
+  const inGroup = (r: any) => !group || groupOf(r.type) === group;
+  const pool = all.filter(inGroup);
   const side = (r: any) => {
     if (r.type === "fuel_note") return { dr: 0, cr: 0 };
     const dr = r.type === "supply" || r.type === "carriage" || (r.type === "adjustment" && r.amount > 0) ? Math.abs(r.amount) : 0;
@@ -288,9 +297,9 @@ function RecentEntries({ rows: all }: { rows: any[] }) {
   };
   const vch = (r: any) => r.voucher_no ?? `${KIND[r.type]?.vch ?? "TX"}-${r.id}`;
   const text = (r: any) => [vch(r), r.client_name, KIND[r.type]?.label, r.product && PRODUCTS[r.product], r.vehicle_no, r.driver_name, r.ref, r.note, r.method, r.location, r.amount, r.created_by].filter((v) => v != null && v !== "").join(" ").toLowerCase();
-  const rows = useListFilter(all, { q, keep: (r) => !kind || r.type === kind, text: (r) => `${text(r)} ${r.id}` });
+  const rows = useListFilter(all, { q, keep: (r) => inGroup(r) && (!kind || r.type === kind), text: (r) => `${text(r)} ${r.id}` });
   const paged = usePaged(rows, 10);
-  const kinds = ["supply", "payment", "return", "adjustment", "carriage"].map((k) => ({ k, n: all.filter((r) => r.type === k).length })).filter((x) => x.n > 0);
+  const kinds = (group ? GROUPS[group].kinds : ["supply", "payment", "return", "adjustment", "carriage", "fuel_note"]).map((k) => ({ k, n: pool.filter((r) => r.type === k).length })).filter((x) => x.n > 0);
   const totals = rows.reduce((a, r) => { const s = side(r); if (!r.voided) { a.dr += s.dr; a.cr += s.cr; } return a; }, { dr: 0, cr: 0 });
   return (
     <section className="card overflow-hidden" aria-label="Recent wholesale entries">
@@ -298,7 +307,11 @@ function RecentEntries({ rows: all }: { rows: any[] }) {
         <h2 className="font-bold">Recent wholesale entries · <Ur className="font-normal">حالیہ اندراجات</Ur> <span className="text-xs font-normal text-slate-500">aakhri {all.length} · Debit = client par barha · Credit = wasool / kam hua</span></h2>
         <div className="flex flex-wrap items-center gap-1.5">
           <ErpSearch value={q} onChange={setQ} placeholder="Voucher / client / gaari / ref… · تلاش" />
-          <button onClick={() => setKind("")} className={`rounded-full px-2.5 py-1 text-xs font-semibold ${!kind ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-600"}`}>All · {all.length}</button>
+          <select className="input min-h-9 w-auto py-1 text-xs font-semibold" value={group} onChange={(e) => setGroup(e.target.value)} aria-label="Entry group">
+            <option value="">Sab entries · {all.length}</option>
+            {Object.entries(GROUPS).map(([g, m]) => <option key={g} value={g}>{m.label} · {m.ur} · {all.filter((r) => groupOf(r.type) === g).length}</option>)}
+          </select>
+          <button onClick={() => setKind("")} className={`rounded-full px-2.5 py-1 text-xs font-semibold ${!kind ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-600"}`}>All · {pool.length}</button>
           {kinds.map((x) => <button key={x.k} onClick={() => setKind(x.k === kind ? "" : x.k)} className={`rounded-full px-2.5 py-1 text-xs font-semibold ${kind === x.k ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-600"}`}>{KIND[x.k].label} · {x.n}</button>)}
         </div>
       </div>
@@ -322,7 +335,7 @@ function RecentEntries({ rows: all }: { rows: any[] }) {
                   <td className="td text-xs text-slate-500">{r.created_by ?? ""}</td>
                 </tr>); })}
             </tbody>
-            <tfoot><tr className="border-t-2 bg-slate-50 font-semibold tabular-nums"><td className="td" colSpan={7}>Kul · {rows.length} entries{kind ? ` · ${KIND[kind]?.label}` : ""}</td><td className="td text-right text-rose-700">{pkr(totals.dr)}</td><td className="td text-right text-emerald-700">{pkr(totals.cr)}</td><td className="td" colSpan={2}></td></tr></tfoot>
+            <tfoot><tr className="border-t-2 bg-slate-50 font-semibold tabular-nums"><td className="td" colSpan={7}>Kul · {rows.length} entries{group ? ` · ${GROUPS[group].label}` : ""}{kind ? ` · ${KIND[kind]?.label}` : ""}</td><td className="td text-right text-rose-700">{pkr(totals.dr)}</td><td className="td text-right text-emerald-700">{pkr(totals.cr)}</td><td className="td" colSpan={2}></td></tr></tfoot>
           </table>
         </div>
       )}

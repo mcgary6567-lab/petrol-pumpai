@@ -160,7 +160,7 @@ wholesale.get("/wholesale/summary", h((req) => {
     by_product_month: all(`SELECT product, ROUND(SUM(litres)) litres, ROUND(SUM(amount)) amount FROM wholesale_txns
        WHERE tenant_id=? AND voided=0 AND type='supply' AND txn_date >= ? GROUP BY product`, t, month),
     recent: all(`SELECT x.*, ${proofCol("'wtx:'||x.id")}, c.name client_name FROM wholesale_txns x JOIN wholesale_clients c ON c.id=x.client_id
-       WHERE x.tenant_id=? ORDER BY x.txn_date DESC, x.id DESC LIMIT 15`, t),
+       WHERE x.tenant_id=? ORDER BY x.txn_date DESC, x.id DESC LIMIT 40`, t),
   };
 }));
 
