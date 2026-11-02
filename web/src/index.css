@@ -28,8 +28,8 @@
   .btn-danger { @apply btn bg-red-600 text-white hover:bg-red-700; }
   .input { @apply w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100; }
   .label { @apply block text-xs font-medium text-slate-600 mb-1; }
-  .th { @apply px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 bg-slate-50 border-b border-slate-200; }
-  .td { @apply px-3 py-2 text-sm border-b border-slate-100; }
+  .th { @apply px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 bg-slate-50 border border-slate-200; }
+  .td { @apply px-3 py-2 text-sm border border-slate-200; }
   .badge { @apply inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium; }
   /* phones: a 16px input never zooms the page on focus (iOS), and a box never grows past its column */
   @media (max-width: 640px) { .input { font-size: 16px; } }
@@ -45,6 +45,27 @@ input, select, textarea { min-width: 0; max-width: 100%; }
 
 
 /* ---------- Paper / PDF: bank-statement look, the pump's letterhead (components/Letterhead.tsx) ---------- */
+/* ============ ERP tables, system-wide: full grid, zebra rows, Debit / Credit / Balance columns boxed ============
+   Zero-specificity selectors (:where) so a cell's own utility classes (bg-amber-50, text-red-700 …) still win.
+   Opt out of a single table with class "plain" (layout / receipt tables). The `money` class is added to the
+   Debit / Credit / Balance / Baqaya / We owe column by a tiny observer in App.tsx. */
+@media screen {
+  :where(table:not(.plain)) { border-collapse: collapse; }
+  :where(table:not(.plain)) :where(th, td) { border: 1px solid #e2e8f0; }
+  :where(table:not(.plain)) :where(thead th) { background: #f1f5f9; }
+  :where(table:not(.plain)) :where(tbody tr:nth-child(even)) > :where(td) { background: #f8fafc; }
+  :where(table:not(.plain)) :where(tfoot td) { background: #f1f5f9; border-top: 2px solid #94a3b8; font-weight: 700; }
+  :where(table:not(.plain)) :where(th.money, td.money) { border-left: 2px solid #cbd5e1; border-right: 2px solid #cbd5e1; }
+  :where(table:not(.plain)) :where(thead th.money) { background: #e2e8f0; color: #0f172a; }
+  :where(table:not(.plain)) :where(td) { font-variant-numeric: tabular-nums; }
+  .dark :where(table:not(.plain)) :where(th, td) { border-color: #24344d; }
+  .dark :where(table:not(.plain)) :where(thead th) { background: #0f1a2b; }
+  .dark :where(table:not(.plain)) :where(tbody tr:nth-child(even)) > :where(td) { background: #0e1829; }
+  .dark :where(table:not(.plain)) :where(tfoot td) { background: #0f1a2b; border-top-color: #475569; }
+  .dark :where(table:not(.plain)) :where(th.money, td.money) { border-left-color: #3b4f6b; border-right-color: #3b4f6b; }
+  .dark :where(table:not(.plain)) :where(thead th.money) { background: #16233a; color: #e5edf7; }
+}
+
 @media print {
   @page { size: A4; margin: 12mm 11mm 14mm; }
   html, body { background: #fff !important; }
@@ -72,7 +93,8 @@ input, select, textarea { min-width: 0; max-width: 100%; }
   table { border-collapse: collapse !important; width: 100% !important; min-width: 0 !important; font-size: 11px; }
   thead th, th.th { background: #0f172a !important; color: #fff !important; border: 0 !important; }
   tbody tr:nth-child(even) > td { background: #f8fafc !important; }
-  td, .td { border-bottom: 1px solid #e2e8f0 !important; padding: 4px 5px !important; font-size: 11px !important; line-height: 1.35 !important; }
+  td, .td { border: 1px solid #cbd5e1 !important; padding: 4px 5px !important; font-size: 11px !important; line-height: 1.35 !important; }
+  th.money, td.money { border-left: 2px solid #0f172a !important; border-right: 2px solid #0f172a !important; }
   th, .th { padding-left: 5px !important; padding-right: 5px !important; }
   tfoot td { border-top: 2px solid #0f172a !important; font-weight: 700; }
   .tabular-nums, td.text-right { font-variant-numeric: tabular-nums; }

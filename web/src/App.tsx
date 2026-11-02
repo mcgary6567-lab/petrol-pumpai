@@ -165,7 +165,34 @@ function Home() {
   return <Navigate to={can("wholesale.view") ? "/wholesale" : can("cashier.desk") ? "/cashier" : "/pos"} replace />;
 }
 
+/* ERP tables: box the money columns (Debit / Credit / Balance / Baqaya / We owe) by header text — adds class "money" to
+   that header and to the same column in every body / footer row, re-applied whenever the DOM changes. */
+const MONEY_HEAD = /^(debit|credit|balance|baqaya|baqi|we owe|dr|cr|amount|raqam)\b/i;
+function tagMoneyColumns(root: ParentNode = document) {
+  for (const t of root.querySelectorAll<HTMLTableElement>("table:not(.plain)")) {
+    const head = t.tHead?.rows[t.tHead.rows.length - 1]; if (!head) continue;
+    const cols: number[] = []; let ci = 0;
+    for (const th of Array.from(head.cells)) { const txt = (th.textContent ?? "").trim(); if (MONEY_HEAD.test(txt)) { cols.push(ci); th.classList.add("money"); } else th.classList.remove("money"); ci += th.colSpan || 1; }
+    if (!cols.length) continue;
+    for (const sec of [...Array.from(t.tBodies), ...(t.tFoot ? [t.tFoot] : [])]) for (const tr of Array.from(sec.rows)) {
+      let c = 0;
+      for (const td of Array.from(tr.cells)) { const span = td.colSpan || 1; const hit = span === 1 && cols.includes(c); td.classList.toggle("money", hit); c += span; }
+    }
+  }
+}
+function useMoneyColumns() {
+  useEffect(() => {
+    let raf = 0;
+    const run = () => { raf = 0; tagMoneyColumns(); };
+    const mo = new MutationObserver(() => { if (!raf) raf = requestAnimationFrame(run); });
+    mo.observe(document.body, { childList: true, subtree: true, characterData: true });
+    run();
+    return () => { mo.disconnect(); if (raf) cancelAnimationFrame(raf); };
+  }, []);
+}
+
 export default function App() {
+  useMoneyColumns();
   return (
     <ToastProvider>
       <AuthProvider>
