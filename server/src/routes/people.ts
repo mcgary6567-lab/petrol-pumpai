@@ -252,7 +252,7 @@ export function coachStats(t: number, userId: number, day = pkDate(Date.now() - 
   if (!sales.n && shifts.length)
     sales = shifts.map((sh) => get(`SELECT COALESCE(SUM(litres),0) l, COALESCE(SUM(amount),0) a, COUNT(*) n, 0 meter_l FROM sales WHERE station_id=? AND created_at >= ? AND created_at < ?`, sh.station_id, sh.opened_at, sh.closed_at)!)
       .reduce((a, x) => ({ l: a.l + x.l, a: a.a + x.a, n: a.n + x.n, meter_l: 0 }), { l: 0, a: 0, n: 0, meter_l: 0 });
-  const shop = get(`SELECT COALESCE(SUM(total),0) v, COUNT(*) n FROM shop_sales WHERE ${inShifts}`)!;
+  const shop = get(`SELECT COALESCE(SUM(total),0) v, COUNT(*) n FROM shop_sales WHERE ${inShifts} AND COALESCE(kind,'')<>'parchi_cash'`)!;
   const att = get("SELECT late_minutes FROM attendance WHERE user_id=? AND day=?", u.id, day);
   const rating = get("SELECT ROUND(AVG(score),1) avg, COUNT(score) n, SUM(CASE WHEN score<=2 THEN 1 ELSE 0 END) low FROM ratings WHERE salesman_id=? AND rated_at >= ? AND rated_at < ?", u.id, from, to)!;
   return {

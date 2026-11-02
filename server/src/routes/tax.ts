@@ -95,7 +95,7 @@ export function taxReport(t: number, month: string) {
   const s = taxSettings(t);
   const { from, to } = monthRange(month);
   const shop = all(`SELECT i.category, SUM(l.qty * l.price) amount FROM shop_sale_lines l JOIN shop_items i ON i.id=l.item_id JOIN shop_sales ss ON ss.id=l.sale_id
-    WHERE ss.tenant_id=? AND ss.created_at >= ? AND ss.created_at < ? GROUP BY i.category ORDER BY amount DESC`, t, from, to)
+    WHERE ss.tenant_id=? AND ss.created_at >= ? AND ss.created_at < ? AND COALESCE(ss.kind,'')<>'parchi_cash' GROUP BY i.category ORDER BY amount DESC`, t, from, to)
     .map((r) => { const ex = s.exempt.includes(r.category); return { category: r.category, sales: round2(r.amount), exempt: ex, ...(ex ? { value: round2(r.amount), tax: 0 } : splitTax(r.amount, s.gst_pct, s.prices_include_tax)) }; });
   const fuel = all(`SELECT s.product, SUM(s.litres) litres, SUM(s.amount) amount FROM sales s JOIN stations st ON st.id=s.station_id WHERE st.tenant_id=? AND s.created_at >= ? AND s.created_at < ? GROUP BY s.product`, t, from, to)
     .map((r) => ({ product: r.product, name: PRODUCTS[r.product] ?? r.product, litres: round2(r.litres), sales: round2(r.amount), ...splitTax(r.amount, s.fuel_gst_pct, true) }));

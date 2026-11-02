@@ -411,6 +411,12 @@ export function migrate() {
     id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, station_id INTEGER NOT NULL, shift_id INTEGER, customer_id INTEGER,
     payment_method TEXT NOT NULL, total REAL NOT NULL, cost_total REAL NOT NULL, client_uid TEXT UNIQUE, created_by INTEGER, created_at TEXT NOT NULL)`);
   db.exec(`CREATE TABLE IF NOT EXISTS shop_sale_lines (sale_id INTEGER NOT NULL, item_id INTEGER NOT NULL, qty REAL NOT NULL, price REAL NOT NULL, cost REAL NOT NULL)`);
+  // khata parchi settled in cash at the shop: items are the parchi's face (customer's company sees goods), no stock moves,
+  // cash_back left the bag, khareed = parchi value − cash handed (the pump's margin). kind NULL = a normal shop sale.
+  addColumn("shop_sales", "kind", "TEXT");
+  addColumn("shop_sales", "cash_back", "REAL");
+  addColumn("shop_sales", "khareed", "REAL");
+  addColumn("shop_sales", "slip_no", "TEXT");
   db.exec(`CREATE TABLE IF NOT EXISTS shop_moves (
     id INTEGER PRIMARY KEY, item_id INTEGER NOT NULL, type TEXT NOT NULL, qty REAL NOT NULL, cost REAL, ref TEXT, note TEXT, created_by TEXT, created_at TEXT NOT NULL)`);
   db.exec(`CREATE TABLE IF NOT EXISTS loyalty_redemptions (

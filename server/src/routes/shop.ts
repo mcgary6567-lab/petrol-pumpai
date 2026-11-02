@@ -12,6 +12,7 @@ import { AppError, round2, pkr, createAlert, audit, UNDO_SECONDS, adjustClosedSh
 import { assertLookup, moneyMethods } from "./lookups.js";
 import { otherMoney, bankAccountFor, accountIdField } from "./banks.js";
 import { notify, staff } from "../notifications.js";
+import { sendToPhone } from "../whatsapp/cloud.js";
 import { shiftSummary } from "../shifts.js";
 import { receiptUrl } from "../billing.js";
 import { supplierPayment, supplierPayBody } from "./suppliers.js";
@@ -165,7 +166,11 @@ shop.post("/shop/sales", requirePerm("sales.create"), h(async (req) => {
     station_id: z.number(), lines: z.array(z.object({ item_id: z.number(), qty: z.number().positive().max(10_000) })).min(1).max(50),
     payment_method: z.string().max(40), customer_id: z.number().nullable().optional(), // money method (Settings → Lists) or khata
     client_uid: z.string().min(8).max(64).nullable().optional(),
+    // khata parchi, saman nahi diya, cash diya: items only name the parchi; stock untouched; cash_back out of the bag
+    parchi_cash: z.boolean().optional(), cash_back: z.number().min(0).max(100_000_000).optional(), slip_no: z.string().trim().max(40).nullable().optional(),
   }), req.body);
+  const parchi = Boolean(b.parchi_cash);
+  if (parchi && b.payment_method !== "khata") throw new AppError(400, "Parchi cash sirf khata customer par hoti hai");
   if (b.payment_method !== "khata" && !moneyMethods(tid(req)).includes(b.payment_method)) throw new AppError(400, `Unknown payment method: ${b.payment_method}`);
   const stationId = scopedStation(req, b.station_id)!;
   if (b.client_uid) { const dup = get("SELECT * FROM shop_sales WHERE client_uid=? AND tenant_id=?", b.client_uid, t); if (dup) return { ...dup, duplicate: true }; }
@@ -177,11 +182,14 @@ shop.post("/shop/sales", requirePerm("sales.create"), h(async (req) => {
   const items = b.lines.map((l) => {
     const i = get("SELECT * FROM shop_items WHERE id=? AND tenant_id=? AND station_id=? AND active=1", l.item_id, t, stationId);
     if (!i) throw new AppError(400, "Item not found at this station");
-    if (i.stock < l.qty) throw new AppError(400, `Only ${i.stock} ${i.unit} of ${i.name} in stock`);
+    if (!parchi && i.stock < l.qty) throw new AppError(400, `Only ${i.stock} ${i.unit} of ${i.name} in stock`);
     return { i, qty: l.qty };
   });
   const total = round2(items.reduce((a, x) => a + x.qty * x.i.price, 0));
-  const cost = round2(items.reduce((a, x) => a + x.qty * x.i.cost, 0));
+  const cost = parchi ? 0 : round2(items.reduce((a, x) => a + x.qty * x.i.cost, 0)); // no goods leave the shelf on a parchi
+  const cashBack = parchi ? round2(b.cash_back ?? total) : 0;
+  if (parchi && cashBack > total + 0.005) throw new AppError(400, `Cash di parchi ki value (${pkr(total)}) se zyada nahi ho sakti`);
+  const khareed = parchi ? round2(total - cashBack) : 0;
   const customer = b.customer_id ? get("SELECT * FROM customers WHERE id=? AND tenant_id=?", b.customer_id, t) : null;
   if (b.payment_method === "khata") {
     if (!customer) throw new AppError(400, "Khata sale needs a customer");
@@ -190,21 +198,31 @@ shop.post("/shop/sales", requirePerm("sales.create"), h(async (req) => {
   }
   const low: string[] = [];
   const id = tx(() => {
-    const { id } = run("INSERT INTO shop_sales (tenant_id,station_id,shift_id,customer_id,payment_method,total,cost_total,client_uid,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
-      t, stationId, shift?.id ?? null, customer?.id ?? null, b.payment_method, total, cost, b.client_uid ?? null, req.user!.id, now());
+    const { id } = run("INSERT INTO shop_sales (tenant_id,station_id,shift_id,customer_id,payment_method,total,cost_total,client_uid,created_by,created_at,kind,cash_back,khareed,slip_no) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+      t, stationId, shift?.id ?? null, customer?.id ?? null, b.payment_method, total, cost, b.client_uid ?? null, req.user!.id, now(), parchi ? "parchi_cash" : null, parchi ? cashBack : null, parchi ? khareed : null, b.slip_no || null);
     for (const { i, qty } of items) {
-      run("INSERT INTO shop_sale_lines (sale_id,item_id,qty,price,cost) VALUES (?,?,?,?,?)", id, i.id, qty, i.price, i.cost);
+      run("INSERT INTO shop_sale_lines (sale_id,item_id,qty,price,cost) VALUES (?,?,?,?,?)", id, i.id, qty, i.price, parchi ? 0 : i.cost);
+      if (parchi) continue; // the parchi names the goods; nothing leaves the shelf
       run("UPDATE shop_items SET stock = stock - ? WHERE id=?", qty, i.id);
       run("INSERT INTO shop_moves (item_id,type,qty,cost,ref,created_by,created_at) VALUES (?,?,?,?,?,?,?)", i.id, "sale", -qty, i.cost, `shop:${id}`, req.user!.name, now());
       if (i.reorder_level > 0 && i.stock - qty <= i.reorder_level) low.push(`${i.name} (${round2(i.stock - qty)} ${i.unit} left)`);
     }
     if (b.payment_method === "khata" && customer) {
+      const names = items.map((x) => `${x.qty} × ${x.i.name}`).join(", ");
       run(`INSERT INTO khata_ledger (customer_id,type,amount,ref,note,station_id,created_at) VALUES (?,?,?,?,?,?,?)`,
-        customer.id, "debit", total, `SHOP-${id}`, items.map((x) => `${x.qty} × ${x.i.name}`).join(", "), stationId, now());
+        customer.id, "debit", total, `SHOP-${id}`, parchi ? `${names}${b.slip_no ? ` · slip ${b.slip_no}` : ""}` : names, stationId, now());
       run("UPDATE customers SET balance = balance + ? WHERE id=?", total, customer.id);
     }
     return id;
   });
+  if (parchi && customer) {
+    // the owner hears about every parchi settled in cash (same watch as the fuel baqi-cash)
+    const title = `Khata parchi cash (shop): ${pkr(cashBack)} — ${customer.name}`;
+    const body = `${req.user!.name} ne ${customer.name} ki parchi ${pkr(total)} (${items.map((x) => `${x.qty} × ${x.i.name}`).join(", ")}) par saman nahi diya — cash ${pkr(cashBack)} bag se di${khareed > 0 ? `, Khareed (munafa) ${pkr(khareed)}` : ""}. Shop stock par asar nahi.${b.slip_no ? ` Slip ${b.slip_no}.` : ""}`;
+    createAlert(t, { station_id: stationId, type: "khata_cashback", severity: "warning", title, body });
+    const owner = get("SELECT owner_phone FROM tenants WHERE id=?", t);
+    if (owner?.owner_phone) setImmediate(() => { sendToPhone(owner.owner_phone, `⚠️ ${title}\n${body}`).catch((e: Error) => console.error("[parchi notify]", e.message)); });
+  }
   if (low.length) {
     const a = createAlert(t, { station_id: stationId, type: "shop_low_stock", severity: "warning", title: `Shop stock low: ${low.join(", ")}`, dedupe_key: `shoplow-${stationId}-${low.join("|")}` });
     if (a) await notify(t, staff(t, ["manager", "admin"]), { type: "shop_low_stock", title: a.title, body: "Order more from the supplier." });
@@ -221,6 +239,7 @@ shop.post("/shop/sales/:id/undo", requirePerm("sales.create"), h((req) => {
   if (s.shift_id && s.shift_status !== "open") throw new AppError(400, "The shift is closed; this sale can no longer be undone");
   tx(() => {
     for (const l of all("SELECT * FROM shop_sale_lines WHERE sale_id=?", s.id)) {
+      if (s.kind === "parchi_cash") break; // nothing left the shelf, nothing comes back
       run("UPDATE shop_items SET stock = stock + ? WHERE id=?", l.qty, l.item_id);
       run("INSERT INTO shop_moves (item_id,type,qty,cost,ref,created_by,created_at) VALUES (?,?,?,?,?,?,?)", l.item_id, "undo", l.qty, l.cost, `shop:${s.id}`, req.user!.name, now());
     }
@@ -269,6 +288,7 @@ shop.post("/shop/sales/:id/edit", requirePerm("entries.edit"), h((req) => {
   const t = tid(req);
   const s = get("SELECT * FROM shop_sales WHERE id=? AND tenant_id=?", Number(req.params.id), t);
   if (!s) throw new AppError(404, "Shop sale nahi mili");
+  if (s.kind === "parchi_cash") throw new AppError(400, "Ye khata parchi cash entry hai (saman nahi gaya) — galat ho to undo kar ke dobara likhein");
   const b = parse(z.object({
     reason: z.string().trim().min(3, "Wajah likhein (kam se kam 3 harf)"),
     payment_method: z.string().max(40).optional(), customer_id: z.number().int().positive().nullable().optional(),
@@ -303,15 +323,17 @@ shop.post("/shop/sales/:id/edit", requirePerm("entries.edit"), h((req) => {
 }));
 
 /** Shop sales, profit and stock for a period (default today). */
+/** SQL guard: a khata parchi settled in cash is not a shop sale (no goods, no revenue) — keep it out of shop figures. */
+export const NOT_PARCHI = "COALESCE(ss.kind,'') <> 'parchi_cash'";
 export function shopSummary(t: number, from = pkDayStart(), to = new Date().toISOString(), stationId?: number | null) {
   const st = stationId ? `AND ss.station_id=${Number(stationId)}` : "";
-  const tot = get(`SELECT COALESCE(SUM(total),0) sales, COALESCE(SUM(cost_total),0) cost, COUNT(*) n FROM shop_sales ss WHERE tenant_id=? AND created_at >= ? AND created_at < ? ${st}`, t, from, to)!;
+  const tot = get(`SELECT COALESCE(SUM(total),0) sales, COALESCE(SUM(cost_total),0) cost, COUNT(*) n FROM shop_sales ss WHERE tenant_id=? AND created_at >= ? AND created_at < ? ${st} AND ${NOT_PARCHI}`, t, from, to)!;
   return {
     sales: round2(tot.sales), cost: round2(tot.cost), profit: round2(tot.sales - tot.cost), count: tot.n,
     by_category: all(`SELECT i.category, ROUND(SUM(l.qty*l.price),2) sales, ROUND(SUM(l.qty*(l.price-l.cost)),2) profit FROM shop_sale_lines l
-      JOIN shop_sales ss ON ss.id=l.sale_id JOIN shop_items i ON i.id=l.item_id WHERE ss.tenant_id=? AND ss.created_at >= ? AND ss.created_at < ? ${st} GROUP BY i.category ORDER BY sales DESC`, t, from, to),
+      JOIN shop_sales ss ON ss.id=l.sale_id JOIN shop_items i ON i.id=l.item_id WHERE ss.tenant_id=? AND ss.created_at >= ? AND ss.created_at < ? ${st} AND ${NOT_PARCHI} GROUP BY i.category ORDER BY sales DESC`, t, from, to),
     top: all(`SELECT i.name, ROUND(SUM(l.qty),2) qty, ROUND(SUM(l.qty*l.price),2) sales FROM shop_sale_lines l JOIN shop_sales ss ON ss.id=l.sale_id
-      JOIN shop_items i ON i.id=l.item_id WHERE ss.tenant_id=? AND ss.created_at >= ? AND ss.created_at < ? ${st} GROUP BY i.id ORDER BY sales DESC LIMIT 8`, t, from, to),
+      JOIN shop_items i ON i.id=l.item_id WHERE ss.tenant_id=? AND ss.created_at >= ? AND ss.created_at < ? ${st} AND ${NOT_PARCHI} GROUP BY i.id ORDER BY sales DESC LIMIT 8`, t, from, to),
     stock_value: round2(get("SELECT COALESCE(SUM(stock*cost),0) v FROM shop_items WHERE tenant_id=? AND active=1", t)!.v),
     low_stock: all("SELECT id, name, stock, unit, reorder_level FROM shop_items WHERE tenant_id=? AND active=1 AND reorder_level > 0 AND stock <= reorder_level ORDER BY stock", t),
   };

@@ -717,6 +717,8 @@ export function cashierDayBook(t: number, d: string, showPrivate = true) {
       FROM sales x JOIN stations s ON s.id=x.station_id WHERE s.tenant_id=? AND x.shift_id IS NULL AND x.payment_method='cash' AND x.created_at >= ? AND x.created_at < ?`, ...P),
     ...all(`SELECT created_at at, 'in' dir, 'Shop sale (no shift)' what, '' party, 'Cash' method, total amount, NULL account_id, NULL who
       FROM shop_sales WHERE tenant_id=? AND shift_id IS NULL AND payment_method='cash' AND created_at >= ? AND created_at < ?`, ...P),
+    ...all(`SELECT ss.created_at at, 'out' dir, 'Khata parchi cash (shop, no shift)' what, c.name party, 'Cash' method, ss.cash_back amount, NULL account_id, NULL who
+      FROM shop_sales ss JOIN customers c ON c.id=ss.customer_id WHERE ss.tenant_id=? AND ss.shift_id IS NULL AND ss.kind='parchi_cash' AND COALESCE(ss.cash_back,0) > 0 AND ss.created_at >= ? AND ss.created_at < ?`, ...P),
     ...all(`SELECT k.created_at at, 'in' dir, 'Khata payment' what, c.name party, COALESCE(k.ref,'') method, k.amount, k.account_id, NULL who
       FROM khata_ledger k JOIN customers c ON c.id=k.customer_id WHERE c.tenant_id=? AND k.type='credit' AND COALESCE(k.ref,'') NOT LIKE 'oth-%' AND COALESCE(k.ref,'')<>'open:' AND k.created_at >= ? AND k.created_at < ?`, ...P),
     ...all(`SELECT x.created_at at, 'in' dir, 'Carriage payment' what, k.name party, COALESCE(x.method,'') method, x.amount, x.account_id, x.created_by who
@@ -787,7 +789,7 @@ export function cashierDayBook(t: number, d: string, showPrivate = true) {
   const tax = taxSettings(t);
   const fuelAmt = get(`SELECT COALESCE(SUM(s.amount),0) v FROM sales s JOIN stations st ON st.id=s.station_id WHERE st.tenant_id=? AND s.created_at >= ? AND s.created_at < ?`, ...P)!.v as number;
   const fuelTax = splitTax(fuelAmt, tax.fuel_gst_pct, true).tax;
-  const shopTax = all(`SELECT i.category c, SUM(l.qty*l.price) a FROM shop_sale_lines l JOIN shop_items i ON i.id=l.item_id JOIN shop_sales ss ON ss.id=l.sale_id
+  const shopTax = all(`SELECT i.category c, SUM(l.qty*l.price) a FROM shop_sale_lines l JOIN shop_items i ON i.id=l.item_id JOIN shop_sales ss ON ss.id=l.sale_id AND COALESCE(ss.kind,'')<>'parchi_cash'
     WHERE ss.tenant_id=? AND ss.created_at >= ? AND ss.created_at < ? GROUP BY c`, ...P)
     .filter((r) => !tax.exempt.includes(r.c)).reduce((a, r) => a + splitTax(r.a, tax.gst_pct, tax.prices_include_tax).tax, 0);
   const summary = {
@@ -815,7 +817,7 @@ export function onlineToday(t: number, since = pkDayStart()) {
   const methods = POS_DIGITAL.map((m) => {
     const f = get(`SELECT COUNT(*) FILTER (WHERE s.at_close IS NULL) n, COALESCE(SUM(s.amount) FILTER (WHERE s.at_close IS NULL),0) on_pos, COALESCE(SUM(s.amount) FILTER (WHERE s.at_close=1),0) at_close
       FROM sales s JOIN stations st ON st.id=s.station_id WHERE st.tenant_id=? AND s.payment_method=? AND s.created_at >= ?`, t, m, since)!;
-    const shop = get("SELECT COUNT(*) n, COALESCE(SUM(total),0) v FROM shop_sales WHERE tenant_id=? AND payment_method=? AND created_at >= ?", t, m, since)!;
+    const shop = get("SELECT COUNT(*) n, COALESCE(SUM(total),0) v FROM shop_sales WHERE tenant_id=? AND payment_method=? AND created_at >= ? AND COALESCE(kind,'')<>'parchi_cash'", t, m, since)!;
     const on_pos = round2(f.on_pos), at_close = round2(f.at_close), shopV = round2(shop.v);
     return { method: m, on_pos, at_close, shop: shopV, n: f.n + shop.n, total: round2(on_pos + at_close + shopV), account_id: map[m] ?? null, account: accName(map[m]) };
   }).filter((o) => o.total > 0);

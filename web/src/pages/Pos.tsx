@@ -669,7 +669,7 @@ export default function Pos() {
               ? <div className="mt-2 text-xl">{done.lines.map((l: any) => `${num(l.qty)} × ${l.name}`).join(", ")}</div>
               : <div className="mt-2 text-2xl">{fuelOf(done.product).en} {num(done.litres, 2)} L × Rs {done.rate}{done.discount > 0 ? <span className="block text-lg">− Rs {done.discount} {done.discount_kind === "direct" ? "direct discount" : "discount"}</span> : null}</div>}
             <div className="text-5xl font-bold tabular-nums">{pkr(done.shop ? done.total : done.amount)}</div>
-            <div className="mt-2 text-xl capitalize">{done.payment_method === "khata" ? `Khata — ${done.khata_name ?? ""}${done.pending ? " · CARD PENDING" : ""}` : done.payment_method === "loyalty" ? "Paid with points" : done.payment_method === "wallet" ? `Wallet — ${done.khata_name ?? ""}` : done.payment_method === "coupon" ? "Coupon · کوپن" : done.bank_name && isBankPay(done.payment_method) ? `${done.payment_method} — ${done.bank_name}` : done.payment_method}</div>
+            <div className="mt-2 text-xl capitalize">{done.kind === "parchi_cash" ? `Khata parchi cash — ${done.khata_name ?? ""} · cash ${pkr(done.cash_back ?? 0)}${done.khareed > 0 ? ` · khareed ${pkr(done.khareed)}` : ""}` : done.payment_method === "khata" ? `Khata — ${done.khata_name ?? ""}${done.pending ? " · CARD PENDING" : ""}` : done.payment_method === "loyalty" ? "Paid with points" : done.payment_method === "wallet" ? `Wallet — ${done.khata_name ?? ""}` : done.payment_method === "coupon" ? "Coupon · کوپن" : done.bank_name && isBankPay(done.payment_method) ? `${done.payment_method} — ${done.bank_name}` : done.payment_method}</div>
             {Boolean(done.pending) && !done.training && <div className="mt-1 text-base text-white/90">Card aaye to clear karein — us din ke rate par bill hoga</div>}
             {done.discount_kind === "direct" && !done.training && (
               <div className="mx-auto mt-4 max-w-md rounded-2xl bg-white p-3 text-left text-slate-900" onClick={(e) => e.stopPropagation()}>
@@ -1187,33 +1187,44 @@ function ShopPos({ d, disabled, training, onSaved }: { d: any; disabled: boolean
   const [pick, setPick] = useState(false);
   const [scan, setScan] = useState(false);
   const [saving, setSaving] = useState(false);
+  // khata parchi settled in cash: the items only name the parchi (customer's company sees goods on its bill); nothing
+  // leaves the shelf, the cash goes out of the bag, and parchi value − cash = Khareed (the pump's margin)
+  const [parchi, setParchi] = useState(false);
+  const [cashDi, setCashDi] = useState<string>("");
+  const [slip, setSlip] = useState("");
   const toast = useToast();
   const byId = Object.fromEntries(items.map((i) => [i.id, i]));
   const add = (i: any, n = 1) => setCart((c) => {
-    const qty = Math.max(0, Math.min(i.stock, (c[i.id] ?? 0) + n));
+    const cap = parchi ? 10_000 : i.stock; // a parchi may name more than the shelf holds — stock is untouched
+    const qty = Math.max(0, Math.min(cap, (c[i.id] ?? 0) + n));
     const next = { ...c, [i.id]: qty };
     if (!qty) delete next[i.id];
-    if ((c[i.id] ?? 0) + n > i.stock) toast("err", `Only ${i.stock} ${i.unit} of ${i.name} in stock`);
+    if (!parchi && (c[i.id] ?? 0) + n > i.stock) toast("err", `Only ${i.stock} ${i.unit} of ${i.name} in stock`);
     return next;
   });
   const lines = Object.entries(cart).map(([id, qty]) => ({ i: byId[Number(id)], qty })).filter((l) => l.i);
   const total = lines.reduce((a, l) => a + l.qty * l.i.price, 0);
+  const parchiOn = pay === "khata" && parchi;
+  const cashAmt = parchiOn ? (cashDi === "" ? total : Math.max(0, Number(cashDi) || 0)) : 0;
+  const khareed = parchiOn ? Math.round((total - cashAmt) * 100) / 100 : 0;
+  const parchiBad = parchiOn && cashAmt > total + 0.005;
   const shown = items.filter((i) => (!cat || i.category === cat) && i.name.toLowerCase().includes(q.toLowerCase()));
   const found = (code: string) => {
     const i = items.find((x) => x.barcode === code || x.sku === code);
     if (i) { add(i); toast("ok", `Added ${i.name}`); } else toast("err", `No item with code ${code}`);
   };
   const save = async () => {
-    if (!lines.length || !pay || (pay === "khata" && !khata) || saving) return;
+    if (!lines.length || !pay || (pay === "khata" && !khata) || saving || parchiBad) return;
     if (training) {
-      setCart({}); setPay(null); setKhata(null);
+      setCart({}); setPay(null); setKhata(null); setParchi(false); setCashDi(""); setSlip("");
       onSaved({ training: true, total, payment_method: pay, lines: lines.map((l) => ({ qty: l.qty, name: l.i.name })) });
       return;
     }
     setSaving(true);
     try {
-      const r = await api("/shop/sales", { body: { station_id: d.station.id, payment_method: pay, customer_id: khata?.account.id ?? null, client_uid: newUid(), lines: lines.map((l) => ({ item_id: l.i.id, qty: l.qty })) } });
-      setCart({}); setPay(null); setKhata(null); reload();
+      const r = await api("/shop/sales", { body: { station_id: d.station.id, payment_method: pay, customer_id: khata?.account.id ?? null, client_uid: newUid(), lines: lines.map((l) => ({ item_id: l.i.id, qty: l.qty })),
+        ...(parchiOn ? { parchi_cash: true, cash_back: cashAmt, slip_no: slip || null } : {}) } });
+      setCart({}); setPay(null); setKhata(null); setParchi(false); setCashDi(""); setSlip(""); reload();
       onSaved({ ...r, khata_name: khata?.account.name });
     } catch (e: any) { toast("err", isOffline(e) ? "Shop sale needs internet" : e.message); }
     finally { setSaving(false); }
@@ -1232,7 +1243,7 @@ function ShopPos({ d, disabled, training, onSaved }: { d: any; disabled: boolean
         </div>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
           {shown.map((i) => (
-            <button key={i.id} disabled={i.stock <= 0} onClick={() => add(i)}
+            <button key={i.id} disabled={!parchiOn && i.stock <= 0} onClick={() => add(i)}
               className={`relative rounded-xl p-3 text-left ring-2 active:scale-95 ${cart[i.id] ? "bg-emerald-50 ring-emerald-500" : "bg-white ring-slate-200"} disabled:opacity-40`}>
               {cart[i.id] ? <span className="absolute right-2 top-2 rounded-full bg-emerald-600 px-2 text-sm font-bold text-white">{cart[i.id]}</span> : null}
               <div className="pr-6 font-semibold leading-tight">{i.name}</div>
@@ -1254,6 +1265,25 @@ function ShopPos({ d, disabled, training, onSaved }: { d: any; disabled: boolean
           ))}
         </div>
         {pay === "khata" && khata && <div className="mt-2 rounded-xl bg-amber-50 p-2 text-sm ring-1 ring-amber-300">📒 {khata.account.name}</div>}
+        {pay === "khata" && khata && !khata.pending && (
+          <div className="mt-2 rounded-xl bg-amber-50/60 p-3 text-sm ring-1 ring-amber-200">
+            <button type="button" onClick={() => { setParchi(!parchi); setCashDi(""); }} aria-pressed={parchi}
+              className={`min-h-11 w-full rounded-xl px-3 py-2 text-left font-semibold ring-1 transition sm:w-auto ${parchi ? "bg-amber-600 text-white ring-amber-600" : "bg-white text-amber-900 ring-amber-300 hover:bg-amber-100"}`}>
+              💵 Parchi cash — saman nahi diya, paise diye · <Ur className={parchi ? "text-white" : "text-amber-700"}>پرچی کیش</Ur>
+            </button>
+            {parchi && <>
+              <p className="mt-2 text-xs text-slate-600">Items sirf parchi ke naam ke liye chunein (customer ki company ke khate / bill par yahi dikhenge). Shop ka stock nahi hilega, shop sale me nahi ginegi. Cash bag se jayegi.</p>
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <label className="block"><span className="text-xs text-slate-600">Parchi value (items)</span><input className="input min-h-10 bg-slate-100 font-semibold" readOnly value={total ? pkr(total) : ""} placeholder="—" /></label>
+                <label className="block"><span className="text-xs text-slate-600">Cash di (Rs)</span>
+                  <input className="input min-h-10" type="number" min={0} step="1" inputMode="numeric" value={cashDi === "" ? (total || "") : cashDi} placeholder="e.g. 9500" onChange={(e) => setCashDi(e.target.value)} /></label>
+                <label className="block"><span className="text-xs text-slate-600">Slip / parchi no (optional)</span><input className="input min-h-10" value={slip} onChange={(e) => setSlip(e.target.value)} placeholder="e.g. 4471" /></label>
+                <label className="block"><span className="text-xs text-emerald-700">Khareed (munafa · auto)</span><input className="input min-h-10 bg-emerald-50 font-semibold text-emerald-800" readOnly value={khareed > 0 ? pkr(khareed) : "Rs 0"} /></label>
+              </div>
+              {parchiBad && <p className="mt-1 text-xs font-semibold text-rose-700">Cash parchi value se zyada nahi ho sakti</p>}
+            </>}
+          </div>
+        )}
       </section>
       <div className="sticky bottom-0 z-10 rounded-2xl bg-white p-3 shadow-lg ring-1 ring-slate-200">
         {lines.length > 0 && <ul className="mb-2 max-h-40 space-y-1 overflow-auto">
@@ -1269,8 +1299,8 @@ function ShopPos({ d, disabled, training, onSaved }: { d: any; disabled: boolean
         </ul>}
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex-1 text-lg">{lines.length ? <>Total <b className="text-2xl">{pkr(total)}</b></> : <span className="text-slate-500">Tap items to add · <Ur>چیزیں چنیں</Ur></span>}</div>
-          <button onClick={() => { setCart({}); setPay(null); setKhata(null); }} className="rounded-xl bg-slate-200 px-5 py-4 text-lg font-semibold text-slate-700"><X className="inline" size={20} /> Clear</button>
-          <button onClick={save} disabled={disabled || saving || !lines.length || !pay || (pay === "khata" && !khata)}
+          <button onClick={() => { setCart({}); setPay(null); setKhata(null); setParchi(false); setCashDi(""); setSlip(""); }} className="rounded-xl bg-slate-200 px-5 py-4 text-lg font-semibold text-slate-700"><X className="inline" size={20} /> Clear</button>
+          <button onClick={save} disabled={disabled || saving || !lines.length || !pay || (pay === "khata" && !khata) || parchiBad}
             className="flex items-center gap-2 rounded-xl bg-emerald-600 px-8 py-4 text-xl font-bold text-white shadow active:scale-95 disabled:bg-slate-300"><Check size={26} /> Save · <Ur>محفوظ</Ur></button>
         </div>
       </div>

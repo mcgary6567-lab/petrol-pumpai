@@ -100,7 +100,7 @@ export function commissionRates(t: number) {
 export function commission(t: number, from: string, to: string, userId?: number) {
   const rates = commissionRates(t);
   const shop = all(`SELECT ss.created_by uid, i.category, SUM(l.qty * l.price) amount FROM shop_sales ss JOIN shop_sale_lines l ON l.sale_id=ss.id JOIN shop_items i ON i.id=l.item_id
-    WHERE ss.tenant_id=? AND ss.created_at >= ? AND ss.created_at < ? ${userId ? "AND ss.created_by=?" : ""} GROUP BY ss.created_by, i.category`, t, from, to, ...(userId ? [userId] : []));
+    WHERE ss.tenant_id=? AND ss.created_at >= ? AND ss.created_at < ? AND COALESCE(ss.kind,'')<>'parchi_cash' ${userId ? "AND ss.created_by=?" : ""} GROUP BY ss.created_by, i.category`, t, from, to, ...(userId ? [userId] : []));
   const fuel = all(`SELECT s.created_by uid, SUM(s.litres) litres FROM sales s JOIN stations st ON st.id=s.station_id
     WHERE st.tenant_id=? AND s.source='pos' AND s.created_at >= ? AND s.created_at < ? ${userId ? "AND s.created_by=?" : ""} GROUP BY s.created_by`, t, from, to, ...(userId ? [userId] : []));
   const users = all(`SELECT id, name FROM users WHERE tenant_id=? AND role='salesman' ${userId ? "AND id=?" : "AND active=1"} ORDER BY name`, t, ...(userId ? [userId] : []));

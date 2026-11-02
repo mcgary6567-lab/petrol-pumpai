@@ -20,6 +20,7 @@ async function call(who: string, method: string, url: string, body?: unknown) {
   const res = await fetch(base + url, { method, headers: { "content-type": "application/json", ...(tokens[who] ? { authorization: `Bearer ${tokens[who]}` } : {}) }, body: body ? JSON.stringify(body) : undefined });
   return { status: res.status, data: (await res.json().catch(() => null)) as any };
 }
+const round2 = (n: number) => Math.round(n * 100) / 100;
 const ok = (r: { status: number; data: any }, msg: string) => { assert.equal(r.status, 200, `${msg}: ${JSON.stringify(r.data)}`); return r.data; };
 const near = (a: number, b: number, msg?: string) => assert.ok(Math.abs(a - b) < 0.05, `${msg ?? ""} ${a} ≈ ${b}`);
 
@@ -74,6 +75,41 @@ test("shop: stock-in updates average cost; undo returns stock; khata sale goes o
   assert.ok(sum.sales > 0 && sum.profit > 0 && sum.stock_value > 0);
   const day = ok(await call("admin", "GET", "/api/dashboard"), "dash").day;
   near(day.sales.shop, sum.sales, "shop sales in today's book");
+});
+
+test("shop khata parchi cash: items name the parchi, khata debited, no stock move, cash leaves the bag, khareed = value − cash; undo; books tally", async () => {
+  const items = ok(await call("manager", "GET", "/api/shop/items?station_id=1"), "items");
+  const oil = items.find((i: any) => i.stock > 0)!;
+  const acct = ok(await call("salesman", "GET", "/api/pos/khata-accounts"), "accts").find((a: any) => a.status === "ok");
+  const bal0 = ok(await call("admin", "GET", `/api/customers/${acct.id}`), "c").balance as number;
+  const sum0 = ok(await call("manager", "GET", "/api/shop/summary"), "summary0");
+  const sh0 = ok(await call("salesman", "GET", "/api/pos/today"), "today").shift.summary;
+  const qty = 3, value = round2(qty * oil.price), cash = round2(value - 500);
+  // not on a cash method; cash cannot exceed the parchi value
+  assert.equal((await call("salesman", "POST", "/api/shop/sales", { station_id: 1, payment_method: "cash", parchi_cash: true, lines: [{ item_id: oil.id, qty }] })).status, 400);
+  assert.equal((await call("salesman", "POST", "/api/shop/sales", { station_id: 1, payment_method: "khata", customer_id: acct.id, parchi_cash: true, cash_back: value + 1, lines: [{ item_id: oil.id, qty }] })).status, 400);
+  // more than the shelf holds is fine: nothing leaves the shelf
+  const s = ok(await call("salesman", "POST", "/api/shop/sales", { station_id: 1, payment_method: "khata", customer_id: acct.id, parchi_cash: true, cash_back: cash, slip_no: "P-77",
+    lines: [{ item_id: oil.id, qty: oil.stock + qty }] }), "parchi cash");
+  const total = round2((oil.stock + qty) * oil.price);
+  assert.equal(s.kind, "parchi_cash"); near(s.total, total); near(s.cash_back, cash); near(s.khareed, total - cash); near(s.cost_total, 0);
+  near(ok(await call("admin", "GET", `/api/customers/${acct.id}`), "c").balance, bal0 + total, "khata debited the parchi value");
+  near(ok(await call("manager", "GET", "/api/shop/items?station_id=1"), "items").find((i: any) => i.id === oil.id).stock, oil.stock, "stock untouched");
+  assert.ok(!db.get("SELECT 1 x FROM shop_moves WHERE ref=? AND created_at >= ?", `shop:${s.id}`, s.created_at), "no stock move");
+  const led = db.get("SELECT note FROM khata_ledger WHERE ref=?", `SHOP-${s.id}`)!;
+  assert.equal(String(led.note), `${oil.stock + qty} × ${oil.name} · slip P-77`, "statement shows the items + slip");
+  const sum1 = ok(await call("manager", "GET", "/api/shop/summary"), "summary1");
+  near(sum1.sales, sum0.sales, "not a shop sale"); near(sum1.profit, sum0.profit, "no shop profit");
+  const sh1 = ok(await call("salesman", "GET", "/api/pos/today"), "today").shift.summary;
+  near(sh1.cash_expected, sh0.cash_expected - cash, "cash left the bag");
+  near(sh1.khata_cashback - sh0.khata_cashback, cash); near(sh1.khareed - sh0.khareed, total - cash); near(sh1.shop.total, sh0.shop.total, "shop bucket unchanged");
+  assert.ok(db.get("SELECT 1 x FROM alerts WHERE tenant_id=1 AND type='khata_cashback' AND title LIKE 'Khata parchi cash (shop)%'"), "owner alert");
+  assert.equal((await call("admin", "POST", `/api/shop/sales/${s.id}/edit`, { reason: "test", payment_method: "cash" })).status, 400, "no money re-routing on a parchi");
+  const b = ok(await call("admin", "GET", "/api/books/check"), "books"); assert.equal(b.ok, true, JSON.stringify(b.checks.filter((c: any) => !c.ok)));
+  ok(await call("salesman", "POST", `/api/shop/sales/${s.id}/undo`, {}), "undo");
+  near(ok(await call("admin", "GET", `/api/customers/${acct.id}`), "c").balance, bal0, "khata reversed");
+  near(ok(await call("manager", "GET", "/api/shop/items?station_id=1"), "items").find((i: any) => i.id === oil.id).stock, oil.stock, "stock still untouched after undo");
+  near(ok(await call("salesman", "GET", "/api/pos/today"), "today").shift.summary.cash_expected, sh0.cash_expected, "cash back in the bag");
 });
 
 test("vehicle daily limit and registered fuel are enforced; manager can allow more", async () => {

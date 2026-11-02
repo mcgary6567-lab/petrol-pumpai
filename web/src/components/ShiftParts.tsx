@@ -465,6 +465,7 @@ function ReportBody({ r }: { r: any }) {
           <Row k="💵 Cash sales" v={pkr(s.cash_sales)} />
           {s.khata_cashback > 0 && <Row k="− Khata baqi-cash (driver ko bag se)" v={pkr(s.khata_cashback)} c="text-red-700" />}
           {s.khata_items > 0 && <Row k="📦 Khata baqi-saman (shop goods, cash nahi)" v={pkr(s.khata_items)} c="text-slate-600" />}
+          {s.shop_parchi?.n > 0 && <Row k={`💵 Shop parchi cash (${s.shop_parchi.n}) — khata par ${pkr(s.shop_parchi.total)}, cash bag se`} v={pkr(s.shop_parchi.cash)} c="text-red-700" />}
           {s.khareed > 0 && <Row k="🟢 Khareed (munafa — cash nahi)" v={pkr(s.khareed)} c="text-emerald-700" />}
           <Row k="− Expenses paid from cash" v={pkr(s.expenses_total)} c="text-red-700" />
           <Row k="= Cash to hand over" v={pkr(s.cash_expected)} b />

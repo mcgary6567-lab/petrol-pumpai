@@ -122,9 +122,15 @@ function journalNow(t: number, fromDay: string, toDay: string, showPrivate = tru
       [dr("Khata receivable", round2(r.fin)), cr(UNBILLED, round2(r.prov)), cr("Fuel sales", split.value), cr("Output sales tax", split.tax)]);
   }
   // shop sales (sales tax split out)
-  const shop = all(`SELECT date(datetime(ss.created_at,'+5 hours')) d, ss.payment_method m, SUM(ss.total) a FROM shop_sales ss WHERE ss.tenant_id=? AND ss.created_at >= ? AND ss.created_at < ? GROUP BY d, m`, ...P);
+  const shop = all(`SELECT date(datetime(ss.created_at,'+5 hours')) d, ss.payment_method m, SUM(ss.total) a FROM shop_sales ss WHERE ss.tenant_id=? AND ss.created_at >= ? AND ss.created_at < ? AND COALESCE(ss.kind,'')<>'parchi_cash' GROUP BY d, m`, ...P);
   const shopTax = all(`SELECT date(datetime(ss.created_at,'+5 hours')) d, i.category c, SUM(l.qty*l.price) a FROM shop_sale_lines l JOIN shop_items i ON i.id=l.item_id JOIN shop_sales ss ON ss.id=l.sale_id
-    WHERE ss.tenant_id=? AND ss.created_at >= ? AND ss.created_at < ? GROUP BY d, c`, ...P);
+    WHERE ss.tenant_id=? AND ss.created_at >= ? AND ss.created_at < ? AND COALESCE(ss.kind,'')<>'parchi_cash' GROUP BY d, c`, ...P);
+  // khata parchi settled in cash at the shop counter: the company owes the parchi value (receivable up), the cash left the
+  // bag, the rest is Khareed income. No goods moved, so no shop sale / no cost of sales / no sales tax here.
+  for (const r of all(`SELECT date(datetime(ss.created_at,'+5 hours')) d, SUM(ss.total) v, SUM(COALESCE(ss.cash_back,0)) cb, SUM(COALESCE(ss.khareed,0)) kh FROM shop_sales ss
+    WHERE ss.tenant_id=? AND ss.created_at >= ? AND ss.created_at < ? AND ss.kind='parchi_cash' GROUP BY d`, ...P))
+    add(r.d, "Journal", `Khata parchi cash (shop) ${r.d} — saman nahi, cash di + Khareed`,
+      [dr("Khata receivable", round2(r.v)), ...(round2(r.cb) ? [cr(CASH, round2(r.cb))] : []), ...(round2(r.kh) ? [cr("Khareed", round2(r.kh))] : [])]);
   for (const d of [...new Set(shop.map((r) => r.d))]) {
     const rows = shop.filter((r) => r.d === d);
     const total = rows.reduce((a, r) => a + r.a, 0);

@@ -93,7 +93,7 @@ export function shiftSummary(shiftId: number) {
   const expenses = all(`SELECT id, category, amount, paid_to, note, status, created_by, created_at FROM expenses WHERE shift_id=? AND status<>'rejected' ORDER BY id`, shiftId);
   const sum = (m: string[]) => round2(byPayment.filter((p) => m.includes(p.method)).reduce((a, p) => a + p.amount, 0));
   // shop (lubricants / tuck shop) sales on the same shift: their cash goes in the same bag
-  const shopBy = all("SELECT payment_method method, ROUND(SUM(total),2) amount, COUNT(*) n FROM shop_sales WHERE shift_id=? GROUP BY payment_method", shiftId);
+  const shopBy = all("SELECT payment_method method, ROUND(SUM(total),2) amount, COUNT(*) n FROM shop_sales WHERE shift_id=? AND COALESCE(kind,'')<>'parchi_cash' GROUP BY payment_method", shiftId);
   const shopSum = (m: string[]) => round2(shopBy.filter((p) => m.includes(p.method)).reduce((a, p) => a + p.amount, 0));
   const shop = { total: shopSum(["cash", "easypaisa", "jazzcash", "raast", "card", "khata"]), cash: shopSum(["cash"]), digital: shopSum(["easypaisa", "jazzcash", "raast", "card"]), khata: shopSum(["khata"]), sales: shopBy.reduce((a, p) => a + p.n, 0) };
   const cashSales = round2(sum(["cash"]) + shop.cash);
@@ -104,11 +104,14 @@ export function shiftSummary(shiftId: number) {
   // It leaves the drawer like an expense, so the bag must be short by exactly this much. khareed = the pump's profit
   // on those deals (baqi litres billed − cash handed), a non-cash income shown for the day's munafa.
   const kc = get("SELECT COALESCE(SUM(cash_back),0) cb, COALESCE(SUM(items_cost),0) it, COALESCE(SUM(khareed),0) kh FROM sales WHERE shift_id=? AND payment_method='khata'", shiftId)!;
-  const khataCashback = round2(kc.cb);
+  // a khata parchi settled in cash at the SHOP counter: same bag, same buckets
+  const sp = get("SELECT COALESCE(SUM(cash_back),0) cb, COALESCE(SUM(khareed),0) kh, COALESCE(SUM(total),0) v, COUNT(*) n FROM shop_sales WHERE shift_id=? AND kind='parchi_cash'", shiftId)!;
+  const khataCashback = round2(kc.cb + sp.cb);
   // shop goods given against a khata parchi this shift: billed to the khata, but NO cash leaves the bag, so it does not
   // change cash_expected — shown for the day's record (the shop's own stock/sales are untouched).
   const khataItems = round2(kc.it);
-  const khareed = round2(kc.kh);
+  const khareed = round2(kc.kh + sp.kh);
+  const shopParchi = { total: round2(sp.v), cash: round2(sp.cb), khareed: round2(sp.kh), n: sp.n };
   // POS / card money this shift, split by the bank machine it was taken on (null = not tagged to a bank)
   const posByBank = all(`SELECT s.account_id, b.bank, b.title, b.account_no, ROUND(SUM(s.amount),2) amount, COUNT(*) n
     FROM sales s LEFT JOIN bank_accounts b ON b.id=s.account_id
@@ -120,7 +123,7 @@ export function shiftSummary(shiftId: number) {
     litres: round2(byProduct.reduce((a, p) => a + p.litres, 0)), amount: round2(byProduct.reduce((a, p) => a + p.amount, 0)),
     cash_sales: cashSales, digital: sum(["easypaisa", "jazzcash", "raast", "card"]), khata: sum(["khata"]), points: sum(["loyalty"]), prepaid: sum(["coupon", "wallet"]), wholesale: sum(["wholesale"]), shop,
     direct_discount: round2(dd.v), direct_discount_n: dd.n,
-    expenses, expenses_total: expensesTotal, khata_cashback: khataCashback, khata_items: khataItems, khareed,
+    expenses, expenses_total: expensesTotal, khata_cashback: khataCashback, khata_items: khataItems, khareed, shop_parchi: shopParchi,
     // what must be in the cash bag at the end: cash sales minus expenses and minus any khata-slip cash paid to drivers
     cash_expected: round2(cashSales - expensesTotal - khataCashback),
   };
