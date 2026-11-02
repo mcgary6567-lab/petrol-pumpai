@@ -59,7 +59,7 @@ test("supplier: we overpay, then take the overpayment back in cash, books tally"
   const s = ok(await call("admin", "GET", "/api/suppliers"), "sups")[0];
   const owed0 = Number(s.owed);
   // pay the supplier Rs 7,000 more than owed → negative payable (they owe us)
-  ok(await call("admin", "POST", `/api/suppliers/${s.id}/payment`, { amount: owed0 + 7000, method: "cash" }), "spay");
+  ok(await call("admin", "POST", `/api/suppliers/${s.id}/payment`, { amount: owed0 + 7000, method: "Bank transfer" }), "spay"); // cash above the counted amount is refused, so pay by bank
   const owed1 = Number(ok(await call("admin", "GET", "/api/suppliers"), "sup2").find((x: any) => x.id === s.id).owed);
   near(owed1, -7000, "supplier overpaid → they owe us 7,000");
   await tally("after supplier overpay");

@@ -94,6 +94,12 @@ test("1. sign up 'Test Pump' + staff of every role, all log in", async () => {
   }), "signup");
   assert.equal(s.user.role, "admin");
   tok.admin = s.token;
+  // paid add-ons are switched on by the platform owner (a sign-up can no longer grant them itself)
+  const plat = ok(await call("", "POST", "/api/platform/login", { email: "owner@petrolpumpai.pk", password: "platform-pass-123" }), "platform login").token;
+  for (const module of ["wholesale", "investors"]) {
+    const r = await fetch(base + `/api/platform/tenants/${s.tenantId}/module`, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${plat}` }, body: JSON.stringify({ module, on: true }) });
+    assert.equal(r.status, 200, `module ${module}`);
+  }
   const st = ok(await call("admin", "GET", "/api/stations"), "stations")[0];
   ids.station = st.id;
   ids.tankP = st.tanks.find((t: any) => t.product === "PMG").id;

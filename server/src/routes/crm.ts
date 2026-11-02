@@ -264,6 +264,8 @@ crm.post("/customers/:id/khata", requireAny("khata.manage", "cash.receive"), h(a
 }));
 
 /** Khata statement / monthly bill: every fuel entry with litres, the rate at that time, vehicle and slip, plus payments. */
+/** A khata debit that is goods / fuel we gave (bill line), not a refund, opening balance or investor transfer. */
+export const isBilledDebit = (ref: string | null | undefined) => !/^(refund:|xfer:|open:)/i.test(String(ref ?? "").trim());
 export function khataStatement(tenantId: number, id: number, from?: string, to?: string) {
   const c = ownCustomer(tenantId, id);
   const before = from ? get("SELECT COALESCE(SUM(CASE WHEN type='debit' THEN amount ELSE -amount END),0) b FROM khata_ledger WHERE customer_id=? AND created_at < ?", c.id, pkStart(from))!.b : 0;
@@ -284,8 +286,11 @@ export function khataStatement(tenantId: number, id: number, from?: string, to?:
         a[k].litres += l.litres ?? 0; a[k].amount += l.amount; a[k].entries++;
         return a;
       }, {})),
-      charged: fuel.reduce((a, l) => a + l.amount, 0),
-      paid: lines.filter((l) => l.type === "credit").reduce((a, l) => a + l.amount, 0),
+      charged: round2(fuel.reduce((a, l) => a + l.amount, 0)),
+      // what we actually gave (fuel / shop / slips): a refund of an advance, an opening balance or an advance moved to
+      // investor capital is a debit on the khata but not a bill line
+      billed: round2(fuel.filter((l) => isBilledDebit(l.ref)).reduce((a, l) => a + l.amount, 0)),
+      paid: round2(lines.filter((l) => l.type === "credit").reduce((a, l) => a + l.amount, 0)),
     },
   };
 }

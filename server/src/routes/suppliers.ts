@@ -4,7 +4,8 @@ import { z } from "zod";
 import { recordWithholding, taxSettings } from "./tax.js";
 import { all, get, run, now, tx } from "../db.js";
 import { linkPhotos, proofPhotos, proofCol, requireProof, isCheque } from "./capture.js";
-import { bankAccountFor, accountIdField, chequeToRegister, accountName } from "./banks.js";
+import { bankAccountFor, accountIdField, chequeToRegister, accountName, isCash } from "./banks.js";
+import { assertCashInHand } from "./backoffice.js";
 import { h, parse, tid, can, requirePerm } from "../auth.js";
 import { AppError, assertNoDuplicateParty, normalizePhone, round2, pkr, partyBalance, partyBalanceAll, audit } from "../services.js";
 import { announce } from "../notifications.js";
@@ -210,6 +211,7 @@ export function supplierPayment(req: Request, supplierId: number, b: z.infer<typ
   // One supplier, two accounts: the pump's own purchases and the bypass (client-fuel) purchases. A payment settles what is
   // owed on the bypass account first — a bypass-only supplier's whole balance sits there — and the rest goes on the pump
   // account. Posting everything on the pump account (as before) left pump negative / bypass positive for the same money.
+  if (!accountId && isCash(b.method)) assertCashInHand(t, b.amount, `${s.name} ko payment`);
   const bypDue = bypassOwed(s.id);
   const toBypass = bypDue > 0.5 ? Math.min(round2(b.amount), round2(bypDue)) : 0;
   const toPump = round2(b.amount - toBypass);

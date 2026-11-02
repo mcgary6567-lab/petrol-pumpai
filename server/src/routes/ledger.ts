@@ -248,8 +248,8 @@ function journalNow(t: number, fromDay: string, toDay: string, showPrivate = tru
     else if (r.type === "adjustment") add(d, "Journal", `Supplier adjustment — ${r.name}${r.note ? ` (${r.note})` : ""}`, [dr(r.amount < 0 ? pay : "Supplier adjustments", Math.abs(r.amount)), cr(r.amount < 0 ? "Shortage claims recovered" : pay, Math.abs(r.amount))]);
   }
   // expenses
-  for (const r of all(`SELECT * FROM expenses WHERE tenant_id=? AND (status='approved' OR (status='pending' AND shift_id IS NOT NULL)) AND created_at >= ? AND created_at < ?`, ...P))
-    add(day(r.created_at), "Payment", `${r.category}${r.paid_to ? ` — ${r.paid_to}` : ""}${r.note ? ` (${r.note})` : ""}`, [dr(`Expense: ${r.category}`, r.amount), cr(via(r.method, r.account_id), r.amount)]);
+  for (const r of all(`SELECT * FROM expenses WHERE tenant_id=? AND (status='approved' OR (status='pending' AND shift_id IS NOT NULL)) AND COALESCE(expense_date, substr(created_at,1,10)) >= ? AND COALESCE(expense_date, substr(created_at,1,10)) <= ?`, t, fromDay, toDay))
+    add(r.expense_date ?? day(r.created_at), "Payment", `${r.category}${r.paid_to ? ` — ${r.paid_to}` : ""}${r.note ? ` (${r.note})` : ""}`, [dr(`Expense: ${r.category}`, r.amount), cr(via(r.method, r.account_id), r.amount)]);
   // bank deposits, coupons, wallets
   for (const r of all(`SELECT * FROM bank_deposits WHERE tenant_id=? AND created_at >= ? AND created_at < ?`, ...P))
     add(day(r.created_at), "Contra", `Cash deposited — ${r.bank}${r.slip_ref ? ` slip ${r.slip_ref}` : ""}`, [dr(r.account_id ? BANK : UNLINKED, r.amount), cr(CASH, r.amount)]);

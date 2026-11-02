@@ -68,11 +68,21 @@ export function cashFlows(t: number, since: string, until: string) {
     khata_refunds: one(`SELECT COALESCE(SUM(amount),0) v FROM khata_ledger k JOIN customers c ON c.id=k.customer_id WHERE c.tenant_id=? AND k.type='debit' AND LOWER(TRIM(COALESCE(k.ref,'')))='refund:cash' AND k.account_id IS NULL AND k.created_at > ? AND k.created_at <= ?`, ...P),
     // khata slip "baqi cash" on a counter (no-shift) fill — cash handed to the driver from the office bag. Shift fills
     // never flow here: their cash-back is already netted into the salesman's handover (shiftSummary cash_expected).
-    khata_cashback: one(`SELECT COALESCE(SUM(s.cash_back),0) v FROM sales s JOIN stations st ON st.id=s.station_id WHERE st.tenant_id=? AND s.shift_id IS NULL AND s.payment_method='khata' AND COALESCE(s.cash_back,0) > 0 AND s.created_at > ? AND s.created_at <= ?`, ...P),
+    khata_cashback: round2(one(`SELECT COALESCE(SUM(s.cash_back),0) v FROM sales s JOIN stations st ON st.id=s.station_id WHERE st.tenant_id=? AND s.shift_id IS NULL AND s.payment_method='khata' AND COALESCE(s.cash_back,0) > 0 AND s.created_at > ? AND s.created_at <= ?`, ...P)
+      // shop "parchi cash" at the counter (no shift): the customer took rupees instead of goods, out of the office bag
+      + one("SELECT COALESCE(SUM(cash_back),0) v FROM shop_sales WHERE tenant_id=? AND shift_id IS NULL AND kind='parchi_cash' AND COALESCE(cash_back,0) > 0 AND created_at > ? AND created_at <= ?", ...P)),
     wholesale_refunds: one(`SELECT COALESCE(SUM(amount),0) v FROM wholesale_txns WHERE tenant_id=? AND type='adjustment' AND COALESCE(ref,'')='refund:' AND voided=0 AND account_id IS NULL AND ${cashSql("method")} AND created_at > ? AND created_at <= ?`, ...P),
   };
   const sum = (o: Record<string, number>) => round2(Object.values(o).reduce((a, b) => a + b, 0));
   return { ins, outs, total_in: sum(ins), total_out: sum(outs) };
+}
+
+/** Refuse a cash payout bigger than the cash book says is in hand (only once a cash count exists — before that the book
+ *  has no anchor). The cashier's Pay voucher always had this rule; every other cash-out door shares it now. */
+export function assertCashInHand(t: number, amount: number, what = "payment") {
+  const pos = cashPosition(t);
+  if (pos.last_count && amount > pos.cash_in_hand + 0.01)
+    throw new AppError(400, `Only ${pkr(pos.cash_in_hand)} cash should be in hand — ${what} of ${pkr(amount)} in cash is more than that. Pay by bank, or count the cash first.`);
 }
 
 export function cashPosition(t: number, until = new Date().toISOString()) {

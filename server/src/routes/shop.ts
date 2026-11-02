@@ -11,6 +11,7 @@ import { h, parse, tid, requirePerm, scopedStation, can } from "../auth.js";
 import { AppError, round2, pkr, createAlert, audit, UNDO_SECONDS, adjustClosedShiftCash, saleCash } from "../services.js";
 import { assertLookup, moneyMethods } from "./lookups.js";
 import { otherMoney, bankAccountFor, accountIdField } from "./banks.js";
+import { assertCashInHand } from "./backoffice.js";
 import { notify, staff } from "../notifications.js";
 import { sendToPhone } from "../whatsapp/cloud.js";
 import { shiftSummary } from "../shifts.js";
@@ -77,6 +78,7 @@ shop.post("/shop/items/:id/stock-in", requirePerm("stock.manage"), h((req) => {
   if (b.paid_by === "supplier" && !sup) throw new AppError(400, "Supplier chunein jis ke khate par maal aaya");
   if (b.paid_by === "bank" && !bankAccountFor(t, b.account_id, b.method ?? "bank")) throw new AppError(400, "Bank / wallet account chunein");
   if (b.paid_by !== "none" && amount <= 0) throw new AppError(400, "Paisa book karne ke liye cost per unit likhein");
+  if (b.paid_by === "cash") assertCashInHand(t, amount, "shop purchase");
   tx(() => {
     run("UPDATE shop_items SET stock = stock + ?, cost=? WHERE id=?", b.qty, avg, i.id);
     const mid = run("INSERT INTO shop_moves (item_id,type,qty,cost,ref,note,created_by,created_at,paid_by,amount) VALUES (?,?,?,?,?,?,?,?,?,?)",
@@ -190,6 +192,10 @@ shop.post("/shop/sales", requirePerm("sales.create"), h(async (req) => {
   const cashBack = parchi ? round2(b.cash_back ?? total) : 0;
   if (parchi && cashBack > total + 0.005) throw new AppError(400, `Cash di parchi ki value (${pkr(total)}) se zyada nahi ho sakti`);
   const khareed = parchi ? round2(total - cashBack) : 0;
+  if (parchi && cashBack > 0 && shift) {
+    const bag = shiftSummary(shift.id).cash_expected ?? 0;
+    if (cashBack > bag + 0.01) throw new AppError(400, `Bag me sirf ${pkr(bag)} cash hai — ${pkr(cashBack)} parchi par nahi de sakte`);
+  }
   const customer = b.customer_id ? get("SELECT * FROM customers WHERE id=? AND tenant_id=?", b.customer_id, t) : null;
   if (b.payment_method === "khata") {
     if (!customer) throw new AppError(400, "Khata sale needs a customer");

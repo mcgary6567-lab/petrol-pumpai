@@ -6,7 +6,7 @@ import { h, parse, tid, requirePerm, requireAny, can } from "../auth.js";
 import { bankAccountFor, accountIdField } from "./banks.js";
 import { AppError, createAlert, pkr, round2 } from "../services.js";
 import { linkPhotos } from "./capture.js";
-import { guardClosedDay } from "./backoffice.js";
+import { guardClosedDay, assertCashInHand } from "./backoffice.js";
 import { registerDecider, requestApproval, closeApproval } from "./approvals.js";
 
 export const expenses = Router();
@@ -189,6 +189,7 @@ export async function createExpense(req: Request, b: z.infer<typeof expenseBody>
   const autoApprove = can(req.user, "expenses.approve") || b.amount <= approvalLimit(t);
   const date = b.expense_date ?? pkDate();
   guardClosedDay(req, t, date);
+  if (autoApprove && b.method === "cash") assertCashInHand(t, b.amount, `${b.category} kharcha`);
   const { id } = run(
     `INSERT INTO expenses (tenant_id,station_id,category,amount,paid_to,method,note,receipt_ref,status,created_by,approved_by,expense_date,created_at,account_id)
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
@@ -243,6 +244,14 @@ export function decideExpense(t: number, id: number, approve: boolean, by: strin
   if (e.status !== "pending") throw new AppError(400, `Expense is already ${e.status}`);
   const status = approve ? "approved" : "rejected";
   run("UPDATE expenses SET status=?, approved_by=? WHERE id=?", status, by, e.id);
+  if (!approve && e.shift_id) {
+    // the shift's expected cash was lowered by this expense at close; rejected = that cash should have been in the bag
+    const sh = get("SELECT * FROM shifts WHERE id=?", e.shift_id);
+    if (sh && sh.status === "closed") {
+      const expected = round2((sh.cash_expected ?? 0) + e.amount);
+      run("UPDATE shifts SET cash_expected=?, variance=? WHERE id=?", expected, round2((sh.cash_actual ?? 0) - expected), sh.id);
+    }
+  }
   // paid at the cash counter before approval: a rejected expense means that payout is void too (the money comes back)
   if (!approve) run("UPDATE cashier_vouchers SET voided=1, void_reason=?, voided_by=?, voided_at=? WHERE tenant_id=? AND src=? AND voided=0", "Expense rejected", by, now(), t, `expense:${e.id}`);
   closeApproval("expense", e.id, approve, by);

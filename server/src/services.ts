@@ -423,11 +423,12 @@ export const saleCash = (payment_method: string | null | undefined, amount: numb
  * counted in the bag, so it cannot be added to a closed shift. An open shift (figures are computed at close) or no shift
  * (counter sale) is left alone. Must run inside the caller's tx. Returns what moved, for the audit row / response.
  */
-export function adjustClosedShiftCash(shift: Row | null | undefined, freedCash: number, what: string) {
+export function adjustClosedShiftCash(shift: Row | null | undefined, freedCash: number, what: string, allowShort = false) {
   if (!shift || shift.status !== "closed") return null;
   const freed = round2(freedCash);
   if (Math.abs(freed) < 0.005) return null;
-  if (freed < 0)
+  // allowShort: a voided khata cash-back — that cash really left the bag, so expected rises and the shift shows "short"
+  if (freed < 0 && !allowShort)
     throw new AppError(400, `Band shift me cash nahi badh sakta — ${what} se shift #${shift.id} ka cash ${pkr(-freed)} barhta hai, jo close par gina nahi gaya tha. Is sale ko void karke aaj ki khuli shift me dobara daalein.`);
   const expected = round2((shift.cash_expected ?? 0) - freed);
   const variance = round2((shift.cash_actual ?? 0) - expected);

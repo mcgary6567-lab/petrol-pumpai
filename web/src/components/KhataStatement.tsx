@@ -24,7 +24,7 @@ export default function KhataStatement({ customerId, onClose }: { customerId: nu
   const [lq, setLq] = useState("");
   const vehicles: string[] = [...new Set<string>(((s?.lines ?? []) as any[]).map((l) => l.vehicle_no).filter(Boolean))].sort();
   const fresh = useNewRows<any>(s?.lines, (l) => l.id);
-  const lines = useListFilter<any>(s?.lines, { q: lq, keep: (l) => (!veh || l.vehicle_no === veh) && (!billOnly || l.type === "debit"),
+  const lines = useListFilter<any>(s?.lines, { q: lq, keep: (l) => (!veh || l.vehicle_no === veh) && (!billOnly || (l.type === "debit" && !/^(refund:|xfer:|open:)/i.test(String(l.ref ?? "")))),
     text: (l) => [l.product ? PRODUCTS[l.product] : "", l.product, l.type === "credit" ? "payment" : "", l.note, l.ref, l.slip_no, l.vehicle_no, l.amount, l.litres].filter((v) => v != null && v !== "").join(" ") });
   const narrowed = Boolean(veh || lq.trim());
   // vehicle / slip columns only when some line has one, so the paper is not half dashes
@@ -71,7 +71,7 @@ export default function KhataStatement({ customerId, onClose }: { customerId: nu
             {billOnly ? (
               <div className="text-right text-sm">
                 <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Bill · {s.from ?? "start"} → {s.to ?? "today"}</div>
-                <div className="text-lg">Bill total: <b className="tabular-nums">{pkr(s.totals.charged)}</b></div>
+                <div className="text-lg">Bill total: <b className="tabular-nums">{pkr(s.totals.billed ?? s.totals.charged)}</b></div>
                 <div className="text-xs text-slate-500">Account balance today: {pkr(Math.abs(s.closing_balance))}{s.closing_balance < -0.5 ? " (advance)" : ""}</div>
               </div>
             ) : (

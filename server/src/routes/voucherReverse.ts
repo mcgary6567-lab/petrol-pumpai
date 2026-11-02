@@ -68,7 +68,10 @@ function bypassReverse(t: number, by: string, id: number, reason: string) {
   for (const x of drops) {
     run("UPDATE bypass_drops SET voided=1, note=COALESCE(note,'') || ? WHERE id=?", tag, x.id);
     if (x.tank_id) { if (x.to_delivery_id) run("DELETE FROM deliveries WHERE id=?", x.to_delivery_id); run("UPDATE tanks SET current_l = current_l - ? WHERE id=?", x.litres, x.tank_id); }
-    if (x.wtx_id) run("UPDATE wholesale_txns SET voided=1, void_reason=? WHERE id=? AND voided=0", `${by} (voucher void): ${reason}`, x.wtx_id);
+    if (x.wtx_id) {
+      run("UPDATE wholesale_txns SET voided=1, void_reason=? WHERE id=? AND voided=0", `${by} (voucher void): ${reason}`, x.wtx_id);
+      run("UPDATE wholesale_orders SET status='open', txn_id=NULL, done_at=NULL WHERE tenant_id=? AND txn_id=? AND status='done'", t, x.wtx_id);
+    }
   }
   for (const p of purchases) {
     run("UPDATE bypass_purchases SET voided=1 WHERE id=?", p.id);

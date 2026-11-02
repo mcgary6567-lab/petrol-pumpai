@@ -87,7 +87,8 @@ corrections.post("/corrections/sale/:id/void", requirePerm("corrections.manage")
   const { did, shiftCash } = tx(() => {
     const did = reverseSale(t, sale);
     // a cash sale on a CLOSED shift: that cash was counted in the bag, so the shift's expected cash drops and the rest shows as "over"
-    const shiftCash = adjustClosedShiftCash(shift, saleCash(sale.payment_method, sale.amount), "sale void");
+    const cashBack = round2(sale.cash_back ?? 0); // khata "baqi cash" handed out of the bag — voiding puts it back on paper
+    const shiftCash = adjustClosedShiftCash(shift, saleCash(sale.payment_method, sale.amount) - cashBack, "sale void", cashBack > 0);
     if (shiftCash) did.push(`shift #${shiftCash.shift_id} cash expected ${pkr(shiftCash.cash_expected_before)} → ${pkr(shiftCash.cash_expected)}`);
     return { did, shiftCash };
   });
@@ -142,6 +143,7 @@ corrections.post("/corrections/sale/:id/edit", requirePerm("entries.edit"), h((r
     });
     // on a CLOSED shift the bag's cash follows: cash → khata/card (or a smaller cash amount) frees counted cash → expected drops;
     // khata/card → cash would ADD cash that was never counted → refused (the tx rolls back)
+    if (shift?.status === "closed" && round2(saved.cash_back ?? 0) !== round2(sale.cash_back ?? 0)) throw new AppError(400, "Band shift par baqi-cash nahi badal sakta — sale void karke khuli shift me dobara daalein");
     const shiftCash = adjustClosedShiftCash(shift, saleCash(sale.payment_method, sale.amount) - saleCash(saved.payment_method, saved.amount), `${sale.payment_method} → ${saved.payment_method} edit`);
     return { saved, shiftCash };
   });

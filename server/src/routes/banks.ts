@@ -24,7 +24,7 @@ import { digitalMethods, lookupLabel } from "./lookups.js";
 export const accountName = (a: Row) =>
   `${a.bank}${a.branch ? ` ${a.branch}` : ""}${a.account_no ? ` ··${String(a.account_no).replace(/[^0-9A-Za-z]/g, "").slice(-4)}` : ""}`;
 
-const isCash = (m?: string | null) => !m || /^cash$/i.test(m.trim());
+export const isCash = (m?: string | null) => !m || /^cash$/i.test(m.trim());
 /**
  * A wholesale client paid our supplier (depot) straight: the client's due and what we owe the depot both go down,
  * no money touches our cash or banks. Both entries carry this method.

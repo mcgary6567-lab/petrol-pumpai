@@ -25,7 +25,8 @@ import { supplierOwed } from "./suppliers.js";
 import { khataEntry } from "../services.js";
 import { h, parse, tid, requirePerm } from "../auth.js";
 import { AppError, round2, audit, currentPrices, createAlert } from "../services.js";
-import { otherMoney, accountIdField, chequeToRegister, bankAccountFor } from "./banks.js";
+import { otherMoney, accountIdField, chequeToRegister, bankAccountFor, isCash } from "./banks.js";
+import { assertCashInHand } from "./backoffice.js";
 import { isCheque } from "./capture.js";
 
 export const investors = Router();
@@ -355,6 +356,7 @@ investors.post("/investors/:id/money", P, h((req) => {
     return { id: null, cheque_id: cid, pending: true, balance: investorBalance(i.id),
       message: b.dir === "in" ? `Cheque ${b.cheque.cheque_no} register me hai — clear hone par ${i.name} ke khate me credit hoga.` : `Cheque ${b.cheque.cheque_no} register me hai — bank ke paas karne par ${i.name} ke khate me debit hoga.` };
   }
+  if (b.dir === "out" && isCash(b.method)) assertCashInHand(t, b.amount, `${i.name} ko payout`);
   const id = tx(() => moneyTxn(t, req.user!.name, i, b));
   audit(t, req.user!, b.dir === "in" ? "investor_capital_in" : "investor_payout", `investor:${i.id}`, { txn: id, ...b });
   return { id, balance: investorBalance(i.id) };

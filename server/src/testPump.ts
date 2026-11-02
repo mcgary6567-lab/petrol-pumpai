@@ -5,6 +5,8 @@
  *
  * Every step records: what was entered, what we expect (worked out by hand here), what the system shows, and whether they match.
  */
+import { setSetting } from "./db.js";
+import { forgetModules } from "./auth.js";
 type Res = { status: number; data: any };
 export type Step = { n: number; title: string; entry: string; expect: string; actual: string; ok: boolean };
 export type TestPumpReport = { pump: { name: string; slug: string | null; url: string | null }; logins: { role: string; name: string; email: string; password: string; pin: string }[]; steps: Step[]; summary: { ok: number; failed: number }; totals: Record<string, number> };
@@ -44,6 +46,8 @@ export async function runTestPump(base: string, opts: { tag?: string; publicUrl?
     prices: { PMG: 300, HSD: 280 }, modules: { wholesale: true },
   }), "signup");
   tokens.admin = signup.token;
+  // the platform owner switches the paid add-on on (a sign-up cannot grant it itself); this runner is the platform button
+  setSetting(Number(signup.tenantId), "module_wholesale", "1"); forgetModules(Number(signup.tenantId));
   const me = await must(call("admin", "GET", "/api/me"), "me");
   const slug = me.tenant?.slug ?? null;
   const st = (await must(call("admin", "GET", "/api/stations"), "stations"))[0];

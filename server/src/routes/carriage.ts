@@ -11,7 +11,7 @@
  */
 import { Router } from "express";
 import { z } from "zod";
-import { all, get, run, tx, now, pkDate, getSetting, stampFor } from "../db.js";
+import { all, get, run, tx, now, pkDate, pkStart, pkEnd, getSetting, stampFor } from "../db.js";
 import { h, parse, tid, requirePerm } from "../auth.js";
 import { AppError, assertNoDuplicateParty, createAlert, round2, pkr, audit, partyBalance, partyBalanceAll } from "../services.js";
 import { productSchema } from "../products.js";
@@ -374,7 +374,7 @@ carriage.get("/carriage/fuel-held", h((req) =>
 carriage.get("/carriage/summary", h((req) => {
   const t = tid(req);
   const month = String(req.query.month ?? pkDate().slice(0, 7));
-  const from = new Date(`${month}-01T00:00:00+05:00`).toISOString(), to = new Date(`${month}-31T23:59:59+05:00`).toISOString();
+  const from = pkStart(`${month}-01`), to = pkEnd(`${month}-${new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate()}`);
   const P = [t, from, to] as const;
   return {
     month,
@@ -391,7 +391,7 @@ carriage.get("/carriage/summary", h((req) => {
 export function statement(tenantId: number, thekedarId: number, from?: string, to?: string) {
   const k = own(tenantId, thekedarId);
   const fromIso = from ? new Date(`${from}T00:00:00+05:00`).toISOString() : undefined;
-  const toIso = to ? new Date(`${to}T23:59:59+05:00`).toISOString() : undefined;
+  const toIso = to ? pkEnd(to) : undefined;
   const opening = fromIso ? thekedarDue(k.id, fromIso) : k.opening_balance;
   const rows = all(
     `SELECT x.*, ${proofCol("'carr:'||x.id")}, s.name depot_name FROM carriage_txns x LEFT JOIN suppliers s ON s.id=x.supplier_id

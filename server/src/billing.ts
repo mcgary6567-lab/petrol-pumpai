@@ -12,7 +12,7 @@ import { config, PRODUCTS } from "./config.js";
 import { all, get, getSetting, pkDate, type Row } from "./db.js";
 import { paymentLink, pkr, round2 } from "./services.js";
 import { sendWhatsApp, sendDirect } from "./whatsapp/cloud.js";
-import { khataStatement } from "./routes/crm.js";
+import { khataStatement, isBilledDebit } from "./routes/crm.js";
 import { statement as wholesaleStatement, clientDue } from "./routes/wholesale.js";
 import { portalLink } from "./routes/customerCare.js";
 import { pinOf } from "./routes/pinPortal.js";
@@ -158,18 +158,18 @@ export function renderBill(token: string): string | null {
   if (!tenant) return null;
   const { from, to } = periodRange(p.m);
   const billOnly = p.v === "bill"; // only what we gave: no payments, no running balance (the customer's company wants a bill, not a ledger)
-  let title: string, who: Row, rows: string, totals: string, opening: number, closing: number;
+  let title: string, who: Row, rows: string, totals: string, opening: number, closing: number, billTotal = 0;
   if (p.bill === "k") {
     const s = khataStatement(p.t, p.id, from, to);
-    who = s.customer; opening = s.opening_balance; closing = s.closing_balance; title = billOnly ? "Bill" : "Khata statement";
-    const lines = billOnly ? s.lines.filter((l: any) => l.type === "debit") : s.lines;
+    who = s.customer; opening = s.opening_balance; closing = s.closing_balance; title = billOnly ? "Bill" : "Khata statement"; billTotal = s.totals.billed;
+    const lines = billOnly ? s.lines.filter((l: any) => l.type === "debit" && isBilledDebit(l.ref)) : s.lines;
     rows = lines.map((l: any) => `<tr><td>${dts(l.created_at)}</td><td>${esc(l.vehicle_no)}</td><td>${esc(l.slip_no)}</td><td>${l.type === "debit" ? esc(PRODUCTS[l.product] ?? l.note) : `Payment${l.note ? ` — ${esc(l.note)}` : ""}`}</td>` +
       `<td class=r>${l.litres ? n2(l.litres) : ""}</td><td class=r>${l.rate ? n2(l.rate) : ""}</td><td class="r m">${l.type === "debit" ? m2(l.amount) : ""}</td>${billOnly ? "" : `<td class="r m">${l.type === "credit" ? m2(l.amount) : ""}</td><td class="r m">${m2(l.balance)}</td>`}</tr>`).join("");
     totals = s.totals.by_product.map((t: any) => `<div>${esc(PRODUCTS[t.product] ?? t.product)}: <b>${n2(t.litres)} L</b> · ${t.entries} fills · <b>Rs ${m2(t.amount)}</b></div>`).join("") +
-      (billOnly ? `<div>Total for the period: <b>Rs ${m2(s.totals.charged)}</b></div>` : `<div>Charged: <b>Rs ${m2(s.totals.charged)}</b> · Paid: <b>Rs ${m2(s.totals.paid)}</b></div>`);
+      (billOnly ? `<div>Total for the period: <b>Rs ${m2(s.totals.billed)}</b></div>` : `<div>Charged: <b>Rs ${m2(s.totals.charged)}</b> · Paid: <b>Rs ${m2(s.totals.paid)}</b></div>`);
   } else {
     const s = wholesaleStatement(p.t, p.id, from, to);
-    who = s.client; opening = s.opening_balance; closing = s.closing_balance; title = "Wholesale statement";
+    who = s.client; opening = s.opening_balance; closing = s.closing_balance; title = billOnly ? "Bill" : "Wholesale statement"; billTotal = s.summary.billed;
     rows = s.lines.filter((l: any) => !l.voided).map((l: any) => `<tr><td>${dts(l.txn_date)}</td><td>${esc(l.vehicle_no)}</td><td>${esc(l.ref)}</td><td>${esc(l.type)}${l.product ? ` — ${esc(PRODUCTS[l.product])}` : ""}${l.voided ? " (void)" : ""}</td>` +
       `<td class=r>${l.litres ? n2(l.litres) : ""}</td><td class=r>${l.rate ? n2(l.rate) : ""}</td><td class="r m">${l.debit ? m2(l.debit) : ""}</td><td class="r m">${l.credit ? m2(l.credit) : ""}</td><td class="r m">${m2(l.balance)}</td></tr>`).join("");
     totals = `<div>Supplied: <b>${n2(s.summary.by_product.reduce((a: number, x: any) => a + x.supplied_l, 0))} L</b> · Billed <b>Rs ${m2(s.summary.billed)}</b> · Received <b>Rs ${m2(s.summary.received)}</b></div>`;
@@ -206,8 +206,8 @@ ${brandHead(p.t, title)}
 <div class="box"><span>Period</span><b>${esc(periodName(p.m))}</b>${billOnly ? `<div class=muted>Bill no. ${esc(p.bill.toUpperCase())}-${p.id}-${esc(from.replace(/-/g, ""))}</div>` : `<div class=muted>Opening balance: <b>Rs ${m2(opening)}</b></div><div class=muted>Closing balance: <b>Rs ${m2(closing)}</b></div>`}</div></div>
 <div class="wrap"><table><thead><tr><th>Date</th><th>Vehicle</th><th>Slip / ref</th><th>Entry</th><th class=r>Litres</th><th class=r>Rate</th><th class="r m">${billOnly ? "Amount" : "Debit"}</th>${billOnly ? "" : `<th class="r m">Credit</th><th class="r m">Balance</th>`}</tr></thead>
 <tbody>${rows || `<tr><td colspan=${billOnly ? 7 : 9} class=muted>No entries in this period</td></tr>`}</tbody>
-${billOnly ? `<tfoot><tr><td colspan=6>Total</td><td class="r m">Rs ${m2(p.bill === "k" ? (rows ? khataStatement(p.t, p.id, from, to).totals.charged : 0) : 0)}</td></tr></tfoot>` : ""}</table></div>
-<div class="sum">${totals}${billOnly ? `<div class="big">Bill total: <b>Rs ${m2(p.bill === "k" ? khataStatement(p.t, p.id, from, to).totals.charged : 0)}</b></div><div class=muted>Account balance today: Rs ${m2(closing)}</div>` : `<div class="big">Balance due: <b>Rs ${m2(closing)}</b></div>`}</div>
+${billOnly ? `<tfoot><tr><td colspan=6>Total</td><td class="r m">Rs ${m2(billTotal)}</td></tr></tfoot>` : ""}</table></div>
+<div class="sum">${totals}${billOnly ? `<div class="big">Bill total: <b>Rs ${m2(billTotal)}</b></div><div class=muted>Account balance today: Rs ${m2(closing)}</div>` : `<div class="big">Balance due: <b>Rs ${m2(closing)}</b></div>`}</div>
 <div class="muted" style="margin-top:8px">Generated ${esc(new Date().toLocaleString("en-PK", { timeZone: "Asia/Karachi" }))} · computer statement, no signature needed</div>
 ${brandFoot(p.t)}
 <button onclick="print()">Print / Save as PDF</button></div></body></html>`;

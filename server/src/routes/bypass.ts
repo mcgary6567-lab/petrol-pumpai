@@ -16,7 +16,8 @@ import { AppError, round2, audit } from "../services.js";
 import { productSchema } from "../products.js";
 import { PRODUCTS } from "../config.js";
 import { linkPhotos, proofPhotos, proofCol } from "./capture.js";
-import { bankAccountFor, accountIdField } from "./banks.js";
+import { bankAccountFor, accountIdField, isCash } from "./banks.js";
+import { assertCashInHand } from "./backoffice.js";
 import { insertTxn, fleet, priceSupply, clientDue } from "./wholesale.js";
 import { BYPASS_PAY } from "./banks.js";
 import { deliverOrder } from "./wholesaleDesk.js";
@@ -515,7 +516,7 @@ export function bypassStatement(tenantId: number, supplierId: number, from?: str
   const s = get("SELECT s.*, d.name depot_name FROM suppliers s LEFT JOIN depots d ON d.id=s.depot_id WHERE s.id=? AND s.tenant_id=?", supplierId, tenantId);
   if (!s) throw new AppError(404, "Supplier not found");
   const fromIso = from ? new Date(`${from}T00:00:00+05:00`).toISOString() : undefined;
-  const toIso = to ? new Date(`${to}T23:59:59+05:00`).toISOString() : undefined;
+  const toIso = to ? pkEnd(to) : undefined;
   const opening = fromIso ? bypassOwed(s.id, fromIso) : 0;
   const purchases = all(`SELECT id, 'purchase' kind, txn_date, product, litres, cost_rate, amount, ref, note, supplier_id,
       EXISTS(SELECT 1 FROM bypass_supplier_payments f WHERE f.ref='cfuel:'||bypass_purchases.id AND f.voided=0) client_fuel FROM bypass_purchases
@@ -577,6 +578,7 @@ bypass.post("/bypass/suppliers/:id/payment", requirePerm("wholesale.manage"), h(
     if (amount > due + 0.01) throw new AppError(400, `${client.name} only owes ${Math.round(due).toLocaleString("en-PK")} — a bypass settlement cannot be more than the client's due.`);
   }
   const acc = b.mode === "client_direct" ? null : bankAccountFor(t, b.account_id, b.method ?? "bank");
+  if (b.mode === "we_pay" && isCash(b.method) && !acc) assertCashInHand(t, amount, `${s.name} ko payment`);
   const out = tx(() => {
     let wtxId: number | null = null;
     if (b.mode === "client_direct") {
