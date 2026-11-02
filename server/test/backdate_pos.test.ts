@@ -21,6 +21,7 @@ async function call(who: string, method: string, url: string, body?: unknown) {
 }
 const ok = (r: { status: number; data: any }, m: string) => { assert.equal(r.status, 200, `${m}: ${JSON.stringify(r.data)}`); return r.data; };
 const near = (a: number, b: number, m?: string) => assert.ok(Math.abs(a - b) < 0.05, `${m ?? ""} ${a} ≈ ${b}`);
+const round2 = (n: number) => Math.round(n * 100) / 100;
 const books = async () => { const b = ok(await call("admin", "GET", "/api/books/check"), "books"); assert.equal(b.ok, true, JSON.stringify(b.checks.filter((c: any) => !c.ok))); };
 const cashNow = async () => ok(await call("admin", "GET", "/api/cash"), "cash").cash_in_hand as number;
 const dayAgo = (n: number) => new Date(Date.now() - n * 86_400_000 + 5 * 3600_000).toISOString().slice(0, 10);
@@ -251,6 +252,20 @@ test("same-voucher costing: a delivery's drops are costed from its own bill firs
     drops: [{ client_id: W.id, product: prod, litres: 3_000, override_limit: true }] }), "voucher 2");
   near(del2.sold_cost, 1_000 * 400 + 2_000 * 380, "own 1,000 @400 + held 2,000 @380");
   near(ok(await call("wholesale", "GET", "/api/bypass/lots"), "lots").fuels.find((f: any) => f.product === prod).balance, 10_000);
+  await books();
+  // old vouchers costed the pooled way are re-costed on the same rule: fake one by writing the blended cost back on del
+  const pooled = round2(10_000 * ((12_000 * 380 + 3_969_589) / 22_000));
+  db.run("UPDATE bypass_drops SET cost_amount=?, unit_cost=? WHERE delivery_id=?", pooled, round2(pooled / 10_000), del.id);
+  const pre = ok(await call("admin", "GET", "/api/bypass/recost"), "preview");
+  assert.equal(pre.applied, false); assert.equal(pre.drops, 1);
+  const v = pre.vouchers.find((x: any) => x.delivery_id === del.id);
+  near(v.old_cost, pooled); near(v.new_cost, 3_969_589); near(v.new_margin, 11);
+  assert.equal((await call("wholesale", "POST", "/api/bypass/recost", {})).status, 403, "officer cannot");
+  const ap = ok(await call("admin", "POST", "/api/bypass/recost", {}), "apply");
+  assert.equal(ap.applied, true); assert.equal(ap.drops, 1);
+  near(db.get("SELECT cost_amount FROM bypass_drops WHERE delivery_id=? AND voided=0", del.id)!.cost_amount, 3_969_589);
+  assert.equal(ok(await call("admin", "GET", "/api/bypass/recost"), "again").drops, 0, "idempotent");
+  assert.ok(db.get("SELECT 1 x FROM audit_log WHERE tenant_id=? AND action='bypass_recost'", t));
   await books();
 });
 

@@ -1,14 +1,35 @@
 /** "Baqi stock" — lot-wise bypass stock (which supplier bill the held fuel sits on), the per-fuel reconciliation and the
  *  outs; a lot stays here until it is delivered to a client or unloaded into our tank. */
 import { Link } from "react-router-dom";
-import { useApi } from "../lib/api";
-import { Empty, Loading } from "./ui";
+import { api, useApi } from "../lib/api";
+import { Empty, Loading, useAction } from "./ui";
+import { useAuth } from "../App";
 import { Ur } from "./VoiceShell";
 import { PRODUCTS, dt, num, pkr } from "../lib/format";
 import { AlertTriangle, Layers } from "lucide-react";
 
+/** Vouchers saved before same-voucher costing carry the old pooled-average cost: one click re-costs them all. */
+function RecostBanner({ onDone }: { onDone: () => void }) {
+  const { can } = useAuth();
+  const pre = useApi<any>(can("entries.edit") ? "/bypass/recost" : null);
+  const { busy, run } = useAction();
+  if (!pre.data || !pre.data.vouchers?.length) return null;
+  const v = pre.data;
+  return (
+    <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+      <div className="font-semibold">{v.vouchers.length} purane voucher purane (average) rule par costed hain · <Ur>پرانے واؤچر</Ur></div>
+      <p className="mt-1 text-xs">Naya rule: voucher ka maal usi voucher ki khareed par cost hota hai, held stock sirf zaid litres par. Recost se in vouchers ka munafa kul <b>{pkr(Math.abs(v.margin_shift))}</b> {v.margin_shift >= 0 ? "zyada" : "kam"} hoga; stock ki kul value aur books same rehti hain, sirf voucher-wise munafa durust hota hai. Audit log me record rahega.</p>
+      <ul className="mt-2 max-h-40 space-y-0.5 overflow-auto text-xs">
+        {v.vouchers.slice(0, 12).map((x: any) => <li key={String(x.delivery_id)} className="flex justify-between gap-2 tabular-nums"><span>{x.delivery_id ? `BYP-${x.delivery_id}` : "stock se"} · {dt(x.txn_date).slice(0, 11)}</span><span>munafa {pkr(x.old_margin)} → <b>{pkr(x.new_margin)}</b></span></li>)}
+        {v.vouchers.length > 12 && <li className="text-slate-500">… aur {v.vouchers.length - 12}</li>}
+      </ul>
+      <button className="btn-primary mt-3 min-h-10" disabled={busy} onClick={() => run(() => api("/bypass/recost", { body: {} }), "Recost ho gaya").then((ok) => { if (ok) { pre.reload(); onDone(); } })}>Naye rule par recost karein</button>
+    </div>
+  );
+}
+
 export function BypassStockTab() {
-  const { data, error } = useApi<any>("/bypass/lots");
+  const { data, error, reload } = useApi<any>("/bypass/lots");
   if (error) return <div className="card p-4 text-sm text-red-700">{String(error)}</div>;
   if (!data) return <Loading />;
   const fuels: any[] = data.fuels ?? [];
@@ -22,6 +43,7 @@ export function BypassStockTab() {
         </div>
         <div className="text-right"><div className="text-xs text-slate-500">Kul baqi</div><div className={`text-xl font-bold tabular-nums ${data.total.litres < -0.01 ? "text-rose-700" : ""}`}>{num(data.total.litres)} L · {pkr(data.total.value)}</div></div>
       </div>
+      <RecostBanner onDone={reload} />
       {!live.length && <Empty>Abhi koi bypass khareed nahi.</Empty>}
       {live.map((f) => (
         <section key={f.product} className="card overflow-hidden" aria-label={`${PRODUCTS[f.product] ?? f.product} stock`}>

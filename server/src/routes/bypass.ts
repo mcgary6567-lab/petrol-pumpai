@@ -10,7 +10,7 @@
  */
 import { Router } from "express";
 import { z } from "zod";
-import { all, get, run, tx, now, pkDate, pkStart, pkEnd, stampFor } from "../db.js";
+import { all, get, run, tx, now, pkDate, pkStart, pkEnd, stampFor, type Row } from "../db.js";
 import { h, parse, tid, requirePerm } from "../auth.js";
 import { AppError, round2, audit } from "../services.js";
 import { productSchema } from "../products.js";
@@ -679,6 +679,60 @@ bypass.post("/bypass/purchases/:id/to-client", requirePerm("entries.edit"), h((r
   return { ok: true, ...out, old_supplier_owed: bypassOwed(r.supplier_id as number), client_due: clientDue(client.id) };
 }));
 const pkr0 = (n: number) => `Rs ${Math.round(n).toLocaleString("en-PK")}`;
+
+/** Re-cost the whole bypass history on the same-voucher rule (vouchers saved before it used the pooled weighted average).
+ *  Replays purchases and outs in date order: a voucher's client drops take its own bills first, then the stock held
+ *  before it at the held average; own-tank unloads keep their recorded value (stock transfer, not profit). Only client
+ *  drops whose cost moves are listed / rewritten. `apply` = write + audit, else preview. */
+export function recostBypass(t: number, apply: boolean, by?: string) {
+  const buys = all("SELECT id, delivery_id, product, litres, amount, txn_date FROM bypass_purchases WHERE tenant_id=? AND voided=0 ORDER BY txn_date, id", t);
+  const outs = all(`SELECT x.id, x.delivery_id, x.product, x.litres, x.unit_cost, x.cost_amount, x.tank_id, x.txn_date, w.amount billed, c.name client
+      FROM bypass_drops x LEFT JOIN wholesale_txns w ON w.id=x.wtx_id LEFT JOIN wholesale_clients c ON c.id=x.client_id WHERE x.tenant_id=? AND x.voided=0 ORDER BY x.txn_date, x.id`, t);
+  type Ev = { k: "buy" | "out"; at: string; id: number; d: number | null; r: Row };
+  const events: Ev[] = [...buys.map((b) => ({ k: "buy" as const, at: b.txn_date as string, id: b.id as number, d: b.delivery_id as number | null, r: b })),
+    ...outs.map((o) => ({ k: "out" as const, at: o.txn_date as string, id: o.id as number, d: o.delivery_id as number | null, r: o }))]
+    .sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : a.k !== b.k ? (a.k === "buy" ? -1 : 1) : a.id - b.id));
+  const pool: Record<string, { l: number; v: number }> = {};
+  const P = (p: string) => (pool[p] ??= { l: 0, v: 0 });
+  const avg = (p: string) => (P(p).l > 0.001 ? P(p).v / P(p).l : 0);
+  const done = new Set<number>();
+  const changes: { id: number; delivery_id: number | null; product: string; litres: number; client: string | null; old_cost: number; new_cost: number; new_unit: number }[] = [];
+  const settle = (o: Row, cost: number, unit: number) => {
+    P(o.product as string).l = round2(P(o.product as string).l - (o.litres as number));
+    if (o.tank_id) { P(o.product as string).v = round2(P(o.product as string).v - (o.cost_amount as number)); return; } // unload keeps its value
+    P(o.product as string).v = round2(P(o.product as string).v - cost);
+    if (Math.abs(cost - (o.cost_amount as number)) > 0.5) changes.push({ id: o.id as number, delivery_id: o.delivery_id as number | null, product: o.product as string, litres: o.litres as number, client: (o.client as string) ?? null, old_cost: o.cost_amount as number, new_cost: cost, new_unit: unit });
+  };
+  for (const e of events) {
+    if (e.d != null) {
+      if (done.has(e.d)) continue; done.add(e.d);
+      const dBuys = buys.filter((b) => b.delivery_id === e.d), dOuts = outs.filter((o) => o.delivery_id === e.d);
+      const heldAvg: Record<string, number> = {};
+      for (const p of new Set(dOuts.map((o) => o.product as string))) heldAvg[p] = avg(p);
+      const take = sameVoucherCoster(dBuys as any, heldAvg);
+      for (const b of dBuys) { P(b.product as string).l = round2(P(b.product as string).l + (b.litres as number)); P(b.product as string).v = round2(P(b.product as string).v + (b.amount as number)); }
+      for (const o of [...dOuts.filter((o) => !o.tank_id), ...dOuts.filter((o) => o.tank_id)]) { const c = take(o.product as string, o.litres as number); settle(o, c.cost, c.unit); }
+    } else if (e.k === "buy") { P(e.r.product as string).l = round2(P(e.r.product as string).l + (e.r.litres as number)); P(e.r.product as string).v = round2(P(e.r.product as string).v + (e.r.amount as number)); }
+    else { const u = avg(e.r.product as string); settle(e.r, round2((e.r.litres as number) * u), round2(u)); } // a drop with no voucher: from held stock
+  }
+  // per-voucher view: billed / old cost / new cost → old and new munafa
+  const perDel = new Map<number | null, { delivery_id: number | null; txn_date: string; billed: number; old_cost: number; new_cost: number }>();
+  for (const o of outs.filter((o) => !o.tank_id)) {
+    const k = o.delivery_id as number | null; const ch = changes.find((c) => c.id === o.id);
+    const row = perDel.get(k) ?? { delivery_id: k, txn_date: o.txn_date as string, billed: 0, old_cost: 0, new_cost: 0 };
+    row.billed = round2(row.billed + ((o.billed as number) ?? 0)); row.old_cost = round2(row.old_cost + (o.cost_amount as number)); row.new_cost = round2(row.new_cost + (ch ? ch.new_cost : (o.cost_amount as number)));
+    perDel.set(k, row);
+  }
+  const vouchers = [...perDel.values()].filter((v) => Math.abs(v.old_cost - v.new_cost) > 0.5).map((v) => ({ ...v, old_margin: round2(v.billed - v.old_cost), new_margin: round2(v.billed - v.new_cost) })).sort((a, b) => (a.txn_date < b.txn_date ? 1 : -1));
+  const total_old = round2(vouchers.reduce((a, v) => a + v.old_cost, 0)), total_new = round2(vouchers.reduce((a, v) => a + v.new_cost, 0));
+  if (apply && changes.length) tx(() => {
+    for (const c of changes) run("UPDATE bypass_drops SET unit_cost=?, cost_amount=? WHERE id=? AND tenant_id=?", c.new_unit, c.new_cost, c.id, t);
+    audit(t, { name: by ?? "system" } as any, "bypass_recost", "bypass", { drops: changes.length, vouchers: vouchers.length, total_old, total_new });
+  });
+  return { applied: apply, drops: changes.length, vouchers, total_old_cost: total_old, total_new_cost: total_new, margin_shift: round2(total_old - total_new), stock: bypassStock(t) };
+}
+bypass.get("/bypass/recost", requirePerm("entries.edit"), h((req) => recostBypass(tid(req), false)));
+bypass.post("/bypass/recost", requirePerm("entries.edit"), h((req) => recostBypass(tid(req), true, req.user!.name)));
 
 /** Void a bypass purchase or payment (correction). */
 bypass.post("/bypass/purchases/:id/void", requirePerm("wholesale.void"), h((req) => {
