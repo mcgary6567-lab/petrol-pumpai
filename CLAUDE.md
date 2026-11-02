@@ -205,3 +205,11 @@ The SQLite file holds EVERY pump, so in SaaS mode (`config.saas`) a pump admin g
 ## Import / export of master lists (never regress)
 
 `routes/io.ts`: `GET /io/:kind.csv` (export, UTF-8 BOM for Excel), `GET /io/:kind/template.csv`, `GET /io/:kind/columns`, `POST /io/:kind/preview` and `POST /io/:kind/import` `{text, mode: add|upsert}` for kinds `customers` (khata.manage / customers.create; credit limit + opening balance need credit.set_limit), `wholesale` (rates per product columns), `suppliers`, `shop` (station by name, opening stock → shop_moves 'opening'), `thekedars`. Text = CSV / TSV / semicolon (Excel paste or file), headers matched by label/key/alias. Rows match an existing party by phone (shop: barcode, then name) → "skip" in add mode, "update" of plain fields in upsert mode; opening balances are applied on NEW rows only. Web `components/ImportExport.tsx` (`<ImportExport kind onDone/>`: Export link + Import modal with paste/file, mode toggle, live preview) sits in the PageHeader of Customers, Wholesale clients, Suppliers, Shop, Carriage. `test/io_import_export.test.ts`.
+
+## A–Z system audit (crawl + hisaab + security) — start from `tools/audit/README.md`
+
+When asked to "test all system / crawl / fix everything", do NOT start from scratch: `tools/audit/README.md` holds the
+four-leg procedure, the runnable crawler (`tools/audit/crawl.cjs` + `print.cjs`, routes in `routes.json`), the hisaab
+driver (`server/test/books_audit.test.ts`, part of the suite), the last baseline (date, test counts, 0 farq, 0 UI errors)
+and the known-open leftovers. Re-run the legs, diff against that baseline, fix regressions and new findings, then update
+the baseline line in the README. Keep `routes.json` in step with `web/src/App.tsx` whenever a page or `?tab=` is added.

@@ -6,3 +6,4 @@ data/
 *.db-shm
 .env
 web/test-results/
+tools/audit/out/
