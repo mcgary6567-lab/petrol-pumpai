@@ -229,7 +229,7 @@ function CustomerDetail({ id, onClose, onChanged }: { id: string; onClose: () =>
             <Stat label="Churn risk" value={`${Math.round(c.churn_score * 100)}%`} />
             <Stat label="Credit risk" value={c.credit_limit ? `${Math.round(c.risk_score)}/100` : "—"} />
           </div>
-          <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+          <div className="grid grid-cols-2 gap-2 print:hidden sm:flex sm:flex-wrap">
             {c.conversation && can("whatsapp.inbox") && <Link className="btn-secondary" to={`/inbox/${c.conversation.id}`}><MessageCircle size={15} /> Open chat</Link>}
             {can("khata.manage") && <button className="btn-secondary flex-col !gap-0 text-center sm:flex-row sm:!gap-1.5" onClick={() => setPay("credit")}><Wallet size={15} /> Receive payment<span className="hidden sm:inline"> · </span><Ur className="block text-xs sm:inline sm:text-sm">رقم وصول</Ur></button>}
             {can("khata.manage") && <button className="btn-secondary flex-col !gap-0 text-center sm:flex-row sm:!gap-1.5" onClick={() => setPay("debit")}>+ Add charge<span className="hidden sm:inline"> · </span><Ur className="block text-xs sm:inline sm:text-sm">کھاتے میں لکھیں</Ur></button>}
@@ -237,9 +237,9 @@ function CustomerDetail({ id, onClose, onChanged }: { id: string; onClose: () =>
             {can("khata.manage") && (c.credit_limit > 0 || c.balance) ? <button className="btn-secondary flex-col !gap-0 text-center sm:flex-row sm:!gap-1.5" onClick={() => setBill(true)}>📄 Bill / statement<span className="hidden sm:inline"> · </span><Ur className="block text-xs sm:inline sm:text-sm">بل</Ur></button> : null}
             {c.balance > 0 && can("khata.manage") && <button className="btn-secondary flex-col !gap-0 text-center sm:flex-row sm:!gap-1.5" disabled={busy} onClick={() => run(() => api(`/customers/${c.id}/remind`, { body: {} }), "Reminder with payment link sent on WhatsApp").then(refresh)}><BellRing size={15} /> Send reminder<span className="hidden sm:inline"> · </span><Ur className="block text-xs sm:inline sm:text-sm">یاد دہانی</Ur></button>}
           </div>
-          {can("khata.manage") && (c.credit_limit > 0 || c.balance) ? <KhataVoice compact customerId={c.id} onDone={refresh} /> : null}
+          {can("khata.manage") && (c.credit_limit > 0 || c.balance) ? <div className="print:hidden"><KhataVoice compact customerId={c.id} onDone={refresh} /></div> : null}
           {pay && (
-            <form className="flex flex-wrap items-end gap-2 rounded-lg bg-slate-50 p-3" onSubmit={async (e) => {
+            <form className="flex flex-wrap items-end gap-2 rounded-lg bg-slate-50 p-3 print:hidden" onSubmit={async (e) => {
               e.preventDefault();
               const isCash = /^cash$/i.test(method.trim());
               const r = await run(() => api(`/customers/${c.id}/khata`, { body: { type: pay, amount: Number(amount), method, note: pay === "credit" ? "Payment received" : pay === "refund" ? "Advance returned" : "Manual charge", photo_ids: photos, account_id: pay === "credit" ? account : pay === "refund" ? (isCash ? null : account) : null, ...(entryDate ? { entry_date: entryDate } : {}) } }), pay === "credit" ? "Payment recorded & receipt sent on WhatsApp" : pay === "refund" ? "Advance wapas ho gaya" : "Charge added");
@@ -256,16 +256,16 @@ function CustomerDetail({ id, onClose, onChanged }: { id: string; onClose: () =>
               <button className="btn-primary" disabled={busy || (pay === "credit" && method === "Cheque" && !photos.length)}>Save · محفوظ کریں</button><button type="button" className="btn-secondary" onClick={() => setPay(null)}>Cancel · منسوخ</button>
             </form>
           )}
-          {can("whatsapp.inbox") && <form className="flex gap-2" onSubmit={async (e) => { e.preventDefault(); if (await run(() => api("/whatsapp/send", { body: { customer_id: c.id, text: msg } }), "Sent on WhatsApp")) { setMsg(""); refresh(); } }}>
+          {can("whatsapp.inbox") && <form className="flex gap-2 print:hidden" onSubmit={async (e) => { e.preventDefault(); if (await run(() => api("/whatsapp/send", { body: { customer_id: c.id, text: msg } }), "Sent on WhatsApp")) { setMsg(""); refresh(); } }}>
             <input className="input" placeholder="Send a WhatsApp message…" value={msg} onChange={(e) => setMsg(e.target.value)} />
             <button className="btn-primary" disabled={busy || !msg}>Send</button>
           </form>}
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 print:block">
             <section className="min-w-0 md:col-span-2">
-              <h3 className="mb-2 text-sm font-semibold">Khata ledger · <Ur>کھاتہ</Ur></h3>
-              <ListTools q={lf.q} onQ={(q) => setLf({ ...lf, q })} from={lf.from} to={lf.to} onFrom={(from) => setLf({ ...lf, from })} onTo={(to) => setLf({ ...lf, to })}
-                placeholder="Slip / gaari / note / amount… · تلاش" shown={ledger.length} total={c.ledger.length} />
-              <div className="max-h-96 overflow-auto rounded-lg border border-slate-200">
+              <h3 className="mb-2 text-sm font-semibold">Khata ledger · <Ur>کھاتہ</Ur>{(lf.from || lf.to) && <span className="hidden font-normal text-slate-500 print:inline"> · {lf.from || "start"} → {lf.to || "today"}</span>}</h3>
+              <div className="print:hidden"><ListTools q={lf.q} onQ={(q) => setLf({ ...lf, q })} from={lf.from} to={lf.to} onFrom={(from) => setLf({ ...lf, from })} onTo={(to) => setLf({ ...lf, to })}
+                placeholder="Slip / gaari / note / amount… · تلاش" shown={ledger.length} total={c.ledger.length} /></div>
+              <div className="max-h-96 overflow-auto rounded-lg border border-slate-200 print:max-h-none print:overflow-visible print:border-0">
                 <ul className="divide-y divide-slate-100 sm:hidden">
                   {ledger.map((l: any) => (
                     <li key={l.id} className="px-3 py-2">
@@ -278,7 +278,7 @@ function CustomerDetail({ id, onClose, onChanged }: { id: string; onClose: () =>
                   ))}
                 </ul>
                 <table className="hidden w-full min-w-[820px] sm:table">
-                  <thead className="sticky top-0"><tr><th className="th">Date</th><th className="th">Gaari</th><th className="th">Slip</th><th className="th">Fuel</th><th className="th text-right">Litres</th><th className="th text-right">Rate</th><th className="th">Tafseel</th><th className="th text-right">Charge</th><th className="th text-right">Paid</th><th className="th" /></tr></thead>
+                  <thead className="sticky top-0"><tr><th className="th">Date</th><th className="th">Gaari</th><th className="th">Slip</th><th className="th">Fuel</th><th className="th text-right">Litres</th><th className="th text-right">Rate</th><th className="th">Tafseel</th><th className="th text-right">Charge</th><th className="th text-right">Paid</th><th className="th print:hidden" /></tr></thead>
                   <tbody>
                   {ledger.map((l: any) => (
                     <tr key={l.id}><td className="td whitespace-nowrap text-xs text-slate-500">{d(l.created_at)}</td>
@@ -290,7 +290,7 @@ function CustomerDetail({ id, onClose, onChanged }: { id: string; onClose: () =>
                       <td className="td text-xs text-slate-600">{l.product ? (/^[\d.]+\s*L\b/.test(l.note ?? "") ? "" : l.note) : l.note ?? l.ref} <ProofThumbs ids={l.proof_ids} /></td>
                       <td className="td whitespace-nowrap text-right text-sm tabular-nums">{l.type !== "credit" ? pkr(l.amount) : ""}</td>
                       <td className="td whitespace-nowrap text-right text-sm tabular-nums text-emerald-600">{l.type === "credit" ? pkr(l.amount) : ""}</td>
-                      <td className="td">{lineActions(l)}</td></tr>
+                      <td className="td print:hidden">{lineActions(l)}</td></tr>
                   ))}
                 </tbody></table>
                 {!ledger.length && <Empty>{c.ledger.length ? "Is filter me koi entry nahi" : "No khata entries"}</Empty>}
@@ -300,7 +300,7 @@ function CustomerDetail({ id, onClose, onChanged }: { id: string; onClose: () =>
               {voidLine && <VoidWithReason title={`Void khata entry — ${c.name}`} what={`${voidLine.type === "credit" ? "Payment" : "Charge"} · ${pkr(voidLine.amount)} · ${d(voidLine.created_at)}${voidLine.note ? ` · ${voidLine.note}` : ""}`}
                 url={`/corrections/khata/${voidLine.id}/void`} onClose={() => setVoidLine(null)} onDone={() => { setVoidLine(null); refresh(); }} />}
             </section>
-            <section className="min-w-0">
+            <section className="min-w-0 print:hidden">
               <h3 className="mb-2 text-sm font-semibold">Recent purchases</h3>
               <div className="max-h-64 overflow-y-auto rounded-lg border border-slate-200">
                 <ul className="divide-y divide-slate-100 sm:hidden">
@@ -320,7 +320,7 @@ function CustomerDetail({ id, onClose, onChanged }: { id: string; onClose: () =>
                 {!c.sales.length && <Empty>No purchases yet</Empty>}
               </div>
             </section>
-            <section className="min-w-0">
+            <section className="min-w-0 print:hidden">
               <h3 className="mb-2 flex items-center gap-1 text-sm font-semibold"><Car size={14} /> Vehicles</h3>
               <div className="flex flex-wrap gap-2">{c.vehicles.map((v: any) => (
                 <span key={v.id} className="badge gap-1 bg-slate-100 text-slate-700">{v.plate_no} {v.fuel && `· ${v.fuel}`}
@@ -337,7 +337,7 @@ function CustomerDetail({ id, onClose, onChanged }: { id: string; onClose: () =>
                 <button className="btn-secondary col-span-2" disabled={!plate}>Add</button>
               </form>
             </section>
-            <section className="min-w-0">
+            <section className="min-w-0 print:hidden">
               <h3 className="mb-2 text-sm font-semibold">Orders & complaints</h3>
               <ul className="space-y-1 text-sm">
                 {c.orders.map((o: any) => <li key={"o" + o.id}>#{o.id} {num(o.litres)} L {o.product} — <Badge tone={statusTone(o.status)}>{o.status}</Badge></li>)}
@@ -409,7 +409,7 @@ function GuaranteeSection({ customerId, canEdit }: { customerId: number; canEdit
     if (await run(() => api(`/customers/${customerId}/guarantees`, { body }), "Saved")) { setF({}); setOpen(false); reload(); }
   };
   return (
-    <div>
+    <div className="print:hidden">
       <div className="mb-2 flex items-center gap-2">
         <h3 className="flex-1 text-sm font-semibold">Security — cheque / zamanat · <Ur>ضمانت</Ur></h3>
         {canEdit && <button className="text-xs font-medium text-brand-700 underline" onClick={() => setOpen((x) => !x)}>{open ? "Cancel" : "+ Add"}</button>}

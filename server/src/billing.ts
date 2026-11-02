@@ -187,7 +187,7 @@ th.m,td.m{border-left:2px solid #64748b;border-right:2px solid #64748b}th.m{back
 tbody tr:nth-child(even) td{background:#f8fafc}th{background:#0f172a;color:#fff}
 .acct{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:4px 0 12px}.box{border:1px solid #cbd5e1;border-radius:8px;padding:8px 10px}.box b{font-size:15px}
 .box span{display:block;font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;color:#64748b}.doc{font-size:16px;font-weight:800;letter-spacing:.02em;margin:2px 0 8px}
-@media print{body{background:#fff}.page{box-shadow:none;margin:0;max-width:none;padding:10mm}button{display:none}table{min-width:0}}
+@page{margin:0}@media print{body{background:#fff;padding:10mm}.page{box-shadow:none;margin:0;max-width:none;padding:0}button{display:none}table{min-width:0}}
 @media (max-width:600px){.page{margin:0;border-radius:0;padding:16px}.acct{grid-template-columns:1fr}
   /* phone screen: each entry a small card instead of a wide table (paper keeps the table) */
   .wrap table{min-width:0}.wrap thead{display:none}.wrap tr{display:grid;grid-template-columns:1fr 1fr;gap:2px 12px;padding:9px 2px;border-bottom:1px solid #e2e8f0}
@@ -258,7 +258,7 @@ export function renderReceipt(token: string, opts: { print?: boolean; width?: nu
 h1{font-size:19px;margin:0}.muted{color:#64748b;font-size:13px}table{width:100%;border-collapse:collapse;margin-top:12px}td{padding:8px 0;border-bottom:1px dashed #cbd5e1}.r{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;padding-left:10px}
 .total{font-size:22px;font-weight:700}.btn{display:block;box-sizing:border-box;width:100%;text-align:center;margin-top:10px;padding:11px;border:0;border-radius:10px;text-decoration:none;font:600 15px system-ui,sans-serif;cursor:pointer}.g{background:#064e3b;color:#fff}.w{background:#dcfce7;color:#14532d}.p{background:#0f172a;color:#fff}
 ${BRAND_CSS}.lh{flex-direction:column;align-items:flex-start}.lh .ct{text-align:left}@media(max-width:452px){.card{margin:12px}}
-@page{margin:12mm}@media print{.btn{display:none}body{background:#fff}.card{margin:0 auto;padding:0}}
+@page{margin:0}@media print{.btn{display:none}body{background:#fff;padding:12mm}.card{margin:0 auto;padding:0}}
 ${thermalCss}</style></head>
 <body><div class=card>${brandHead(p.t, "Receipt")}<div class=muted>${esc(station)} · ${esc(new Date(when).toLocaleString("en-PK", { timeZone: "Asia/Karachi", dateStyle: "medium", timeStyle: "short" }))}</div>
 <table>${rows}${taxLine}<tr><td class=total>Total</td><td class="r total">Rs ${n2(total)}</td></tr></table>

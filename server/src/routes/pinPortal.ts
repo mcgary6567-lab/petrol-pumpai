@@ -117,7 +117,7 @@ a.b,button.b{display:block;width:100%;text-align:center;background:#064e3b;color
 input[name=pin]{font-size:30px;letter-spacing:10px;text-align:center;width:100%;padding:12px;border:2px solid #cbd5e1;border-radius:12px}
 .err{background:#fee2e2;color:#991b1b;padding:10px;border-radius:10px;margin-top:10px}ul{padding-left:18px;margin:6px 0}.po{display:none}.ent{display:flex;flex-direction:column}
 .f{display:block;width:100%;padding:11px;border:2px solid #cbd5e1;border-radius:10px;font-size:16px;margin-top:4px;background:#fff;font-family:inherit}
-@media print{body{background:#fff;font-size:12px}.np,.top{display:none!important}.po{display:block}.c{box-shadow:none;border:1px solid #cbd5e1;break-inside:avoid;padding:10px;margin-bottom:8px}
+@page{margin:0}@media print{body{padding:10mm}}@media print{body{background:#fff;font-size:12px}.np,.top{display:none!important}.po{display:block}.c{box-shadow:none;border:1px solid #cbd5e1;break-inside:avoid;padding:10px;margin-bottom:8px}
 .e{break-inside:avoid;padding:6px 0}.ent{flex-direction:column-reverse}.rate{background:#fff!important;color:#000;border:1px solid #94a3b8}.tile{border:1px solid #e2e8f0}.e .ic{width:28px;height:28px;font-size:15px}.hero .amt{font-size:26px}.w{max-width:none;padding:0}a{color:inherit;text-decoration:none}}`;
 
 const page = (title: string, body: string, tenantId?: number, top = "") => `<!doctype html><html lang="ur"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">

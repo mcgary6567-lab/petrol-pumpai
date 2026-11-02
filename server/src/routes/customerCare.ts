@@ -156,7 +156,7 @@ care.get("/customers/:id/notice", requirePerm("khata.manage"), (req, res, next) 
     res.type("html").send(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Payment notice — ${esc(c.name)}</title>
 <style>body{font:15px/1.6 Georgia,serif;max-width:720px;margin:30px auto;padding:0 20px;color:#111}h1{font-size:20px;text-align:center}.ur{direction:rtl;font-family:'Noto Nastaliq Urdu',serif;line-height:2.2;border-top:1px solid #999;margin-top:24px;padding-top:12px}
 button{margin:18px 0;padding:10px 18px;min-height:44px;border:0;border-radius:8px;background:#064e3b;color:#fff;font:15px system-ui,sans-serif}
-html{-webkit-text-size-adjust:100%;text-size-adjust:100%}@media(max-width:600px){body{margin:14px auto;padding:0 14px;font-size:15px}h1{font-size:17px}}@media print{button{display:none}body{margin:0 auto}}${BRAND_CSS}.lh,.lf{font-family:system-ui,sans-serif}</style><link href="https://fonts.googleapis.com/css2?family=Noto+Nastaliq+Urdu&display=swap" rel="stylesheet"></head><body>
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%}@media(max-width:600px){body{margin:14px auto;padding:0 14px;font-size:15px}h1{font-size:17px}}@page{margin:0}@media print{body{padding:10mm}}@media print{button{display:none}body{margin:0 auto}}${BRAND_CSS}.lh,.lf{font-family:system-ui,sans-serif}</style><link href="https://fonts.googleapis.com/css2?family=Noto+Nastaliq+Urdu&display=swap" rel="stylesheet"></head><body>
 ${brandHead(tid(req), "Legal notice")}
 <p style="text-align:right">${esc(day(pkDate()))}</p>
 <p>To:<br><b>${esc(c.name)}</b>${c.city ? `<br>${esc(c.city)}` : ""}<br>Phone: +${esc(c.phone)}</p>
