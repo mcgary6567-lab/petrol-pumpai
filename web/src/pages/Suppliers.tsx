@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { CancelForm, pinHeader } from "../components/CancelEntry";
 import { useAuth } from "../App";
 import { FullEditEntry } from "../components/FullEdit";
@@ -235,7 +236,7 @@ function SupplierDetail({ id, onClose, onChanged, depots, onDepots }: { id: numb
   const [refund, setRefund] = useState(false);
   const [edit, setEdit] = useState(false);
   const { busy, run } = useAction();
-  const { can } = useAuth();
+  const { can, modules } = useAuth();
   const title = s ? label(s) : "Supplier";
   // CEO corrections on a statement line: a pump-side purchase / payment / adjustment is edited in place (amount, ref, note) or
   // voided with a reason; a bypass purchase or payment is voided (then re-entered on the Bypass page — its client leg follows)
@@ -331,6 +332,7 @@ function SupplierDetail({ id, onClose, onChanged, depots, onDepots }: { id: numb
             <a className="btn-secondary min-h-10" href={`/api/suppliers/${id}/statement.csv?token=${linkToken()}`}><Download size={15} /> Excel / CSV</a>
             <WhatsAppDoc kind="supplier" id={Number(id)} className="btn-secondary min-h-10" />
             <button type="button" className="btn-secondary min-h-10" onClick={() => window.print()}><Printer size={15} /> Print statement · <Ur>پرنٹ</Ur></button>
+            {modules.investors && Number(s.total_owed) > 0.5 && <Link to={`/investors?transfer=supplier:${s.id}`} className="btn-secondary min-h-10 !text-violet-700" title="Baqaya investor capital banayein">⇄ Investor me transfer</Link>}
             {Number(s.owed) < -0.5 && <button type="button" className="btn-secondary min-h-10 !text-emerald-700" onClick={() => setRefund(true)}><Wallet size={15} /> Overpayment wapas · <Ur>ایڈوانس واپس</Ur></button>}
             <form className="grid w-full basis-full grid-cols-2 items-end gap-2 sm:flex sm:min-w-0 sm:flex-1 sm:basis-auto sm:flex-wrap" onSubmit={async (e) => {
               e.preventDefault();

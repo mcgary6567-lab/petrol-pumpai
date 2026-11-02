@@ -106,10 +106,10 @@ const balanceOf = (type: string, id: number) =>
   type === "khata" ? round2(get("SELECT balance FROM customers WHERE id=?", id)!.balance) : type === "wholesale" ? round2(clientDue(id))
     : type === "supplier" ? round2(supplierOwed(id) + bypassOwed(id)) : type === "staff" ? staffBalance(id) : null;
 
-cashier.get("/cashier/parties", requirePerm("cashier.desk"), h((req) => {
-  const t = tid(req);
-  const q = `%${String(req.query.q ?? "").trim()}%`;
-  const kind = String(req.query.kind ?? "");
+/** Parties with their live balance, for pickers (cashier desk, investor transfers). */
+export function partiesList(t: number, kindIn: string, qIn: string) {
+  const q = `%${String(qIn ?? "").trim()}%`;
+  const kind = String(kindIn ?? "");
   const out: Record<string, Row[]> = {};
   if (!kind || kind === "khata") out.khata = all(`SELECT id, name, phone, balance, credit_limit FROM customers WHERE tenant_id=? AND (name LIKE ? OR COALESCE(phone,'') LIKE ?)
     ORDER BY (balance > 0) DESC, balance DESC, name LIMIT 30`, t, q, q);
@@ -122,7 +122,15 @@ cashier.get("/cashier/parties", requirePerm("cashier.desk"), h((req) => {
   if (!kind || kind === "staff") out.staff = all("SELECT id, name, phone, role FROM users WHERE tenant_id=? AND active=1 AND role<>'admin' AND name LIKE ? ORDER BY name LIMIT 30", t, q)
     .map((u) => ({ ...u, balance: staffBalance(u.id) }));
   return out;
-}));
+}
+cashier.get("/cashier/parties", requirePerm("cashier.desk"), h((req) => partiesList(tid(req), String(req.query.kind ?? ""), String(req.query.q ?? ""))));
+/** Void one voucher with everything its source row moved (used by modules that made the voucher through doPay / doReceive). */
+export function voidVoucher(t: number, id: number, who: string, reason: string) {
+  const v = get("SELECT * FROM cashier_vouchers WHERE id=? AND tenant_id=? AND voided=0", id, t);
+  if (!v) return;
+  reverseVoucherSrc(t, v, who, reason);
+  run("UPDATE cashier_vouchers SET voided=1, void_reason=?, voided_by=?, voided_at=? WHERE id=?", reason, who, now(), v.id);
+}
 
 /* ---------------- receive ---------------- */
 const moneyBody = z.object({
@@ -144,12 +152,12 @@ function notesJson(method: string, notes: Record<string, number> | null | undefi
   return Object.keys(kept).length ? JSON.stringify(kept) : null;
 }
 
-const receiveBody = moneyBody.extend({ party_type: z.enum(["khata", "wholesale", "other"]) });
-const payBody = moneyBody.extend({ party_type: z.enum(["supplier", "expense", "staff", "khata", "wholesale", "other"]) });
+export const receiveBody = moneyBody.extend({ party_type: z.enum(["khata", "wholesale", "other"]) });
+export const payBody = moneyBody.extend({ party_type: z.enum(["supplier", "expense", "staff", "khata", "wholesale", "other"]) });
 cashier.post("/cashier/receive", requirePerm("cash.receive"), h(async (req) => doReceive(req, parse(receiveBody, req.body))));
 
 /** Post a receipt: the party's own ledger / bank row (src) + the voucher. Shared by the cashier's Receive and the CEO's voucher re-route. */
-async function doReceive(req: Request, b: z.infer<typeof receiveBody>) {
+export async function doReceive(req: Request, b: z.infer<typeof receiveBody>) {
   const t = tid(req);
   const p = party(t, b.party_type, b.party_id);
   const name = p?.name ?? b.party_name;
@@ -227,7 +235,7 @@ registerPayExecutor("cashier_pay", (req, body) => doPay(req, parse(payBody, body
 
 /** Post a payment: the party's own ledger / expense / bank row (src) + the voucher. `skipCashCheck` for a re-route whose old cash
  *  is about to be reversed in the same request. */
-async function doPay(req: Request, b: z.infer<typeof payBody>, skipCashCheck = false) {
+export async function doPay(req: Request, b: z.infer<typeof payBody>, skipCashCheck = false) {
   const t = tid(req);
   const p = b.party_type === "expense" ? null : party(t, b.party_type, b.party_id);
   const name = p?.name ?? b.party_name ?? (b.party_type === "expense" ? b.category : null);

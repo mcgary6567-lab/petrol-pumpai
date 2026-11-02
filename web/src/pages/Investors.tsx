@@ -8,7 +8,7 @@ import { PortalCard } from "../components/PortalCard";
 import { PrintListButton } from "../components/PrintList";
 import { Ur } from "../components/VoiceShell";
 import { pkr, num, dt, PRODUCTS, activeProducts } from "../lib/format";
-import { Plus, Pencil, Trash2, ArrowDownCircle, ArrowUpCircle, Fuel, CheckCircle2, Ban, ChevronLeft, Power, BookOpen, Percent } from "lucide-react";
+import { Plus, Pencil, Trash2, ArrowDownCircle, ArrowUpCircle, Fuel, CheckCircle2, Ban, ChevronLeft, Power, BookOpen, Percent, ArrowLeftRight, Search, X } from "lucide-react";
 
 /**
  * CEO-only: investors. They give money; we buy fuel with it in "deals"; when a deal is sold its profit (or loss) is split
@@ -42,6 +42,19 @@ export default function Investors() {
   const rows = useListFilter<any>(data, { q, text: (i) => [i.name, i.phone, i.cnic, i.city].filter(Boolean).join(" ") });
   const paged = usePaged(rows, 10);
   const refresh = () => { reload(); reloadSum(); };
+  // opened from a supplier / client page: "Investor me transfer" → pick the investor, party is preset
+  const preset = sp.get("transfer");
+  const [xferInv, setXferInv] = useState<any>(null);
+  if (preset && !open) {
+    const [pkind, pid] = preset.split(":");
+    if (xferInv) return <TransferForm i={xferInv} preset={{ kind: pkind, id: Number(pid) }} onClose={() => { setXferInv(null); setSp({}); }} onDone={() => { setSp({ id: String(xferInv.id) }); refresh(); }} />;
+    return (
+      <div>
+        <PageHeader title={<>Transfer — kis investor ke khate par? · <Ur>کس سرمایہ کار کو</Ur></>} subtitle="Party chuni ja chuki hai; ab investor chunein. Agla qadam: rukh, amount aur (chahein to) cash ke saath." actions={<button className="btn-secondary" onClick={() => setSp({})}>Cancel</button>} />
+        {!data ? <Loading /> : <ul className="card divide-y">{data.filter((i) => i.active).map((i) => <li key={i.id}><button className="flex w-full items-center justify-between px-4 py-3 text-left hover:bg-slate-50" onClick={() => setXferInv(i)}><span><b>{i.name}</b>{i.city ? <span className="text-xs text-slate-500"> · {i.city}</span> : null}</span><span className="text-sm tabular-nums">balance {pkr(i.balance)} · free {pkr(i.free)}</span></button></li>)}</ul>}
+      </div>
+    );
+  }
 
   if (open) return <InvestorDetail id={open} onBack={() => { setSp({}); refresh(); }} onEdit={(i) => setForm(i)} form={form} setForm={setForm} />;
 
@@ -152,6 +165,7 @@ function InvestorDetail({ id, onBack, onEdit, form, setForm }: { id: number; onB
   const [money, setMoney] = useState<"in" | "out" | null>(null);
   const [opening, setOpening] = useState(false);
   const [profitForm, setProfitForm] = useState(false);
+  const [xfer, setXfer] = useState(false);
   const [deal, setDeal] = useState<any>(null);
   const [closing, setClosing] = useState<any>(null);
   const { busy, run } = useAction();
@@ -162,6 +176,10 @@ function InvestorDetail({ id, onBack, onEdit, form, setForm }: { id: number; onB
   const voidTxn = async (x: any) => {
     const a = await askCancel({ title: "Entry mansookh karein", what: <><b>{TYPE[x.type]?.en}</b> · {pkr(x.amount)} · {dt(x.created_at)}</>, hint: "Cash / bank se ye raqam wapas ho jayegi aur investor ka balance theek ho jayega." });
     if (a) run(() => api(`/investor-txns/${x.id}/void`, { body: { reason: a.reason }, headers: pinHeader(a) }), "Mansookh ho gaya").then(reload);
+  };
+  const voidXfer = async (x: any) => {
+    const a = await askCancel({ title: "Transfer mansookh karein", what: <><b>{XFER_DIR[x.direction]?.short}</b> · {x.party_name} · {pkr(x.amount)}</>, hint: x.with_cash ? "Dono cash entries (party aur investor) wapas ho jayengi." : "Investor aur party dono ke khate se ye line hat jayegi." });
+    if (a) run(() => api(`/investor-transfers/${x.id}/void`, { body: { reason: a.reason }, headers: pinHeader(a) }), "Transfer mansookh").then(reload);
   };
   const voidDeal = async (d: any) => {
     const a = await askCancel({ title: `Deal #${d.id} mansookh karein`, what: <>{num(d.litres)} L {PRODUCTS[d.product] ?? d.product} · {pkr(d.cost_amount)}{d.status === "closed" ? <> · munafa {pkr(d.profit)}</> : null}</>,
@@ -179,6 +197,7 @@ function InvestorDetail({ id, onBack, onEdit, form, setForm }: { id: number; onB
           <button className="btn-secondary !text-rose-700" disabled={!i.active} onClick={() => setMoney("out")}><ArrowUpCircle size={16} /> Paisa diya</button>
           <button className="btn-secondary" disabled={!i.active || i.free <= 0} title={i.free <= 0 ? "Free paisa nahi" : ""} onClick={() => setDeal({})}><Fuel size={16} /> Nayi deal</button>
           <button className="btn-secondary !text-blue-700" disabled={!i.active} onClick={() => setProfitForm(true)}><Percent size={15} /> Munafa darj</button>
+          <button className="btn-secondary !text-violet-700" disabled={!i.active} onClick={() => setXfer(true)} title="Supplier / client ka hisab investor ke khate par"><ArrowLeftRight size={15} /> Transfer</button>
           {!data.lines.some((x: any) => !x.voided && x.method === "Opening") && <button className="btn-secondary" disabled={!i.active} onClick={() => setOpening(true)} title="Purana investor: go-live se pehle ka hisab"><BookOpen size={15} /> Opening balance</button>}
           <button className="btn-secondary" onClick={() => onEdit(i)}><Pencil size={15} /> Edit</button>
           <button className="btn-secondary" disabled={busy} onClick={toggle}><Power size={15} /> {i.active ? "Band karein" : "Chalu karein"}</button>
@@ -224,6 +243,25 @@ function InvestorDetail({ id, onBack, onEdit, form, setForm }: { id: number; onB
         )}
       </div>
 
+      {/* party ↔ investor transfers (each one links both legs; void takes both back) */}
+      {data.transfers?.length > 0 && (
+        <div className="card mb-4 p-4">
+          <h2 className="mb-2 font-semibold">Transfers · <Ur>منتقلی</Ur> <span className="text-xs font-normal text-slate-500">supplier / client ka hisab ↔ investor ka khata</span></h2>
+          <table className="w-full text-sm">
+            <thead><tr><th className="th">Tareekh</th><th className="th">Rukh</th><th className="th">Party</th><th className="th text-right">Amount</th><th className="th">Kaise</th><th className="th">Note</th><th className="th"></th></tr></thead>
+            <tbody>{data.transfers.map((x: any) => (
+              <tr key={x.id} className={x.voided ? "text-slate-400 line-through" : ""}>
+                <td className="td whitespace-nowrap text-xs">{dt(x.txn_date).slice(0, 11)}</td>
+                <td className="td text-xs">{XFER_DIR[x.direction]?.short ?? x.direction}{x.purpose === "profit" ? " (munafa)" : ""}</td>
+                <td className="td">{x.party_name} <span className="text-xs text-slate-500">({x.party_type === "khata" ? "khata" : x.party_type})</span></td>
+                <td className="td text-right tabular-nums">{pkr(x.amount)}</td>
+                <td className="td text-xs">{x.with_cash ? `Cash ke saath · ${x.method}` : "Sirf hisab"}</td>
+                <td className="td text-xs text-slate-600">{x.note ?? ""}{x.void_reason ? ` · void: ${x.void_reason}` : ""}</td>
+                <td className="td text-right">{!x.voided && <button className="btn-secondary !py-1 text-xs !text-rose-700" onClick={() => voidXfer(x)}><Ban size={13} /></button>}</td>
+              </tr>))}</tbody>
+          </table>
+        </div>
+      )}
       {/* cheques waiting in the register: not money yet */}
       {data.cheques?.length > 0 && (
         <div className="card mb-4 p-4">
@@ -296,6 +334,7 @@ function InvestorDetail({ id, onBack, onEdit, form, setForm }: { id: number; onB
       <div className="print:hidden"><PortalCard base={`/investors/${i.id}/portal`} name={i.name} phone={i.phone} canManage /></div>
 
       {money && <MoneyForm i={i} dir={money} onClose={() => setMoney(null)} onDone={reload} />}
+      {xfer && <TransferForm i={i} onClose={() => setXfer(false)} onDone={reload} />}
       {opening && <OpeningForm i={i} onClose={() => setOpening(false)} onDone={reload} />}
       {profitForm && <ProfitForm i={i} onClose={() => setProfitForm(false)} onDone={reload} />}
       {deal && <DealForm i={i} d={deal} onClose={() => setDeal(null)} onDone={reload} />}
@@ -395,6 +434,98 @@ function OpeningForm({ i, onClose, onDone }: { i: any; onClose: () => void; onDo
         <div className="rounded-xl bg-slate-50 p-2.5 text-sm">Khate me credit: <b>{pkr(cap + pr)}</b></div>
         <div className="flex justify-end gap-2"><button className="btn-secondary" onClick={onClose}>Cancel</button>
           <button className="btn-primary" disabled={busy || cap + pr <= 0 || cap < 0 || pr < 0 || asOf > today} onClick={save}>Save</button></div>
+      </div>
+    </Modal>
+  );
+}
+
+const XFER_DIR: Record<string, { short: string; title: string; ur: string; hint: string; parties: string[] }> = {
+  supplier_to_investor: { short: "Supplier → Investor", title: "Supplier ka baqaya → investor capital", ur: "سپلائر → سرمایہ", parties: ["supplier"],
+    hint: "Hum supplier ko jo dete hain, wo us ki investment ban jati hai: supplier ka \"we owe\" kam, investor ka capital utna barh jata hai. Pehle bypass account se, phir pump account se." },
+  client_to_investor: { short: "Client advance → Investor", title: "Client / khata advance → investor capital", ur: "ایڈوانس → سرمایہ", parties: ["wholesale", "khata"],
+    hint: "Client ne zyada paise de rakhe hain (advance). Wo advance investor capital ban jata hai: client ka advance kam, investor ka capital barh." },
+  investor_to_client: { short: "Investor → Client due", title: "Investor ka capital / munafa → client ka baqaya kata", ur: "سرمایہ کار → کلائنٹ", parties: ["wholesale", "khata"],
+    hint: "Investor apna paisa nikal raha hai, cash ki jagah apna (ya apni party ka) baqaya kaat raha hai: investor ka balance kam, client ka due kam." },
+};
+const PARTY_LABEL: Record<string, string> = { supplier: "Supplier · سپلائر", wholesale: "Wholesale client · کلائنٹ", khata: "Khata customer · کھاتہ" };
+function XferPartyPicker({ kind, value, onChange }: { kind: string; value: any; onChange: (p: any) => void }) {
+  const [q, setQ] = useState("");
+  const { data } = useApi<any>(value ? null : `/investors-parties?kind=${kind}&q=${encodeURIComponent(q)}`);
+  const bal = (p: any) => kind === "supplier" ? (p.balance > 0.5 ? `hum dete hain ${pkr(p.balance)}` : "koi baqaya nahi") : p.balance < -0.5 ? `advance ${pkr(-p.balance)}` : p.balance > 0.5 ? `baqaya ${pkr(p.balance)}` : "barabar";
+  if (value) return (
+    <div className="flex items-center gap-3 rounded-xl bg-brand-50 p-3 ring-1 ring-brand-200">
+      <span className="min-w-0 flex-1"><b className="block">{value.name}</b><span className="text-xs text-slate-600">{bal(value)}</span></span>
+      <button type="button" className="-mr-1 p-2.5 text-slate-500" onClick={() => onChange(null)} aria-label="Change"><X size={20} /></button>
+    </div>
+  );
+  return (
+    <div>
+      <span className="label">{PARTY_LABEL[kind]} *</span>
+      <div className="relative"><Search size={15} className="absolute left-2.5 top-3 text-slate-400" /><input className="input pl-8" placeholder="Naam dhoondein" value={q} onChange={(e) => setQ(e.target.value)} /></div>
+      <ul className="mt-1 max-h-56 divide-y divide-slate-100 overflow-y-auto rounded-xl ring-1 ring-slate-200">
+        {(data?.[kind] ?? []).slice(0, 12).map((p: any) => (
+          <li key={p.id}><button type="button" onClick={() => onChange(p)} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-slate-50">
+            <span className="min-w-0 flex-1">{p.name}{p.business_name ? <span className="text-slate-500"> · {p.business_name}</span> : null}{p.company ? <span className="text-slate-500"> · {p.company}</span> : null}</span>
+            <span className="shrink-0 text-xs tabular-nums text-slate-600">{bal(p)}</span>
+          </button></li>
+        ))}
+        {data && !data[kind]?.length && <li className="px-3 py-3 text-center text-sm text-slate-500">Kuch nahi mila</li>}
+      </ul>
+    </div>
+  );
+}
+/** Move a supplier's / client's balance onto the investor's khata (no cash), or make the two real cash entries at once. */
+function TransferForm({ i, onClose, onDone, preset }: { i: any; onClose: () => void; onDone: () => void; preset?: { kind: string; id: number } }) {
+  const { busy, run } = useAction();
+  const presetKind = preset?.kind ?? "supplier";
+  const [dir, setDir] = useState<keyof typeof XFER_DIR>(presetKind === "supplier" ? "supplier_to_investor" : "client_to_investor");
+  const [kind, setKind] = useState(presetKind);
+  const [party, setParty] = useState<any>(null);
+  const { data: presetParty } = useApi<any>(preset ? `/investors-party?kind=${preset.kind}&id=${preset.id}` : null);
+  useEffect(() => { if (presetParty && !party) { setParty(presetParty); if (presetParty.balance > 0.5 && preset?.kind !== "supplier") setDir("investor_to_client"); } }, [presetParty]);
+  const [amount, setAmount] = useState("");
+  const [purpose, setPurpose] = useState<"capital" | "profit">("capital");
+  const [withCash, setWithCash] = useState(false);
+  const [method, setMethod] = useState("Cash");
+  const [account, setAccount] = useState<number | null>(null);
+  const [date, setDate] = useState(new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 10));
+  const [note, setNote] = useState("");
+  const d = XFER_DIR[dir];
+  const pick = (k: keyof typeof XFER_DIR) => { setDir(k); if (!preset) { setKind(XFER_DIR[k].parties[0]); setParty(null); } setPurpose("capital"); };
+  const amt = Number(amount) || 0;
+  // what a pure book transfer may move: the party's own balance on that side; with cash there is no such cap
+  const cap = !party ? 0 : dir === "investor_to_client" ? Math.max(0, party.balance) : kind === "supplier" ? Math.max(0, party.balance) : Math.max(0, -party.balance);
+  const over = !withCash && party && amt > cap + 0.5;
+  const tooMuch = dir === "investor_to_client" && amt > i.free + 0.5;
+  const save = () => run(() => api(`/investors/${i.id}/transfer`, { body: { direction: dir, party_type: kind, party_id: party.id, amount: amt, purpose, with_cash: withCash, method: withCash ? method : null, account_id: withCash && !isCash(method) ? account : null, txn_date: date || null, note: note || null } }),
+    "Transfer darj — dono khate update").then((r) => { if (r) { onDone(); onClose(); } });
+  return (
+    <Modal open wide title={`Transfer — ${i.name}`} onClose={onClose}>
+      <div className="space-y-3">
+        <div className="grid gap-2 sm:grid-cols-3">{(Object.keys(XFER_DIR) as (keyof typeof XFER_DIR)[]).filter((k) => !preset || XFER_DIR[k].parties.includes(preset.kind)).map((k) => (
+          <button key={k} type="button" onClick={() => pick(k)} aria-pressed={dir === k} className={`min-h-12 rounded-xl px-3 py-2 text-left text-sm font-semibold ring-1 ${dir === k ? "bg-violet-600 text-white ring-violet-600" : "bg-white text-slate-800 ring-slate-300 hover:bg-slate-50"}`}>
+            {XFER_DIR[k].short}<span className={`block text-xs font-normal ${dir === k ? "text-white/90" : "text-slate-500"}`}><Ur>{XFER_DIR[k].ur}</Ur></span></button>))}
+        </div>
+        <p className="rounded-xl bg-violet-50 p-2.5 text-sm text-violet-900"><b>{d.title}.</b> {d.hint}</p>
+        {d.parties.length > 1 && <div className="flex gap-1.5">{d.parties.map((k) => <button key={k} type="button" onClick={() => { setKind(k); setParty(null); }} className={`rounded-full px-3 py-1 text-xs font-semibold ${kind === k ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-600"}`}>{PARTY_LABEL[k]}</button>)}</div>}
+        <XferPartyPicker kind={kind} value={party} onChange={setParty} />
+        {dir === "investor_to_client" && <div className="flex gap-1.5">{(["capital", "profit"] as const).map((p) => <button key={p} type="button" onClick={() => setPurpose(p)} className={`rounded-full px-3 py-1 text-xs font-semibold ${purpose === p ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-600"}`}>{p === "capital" ? "Capital (asal raqam)" : "Munafa"}</button>)}<span className="self-center text-xs text-slate-500">· free {pkr(i.free)}</span></div>}
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="Amount (Rs)"><input className="input text-lg font-semibold" type="number" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} /></Field>
+          <Field label="Tareekh"><input className="input" type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
+        </div>
+        {party && !withCash && <p className="text-xs text-slate-500">Bina cash zyada se zyada <b>{pkr(cap)}</b> transfer ho sakta hai (party ka balance). Zyada chahiye to "Cash ke saath" chunein.</p>}
+        {over && <p className="text-sm text-rose-700">Party ke balance se zyada — cash ke saath karein ya amount kam karein.</p>}
+        {tooMuch && <p className="text-sm text-rose-700">Investor ke free balance se zyada nahi.</p>}
+        <label className="flex items-start gap-2 rounded-xl bg-slate-50 p-3 text-sm"><input type="checkbox" className="mt-1" checked={withCash} onChange={(e) => setWithCash(e.target.checked)} />
+          <span><b>Cash ke saath</b> · <Ur>کیش کے ساتھ</Ur><span className="block text-xs text-slate-600">Asal mein paise haath badle: dono entries ek saath likhi jayengi ({dir === "investor_to_client" ? "party se wasooli + investor ko adaigi" : "party ko adaigi + investor se capital"}). Cash / bank book mein dono lines aayengi.</span></span></label>
+        {withCash && <>
+          <Field label="Kaise · طریقہ"><div className="flex flex-wrap gap-1.5">{PAY.filter((m) => !isChq(m)).map((m) => <button key={m} type="button" onClick={() => { setMethod(m); setAccount(null); }} className={`rounded-full px-3 py-1 text-xs font-semibold ${method === m ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-600"}`}>{m}</button>)}</div></Field>
+          {!isCash(method) && <AccountPicker value={account} onChange={setAccount} method={method} required />}
+        </>}
+        <Field label="Note"><input className="input" value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. baqaya capital me badalne par raazi" /></Field>
+        <div className="flex justify-end gap-2"><button className="btn-secondary" onClick={onClose}>Cancel</button>
+          <button className="btn-primary" disabled={busy || !party || !(amt > 0) || over || tooMuch || (withCash && !isCash(method) && !account)} onClick={save}>Transfer karein</button></div>
       </div>
     </Modal>
   );

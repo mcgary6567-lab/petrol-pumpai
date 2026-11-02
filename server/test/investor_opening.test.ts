@@ -209,3 +209,67 @@ test("delete an investor from the list: PIN-guarded route; refused once they hav
   assert.equal((await call("admin", "GET", `/api/investors/${tmp.id}`)).status, 404);
   assert.equal((await call("admin", "DELETE", `/api/investors/${inv.id}`)).status, 400, "has entries → refused");
 });
+
+test("party ↔ investor transfers: supplier payable → capital (bypass first), client / khata advance → capital, investor → khata due (profit), with-cash legs, voids; books tally", async () => {
+  const I = ok(await call("admin", "POST", "/api/investors", { name: "Transfer Investor", our_pct: 60 }), "add");
+  const st = db.get("SELECT id FROM stations WHERE tenant_id=1 ORDER BY id LIMIT 1")!.id as number;
+  const sups = ok(await call("admin", "GET", "/api/investors-parties?kind=supplier"), "parties").supplier as any[];
+  assert.ok(sups.length > 0 && "balance" in sups[0], "party picker lists suppliers with balances");
+  // --- 1. supplier → investor (no cash): a fresh supplier with a 2 lakh bypass bill and a 1 lakh pump bill
+  const S = ok(await call("admin", "POST", "/api/suppliers", { name: "Xfer Depot" }), "supplier");
+  ok(await call("admin", "POST", "/api/bypass/deliveries", { station_id: st, purchases: [{ supplier_id: S.id, product: "HSD", litres: 1_000, cost_rate: 200 }] }), "bypass bill");
+  db.run("INSERT INTO supplier_txns (tenant_id,supplier_id,type,amount,method,note,created_by,txn_date,created_at) VALUES (1,?,?,?,?,?,?,?,?)", S.id, "purchase", 100_000, null, "test pump bill", "test", new Date().toISOString(), new Date().toISOString());
+  const cash0 = await cashNow();
+  const bad = await call("admin", "POST", `/api/investors/${I.id}/transfer`, { direction: "supplier_to_investor", party_type: "supplier", party_id: S.id, amount: 400_000 });
+  assert.equal(bad.status, 400, "more than we owe refused without cash");
+  const x1 = ok(await call("admin", "POST", `/api/investors/${I.id}/transfer`, { direction: "supplier_to_investor", party_type: "supplier", party_id: S.id, amount: 250_000, txn_date: "2026-10-20", note: "baqaya capital ban gaya" }), "supplier → investor");
+  near(x1.split.bypass, 200_000); near(x1.split.pump, 50_000); near(x1.balance, 250_000, "investor capital up");
+  near(x1.party_due, -50_000, "supplier still owed 50k");
+  near(await cashNow(), cash0, "no cash moved");
+  const st1 = ok(await call("admin", "GET", `/api/investors/${I.id}`), "stmt");
+  const line = st1.lines.find((l: any) => l.method === "Investor transfer");
+  assert.ok(line && line.credit === 250_000 && String(line.created_at).startsWith("2026-10-2"), "statement line on the back-dated day");
+  assert.equal(st1.transfers.length, 1);
+  await books();
+  // --- 2. khata customer advance → investor capital; then investor munafa → that customer's due
+  const cust = db.get("SELECT * FROM customers WHERE tenant_id=1 AND balance > 0 ORDER BY balance DESC LIMIT 1")!;
+  assert.equal((await call("admin", "POST", `/api/investors/${I.id}/transfer`, { direction: "client_to_investor", party_type: "khata", party_id: cust.id, amount: 1_000 })).status, 400, "no advance → refused");
+  // the customer pays 5,000 more than they owe (advance), then 3,000 of it becomes capital
+  ok(await call("admin", "POST", "/api/cashier/receive", { party_type: "khata", party_id: cust.id, amount: cust.balance + 5_000, method: "Cash", notify: false }), "advance");
+  const x2 = ok(await call("admin", "POST", `/api/investors/${I.id}/transfer`, { direction: "client_to_investor", party_type: "khata", party_id: cust.id, amount: 3_000 }), "advance → capital");
+  near(x2.party_due, -2_000, "advance left 2,000"); near(x2.balance, 253_000);
+  // manual profit so the investor has munafa to take; then cut the customer's due (give them 2k more fuel on khata first)
+  ok(await call("admin", "POST", `/api/investors/${I.id}/profit`, { kind: "profit", mode: "amount", amount: 10_000, period: "2026-10" }), "profit");
+  db.run("UPDATE customers SET balance = balance + 6000 WHERE id=?", cust.id); // now owes 4,000
+  const x3 = ok(await call("admin", "POST", `/api/investors/${I.id}/transfer`, { direction: "investor_to_client", party_type: "khata", party_id: cust.id, amount: 4_000, purpose: "profit" }), "munafa → khata due");
+  near(x3.party_due, 0, "customer settled"); near(x3.balance, 253_000 + 10_000 - 4_000);
+  assert.equal(db.get("SELECT purpose FROM investor_txns WHERE id=?", x3.investor_txn_id)!.purpose, "profit");
+  assert.equal((await call("admin", "POST", `/api/investors/${I.id}/transfer`, { direction: "investor_to_client", party_type: "khata", party_id: cust.id, amount: 1_000 })).status, 400, "nothing owed → refused");
+  await books();
+  // --- 3. wholesale client advance → capital
+  const W = db.get("SELECT id FROM wholesale_clients WHERE tenant_id=1 AND active=1 LIMIT 1")!;
+  const dueW = ok(await call("admin", "GET", `/api/wholesale/clients/${W.id}/statement`), "ws").closing_balance as number;
+  ok(await call("admin", "POST", "/api/cashier/receive", { party_type: "wholesale", party_id: W.id, amount: Math.max(0, dueW) + 20_000, method: "Cash", notify: false }), "ws advance");
+  const x4 = ok(await call("admin", "POST", `/api/investors/${I.id}/transfer`, { direction: "client_to_investor", party_type: "wholesale", party_id: W.id, amount: 20_000 }), "ws advance → capital");
+  near(x4.party_due, 0); near(await cashNow(), cash0 + cust.balance + 5_000 + Math.max(0, dueW) + 20_000, "only the real receipts moved cash");
+  await books();
+  // --- 4. with cash: supplier gets 50k cash for his bill and hands it back as investment → two vouchers, cash net 0
+  const cashBefore = await cashNow();
+  const x5 = ok(await call("admin", "POST", `/api/investors/${I.id}/transfer`, { direction: "supplier_to_investor", party_type: "supplier", party_id: S.id, amount: 50_000, with_cash: true, method: "Cash" }), "with cash");
+  near(await cashNow(), cashBefore, "cash in and out net to zero");
+  near(x5.party_due, 0, "supplier fully paid");
+  assert.equal(db.get("SELECT COUNT(*) n FROM cashier_vouchers WHERE tenant_id=1 AND voided=0 AND (src=? OR id IN (?))", `inv:${x5.investor_txn_id}`, Number(String(db.get("SELECT cash_src FROM investor_transfers WHERE id=?", x5.id)!.cash_src).split(":")[1]))!.n, 2, "two vouchers");
+  await books();
+  // --- voids: PIN-guarded route (void_pin off in tests), each leg comes back
+  const balB = ok(await call("admin", "GET", `/api/investors/${I.id}`), "s").investor.balance;
+  ok(await call("admin", "POST", `/api/investor-transfers/${x5.id}/void`, { reason: "galti" }), "void with-cash");
+  near(await cashNow(), cashBefore, "cash unchanged after void"); near(ok(await call("admin", "GET", `/api/investors/${I.id}`), "s").investor.balance, balB - 50_000);
+  near(ok(await call("admin", "GET", `/api/suppliers/${S.id}`), "sup").total_owed ?? 50_000, 50_000, "supplier owed again");
+  ok(await call("admin", "POST", `/api/investor-transfers/${x1.id}/void`, { reason: "galti" }), "void supplier xfer");
+  near(ok(await call("admin", "GET", `/api/suppliers/${S.id}`), "sup").total_owed ?? 300_000, 300_000, "supplier owed 3 lakh again");
+  ok(await call("admin", "POST", `/api/investor-transfers/${x3.id}/void`, { reason: "galti" }), "void munafa xfer");
+  near(db.get("SELECT balance FROM customers WHERE id=?", cust.id)!.balance as number, 4_000, "customer owes again");
+  assert.equal((await call("admin", "POST", `/api/investor-transfers/${x3.id}/void`, { reason: "dobara" })).status, 404, "already void");
+  assert.ok(db.get("SELECT 1 x FROM audit_log WHERE tenant_id=1 AND action='investor_transfer_void'"));
+  await books();
+});

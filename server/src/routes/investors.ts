@@ -16,7 +16,13 @@
  */
 import { Router } from "express";
 import { z } from "zod";
-import { all, get, run, tx, now, pkDate, pkStart } from "../db.js";
+import { all, get, run, tx, now, pkDate, pkStart, stampFor, type Row } from "../db.js";
+import type { Request } from "express";
+import { partiesList, doPay, doReceive, voidVoucher } from "./cashier.js";
+import { insertTxn, clientDue } from "./wholesale.js";
+import { bypassOwed } from "./bypass.js";
+import { supplierOwed } from "./suppliers.js";
+import { khataEntry } from "../services.js";
 import { h, parse, tid, requirePerm } from "../auth.js";
 import { AppError, round2, audit, currentPrices, createAlert } from "../services.js";
 import { otherMoney, accountIdField, chequeToRegister, bankAccountFor } from "./banks.js";
@@ -157,7 +163,8 @@ export function investorStatement(t: number, id: number, from?: string, to?: str
   });
   const deals = all("SELECT d.*, s.name supplier FROM investor_deals d LEFT JOIN suppliers s ON s.id=d.supplier_id AND s.tenant_id=d.tenant_id WHERE d.investor_id=? AND d.voided=0 ORDER BY d.deal_date DESC, d.id DESC", id);
   const requests = all("SELECT * FROM investor_requests WHERE investor_id=? ORDER BY id DESC LIMIT 30", id);
-  return { investor: { ...i, ...figures(i) }, opening, closing: bal, lines, deals, requests, monthly: investorMonthly(id), cheques: openCheques(id),
+  const transfers = all("SELECT * FROM investor_transfers WHERE investor_id=? AND tenant_id=? ORDER BY id DESC LIMIT 50", id, t);
+  return { investor: { ...i, ...figures(i) }, opening, closing: bal, lines, deals, requests, monthly: investorMonthly(id), cheques: openCheques(id), transfers,
     totals: { credit: round2(lines.reduce((a, l) => a + l.credit, 0)), debit: round2(lines.reduce((a, l) => a + l.debit, 0)) } };
 }
 investors.get("/investors/:id", P, h((req) => {
@@ -351,6 +358,162 @@ investors.post("/investors/:id/money", P, h((req) => {
   const id = tx(() => moneyTxn(t, req.user!.name, i, b));
   audit(t, req.user!, b.dir === "in" ? "investor_capital_in" : "investor_payout", `investor:${i.id}`, { txn: id, ...b });
   return { id, balance: investorBalance(i.id) };
+}));
+
+/* ---------------- party ↔ investor transfers ----------------
+ * supplier_to_investor: what we owe a supplier becomes their investment (payable ↓, investor capital ↑)
+ * client_to_investor:   a client's / khata customer's advance becomes their investment (receivable ↑ toward 0, capital ↑)
+ * investor_to_client:   the investor takes capital / profit by having their client / khata due cut (investor ↓, receivable ↓)
+ * Without cash it is one journal; with cash the two real money entries are made (party payment + investor deposit, or
+ * party receipt + investor payout) and linked, so the cash book shows both. */
+export const XFER_METHOD = "Investor transfer";
+investors.get("/investors-parties", P, h((req) => partiesList(tid(req), String(req.query.kind ?? ""), String(req.query.q ?? ""))));
+const transferBody = z.object({
+  direction: z.enum(["supplier_to_investor", "client_to_investor", "investor_to_client"]),
+  party_type: z.enum(["supplier", "wholesale", "khata"]), party_id: z.number().int().positive(),
+  amount: z.number().positive().max(1_000_000_000), purpose: z.enum(["capital", "profit"]).default("capital"),
+  with_cash: z.boolean().default(false), method: z.string().trim().max(30).optional().nullable(), account_id: accountIdField,
+  txn_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(), note: z.string().trim().max(200).optional().nullable(),
+});
+const partyOf = (t: number, type: string, id: number) =>
+  type === "supplier" ? get("SELECT id, name FROM suppliers WHERE id=? AND tenant_id=?", id, t)
+  : type === "wholesale" ? get("SELECT id, name FROM wholesale_clients WHERE id=? AND tenant_id=?", id, t)
+  : get("SELECT id, name, balance FROM customers WHERE id=? AND tenant_id=?", id, t);
+/** what the party owes us (+) / we owe them (−) right now, on their own books */
+const partyDue = (type: string, p: Row) => type === "supplier" ? -round2(supplierOwed(p.id as number) + bypassOwed(p.id as number)) : type === "wholesale" ? round2(clientDue(p.id as number)) : round2(p.balance as number);
+
+investors.get("/investors-party", P, h((req) => {
+  const t = tid(req), type = String(req.query.kind ?? ""), id = Number(req.query.id);
+  if (!["supplier", "wholesale", "khata"].includes(type)) throw new AppError(400, "kind?");
+  const p = partyOf(t, type, id);
+  if (!p) throw new AppError(404, "Party nahi mili");
+  // picker shape: supplier balance = what we owe (+), client / khata balance = what they owe us (+) / advance (−)
+  const due = partyDue(type, p);
+  return { id: p.id, name: p.name, balance: type === "supplier" ? -due : due };
+}));
+
+investors.post("/investors/:id/transfer", P, h(async (req) => {
+  const t = tid(req), i = own(t, Number(req.params.id)), b = parse(transferBody, req.body);
+  if (!i.active) throw new AppError(400, `${i.name} band hai — pehle chalu karein`);
+  if (b.direction === "supplier_to_investor" && b.party_type !== "supplier") throw new AppError(400, "Supplier chunein");
+  if (b.direction !== "supplier_to_investor" && b.party_type === "supplier") throw new AppError(400, "Is rukh me client / khata customer chunein");
+  const p = partyOf(t, b.party_type, b.party_id);
+  if (!p) throw new AppError(404, "Party nahi mili");
+  const amount = round2(b.amount), due = partyDue(b.party_type, p);
+  const toInvestor = b.direction !== "investor_to_client";
+  const purpose = toInvestor ? "capital" : b.purpose;
+  if (!toInvestor) {
+    const free = round2(investorBalance(i.id) - inDeals(i.id) - issuedCheques(i.id));
+    if (amount > free + 0.5) throw new AppError(400, `${i.name} ka free balance Rs ${Math.round(Math.max(0, free)).toLocaleString("en-IN")} hai — is se zyada transfer nahi ho sakta`);
+  }
+  if (!b.with_cash) {
+    // a pure book transfer can only move what is actually there on the party's side
+    if (b.direction === "supplier_to_investor" && amount > -due + 0.5) throw new AppError(400, `${p.name} ko hum sirf Rs ${Math.round(Math.max(0, -due)).toLocaleString("en-IN")} dete hain — is se zyada capital nahi ban sakta (cash ke saath karein)`);
+    if (b.direction === "client_to_investor" && amount > -due + 0.5) throw new AppError(400, `${p.name} ka advance sirf Rs ${Math.round(Math.max(0, -due)).toLocaleString("en-IN")} hai — is se zyada capital nahi ban sakta`);
+    if (b.direction === "investor_to_client" && amount > due + 0.5) throw new AppError(400, `${p.name} ka baqaya sirf Rs ${Math.round(Math.max(0, due)).toLocaleString("en-IN")} hai — is se zyada nahi kat sakta (cash ke saath karein)`);
+  } else if (!b.method) throw new AppError(400, "Cash ke saath transfer me tareeqa (Cash / bank) chunein");
+  const ts = b.txn_date ? stampFor(b.txn_date) : now();
+  const by = req.user!.name;
+  const label = b.direction === "supplier_to_investor" ? `Supplier ${p.name} ka baqaya → investor capital` : b.direction === "client_to_investor" ? `${p.name} ka advance → investor capital` : `Investor ${purpose === "profit" ? "munafa" : "capital"} → ${p.name} ka baqaya kata`;
+  const note = [label, b.note].filter(Boolean).join(" · ");
+  const xid = run(`INSERT INTO investor_transfers (tenant_id,investor_id,direction,party_type,party_id,party_name,amount,purpose,with_cash,method,account_id,note,txn_date,created_by,created_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, t, i.id, b.direction, b.party_type, p.id, p.name, amount, purpose, b.with_cash ? 1 : 0, b.method ?? null, b.account_id ?? null, b.note ?? null, ts, by, now()).id;
+  const ref = `xfer:${xid}`;
+  let investorTxn = 0, partySrc = "", cashSrc = "", pump = 0, byp = 0;
+  if (!b.with_cash) {
+    tx(() => {
+      investorTxn = run(`INSERT INTO investor_txns (tenant_id,investor_id,type,purpose,amount,method,src,note,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)`,
+        t, i.id, toInvestor ? "capital_in" : "payout", purpose, amount, XFER_METHOD, ref, note, by, ts).id;
+      if (b.party_type === "supplier") {
+        // settle the bypass account first, then the pump account (same rule as every supplier payment)
+        const bd = bypassOwed(p.id as number); byp = bd > 0.5 ? Math.min(amount, round2(bd)) : 0; pump = round2(amount - byp);
+        const parts: string[] = [];
+        if (byp > 0) parts.push(`byppay:${run(`INSERT INTO bypass_supplier_payments (tenant_id,supplier_id,amount,mode,client_id,wtx_id,method,account_id,ref,note,created_by,txn_date,created_at)
+          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`, t, p.id, byp, "we_pay", null, null, XFER_METHOD, null, ref, `Investor ${i.name} ke capital me transfer`, by, ts, now()).id}`);
+        if (pump > 0.005) parts.push(`stx:${run("INSERT INTO supplier_txns (tenant_id,supplier_id,type,amount,method,ref,note,created_by,txn_date,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+          t, p.id, "payment", pump, XFER_METHOD, ref, `Investor ${i.name} ke capital me transfer`, by, ts, now()).id}`);
+        partySrc = parts.join("+");
+      } else if (b.party_type === "wholesale") {
+        const r = insertTxn(req, p.id as number, toInvestor
+          ? { type: "adjustment", amount, method: XFER_METHOD, ref, note: `Advance → investor ${i.name} ka capital`, txn_date: ts, silent: true }
+          : { type: "payment", amount, method: XFER_METHOD, ref, note: `Investor ${i.name} ke ${purpose === "profit" ? "munafa" : "capital"} se kata`, txn_date: ts, silent: true });
+        partySrc = `wtx:${r.id}`;
+      } else {
+        khataEntry(p.id as number, toInvestor ? "debit" : "credit", amount, ref, toInvestor ? `Advance → investor ${i.name} ka capital` : `Investor ${i.name} ke ${purpose === "profit" ? "munafa" : "capital"} se kata`, null, ts);
+        partySrc = `khata:${get("SELECT MAX(id) id FROM khata_ledger WHERE customer_id=?", p.id)!.id}`;
+      }
+      run("UPDATE investor_transfers SET investor_txn_id=?, party_src=?, pump_part=?, bypass_part=? WHERE id=?", investorTxn, partySrc, pump, byp, xid);
+    });
+  } else {
+    // two real money entries, money in first so the cash check on the way out passes
+    const money = { amount, method: b.method!, account_id: b.account_id ?? null, ref: null, note: note, photo_ids: [] as number[], notify: false, entry_date: b.txn_date ?? null } as any;
+    const vouchers: number[] = [];
+    try {
+      if (toInvestor) {
+        investorTxn = moneyTxn(t, by, i, { dir: "in", amount, method: b.method, account_id: b.account_id ?? null, note });
+        const r = await doPay(req, { ...money, party_type: b.party_type, party_id: p.id as number } as any);
+        vouchers.push(r.voucher.id as number);
+      } else {
+        const r = await doReceive(req, { ...money, party_type: b.party_type, party_id: p.id as number } as any);
+        vouchers.push(r.voucher.id as number);
+        investorTxn = moneyTxn(t, by, i, { dir: "out", amount, method: b.method, account_id: b.account_id ?? null, purpose, note });
+      }
+    } catch (e) {
+      // one leg failed: take back whatever was written and drop the transfer row
+      tx(() => { for (const v of vouchers) voidVoucher(t, v, by, "transfer failed"); if (investorTxn) voidInvestorTxn(t, get("SELECT * FROM investor_txns WHERE id=?", investorTxn)!, by, "transfer failed"); run("DELETE FROM investor_transfers WHERE id=?", xid); });
+      throw e;
+    }
+    if (b.txn_date) { run("UPDATE investor_txns SET created_at=? WHERE id=?", ts, investorTxn); backdateInvestorSrc(t, get("SELECT src FROM investor_txns WHERE id=?", investorTxn)!.src as string | null, ts); }
+    cashSrc = vouchers.map((v) => `voucher:${v}`).join("+");
+    run("UPDATE investor_transfers SET investor_txn_id=?, cash_src=? WHERE id=?", investorTxn, cashSrc, xid);
+  }
+  audit(t, req.user!, "investor_transfer", `investor:${i.id}`, { transfer: xid, ...b, party: p.name });
+  return { id: xid, investor_txn_id: investorTxn, balance: investorBalance(i.id), party_due: partyDue(b.party_type, partyOf(t, b.party_type, p.id as number)!), split: { pump, bypass: byp } };
+}));
+/** a cash/bank row an investor money txn made, moved to a back-dated day */
+function backdateInvestorSrc(t: number, src: string | null, at: string) {
+  for (const tag of String(src ?? "").split("+")) {
+    const [kind, sid] = tag.split(":");
+    if (kind === "voucher") run("UPDATE cashier_vouchers SET created_at=? WHERE id=? AND tenant_id=?", at, Number(sid), t);
+    else if (kind === "bank") run("UPDATE bank_txns SET txn_date=? WHERE id=? AND tenant_id=?", at, Number(sid), t);
+  }
+}
+function voidInvestorTxn(t: number, x: Row, who: string, reason: string) {
+  for (const tag of String(x.src ?? "").split("+")) {
+    const [kind, sid] = tag.split(":");
+    if (kind === "voucher") run("DELETE FROM cashier_vouchers WHERE id=? AND tenant_id=?", Number(sid), t);
+    else if (kind === "bank") run("DELETE FROM bank_txns WHERE id=? AND tenant_id=?", Number(sid), t);
+  }
+  run("UPDATE investor_txns SET voided=1, void_reason=?, voided_by=?, voided_at=? WHERE id=?", reason, who, now(), x.id);
+}
+investors.post("/investor-transfers/:id/void", P, h((req) => {
+  const t = tid(req);
+  const x = get("SELECT * FROM investor_transfers WHERE id=? AND tenant_id=? AND voided=0", Number(req.params.id), t);
+  if (!x) throw new AppError(404, "Transfer nahi mila");
+  const reason = String(req.body?.reason ?? "").trim();
+  if (reason.length < 3) throw new AppError(400, "Wajah likhein (kam se kam 3 harf)");
+  const who = req.user!.name;
+  const itx = x.investor_txn_id ? get("SELECT * FROM investor_txns WHERE id=? AND voided=0", x.investor_txn_id) : null;
+  if (itx?.type === "capital_in" && round2(investorBalance(x.investor_id as number) - (itx.amount as number) - inDeals(x.investor_id as number)) < -0.5) throw new AppError(400, "Ye raqam deal me lag chuki hai — pehle deal mansookh karein");
+  tx(() => {
+    if (x.with_cash) {
+      for (const tag of String(x.cash_src ?? "").split("+")) { const [k, sid] = tag.split(":"); if (k === "voucher") voidVoucher(t, Number(sid), who, reason); }
+      if (itx) voidInvestorTxn(t, itx, who, reason);
+    } else {
+      if (itx) run("UPDATE investor_txns SET voided=1, void_reason=?, voided_by=?, voided_at=? WHERE id=?", reason, who, now(), itx.id);
+      const ref = `xfer:${x.id}`;
+      run("DELETE FROM supplier_txns WHERE tenant_id=? AND ref=?", t, ref);
+      run("UPDATE bypass_supplier_payments SET voided=1 WHERE tenant_id=? AND ref=?", t, ref);
+      run("UPDATE wholesale_txns SET voided=1, void_reason=? WHERE tenant_id=? AND ref=? AND voided=0", `${who}: ${reason}`, t, ref);
+      for (const k of all("SELECT * FROM khata_ledger WHERE ref=? AND customer_id=?", ref, x.party_id)) {
+        run("DELETE FROM khata_ledger WHERE id=?", k.id);
+        run("UPDATE customers SET balance = balance + ? WHERE id=?", k.type === "credit" ? k.amount : -k.amount, x.party_id);
+      }
+    }
+    run("UPDATE investor_transfers SET voided=1, void_reason=?, voided_by=?, voided_at=? WHERE id=?", reason, who, now(), x.id);
+  });
+  audit(t, req.user!, "investor_transfer_void", `investor:${x.investor_id}`, { transfer: x.id, amount: x.amount, reason });
+  return { ok: true, balance: investorBalance(x.investor_id as number) };
 }));
 
 /** cancel a money txn: the cash / bank row it made is removed, the record stays voided (shown struck through) */

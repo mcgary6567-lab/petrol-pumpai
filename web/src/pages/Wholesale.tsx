@@ -352,7 +352,7 @@ export function ClientForm({ initial, onClose, onSaved }: { initial?: any; onClo
 
 /* ---------------- Detail ---------------- */
 function ClientDetail({ id }: { id: string }) {
-  const { can } = useAuth();
+  const { can, modules } = useAuth();
   const nav = useNavigate();
   const client = useApi<any>(`/wholesale/clients/${id}`);
   const [range, setRange] = useState({ from: "", to: "" });
@@ -386,6 +386,7 @@ function ClientDetail({ id }: { id: string }) {
           {/* primary actions are the big tiles below; here only the occasional ones */}
           <Link className="btn-secondary" to={`/wholesale/ledger?client=${c.id}`}><Receipt size={15} /> Party ledger · <Ur>کھاتہ</Ur></Link>
           {can("wholesale.manage") && <button className="btn-secondary" onClick={() => setAction("return")}><Undo2 size={15} /> Fuel return · <Ur>واپسی</Ur></button>}
+          {modules.investors && can("investors.manage") && Math.abs(s.due) > 0.5 && <Link className="btn-secondary !text-violet-700" to={`/investors?transfer=wholesale:${c.id}`} title="Advance ya baqaya investor ke khate par">⇄ Investor me transfer</Link>}
           {can("wholesale.manage") && s.due < -0.5 && <button className="btn-secondary !text-emerald-700" onClick={() => setAction("refund")}><Wallet size={15} /> Advance wapas · <Ur>ایڈوانس واپس</Ur></button>}
           {can("wholesale.rates") && <button className="btn-secondary" onClick={() => setAction("adjustment")}><SlidersHorizontal size={15} /> Adjustment · <Ur>ایڈجسٹمنٹ</Ur></button>}
           {can("wholesale.manage") && c.phone && <button className="btn-secondary" disabled={sending} onClick={async () => {

@@ -924,6 +924,15 @@ export function migrate() {
     profit REAL, our_pct REAL, investor_share REAL, our_share REAL, close_note TEXT, closed_by TEXT, closed_at TEXT,
     voided INTEGER NOT NULL DEFAULT 0, void_reason TEXT, voided_by TEXT, voided_at TEXT, created_by TEXT, created_at TEXT NOT NULL)`);
   db.exec("CREATE INDEX IF NOT EXISTS idx_investor_deals ON investor_deals(tenant_id, investor_id, status)");
+  // party ↔ investor transfers (no cash, or with the two real cash legs): what a supplier / client is owed or owes
+  // moves onto the investor's khata. Both legs reference the transfer (ref "xfer:<id>") so a void takes everything back.
+  db.exec(`CREATE TABLE IF NOT EXISTS investor_transfers (
+    id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, investor_id INTEGER NOT NULL,
+    direction TEXT NOT NULL CHECK (direction IN ('supplier_to_investor','client_to_investor','investor_to_client')),
+    party_type TEXT NOT NULL CHECK (party_type IN ('supplier','wholesale','khata')), party_id INTEGER NOT NULL, party_name TEXT,
+    amount REAL NOT NULL, purpose TEXT, pump_part REAL, bypass_part REAL, with_cash INTEGER NOT NULL DEFAULT 0, method TEXT, account_id INTEGER,
+    investor_txn_id INTEGER, party_src TEXT, cash_src TEXT, note TEXT, txn_date TEXT NOT NULL,
+    voided INTEGER NOT NULL DEFAULT 0, void_reason TEXT, voided_by TEXT, voided_at TEXT, created_by TEXT, created_at TEXT NOT NULL)`);
   db.exec(`CREATE TABLE IF NOT EXISTS investor_txns (
     id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, investor_id INTEGER NOT NULL,
     type TEXT NOT NULL CHECK (type IN ('capital_in','payout','profit','loss')), purpose TEXT, amount REAL NOT NULL,

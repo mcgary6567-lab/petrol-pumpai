@@ -48,6 +48,8 @@ const isOtherDisc = (ref: string | null | undefined) => otherKind(ref) === "disc
  *  method follows the colon). The party's balance moves back toward zero and the money actually leaves cash/bank; for a
  *  supplier it is the mirror — our overpayment comes back IN. Booked below in each party's section. */
 const isRefund = (ref: string | null | undefined) => String(ref ?? "").startsWith("refund:");
+/** A party ↔ investor transfer leg (ref "xfer:<id>"): both legs are booked once, as one journal from investor_transfers. */
+const isXfer = (ref: string | null | undefined) => String(ref ?? "").startsWith("xfer:");
 /** CEO income/expense posted ON a party's own khata ("oth-pty:<entry>"): the cash/bank row is booked against that party's
  *  receivable (the party's own ledger row is skipped — it only moves the balance). Not private: it is on the party's statement. */
 const isToParty = (ref: string | null | undefined) => otherKind(ref) === "pty";
@@ -170,6 +172,7 @@ function journalNow(t: number, fromDay: string, toDay: string, showPrivate = tru
     // go-live opening balance: brought forward, not this period's income
     if (isToParty(r.ref)) continue; // booked from the cash/bank row against Khata receivable
     if (r.ref === OPEN_REF) { add(day(r.created_at), "Opening", `Opening balance — ${r.name}`, r.type === "debit" ? [dr("Khata receivable", r.amount), cr(OPENING_EQ, r.amount)] : [dr(OPENING_EQ, r.amount), cr("Khata receivable", r.amount)]); continue; }
+    if (isXfer(r.ref)) continue; // party ↔ investor transfer: one journal from investor_transfers (below)
     if (r.type === "credit") {
       const od = isOtherDisc(r.ref);
       const dside = od ? (showPrivate ? OTHER_DISCOUNT_CEO : OWN_DRAW) : via(r.ref, r.account_id);
@@ -183,6 +186,7 @@ function journalNow(t: number, fromDay: string, toDay: string, showPrivate = tru
   for (const r of all(`SELECT w.*, c.name FROM wholesale_txns w JOIN wholesale_clients c ON c.id=w.client_id WHERE w.tenant_id=? AND w.voided=0 AND w.txn_date >= ? AND w.txn_date < ?`, ...P)) {
     const d = day(r.txn_date);
     if (isToParty(r.ref)) continue; // booked from the cash/bank row against Wholesale receivable
+    if (isXfer(r.ref)) continue; // party ↔ investor transfer: one journal from investor_transfers (below)
     if (r.type === "supply") add(d, "Sales", `Wholesale supply — ${r.name} ${r.litres} L ${PRODUCTS[r.product] ?? r.product ?? ""}`, [dr("Wholesale receivable", r.amount), cr("Wholesale sales", r.amount)]);
     if (r.type === "return") add(d, "Credit note", `Wholesale return — ${r.name} ${r.litres} L`, [dr("Wholesale sales", r.amount), cr("Wholesale receivable", r.amount)]);
     // paid straight to our depot: what we owe the depot goes down instead of money coming in
@@ -225,6 +229,7 @@ function journalNow(t: number, fromDay: string, toDay: string, showPrivate = tru
   }
   for (const r of all(`SELECT b.*, s.name FROM bypass_supplier_payments b JOIN suppliers s ON s.id=b.supplier_id WHERE b.tenant_id=? AND b.voided=0 AND b.txn_date >= ? AND b.txn_date < ?`, ...P)) {
     const d = day(r.txn_date);
+    if (isXfer(r.ref)) continue; // party ↔ investor transfer: one journal from investor_transfers (below)
     if (r.mode === "we_pay" && String(r.ref ?? "").startsWith("reclass:")) add(d, "Journal", `Pump → bypass account transfer — ${r.name}`, [dr("Bypass suppliers payable", r.amount), cr(`Payable — ${r.name}`, r.amount)]);
     else if (r.mode === "we_pay") add(d, "Payment", `Bypass supplier paid — ${r.name}${r.ref ? ` (${r.ref})` : ""}`, [dr("Bypass suppliers payable", r.amount), cr(via(r.method, r.account_id), r.amount)]);
     else if (r.mode === "through_us") add(d, "Payment", `Bypass forwarded to ${r.name} (through us)${r.ref ? ` (${r.ref})` : ""}`, [dr("Bypass suppliers payable", r.amount), cr(via(r.method, r.account_id), r.amount)]);
@@ -236,6 +241,7 @@ function journalNow(t: number, fromDay: string, toDay: string, showPrivate = tru
     if (r.type === "purchase" && String(r.ref ?? "").startsWith("shopbuy:")) add(d, "Purchase", `Shop goods — ${r.name}${r.note ? ` (${r.note})` : ""}`, [dr("Shop stock", r.amount), cr(pay, r.amount)]);
     else if (r.type === "purchase") add(d, "Purchase", `Fuel purchase — ${r.name} ${r.litres} L ${PRODUCTS[r.product] ?? ""} @ ${r.rate}${r.ref ? ` (${r.ref})` : ""}`, [dr("Fuel purchases", r.amount), cr(pay, r.amount)]);
     if (r.type === "payment" && r.method === DEPOT_PAY) continue; // booked with the client's payment above
+    if (isXfer(r.ref)) continue; // party ↔ investor transfer: one journal from investor_transfers (below)
     if (r.type === "payment") add(d, "Payment", `${r.method === "WHT" ? "Income tax withheld" : "Paid"} — ${r.name}${r.ref ? ` (${r.ref})` : ""}`, [dr(pay, r.amount), cr(r.method === "WHT" ? "Withholding tax payable" : via(r.method, r.account_id), r.amount)]);
     if (r.type === "adjustment" && String(r.ref ?? "").startsWith("reclass:")) continue; // booked once, from the bypass row (pump ↔ bypass transfer)
     if (r.type === "adjustment" && isRefund(r.ref)) add(d, "Receipt", `Overpayment refund — ${r.name}${r.note ? ` (${r.note})` : ""}`, [dr(via(r.method, r.account_id), r.amount), cr(pay, r.amount)]);
@@ -320,6 +326,17 @@ function journalNow(t: number, fromDay: string, toDay: string, showPrivate = tru
       r.direction === "in" ? [dr(CASH, r.amount), cr(other, r.amount)] : [dr(other, r.amount), cr(CASH, r.amount)]);
   }
 
+  // party ↔ investor transfers without cash: the party's balance moves onto the investor's khata in one journal
+  for (const r of all(`SELECT x.*, i.name investor FROM investor_transfers x JOIN investors i ON i.id=x.investor_id WHERE x.tenant_id=? AND x.voided=0 AND x.with_cash=0 AND x.txn_date >= ? AND x.txn_date < ?`, ...P)) {
+    const d = day(r.txn_date);
+    if (r.direction === "supplier_to_investor") add(d, "Journal", `Supplier ${r.party_name} → investor ${r.investor} (capital)`,
+      [...(round2(r.bypass_part ?? 0) ? [dr("Bypass suppliers payable", round2(r.bypass_part))] : []), ...(round2(r.pump_part ?? 0) ? [dr(`Payable — ${r.party_name}`, round2(r.pump_part))] : []), cr(INVESTORS, r.amount)]);
+    else {
+      const recv = r.party_type === "wholesale" ? "Wholesale receivable" : "Khata receivable";
+      if (r.direction === "client_to_investor") add(d, "Journal", `${r.party_name} advance → investor ${r.investor} (capital)`, [dr(recv, r.amount), cr(INVESTORS, r.amount)]);
+      else add(d, "Journal", `Investor ${r.investor} ${r.purpose === "profit" ? "munafa" : "capital"} → ${r.party_name} ka baqaya`, [dr(INVESTORS, r.amount), cr(recv, r.amount)]);
+    }
+  }
   // investors: each closed deal's investor share — profit: Dr investor share expense / Cr Investors payable; loss: the reverse
   // (their capital and payouts move through the cashier / bank rows above with ref "inv:")
   for (const r of all(`SELECT x.*, i.name FROM investor_txns x JOIN investors i ON i.id=x.investor_id WHERE x.tenant_id=? AND x.voided=0 AND (x.type IN ('profit','loss') OR x.src='open:') AND x.created_at >= ? AND x.created_at < ?`, ...P)) {
