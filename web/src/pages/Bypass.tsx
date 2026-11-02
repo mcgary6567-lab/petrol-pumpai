@@ -266,6 +266,7 @@ export function BypassDeliveryForm({ onClose, onDone, fromHeld = false, fromClie
   const [photos, setPhotos] = useState<number[]>([]);
   const { busy, run } = useAction();
   const stock = useApi<any>("/bypass/stock");
+  const lotsApi = useApi<any>("/bypass/lots"); // open lots with the tanker they sit on (same-voucher first, then FIFO)
   const held = (p: string) => (stock.data?.by_product ?? []).find((x: any) => x.product === p)?.litres ?? 0;
   const heldAvg = (p: string) => Number((stock.data?.by_product ?? []).find((x: any) => x.product === p)?.avg_cost ?? 0);
   // tanks across all stations, for the "unload into our own tank" rows
@@ -335,17 +336,36 @@ export function BypassDeliveryForm({ onClose, onDone, fromHeld = false, fromClie
               <div className="text-sm font-semibold">📦 Balance stock (pehle ka khareeda, abhi humare paas) · <Ur>باقی اسٹاک</Ur></div>
               {fromHeld && <span className="text-xs text-amber-800">Client ko <b>aaj ka rate card</b> lagega; cost purane bill ki — farq munafa.</span>}
             </div>
-            {!(stock.data?.by_product ?? []).some((x: any) => x.litres > 0.01) ? <p className="text-xs text-slate-500">Abhi koi balance stock nahi — Depot direct tab se zyada khareed kar kam dein to baqi yahan aata hai.</p> : (
-              <div className="grid gap-2 sm:grid-cols-2">
-                {(stock.data?.by_product ?? []).filter((x: any) => x.litres > 0.01).map((x: any) => (
-                  <div key={x.product} className="rounded-lg bg-white p-2 text-sm ring-1 ring-slate-200">
-                    <div className="flex justify-between"><b>{PRODUCTS[x.product] ?? x.product}</b><b className="tabular-nums">{num(x.litres)} L</b></div>
-                    <div className="text-xs text-slate-500">cost Rs {num(x.avg_cost, 2)}/L · value {pkr(x.value)}{x.held_days ? ` · ${x.held_days} din se` : ""}</div>
-                    {(x.lots ?? []).length > 0 && <ul className="mt-1 space-y-0.5 text-[11px] text-slate-500">{x.lots.slice(0, 3).map((l: any) => <li key={l.id}>{String(l.txn_date).slice(0, 10)} · {l.supplier}{l.ref ? ` · ${l.ref}` : ""} · {num(l.held_l)} L @ Rs {num(l.cost_rate, 2)}</li>)}</ul>}
-                  </div>
-                ))}
-              </div>
-            )}
+            {!(stock.data?.by_product ?? []).some((x: any) => x.litres > 0.01) ? <p className="text-xs text-slate-500">Abhi koi balance stock nahi — Depot direct tab se zyada khareed kar kam dein to baqi yahan aata hai.</p> : (() => {
+              // one row per open lot: which tanker it is sitting on, from whom, since when, how much is left and at what cost
+              const fuels: any[] = lotsApi.data?.fuels ?? [];
+              const rows = fuels.flatMap((f) => (f.lots ?? []).map((l: any) => ({ ...l, product: f.product })));
+              const totalL = rows.reduce((a, l) => a + l.left, 0), totalV = rows.reduce((a, l) => a + l.value_left, 0);
+              return (
+                <div className="overflow-x-auto rounded-lg bg-white ring-1 ring-slate-200">
+                  <table className="w-full min-w-[640px] text-[11px] [&_.td]:!px-2 [&_.td]:!py-1.5 [&_.th]:!px-2 [&_.th]:!py-1.5">
+                    <thead><tr><th className="th">Fuel</th><th className="th">Gaari</th><th className="th">Supplier</th><th className="th">Tareekh</th><th className="th">Bill</th><th className="th text-right">Baqi</th><th className="th text-right">Rs/L</th><th className="th text-right">Value</th><th className="th text-right">Din</th></tr></thead>
+                    <tbody>
+                      {rows.map((l) => (
+                        <tr key={l.id}>
+                          <td className="td font-semibold">{PRODUCTS[l.product] ?? l.product}</td>
+                          <td className="td whitespace-nowrap">{l.vehicle_no ? <>🚛 <b>{l.vehicle_no}</b></> : <span className="text-slate-400">—</span>}{l.driver_name ? <span className="block text-[10px] text-slate-500">{l.driver_name}</span> : null}</td>
+                          <td className="td">{l.supplier}</td>
+                          <td className="td whitespace-nowrap">{String(l.txn_date).slice(0, 10)}</td>
+                          <td className="td whitespace-nowrap">{l.delivery_id ? <span className="font-mono">BYP-{l.delivery_id}</span> : ""}{l.ref ? <span className="text-slate-500"> · {l.ref}</span> : ""}</td>
+                          <td className="td whitespace-nowrap text-right tabular-nums font-semibold">{num(l.left)} L<span className="block text-[10px] font-normal text-slate-400">/ {num(l.litres)}</span></td>
+                          <td className="td text-right tabular-nums">{num(l.cost_rate, 2)}</td>
+                          <td className="td text-right tabular-nums">{pkr(l.value_left)}</td>
+                          <td className="td text-right tabular-nums">{l.days}</td>
+                        </tr>
+                      ))}
+                      {!rows.length && <tr><td className="td text-slate-500" colSpan={9}>{lotsApi.data ? "Koi khula lot nahi" : "…"}</td></tr>}
+                    </tbody>
+                    {rows.length > 0 && <tfoot><tr><td className="td" colSpan={5}>Kul baqi · {rows.length} lot{fuels.filter((f) => f.balance > 0.01).map((f) => ` · ${PRODUCTS[f.product] ?? f.product} ${num(f.balance)} L`).join("")}</td><td className="td text-right tabular-nums">{num(totalL)} L</td><td className="td"></td><td className="td text-right tabular-nums">{pkr(totalV)}</td><td className="td"></td></tr></tfoot>}
+                  </table>
+                </div>
+              );
+            })()}
           </div>
         )}
 

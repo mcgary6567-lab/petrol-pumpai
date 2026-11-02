@@ -368,9 +368,15 @@ export function bypassMonthProfit(tenantId: number) {
  *  entry can be found. This is the "Baqi stock" tab: a lot stays listed until it is sold or unloaded. */
 bypass.get("/bypass/lots", h((req) => {
   const t = tid(req);
-  const buys = all(`SELECT b.id, b.delivery_id, b.supplier_id, s.name supplier, b.product, b.litres, b.cost_rate, b.amount, b.ref, b.txn_date, b.created_by, d.vehicle_no, d.driver_name
+  const buys = all(`SELECT b.id, b.delivery_id, b.supplier_id, s.name supplier, b.product, b.litres, b.cost_rate, b.amount, b.ref, b.txn_date, b.created_by, d.vehicle_no, d.driver_name, d.tankers
       FROM bypass_purchases b JOIN suppliers s ON s.id=b.supplier_id LEFT JOIN bypass_deliveries d ON d.id=b.delivery_id
-      WHERE b.tenant_id=? AND b.voided=0 ORDER BY b.txn_date, b.id`, t);
+      WHERE b.tenant_id=? AND b.voided=0 ORDER BY b.txn_date, b.id`, t).map((b) => {
+    // which tanker(s) the lot sits on: the delivery's tanker, or every tanker of a multi-tanker load
+    let tk: string[] = [];
+    try { tk = (JSON.parse((b.tankers as string) || "[]") as any[]).map((x) => x.vehicle_no).filter(Boolean); } catch { /* bad json */ }
+    const vehicles = tk.length ? tk : b.vehicle_no ? [b.vehicle_no as string] : [];
+    return { ...b, tankers: undefined, vehicle_no: vehicles.join(" + ") || null, vehicles };
+  });
   const outs = all(`SELECT x.id, x.delivery_id, x.product, x.litres, x.unit_cost, x.cost_amount, x.txn_date, x.created_by, x.tank_id, tk.name tank, c.name client, w.rate sale_rate, w.amount sale_amount
       FROM bypass_drops x LEFT JOIN tanks tk ON tk.id=x.tank_id LEFT JOIN wholesale_clients c ON c.id=x.client_id LEFT JOIN wholesale_txns w ON w.id=x.wtx_id
       WHERE x.tenant_id=? AND x.voided=0 ORDER BY x.txn_date, x.id`, t);
