@@ -323,7 +323,8 @@ system.get("/security/score", requirePerm("settings.manage"), h((req) => {
  */
 export const cloudPublic = Router();
 cloudPublic.get("/cloud/google/callback", async (req, res) => {
-  const page = (title: string, body: string) => res.send(`<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><body style="font-family:system-ui,sans-serif;text-align:center;padding:40px;color:#0f172a"><h2>${title}</h2><p style="color:#475569">${body}</p><p><a href="/settings">Settings → Backups</a></p></body>`);
+  const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+  const page = (title: string, body: string) => res.send(`<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><body style="font-family:system-ui,sans-serif;text-align:center;padding:40px;color:#0f172a"><h2>${esc(title)}</h2><p style="color:#475569">${esc(body)}</p><p><a href="/settings">Settings → Backups</a></p></body>`);
   try {
     const code = String(req.query.code ?? ""), state = String(req.query.state ?? "");
     if (!code) return page("Connect cancelled", "Google Drive connect cancel ho gaya.");

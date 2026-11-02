@@ -74,16 +74,21 @@ const Status = ({ ok, label }: { ok: boolean; label: string }) => (
 );
 
 /** Claude key, WhatsApp Cloud API and the public address — set here, no server files to edit. */
-export function Integrations({ ai, provider, wa }: { ai: boolean; provider?: "claude" | "gemini" | "none"; wa: boolean }) {
-  const { data, reload } = useApi<any>("/integrations");
+export function Integrations({ ai, provider, wa, load, save: saveFn }: { ai: boolean; provider?: "claude" | "gemini" | "none"; wa: boolean; load?: () => Promise<any>; save?: (body: unknown) => Promise<any> }) {
+  // the pump owner's Settings calls /integrations; the platform panel passes its own loader (/platform/integrations)
+  const [data, setData] = useState<any>(null);
+  const [loadErr, setLoadErr] = useState<string | null>(null);
+  const reload = () => (load ? load() : api("/integrations")).then((d) => { setData(d); setLoadErr(null); }).catch((e: any) => setLoadErr(String(e?.message ?? e)));
+  useEffect(() => { void reload(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const { busy, run } = useAction();
   const [v, setV] = useState<Record<string, string> | null>(null);
   useEffect(() => { if (data) setV(data.values); }, [data]);
+  if (loadErr) return <div className="card p-4 text-sm text-slate-600"><b>Integrations yahan nahi badal sakte.</b> {loadErr}</div>;
   if (!v || !data) return <Loading />;
   const inp = (k: string, label: string, ph = "", secret = false) => (
     <Field label={label}><input className="input font-mono text-xs" type={secret ? "password" : "text"} autoComplete="off" placeholder={ph} value={v[k] ?? ""} onFocus={(e) => secret && e.target.value.startsWith("•") && setV({ ...v, [k]: "" })} onChange={(e) => setV({ ...v, [k]: e.target.value })} /></Field>
   );
-  const save = () => run(() => api("/integrations", { method: "PUT", body: v }), "Saved — working now (no restart needed)").then(() => { reload(); });
+  const save = () => run(() => (saveFn ? saveFn(v) : api("/integrations", { method: "PUT", body: v })), "Saved — working now (no restart needed)").then(() => { reload(); });
   return (
     <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
       <div className="card space-y-2 p-4">
@@ -130,7 +135,7 @@ export function Integrations({ ai, provider, wa }: { ai: boolean; provider?: "cl
 
 /** Version and who to call for support (the seller / installer). */
 export function About() {
-  const { data } = useApi<any>("/integrations");
+  const { data } = useApi<any>("/about");
   if (!data) return null;
   const vnd = data.vendor;
   return (

@@ -6,7 +6,7 @@ import crypto from "node:crypto";
  *  - Business profile and branding (logo, colour) used on the app, receipts, bills, the TV board and slips
  *  - Integrations (Claude AI key, WhatsApp Cloud API, public address) set from the app, no file editing
  */
-import { Router } from "express";
+import { Router, type Request } from "express";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { config, APP_VERSION, PRODUCTS } from "../config.js";
@@ -247,8 +247,17 @@ export function applyIntegrations(body: unknown): string[] {
   }
   return changed;
 }
-business.get("/integrations", requirePerm("settings.manage"), h(() => integrationsValues()));
+/** Integrations are install-wide (tenant 0): on a SaaS server only the platform owner may read or change them —
+ *  otherwise any trial pump could swap the WhatsApp app, public address or AI keys for every pump. */
+function installWideGuard(req: Request) {
+  if (!config.saas) return;
+  const email = (req.user?.email ?? "").toLowerCase();
+  if (!config.platformEmail || email !== config.platformEmail) throw new AppError(403, "SaaS par integrations platform owner set karta hai (Platform panel → Integrations)");
+}
+business.get("/about", h(() => ({ version: APP_VERSION, vendor: config.vendor, saas: config.saas }))); // version + support contact, no secrets
+business.get("/integrations", requirePerm("settings.manage"), h((req) => { installWideGuard(req); return integrationsValues(); }));
 business.put("/integrations", requirePerm("settings.manage"), h((req) => {
+  installWideGuard(req);
   const changed = applyIntegrations(req.body);
   audit(tid(req), req.user!, "integrations_changed", "settings", { changed });
   return { ok: true, changed };

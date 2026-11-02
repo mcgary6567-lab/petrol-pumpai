@@ -44,7 +44,8 @@ function fromCode(kind: Kind, code: string) {
   const m = /^(\d+)-(\d+)-([\w-]{10})$/.exec(code);
   if (!m) return null;
   const id = Number(m[1]), v = Number(m[2]);
-  if (!crypto.timingSafeEqual(Buffer.from(codeOf(kind, id, v)), Buffer.from(code))) return null;
+  const want = Buffer.from(codeOf(kind, id, v)), got = Buffer.from(code);
+  if (want.length !== got.length || !crypto.timingSafeEqual(want, got)) return null; // "01-0-…" must not throw
   const c = get(`SELECT * FROM ${TABLE[kind]} WHERE id=?`, id);
   if (kind === "i" && c && !modulesOf(c.tenant_id as number).investors) return null; // module off → the link is dead
   // a newer link was made (version went up) or the page is off

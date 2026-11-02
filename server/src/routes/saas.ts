@@ -19,9 +19,12 @@ import { config } from "../config.js";
 import { all, get, run, now, setSetting, tx, db } from "../db.js";
 import { h, parse, tid, forgetModules } from "../auth.js";
 import { AppError, audit, normalizePhone } from "../services.js";
-import { setupBody, provisionTenant } from "./setup.js";
+import { setupBody, provisionTenant, integrationsValues, applyIntegrations } from "./setup.js";
 import { mountBackupRoutes, makeBackup, listBackups } from "./system.js";
 import fs from "node:fs";
+import { randomInt } from "node:crypto";
+/** Unambiguous A-Z/2-9 code from the CSPRNG (activation codes are bearer credentials worth a paid plan). */
+const randomCode = (n: number) => { const A = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; let s = ""; for (let i = 0; i < n; i++) s += A[randomInt(A.length)]; return s; };
 import { serverStatus, serverLogs, clearServerLogs } from "../serverStatus.js";
 import { catalogPlatform } from "./catalog.js";
 
@@ -50,7 +53,8 @@ saasPublic.post("/signup", h((req) => {
   if (!config.saas) throw new AppError(404, "Sign-up is off on this server");
   const b = parse(setupBody, req.body);
   if (get("SELECT 1 FROM users WHERE email=?", b.admin.email.toLowerCase())) throw new AppError(400, "Ye email pehle se registered hai — sign in karein.");
-  return provisionTenant(b, { status: "trial", trialEndsAt: trialEnd() });
+  // paid add-ons (wholesale / investors) are switched on by the platform owner, never self-granted at sign-up
+  return provisionTenant({ ...b, modules: undefined }, { status: "trial", trialEndsAt: trialEnd() });
 }));
 
 /* ================= The pump owner's own account ================= */
@@ -95,7 +99,8 @@ const platformToken = (id: number) => jwt.sign({ padmin: id }, config.jwtSecret,
 export function requirePlatform(req: Request, _res: Response, next: NextFunction) {
   const hdr = req.headers.authorization;
   // a backup download opens in the browser itself, so a GET may carry the platform token as ?token=
-  const token = hdr?.startsWith("Bearer ") ? hdr.slice(7) : req.method === "GET" && typeof req.query.token === "string" ? req.query.token : "";
+  const dl = req.method === "GET" && /^\/backups\/[^/]+(\/enc)?$/.test(req.path); // only the download opens via a link
+  const token = hdr?.startsWith("Bearer ") ? hdr.slice(7) : dl && typeof req.query.token === "string" ? req.query.token : "";
   try {
     const p = jwt.verify(token, config.jwtSecret) as { padmin?: number };
     const a = p.padmin ? get("SELECT id, email, name FROM platform_admins WHERE id=?", p.padmin) : null;
@@ -323,12 +328,18 @@ platform.post("/tenants/:id/:action", h((req) => {
 platform.get("/codes", h(() => ({ codes: all("SELECT * FROM activation_codes ORDER BY id DESC LIMIT 200") })));
 // whole-database backups (every pump in one file) + Google Drive / Dropbox copies — platform owner only in SaaS
 mountBackupRoutes(platform, (_req, _res, next) => next(), (req) => ({ t: 0, user: { id: 0, name: `platform:${(req as Request & { padmin?: { email: string } }).padmin?.email ?? ""}` } }));
+platform.get("/integrations", h(() => integrationsValues()));
+platform.put("/integrations", h((req) => {
+  const changed = applyIntegrations(req.body);
+  audit(0, { id: 0, name: `platform:${(req as Request & { padmin?: { email: string } }).padmin?.email ?? ""}` }, "integrations_changed", "settings", { changed });
+  return { ok: true, changed };
+}));
 platform.post("/codes", h((req) => {
   const b = parse(z.object({ count: z.number().int().min(1).max(50).default(1), plan: z.string().max(40).optional(), note: z.string().max(120).optional() }), req.body);
   const made: string[] = [];
   for (let i = 0; i < b.count; i++) {
     let code = "", tries = 0;
-    do { code = `PPAI-${Array.from({ length: 2 }, () => Math.random().toString(36).slice(2, 6).toUpperCase()).join("-")}`; tries++; }
+    do { code = `PPAI-${randomCode(4)}-${randomCode(4)}`; tries++; }
     while (get("SELECT 1 FROM activation_codes WHERE code=?", code) && tries < 10);
     run("INSERT INTO activation_codes (code,plan,note,created_by,created_at) VALUES (?,?,?,?,?)",
       code, b.plan ?? null, b.note ?? null, (req as Request & { padmin?: { email: string } }).padmin?.email ?? null, now());

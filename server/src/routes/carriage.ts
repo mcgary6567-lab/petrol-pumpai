@@ -354,7 +354,7 @@ carriage.post("/carriage/fuel-payments/:id/forward", requirePerm("carriage.manag
 }));
 
 /** Void a fuel-money record (correction): reverse any bank movement and drop it from the statement. */
-carriage.post("/carriage/fuel-payments/:id/void", requirePerm("carriage.manage"), h((req) => {
+carriage.post("/carriage/fuel-payments/:id/void", requirePerm("carriage.void"), h((req) => {
   const t = tid(req);
   const f = get("SELECT * FROM bypass_fuel_payments WHERE id=? AND tenant_id=? AND voided=0", Number(req.params.id), t);
   if (!f) throw new AppError(404, "Fuel payment not found");

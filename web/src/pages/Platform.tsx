@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { ErrorBox, Field, Modal, Pager, usePaged } from "../components/ui";
 import { BackupsPanel } from "../components/BackupsPanel";
+import { Integrations } from "../components/BusinessSettings";
 
 /** Platform owner (super-admin) panel: every pump, activate / suspend, and one-time activation codes. Separate login. */
 const KEY = "pp_platform_token";
@@ -73,7 +74,7 @@ function Panel({ onLogout }: { onLogout: () => void }) {
   const [made, setMade] = useState<string[]>([]);
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState<"all" | "active" | "trial" | "suspended" | "lifetime" | "locked" | "attention">("all");
-  const [tab, setTab] = useState<"pumps" | "codes" | "backups" | "server" | "catalog">("pumps");
+  const [tab, setTab] = useState<"pumps" | "codes" | "backups" | "server" | "catalog" | "integrations">("pumps");
   const load = useCallback(async () => {
     try { setOv(await pfetch("/platform/overview")); setCodes((await pfetch("/platform/codes")).codes); setErr(null); }
     catch (e: any) { setErr(e.message); if (/login|401/i.test(e.message)) onLogout(); }
@@ -137,7 +138,7 @@ function Panel({ onLogout }: { onLogout: () => void }) {
           </div>
         </div>
         <div className="mx-auto flex max-w-6xl gap-1 px-3 sm:px-4">
-          {([["pumps", "Pumps"], ["server", "Server"], ["catalog", "Catalog"], ["codes", `Codes${unused.length ? ` · ${unused.length}` : ""}`], ["backups", "Backups"]] as const).map(([key, l]) => (
+          {([["pumps", "Pumps"], ["server", "Server"], ["catalog", "Catalog"], ["codes", `Codes${unused.length ? ` · ${unused.length}` : ""}`], ["backups", "Backups"], ["integrations", "Integrations"]] as const).map(([key, l]) => (
             <button key={key} onClick={() => setTab(key)} className={`border-b-2 px-3 py-1.5 text-sm ${tab === key ? "border-emerald-400 font-semibold text-white" : "border-transparent text-slate-400"}`}>{l}</button>
           ))}
         </div>
@@ -271,6 +272,13 @@ function Panel({ onLogout }: { onLogout: () => void }) {
 
         {tab === "server" && <ServerTab />}
         {tab === "catalog" && <CatalogTab tenants={ov.tenants} />}
+
+        {tab === "integrations" && (
+          <div className="space-y-3">
+            <p className="text-sm text-slate-600">Poore server ki integrations (AI key, WhatsApp Cloud API, public address, OAuth apps) — har pump par lagti hain. Sirf yahan se badalti hain.</p>
+            <Integrations ai={false} wa={false} load={() => pfetch("/platform/integrations")} save={(b) => pfetch("/platform/integrations", b, "PUT")} />
+          </div>
+        )}
 
         {tab === "backups" && (
           <BackupsPanel title="Backups — saare pumps (poora database)" base="/platform/backups" request={(p, i) => pfetch(p, i?.body, i?.method)} downloadUrl={(n) => `/api/platform/backups/${n}?token=${getTok() ?? ""}`} />

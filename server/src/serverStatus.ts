@@ -53,7 +53,7 @@ export function requestMetrics(req: Request, res: Response, next: NextFunction) 
     b.requests++; b.ms += ms; if (ms > b.max_ms) b.max_ms = ms; if (ms > 1000) b.slow++;
     if (res.statusCode >= 500) b.s5xx++; else if (res.statusCode >= 400) b.s4xx++;
     total++; totalMs += ms;
-    if (ms > 3000) logServerError("warn", `slow request ${Math.round(ms)} ms: ${req.method} ${req.path}`, { method: req.method, path: req.originalUrl, status: res.statusCode });
+    if (ms > 3000) logServerError("warn", `slow request ${Math.round(ms)} ms: ${req.method} ${req.path}`, { method: req.method, path: req.originalUrl.split("?")[0], status: res.statusCode });
   });
   next();
 }
