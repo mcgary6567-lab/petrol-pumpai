@@ -272,6 +272,7 @@ export function BypassDeliveryForm({ onClose, onDone, fromHeld = false, fromClie
   // tanks across all stations, for the "unload into our own tank" rows
   const stTanks = useMemo(() => (stations.data ?? []).flatMap((s: any) => (s.tanks ?? []).map((tk: any) => ({ ...tk, station: s.name }))), [stations.data]);
   const [toTank, setToTank] = useState<any[]>([]);
+  const [lotVoucher, setLotVoucher] = useState<number | null>(null); // BYP voucher opened from the balance-stock lot table
 
   const sumBy = (rows: { product: string; litres: string }[]) => rows.reduce((m, r) => { const p = r.product; m[p] = (m[p] ?? 0) + (Number(r.litres) || 0); return m; }, {} as Record<string, number>);
   const bought = useMemo(() => sumBy(buys), [buys]);
@@ -312,6 +313,7 @@ export function BypassDeliveryForm({ onClose, onDone, fromHeld = false, fromClie
   const valid = !!station && (validBuys.length > 0 || validDrops.length > 0 || validToTank.length > 0) && overBy.length === 0 && noRate.length === 0 && badTank.length === 0;
 
   return (
+    <>
       <form className="space-y-4" onSubmit={async (e) => {
         e.preventDefault();
         const body = {
@@ -352,7 +354,7 @@ export function BypassDeliveryForm({ onClose, onDone, fromHeld = false, fromClie
                           <td className="td whitespace-nowrap">{l.vehicle_no ? <>🚛 <b>{l.vehicle_no}</b></> : <span className="text-slate-400">—</span>}{l.driver_name ? <span className="block text-[10px] text-slate-500">{l.driver_name}</span> : null}</td>
                           <td className="td">{l.supplier}</td>
                           <td className="td whitespace-nowrap">{String(l.txn_date).slice(0, 10)}</td>
-                          <td className="td whitespace-nowrap">{l.delivery_id ? <span className="font-mono">BYP-{l.delivery_id}</span> : ""}{l.ref ? <span className="text-slate-500"> · {l.ref}</span> : ""}</td>
+                          <td className="td whitespace-nowrap">{l.delivery_id ? <button type="button" className="font-mono text-brand-700 underline" title="Bill / voucher kholein" onClick={() => setLotVoucher(l.delivery_id)}>BYP-{l.delivery_id}</button> : ""}{l.ref ? <span className="text-slate-500"> · {l.ref}</span> : ""}</td>
                           <td className="td whitespace-nowrap text-right tabular-nums font-semibold">{num(l.left)} L<span className="block text-[10px] font-normal text-slate-400">/ {num(l.litres)}</span></td>
                           <td className="td text-right tabular-nums">{num(l.cost_rate, 2)}</td>
                           <td className="td text-right tabular-nums">{pkr(l.value_left)}</td>
@@ -514,6 +516,8 @@ export function BypassDeliveryForm({ onClose, onDone, fromHeld = false, fromClie
         <ProofPhotos value={photos} onChange={setPhotos} hint="depot invoice / bilty" />
         <div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={onClose}>Cancel</button><button className="btn-primary" disabled={busy || !valid}><Truck size={15} /> Save delivery</button></div>
       </form>
+      {lotVoucher != null && <BypassVoucher id={lotVoucher} onClose={() => setLotVoucher(null)} />}
+    </>
   );
 }
 
@@ -706,6 +710,7 @@ function LeftoverToTank({ stock, onChanged }: { stock: any[]; onChanged: () => v
   const [lq, setLq] = useState("");
   const [showAll, setShowAll] = useState(false);
   const [editRow, setEditRow] = useState<any>(null);
+  const [unloadVoucher, setUnloadVoucher] = useState<number | null>(null);
   const allRows = (list.data ?? []).filter((r: any) => !r.voided);
   const matched = useListFilter(allRows, { q: lq, text: (r: any) => [r.product, PRODUCTS[r.product], r.tank, r.station, r.note, r.created_by, r.litres].filter((v) => v != null && v !== "").join(" ") });
   const rows = showAll || lq ? matched : matched.slice(0, 8);
@@ -732,7 +737,7 @@ function LeftoverToTank({ stock, onChanged }: { stock: any[]; onChanged: () => v
                   <td className="td text-right font-semibold">{num(r.litres)} L</td>
                   <td className="td">{r.tank}</td>
                   <td className="td text-xs text-slate-600">{r.station}</td>
-                  <td className="td text-xs">{r.delivery_id ? `#${r.delivery_id}` : "—"}</td>
+                  <td className="td text-xs">{r.delivery_id ? <button type="button" className="font-mono text-brand-700 underline" onClick={() => setUnloadVoucher(r.delivery_id)}>BYP-{r.delivery_id}</button> : "—"}</td>
                   <td className="td text-xs text-slate-600">{r.note ?? ""}</td>
                   <td className="td text-xs text-slate-600">{r.created_by}</td>
                   <td className="td text-right">Rs {num(r.unit_cost, 2)}</td>
@@ -746,6 +751,7 @@ function LeftoverToTank({ stock, onChanged }: { stock: any[]; onChanged: () => v
         </div>
       )}
       {editRow && <EditToTank r={editRow} tanks={tanks} onClose={() => setEditRow(null)} onDone={() => { setEditRow(null); list.reload(); onChanged(); }} />}
+      {unloadVoucher != null && <BypassVoucher id={unloadVoucher} onClose={() => setUnloadVoucher(null)} />}
       <Modal open={open} onClose={() => setOpen(false)} title="Bacha hua tel apne tank mein · بچا ہوا تیل">
         <form className="space-y-3" onSubmit={async (e) => {
           e.preventDefault();

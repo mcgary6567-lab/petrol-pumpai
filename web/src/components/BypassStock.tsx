@@ -1,6 +1,7 @@
 /** "Baqi stock" — lot-wise bypass stock (which supplier bill the held fuel sits on), the per-fuel reconciliation and the
  *  outs; a lot stays here until it is delivered to a client or unloaded into our tank. */
-import { Link } from "react-router-dom";
+import { useState } from "react";
+import { BypassVoucher } from "../pages/Bypass";
 import { api, useApi } from "../lib/api";
 import { Empty, Loading, useAction } from "./ui";
 import { useAuth } from "../App";
@@ -30,6 +31,7 @@ function RecostBanner({ onDone }: { onDone: () => void }) {
 
 export function BypassStockTab() {
   const { data, error, reload } = useApi<any>("/bypass/lots");
+  const [voucher, setVoucher] = useState<number | null>(null); // BYP voucher opened from a lot / out row
   if (error) return <div className="card p-4 text-sm text-red-700">{String(error)}</div>;
   if (!data) return <Loading />;
   const fuels: any[] = data.fuels ?? [];
@@ -68,7 +70,7 @@ export function BypassStockTab() {
                 {f.lots.map((l: any) => (
                   <tr key={l.id} className="border-t">
                     <td className="td whitespace-nowrap">{dt(l.txn_date)}</td>
-                    <td className="td">{l.delivery_id ? <Link className="text-brand-700 underline" to={`/wholesale?tab=trips`}>#{l.delivery_id}</Link> : "—"}{l.ref ? <div className="text-xs text-slate-500">{l.ref}</div> : null}</td>
+                    <td className="td">{l.delivery_id ? <button type="button" className="font-mono text-brand-700 underline" title="Bill / voucher kholein" onClick={() => setVoucher(l.delivery_id)}>BYP-{l.delivery_id}</button> : "—"}{l.ref ? <div className="text-xs text-slate-500">{l.ref}</div> : null}</td>
                     <td className="td font-medium">{l.supplier}</td>
                     <td className="td text-xs">{[l.vehicle_no, l.driver_name].filter(Boolean).join(" · ") || "—"}</td>
                     <td className="td text-right">{num(l.litres)} L</td>
@@ -89,7 +91,7 @@ export function BypassStockTab() {
               <div className="overflow-x-auto"><table className="w-full min-w-[640px] text-sm">
                 <thead><tr><th className="th">Tareekh</th><th className="th">Kahan gaya</th><th className="th">Delivery</th><th className="th text-right">Litre</th><th className="th text-right">Cost rate</th><th className="th text-right">Cost</th><th className="th text-right">Sale</th><th className="th">By</th></tr></thead>
                 <tbody className="tabular-nums">{f.outs.map((o: any) => (
-                  <tr key={o.id} className="border-t"><td className="td whitespace-nowrap">{dt(o.txn_date)}</td><td className="td">{o.tank ? <>Apna tank · {o.tank}</> : <>Client · {o.client}</>}</td><td className="td">{o.delivery_id ? `#${o.delivery_id}` : "—"}</td>
+                  <tr key={o.id} className="border-t"><td className="td whitespace-nowrap">{dt(o.txn_date)}</td><td className="td">{o.tank ? <>Apna tank · {o.tank}</> : <>Client · {o.client}</>}</td><td className="td">{o.delivery_id ? <button type="button" className="font-mono text-brand-700 underline" onClick={() => setVoucher(o.delivery_id)}>BYP-{o.delivery_id}</button> : "—"}</td>
                     <td className="td text-right">{num(o.litres)} L</td><td className="td text-right">Rs {num(o.unit_cost, 2)}</td><td className="td text-right">{pkr(o.cost_amount)}</td><td className="td text-right">{o.sale_amount ? <>{pkr(o.sale_amount)} <span className="text-xs text-slate-500">@ {num(o.sale_rate, 2)}</span></> : "—"}</td><td className="td text-xs">{o.created_by}</td></tr>
                 ))}</tbody>
               </table></div>
@@ -97,6 +99,7 @@ export function BypassStockTab() {
           )}
         </section>
       ))}
+      {voucher != null && <BypassVoucher id={voucher} onClose={() => setVoucher(null)} />}
     </div>
   );
 }
