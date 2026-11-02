@@ -283,36 +283,62 @@ const GROUPS: Record<string, { label: string; ur: string; kinds: string[] }> = {
   account: { label: "Account entries", ur: "حساب", kinds: ["payment", "adjustment", "fuel_note"] },
 };
 const groupOf = (type: string) => (GROUPS.supply.kinds.includes(type) ? "supply" : "account");
-function RecentEntries({ rows: all }: { rows: any[] }) {
+const pkToday = () => new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 10);
+const daysAgo = (n: number) => new Date(Date.now() + 5 * 3600_000 - n * 86_400_000).toISOString().slice(0, 10);
+const RANGES: { k: string; label: string; ur: string; from: () => string; to: () => string }[] = [
+  { k: "today", label: "Aaj", ur: "آج", from: pkToday, to: pkToday },
+  { k: "7d", label: "7 din", ur: "۷ دن", from: () => daysAgo(6), to: pkToday },
+  { k: "month", label: "Ye mahina", ur: "یہ مہینہ", from: () => pkToday().slice(0, 7) + "-01", to: pkToday },
+  { k: "last", label: "Pichla mahina", ur: "پچھلا مہینہ", from: () => { const d = new Date(pkToday().slice(0, 7) + "-01T00:00:00Z"); d.setUTCMonth(d.getUTCMonth() - 1); return d.toISOString().slice(0, 10); }, to: () => { const d = new Date(pkToday().slice(0, 7) + "-01T00:00:00Z"); d.setUTCDate(0); return d.toISOString().slice(0, 10); } },
+];
+/** Dashboard feed: the day range comes from the server (no "last N" cap), Supply / Account are buttons, then kind chips. */
+function RecentEntries({ rows: _initial }: { rows: any[] }) {
   const [q, setQ] = useState("");
   const [kind, setKind] = useState("");
   const [group, setGroupRaw] = useState("");
+  const [range, setRange] = useState("7d");
+  const [custom, setCustom] = useState({ from: daysAgo(6), to: pkToday() });
+  const preset = RANGES.find((r) => r.k === range);
+  const from = preset ? preset.from() : custom.from, to = preset ? preset.to() : custom.to;
+  const feed = useApi<{ rows: any[]; counts: { supply: number; account: number }; truncated: boolean }>(from && to ? `/wholesale/recent?from=${from}&to=${to}${group ? `&group=${group}` : ""}` : null);
+  const all: any[] = feed.data?.rows ?? [];
+  const counts = feed.data?.counts ?? { supply: 0, account: 0 };
   const setGroup = (g: string) => { setGroupRaw(g); setKind(""); };
-  const inGroup = (r: any) => !group || groupOf(r.type) === group;
-  const pool = all.filter(inGroup);
   const side = (r: any) => {
     if (r.type === "fuel_note") return { dr: 0, cr: 0 };
     const dr = r.type === "supply" || r.type === "carriage" || (r.type === "adjustment" && r.amount > 0) ? Math.abs(r.amount) : 0;
     return { dr, cr: dr ? 0 : Math.abs(r.amount) };
   };
   const vch = (r: any) => r.voucher_no ?? `${KIND[r.type]?.vch ?? "TX"}-${r.id}`;
-  const text = (r: any) => [vch(r), r.client_name, KIND[r.type]?.label, r.product && PRODUCTS[r.product], r.vehicle_no, r.driver_name, r.ref, r.note, r.method, r.location, r.amount, r.created_by].filter((v) => v != null && v !== "").join(" ").toLowerCase();
-  const rows = useListFilter(all, { q, keep: (r) => inGroup(r) && (!kind || r.type === kind), text: (r) => `${text(r)} ${r.id}` });
+  const text = (r: any) => [vch(r), r.client_name, KIND[r.type]?.label, r.product && PRODUCTS[r.product], r.vehicle_no, r.driver_name, r.ref, r.note, r.method, r.location, r.amount, r.created_by].filter((v) => v != null && v !== "").join(" ");
+  const rows = useListFilter(all, { q, keep: (r) => !kind || r.type === kind, text: (r) => `${text(r)} ${r.id}` });
   const paged = usePaged(rows, 10);
-  const kinds = (group ? GROUPS[group].kinds : ["supply", "payment", "return", "adjustment", "carriage", "fuel_note"]).map((k) => ({ k, n: pool.filter((r) => r.type === k).length })).filter((x) => x.n > 0);
+  const kinds = (group ? GROUPS[group].kinds : ["supply", "payment", "return", "adjustment", "carriage"]).map((k) => ({ k, n: all.filter((r) => r.type === k).length })).filter((x) => x.n > 0);
   const totals = rows.reduce((a, r) => { const s = side(r); if (!r.voided) { a.dr += s.dr; a.cr += s.cr; } return a; }, { dr: 0, cr: 0 });
+  const seg = (on: boolean) => `min-h-9 rounded-full px-3 py-1 text-xs font-semibold ${on ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200"}`;
   return (
     <section className="card overflow-hidden" aria-label="Recent wholesale entries">
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b p-3 sm:px-4">
-        <h2 className="font-bold">Recent wholesale entries · <Ur className="font-normal">حالیہ اندراجات</Ur> <span className="text-xs font-normal text-slate-500">aakhri {all.length} · Debit = client par barha · Credit = wasool / kam hua</span></h2>
-        <div className="flex flex-wrap items-center gap-1.5">
+      <div className="space-y-2 border-b p-3 sm:px-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="font-bold">Recent wholesale entries · <Ur className="font-normal">حالیہ اندراجات</Ur> <span className="text-xs font-normal text-slate-500">{dt(from).slice(0, 11)} – {dt(to).slice(0, 11)} · Debit = client par barha · Credit = wasool / kam hua</span></h2>
           <ErpSearch value={q} onChange={setQ} placeholder="Voucher / client / gaari / ref… · تلاش" />
-          <select className="input min-h-9 w-auto py-1 text-xs font-semibold" value={group} onChange={(e) => setGroup(e.target.value)} aria-label="Entry group">
-            <option value="">Sab entries · {all.length}</option>
-            {Object.entries(GROUPS).map(([g, m]) => <option key={g} value={g}>{m.label} · {m.ur} · {all.filter((r) => groupOf(r.type) === g).length}</option>)}
-          </select>
-          <button onClick={() => setKind("")} className={`rounded-full px-2.5 py-1 text-xs font-semibold ${!kind ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-600"}`}>All · {pool.length}</button>
-          {kinds.map((x) => <button key={x.k} onClick={() => setKind(x.k === kind ? "" : x.k)} className={`rounded-full px-2.5 py-1 text-xs font-semibold ${kind === x.k ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-600"}`}>{KIND[x.k].label} · {x.n}</button>)}
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Entry group">
+          <button onClick={() => setGroup("")} className={seg(!group)} aria-pressed={!group}>Sab · {counts.supply + counts.account}</button>
+          {Object.entries(GROUPS).map(([g, m]) => <button key={g} onClick={() => setGroup(g)} className={seg(group === g)} aria-pressed={group === g}>{m.label} · <Ur>{m.ur}</Ur> · {counts[g as "supply" | "account"]}</button>)}
+          <span className="mx-1 hidden h-5 w-px bg-slate-200 sm:block" />
+          {kinds.length > 1 && kinds.map((x) => <button key={x.k} onClick={() => setKind(x.k === kind ? "" : x.k)} className={`rounded-full px-2.5 py-1 text-xs font-semibold ${kind === x.k ? "bg-slate-800 text-white" : "bg-white text-slate-600 ring-1 ring-slate-200"}`}>{KIND[x.k].label} · {x.n}</button>)}
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Date range">
+          {RANGES.map((r) => <button key={r.k} onClick={() => setRange(r.k)} className={seg(range === r.k)} aria-pressed={range === r.k}>{r.label} · <Ur>{r.ur}</Ur></button>)}
+          <button onClick={() => setRange("")} className={seg(!range)} aria-pressed={!range}>Tareekh se tareekh · <Ur>تاریخ</Ur></button>
+          {!range && <>
+            <input type="date" className="input min-h-9 w-auto py-1 text-xs" value={custom.from} max={custom.to} onChange={(e) => setCustom({ ...custom, from: e.target.value })} aria-label="From" />
+            <span className="text-xs text-slate-400">→</span>
+            <input type="date" className="input min-h-9 w-auto py-1 text-xs" value={custom.to} min={custom.from} onChange={(e) => setCustom({ ...custom, to: e.target.value })} aria-label="To" />
+          </>}
+          {feed.loading && <span className="text-xs text-slate-400">…</span>}
+          {feed.data?.truncated && <span className="text-xs text-amber-700">Bohat zyada entries — chhota range chunein</span>}
         </div>
       </div>
       {!rows.length ? <p className="p-4 text-sm text-slate-500">{all.length ? "Kuch nahi mila · کچھ نہیں ملا" : "Abhi koi entry nahi."}</p> : (
@@ -335,7 +361,7 @@ function RecentEntries({ rows: all }: { rows: any[] }) {
                   <td className="td text-xs text-slate-500">{r.created_by ?? ""}</td>
                 </tr>); })}
             </tbody>
-            <tfoot><tr className="border-t-2 bg-slate-50 font-semibold tabular-nums"><td className="td" colSpan={7}>Kul · {rows.length} entries{group ? ` · ${GROUPS[group].label}` : ""}{kind ? ` · ${KIND[kind]?.label}` : ""}</td><td className="td text-right text-rose-700">{pkr(totals.dr)}</td><td className="td text-right text-emerald-700">{pkr(totals.cr)}</td><td className="td" colSpan={2}></td></tr></tfoot>
+            <tfoot><tr className="border-t-2 bg-slate-50 font-semibold tabular-nums"><td className="td" colSpan={7}>Kul · {rows.length} entries · {preset ? preset.label : `${from} → ${to}`}{group ? ` · ${GROUPS[group].label}` : ""}{kind ? ` · ${KIND[kind]?.label}` : ""}</td><td className="td text-right text-rose-700">{pkr(totals.dr)}</td><td className="td text-right text-emerald-700">{pkr(totals.cr)}</td><td className="td" colSpan={2}></td></tr></tfoot>
           </table>
         </div>
       )}

@@ -123,6 +123,16 @@ test("wholesale summary totals", async () => {
   assert.ok(s.clients >= 4);
   assert.ok(s.total_due > 0);
   assert.ok(s.recent.length > 0);
+  // dashboard feed by day range + group (supply vs account), PK days inclusive
+  const ok = (r: { status: number; data: any }, w: string) => { assert.equal(r.status, 200, `${w}: ${JSON.stringify(r.data)}`); return r.data; };
+  const feed = ok(await call("admin", "GET", "/api/wholesale/recent"), "recent default");
+  assert.ok(Array.isArray(feed.rows) && feed.from <= feed.to && feed.counts.supply + feed.counts.account >= feed.rows.length);
+  const sup = ok(await call("admin", "GET", "/api/wholesale/recent?from=2000-01-01&to=2099-12-31&group=supply"), "supply group");
+  assert.ok(sup.rows.length > 0 && sup.rows.every((r: any) => ["supply", "return", "carriage"].includes(r.type)));
+  const acc = ok(await call("admin", "GET", "/api/wholesale/recent?from=2000-01-01&to=2099-12-31&group=account"), "account group");
+  assert.ok(acc.rows.every((r: any) => ["payment", "adjustment"].includes(r.type)));
+  assert.equal(sup.counts.supply, sup.rows.length); assert.equal(acc.counts.account, acc.rows.length);
+  assert.equal((await call("admin", "GET", "/api/wholesale/recent?from=31-10-2026")).status, 400, "bad date");
 });
 
 test("dashboard reports this-month vs last-month profit", async () => {

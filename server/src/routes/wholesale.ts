@@ -143,6 +143,25 @@ function summary(clientId: number, from?: string, to?: string) {
 }
 
 /* ---------------- Overview ---------------- */
+/** Dashboard "recent entries" feed for a day range (PK days, inclusive). `group` = supply (supply / return / carriage) or
+ *  account (payment / adjustment); default is the last 7 days. Capped so a busy pump cannot pull a year in one go. */
+wholesale.get("/wholesale/recent", h((req) => {
+  const t = tid(req);
+  const q = parse(z.object({
+    from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    group: z.enum(["supply", "account"]).optional(), limit: z.coerce.number().int().min(1).max(2000).default(1000),
+  }), req.query);
+  const to = q.to ?? pkDate();
+  const from = q.from ?? pkDate(Date.parse(pkStart(to)) - 6 * 86_400_000);
+  const types = q.group === "supply" ? ["supply", "return", "carriage"] : q.group === "account" ? ["payment", "adjustment"] : null;
+  const rows = all(`SELECT x.*, ${proofCol("'wtx:'||x.id")}, c.name client_name FROM wholesale_txns x JOIN wholesale_clients c ON c.id=x.client_id
+       WHERE x.tenant_id=? AND x.txn_date >= ? AND x.txn_date < ? ${types ? `AND x.type IN (${types.map(() => "?").join(",")})` : ""}
+       ORDER BY x.txn_date DESC, x.id DESC LIMIT ?`, t, pkStart(from), pkEnd(to), ...(types ?? []), q.limit + 1);
+  const counts = get(`SELECT SUM(CASE WHEN type IN ('supply','return','carriage') THEN 1 ELSE 0 END) supply, SUM(CASE WHEN type IN ('payment','adjustment') THEN 1 ELSE 0 END) account
+       FROM wholesale_txns WHERE tenant_id=? AND txn_date >= ? AND txn_date < ?`, t, pkStart(from), pkEnd(to))!;
+  return { from, to, rows: rows.slice(0, q.limit), truncated: rows.length > q.limit, counts: { supply: Number(counts.supply ?? 0), account: Number(counts.account ?? 0) } };
+}));
+
 wholesale.get("/wholesale/summary", h((req) => {
   const t = tid(req);
   const month = new Date(pkDate().slice(0, 7) + "-01T00:00:00+05:00").toISOString();

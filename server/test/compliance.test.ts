@@ -113,7 +113,8 @@ test("attendance: live selfie + live location are mandatory; lateness; leave; sa
   // an absent day is cut from the salary
   const yesterday = db.pkDate(Date.now() - 86_400_000);
   db.run("DELETE FROM attendance WHERE user_id=? AND day=?", imran.id, yesterday);
-  db.run("UPDATE users SET weekly_off=NULL WHERE id=?", imran.id);
+  // joined well before this month, so yesterday counts even on the 1st/2nd (the summary starts at the join date)
+  db.run("UPDATE users SET weekly_off=NULL, created_at=? WHERE id=?", new Date(Date.now() - 45 * 86_400_000).toISOString(), imran.id);
   const month = db.pkDate().slice(0, 7);
   const sum = ok(await call("manager", "GET", `/api/staff/${imran.id}`), "staff").attendance;
   if (yesterday.slice(0, 7) === month) {
