@@ -355,13 +355,13 @@ function Overview({ r }: { r: any }) {
               {margin != null && <span>Margin {margin.toFixed(1)}% · <Ur>مارجن</Ur></span>}
             </div>
           </div>
-          <div className="grid grid-cols-3 gap-4 text-right">
+          <div className="grid grid-cols-3 gap-2 text-right sm:gap-4">
             {[["Revenue", "آمدن", s.revenue, prev?.revenue, false], ["Expenses", "اخراجات", s.expenses, prev?.expenses, true], ["Gross profit", "مجموعی منافع", s.gross_profit_estimate, prev?.gross_profit_estimate, false]].map(([en, ur, now, pv, low]: any) => (
               <div key={en}>
                 <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{en}</div>
                 <div className="text-sm font-bold tabular-nums sm:text-lg">{now != null ? pkrShort(now) : "—"}</div>
                 <Ur className="block text-[10px] text-slate-400">{ur}</Ur>
-                {prev && now != null && <div className="mt-0.5 text-[11px]"><Delta now={now} prev={pv} lowerIsBetter={low} money={false} /></div>}
+                {prev && now != null && <div className="mt-0.5 break-words text-[10px] leading-tight sm:text-[11px]"><Delta now={now} prev={pv} lowerIsBetter={low} money={false} /></div>}
               </div>
             ))}
           </div>

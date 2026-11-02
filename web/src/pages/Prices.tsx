@@ -71,7 +71,7 @@ export default function Prices() {
           <div className="rounded-xl bg-slate-50 p-3 ring-1 ring-slate-200">
             <div className="mb-1 text-sm font-medium">…ya baad ke liye schedule karein <span className="text-xs font-normal text-slate-500">(e.g. raat 12 baje se)</span></div>
             <div className="flex flex-wrap items-center gap-2">
-              <input className="input w-auto flex-1" type="datetime-local" value={schedAt} onChange={(e) => setSchedAt(e.target.value)} />
+              <input className="input w-auto flex-1" type="datetime-local" aria-label="Schedule the new price for" value={schedAt} onChange={(e) => setSchedAt(e.target.value)} />
               <button className="btn-secondary" disabled={busy || !changed.length || !schedAt} onClick={schedule}>Schedule</button>
             </div>
             <p className="mt-1 text-xs text-slate-500">Upar jo rate change kiya hai wohi us waqt khud lagu ho jayega (salesman alert + broadcast bhi).</p>
@@ -148,7 +148,7 @@ function CompetitorBoard({ canEdit }: { canEdit: boolean }) {
       {canEdit && (
         <div className="mt-3 flex flex-wrap items-end gap-2">
           <input className="input w-40" placeholder="Pump ka naam" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
-          <select className="input w-auto" value={f.product} onChange={(e) => setF({ ...f, product: e.target.value })}><option value="">Product</option>{products.map((p) => <option key={p} value={p}>{PRODUCTS[p] ?? p}</option>)}</select>
+          <select className="input w-auto" aria-label="Product" value={f.product} onChange={(e) => setF({ ...f, product: e.target.value })}><option value="">Product</option>{products.map((p) => <option key={p} value={p}>{PRODUCTS[p] ?? p}</option>)}</select>
           <input className="input w-28" type="number" inputMode="decimal" step="0.01" min={0} placeholder="Rate" value={f.price} onChange={(e) => setF({ ...f, price: e.target.value })} />
           <button className="btn-secondary" disabled={busy} onClick={add}>Add</button>
         </div>

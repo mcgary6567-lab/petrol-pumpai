@@ -40,7 +40,7 @@ export default function ProfitExplainer() {
   return (
     <div>
       <PageHeader title="Profit explainer · منافع کی تفصیل" subtitle="Aap ka munafa kahan se aur kaise banta hai — step by step. Har line par click karke tafseel dekhein."
-        actions={<input type="month" className="input w-auto" value={month} onChange={(e) => setMonth(e.target.value)} />} />
+        actions={<input type="month" className="input w-auto" aria-label="Month" value={month} onChange={(e) => setMonth(e.target.value)} />} />
 
       {/* hero */}
       <div className={`mb-4 rounded-2xl p-5 text-white ${p.net_profit >= 0 ? "bg-emerald-700" : "bg-rose-700"}`}>

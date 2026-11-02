@@ -135,7 +135,7 @@ function AgingCard({ onOpen }: { onOpen: (id: number) => void }) {
   return (
     <div className="card mb-4 p-4">
       <div className="flex flex-wrap items-center gap-2">
-        <h2 className="flex-1 font-semibold">Aging — kitna purana udhaar · <Ur>ادھار کی عمر</Ur></h2>
+        <h2 className="min-w-[12rem] flex-1 font-semibold">Aging — kitna purana udhaar · <Ur>ادھار کی عمر</Ur></h2>
         <span className="text-sm text-slate-500">Overdue (31+ din): <b className="text-red-600">{pkr(data.overdue)}</b></span>
       </div>
       <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">

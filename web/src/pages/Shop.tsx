@@ -48,7 +48,7 @@ export default function Shop() {
     <div className="space-y-5">
       <PageHeader title="Shop & lubricants" subtitle="Engine oil, filters, tuck shop — sold from the POS, stock kept automatically"
         actions={<>
-          <select className="input w-auto" value={sid} onChange={(e) => setStation(Number(e.target.value))}>{stations.data.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select>
+          <select className="input w-auto" aria-label="Station" value={sid} onChange={(e) => setStation(Number(e.target.value))}>{stations.data.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select>
           <PrintListButton title="Shop stock list · شاپ اسٹاک" subtitle={[stations.data.find((x) => x.id === sid)?.name, q && `search "${q}"`, cat === "low" ? "Low stock" : cat && (CATS[cat] ?? cat)].filter(Boolean).join(" · ")} rows={shown}
             columns={[
               { label: "Item", v: (i: any) => i.name, sub: (i: any) => [i.brand, i.sku].filter(Boolean).join(" · ") },

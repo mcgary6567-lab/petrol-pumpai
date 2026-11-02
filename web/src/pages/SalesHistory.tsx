@@ -41,7 +41,7 @@ export default function SalesHistory() {
         shown={rows.length} total={data?.rows?.length}
         right={<>
           {products.length > 1 && <div className="flex gap-1">{["all", ...products].map((p) => <button key={p} type="button" onClick={() => setProduct(p)} className={`rounded-full px-2.5 py-1 text-xs font-semibold ${product === p ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-600"}`}>{p === "all" ? "Sab fuel" : PRODUCT[p] ?? p}</button>)}</div>}
-          {(stations.data?.length ?? 0) > 1 && <select className="input w-auto" value={station} onChange={(e) => setStation(e.target.value)}><option value="">All stations</option>{stations.data.map((s: any) => <option key={s.id} value={s.id}>{s.name}</option>)}</select>}
+          {(stations.data?.length ?? 0) > 1 && <select className="input w-auto" aria-label="Station" value={station} onChange={(e) => setStation(e.target.value)}><option value="">All stations</option>{stations.data.map((s: any) => <option key={s.id} value={s.id}>{s.name}</option>)}</select>}
         </>} />
       {!data ? <Loading /> : (
         <>

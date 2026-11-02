@@ -101,10 +101,10 @@ function Thread({ data, reload, onBack }: { data: any; reload: () => void; onBac
         <button className="-ml-2 h-9 w-9 shrink-0 text-lg text-brand-600 md:hidden" aria-label="Back" onClick={onBack}>←</button>
         <div className="min-w-0 flex-1">
           <Link to={`/customers/${cust.id}`} className="font-medium hover:underline">{cust.name}</Link>
-          <div className="text-xs text-slate-500">{phone(cust.phone)} · {cust.type} {cust.balance > 0 && `· Khata ${pkr(cust.balance)}`}</div>
+          <div className="truncate text-xs text-slate-500">{phone(cust.phone)} · {cust.type} {cust.balance > 0 && `· Khata ${pkr(cust.balance)}`}</div>
         </div>
-        <button onClick={toggle} disabled={busy} className={c.mode === "ai" ? "btn-secondary" : "btn-primary"}>
-          {c.mode === "ai" ? <><Headset size={15} /> Take over</> : <><Bot size={15} /> Hand back to AI</>}
+        <button onClick={toggle} disabled={busy} className={`shrink-0 whitespace-nowrap ${c.mode === "ai" ? "btn-secondary" : "btn-primary"}`} title={c.mode === "ai" ? "Take over" : "Hand back to AI"}>
+          {c.mode === "ai" ? <><Headset size={15} /> <span className="hidden sm:inline">Take over</span><span className="sm:hidden">Take</span></> : <><Bot size={15} /> <span className="hidden sm:inline">Hand back to AI</span><span className="sm:hidden">AI</span></>}
         </button>
       </div>
       {c.mode === "human" && c.handoff_reason && <div className="bg-amber-50 px-4 py-1.5 text-xs text-amber-800">Handed to human: {c.handoff_reason}</div>}

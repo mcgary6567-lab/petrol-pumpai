@@ -13,7 +13,7 @@ export default function Margins() {
   return (
     <div>
       <PageHeader title="Margins & targets · منافع و ہدف" subtitle="Har fuel par kitna munafa (sale rate − purchase cost), aur mahine ka target vs actual"
-        actions={<input type="month" className="input w-auto" value={month} onChange={(e) => setMonth(e.target.value)} />} />
+        actions={<input type="month" className="input w-auto" aria-label="Month" value={month} onChange={(e) => setMonth(e.target.value)} />} />
 
       <div className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-3">
         <Stat label="Litres sold" value={num(m.data.total.litres)} />

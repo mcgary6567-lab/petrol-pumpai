@@ -318,7 +318,7 @@ export default function Pos() {
                 className={`flex items-center gap-2 rounded-lg px-4 py-2 text-base font-semibold ${tab === k ? "bg-white text-brand-900" : "text-white/90"}`}><I size={18} /> {en} · <Ur>{ur}</Ur></button>
             ))}
           </div>
-          {!isSalesman && <select className="input w-auto text-slate-900" value={stationId ?? ""} onChange={(e) => { setStationId(Number(e.target.value)); reset(); }}>{stations.data!.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select>}
+          {!isSalesman && <select className="input w-auto text-slate-900" aria-label="Station" value={stationId ?? ""} onChange={(e) => { setStationId(Number(e.target.value)); reset(); }}>{stations.data!.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select>}
           {training && <span className="rounded-lg bg-amber-400 px-3 py-1 text-sm font-bold text-amber-950">🎓 TRAINING — nothing is saved · <Ur>مشق</Ur></span>}
         </div>
         <div className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-6">

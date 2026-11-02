@@ -67,7 +67,7 @@ export default function Customers() {
         <div className="border-b border-slate-200 p-3 pb-1">
           <ListTools q={q} onQ={setQ} placeholder="Name, phone or vehicle plate · نام، فون یا گاڑی" chips={chips} chip={chip} onChip={setChip} shown={rows.length} total={list.data?.length}
             right={<>
-              <select className="input w-auto" value={seg} onChange={(e) => setSeg(e.target.value)}>
+              <select className="input w-auto" aria-label="Customer segment" value={seg} onChange={(e) => setSeg(e.target.value)}>
                 {SEGMENTS.map((s) => <option key={s} value={s}>{s || "All segments"}</option>)}
               </select>
               <label className="flex items-center gap-1.5 whitespace-nowrap text-sm text-slate-600"><input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} /> Show archived</label>

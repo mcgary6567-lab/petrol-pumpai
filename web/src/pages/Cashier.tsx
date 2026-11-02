@@ -968,11 +968,11 @@ function DayBook() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2 print:hidden">
-        <div className="flex items-center gap-1">
+        <div className="flex flex-wrap items-center gap-1">
           <button className="btn-secondary min-h-10 !px-2" aria-label="Previous day" onClick={() => setDate(shiftDay(date, -1))}><ChevronLeft size={18} /></button>
-          <input type="date" className="input min-h-10 w-[9.5rem] sm:w-auto" value={date} max={today()} onChange={(e) => e.target.value && setDate(e.target.value)} aria-label="Day" />
+          <input type="date" className="input min-h-10 w-[8.4rem] text-sm sm:w-auto sm:text-base" value={date} max={today()} onChange={(e) => e.target.value && setDate(e.target.value)} aria-label="Day" />
           <span className="text-xs text-slate-400">to</span>
-          <input type="date" className="input min-h-10 w-[9.5rem] sm:w-auto" value={to} min={date} max={today()} onChange={(e) => setTo(e.target.value)} aria-label="To day (optional)" />
+          <input type="date" className="input min-h-10 w-[8.4rem] text-sm sm:w-auto sm:text-base" value={to} min={date} max={today()} onChange={(e) => setTo(e.target.value)} aria-label="To day (optional)" />
           <button className="btn-secondary min-h-10 !px-2" aria-label="Next day" disabled={isToday} onClick={() => setDate(shiftDay(date, 1))}><ChevronRight size={18} /></button>
         </div>
         {!isToday && <button className="btn-secondary min-h-10 !px-3 text-sm" onClick={() => setDate(today())}>Today<span className="hidden sm:inline"> · <Ur>آج</Ur></span></button>}

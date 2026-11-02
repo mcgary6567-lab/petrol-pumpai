@@ -24,7 +24,7 @@ export function PaymentApprovals() {
     <div className="card p-4">
       <div className="flex flex-wrap items-center gap-3">
         <ShieldAlert size={20} className="shrink-0 text-amber-600" />
-        <div className="min-w-0 flex-1 text-sm"><b>Bari payment ki CEO approval · <span lang="ur" className="font-urdu">بڑی ادائیگی کی منظوری</span></b>
+        <div className="min-w-[14rem] flex-1 text-sm"><b>Bari payment ki CEO approval · <span lang="ur" className="font-urdu">بڑی ادائیگی کی منظوری</span></b>
           <span className="block text-slate-500">{data.limit > 0 ? `Staff ki ${pkr(data.limit)} se bari payment (supplier, staff advance, other) CEO ki approval tak ruki rehti hai. Kharche ki apni limit alag hai.` : "Limit 0 = band. Limit rakhein to staff ki us se bari payment CEO ki approval tak rukegi."}</span></div>
         {data.can_decide && (
           <form className="flex items-center gap-1" onSubmit={async (e) => { e.preventDefault(); if (await run(() => api("/payment-requests/limit", { method: "PUT", body: { limit: Number(limit) || 0 } }), "Limit save ho gayi")) { setLimit(null); reload(); } }}>

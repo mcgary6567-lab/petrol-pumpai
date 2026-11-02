@@ -53,7 +53,7 @@ function BypassHeldBanner({ onDeliver }: { onDeliver?: () => void }) {
   return (
     <div className="flex flex-wrap items-center gap-3 rounded-xl bg-amber-50 p-3 ring-1 ring-amber-300">
       <Truck size={20} className="shrink-0 text-amber-700" />
-      <div className="min-w-0 flex-1">
+      <div className="min-w-[14rem] flex-1">
         <div className="font-semibold text-amber-900">Pehle se humare paas bypass maal ruka hai — pehle ise deliver karein</div>
         <div className="text-sm text-amber-800">{lines.map((p) => `${num(p.litres)} L ${PRODUCTS[p.product] ?? p.product}`).join(" · ")} · total {pkr(data.total.value)} (cost par) <Ur className="ml-1">باقی مال پہلے دیں</Ur></div>
       </div>

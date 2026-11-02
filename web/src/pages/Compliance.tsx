@@ -213,7 +213,7 @@ function CheckRow({ i, stationId, onDone, canRedo }: { i: any; stationId: number
             {i.kind === "number" && <input className="input w-28 py-3 text-xl" type="number" step="any" inputMode="decimal" placeholder={i.unit ?? ""} value={value} onChange={(x) => setValue(x.target.value)} aria-label={`${i.title} reading`} />}
             {i.needs_photo ? <PhotoButton kind="proof" label={photo ? "📷 ✓" : "Photo"} big onRead={(_, id) => setPhoto(id)} /> : null}
             <button disabled={busy || (i.needs_photo && !photo) || (i.kind === "number" && value === "")} onClick={() => send(true)} className="flex items-center gap-1 rounded-xl bg-emerald-600 px-5 py-3 text-lg font-bold text-white disabled:bg-slate-300"><Check /> OK</button>
-            {i.kind === "check" && <button disabled={busy} onClick={() => send(false)} className="flex items-center gap-1 rounded-xl bg-red-600 px-4 py-3 text-lg font-bold text-white"><X /> Problem</button>}
+            {i.kind === "check" && <button disabled={busy || (i.needs_photo && !photo)} title={i.needs_photo && !photo ? "Pehle photo lein" : undefined} onClick={() => send(false)} className="flex items-center gap-1 rounded-xl bg-red-600 px-4 py-3 text-lg font-bold text-white disabled:bg-slate-300"><X /> Problem</button>}
           </div>
         )}
       </div>

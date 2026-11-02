@@ -117,7 +117,7 @@ function StationsSection() {
                 const meters = s.nozzles.filter((n: any) => n.tank_id === t.id);
                 return (
                   <div key={t.id} className={`flex flex-wrap items-center gap-2 rounded-lg bg-slate-50 px-2 py-1.5 text-xs ${t.active ? "" : "opacity-60"}`}>
-                    <span className="min-w-0 flex-1"><b>{t.name}</b> · {PRODUCTS[t.product]} · {num(t.capacity_l)} L · {num(t.current_l)} L now · reorder at {t.reorder_pct}% · {meters.length} meter{meters.length === 1 ? "" : "s"}{!t.active && <span className="ml-1 font-semibold text-slate-500">RETIRED</span>}</span>
+                    <span className="min-w-[14rem] flex-1 basis-full sm:basis-auto"><b>{t.name}</b> · {PRODUCTS[t.product]} · {num(t.capacity_l)} L · {num(t.current_l)} L now · reorder at {t.reorder_pct}% · {meters.length} meter{meters.length === 1 ? "" : "s"}{!t.active && <span className="ml-1 font-semibold text-slate-500">RETIRED</span>}</span>
                     <span className="flex flex-wrap gap-1">
                       <button className={small} onClick={() => setEditTank(t)}>Edit</button>
                       {t.active && <button className={small} onClick={() => setMeterFor(t)}>+ Meter</button>}
@@ -217,7 +217,7 @@ function Limits({ l, loyaltyRate, onSaved }: { l?: Record<string, any>; loyaltyR
       <div className="sm:col-span-2">
         <span className="label">Shift length — reminder to close fires after this. Set it to how long one salesman's shift runs.</span>
         <div className="mt-1 flex flex-wrap items-center gap-2">
-          <input className="input w-28" type="number" inputMode="decimal" min={1} max={72} value={f.shift_hours} onChange={(e) => setF({ ...f, shift_hours: e.target.value })} />
+          <input className="input w-28" type="number" inputMode="decimal" min={1} max={72} aria-label="Shift hours" value={f.shift_hours} onChange={(e) => setF({ ...f, shift_hours: e.target.value })} />
           <span className="text-sm text-slate-500">hours</span>
           {[["1 shift · 24h", 24], ["2 shifts · 12h", 12], ["3 shifts · 8h", 8]].map(([lbl, h]) => (
             <button key={h as number} type="button" onClick={() => setF({ ...f, shift_hours: String(h) })}
@@ -340,7 +340,7 @@ function Hardware() {
       <p className="mb-2 text-sm text-slate-600">Mark where each piece stands. Everything in the app already works without them; marking one “Live” is just for your own record.</p>
       <ul className="space-y-2">{data.map((x) => (
         <li key={x.key} className="flex flex-wrap items-start gap-3 rounded-lg bg-slate-50 p-2 text-sm">
-          <select className={`mt-0.5 rounded px-2 py-0.5 text-xs font-semibold ${HW_STATUS[x.status]?.cls ?? HW_STATUS.pending.cls}`} value={x.status}
+          <select className={`mt-0.5 rounded px-2 py-0.5 text-xs font-semibold ${HW_STATUS[x.status]?.cls ?? HW_STATUS.pending.cls}`} aria-label={`${x.name ?? x.label ?? "Hardware"} status`} value={x.status}
             onChange={(e) => run(() => api(`/hardware/${x.key}`, { method: "PUT", body: { status: e.target.value } }), "Saved").then(reload)}>
             {Object.entries(HW_STATUS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
           </select>

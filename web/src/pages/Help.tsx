@@ -48,7 +48,7 @@ export default function Help() {
         </div>
       )}
       <div className="mb-4 flex items-center gap-2 rounded-xl bg-brand-50 p-3 text-sm text-brand-900 ring-1 ring-brand-100">
-        <BookOpen size={18} className="shrink-0" /> Har card par <b>▶ Video</b> dekhein, <b>Steps</b> parhein, ya <b>PDF</b> download karein. · <Ur>ہر ماڈیول کی آسان رہنمائی</Ur>
+        <BookOpen size={18} className="shrink-0" /> <span className="min-w-0 flex-1">Har card par <b>▶ Video</b> dekhein, <b>Steps</b> parhein, ya <b>PDF</b> download karein. · <Ur>ہر ماڈیول کی آسان رہنمائی</Ur></span>
       </div>
 
       {/* Featured: full training videos (Urdu voice) per role */}
