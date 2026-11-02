@@ -273,3 +273,17 @@ test("party ↔ investor transfers: supplier payable → capital (bypass first),
   assert.ok(db.get("SELECT 1 x FROM audit_log WHERE tenant_id=1 AND action='investor_transfer_void'"));
   await books();
 });
+
+test("from-party: a supplier / client gets their own linked investor profile (made once, reused, same-name merge)", async () => {
+  const S = ok(await call("admin", "POST", "/api/suppliers", { name: "Party Investor Depot", phone: "03001234567" }), "supplier");
+  const a = ok(await call("admin", "POST", "/api/investors/from-party", { kind: "supplier", id: S.id }), "make");
+  assert.equal(a.name, S.name); assert.equal(a.party_type, "supplier"); assert.equal(a.party_id, S.id); assert.ok(String(a.phone).endsWith("3001234567"), "phone carried over");
+  const b = ok(await call("admin", "POST", "/api/investors/from-party", { kind: "supplier", id: S.id }), "again");
+  assert.equal(b.id, a.id, "same profile reused");
+  // a hand-made investor with the same name as a khata customer is linked, not duplicated
+  const cust = db.get("SELECT * FROM customers WHERE tenant_id=1 LIMIT 1")!;
+  const hand = ok(await call("admin", "POST", "/api/investors", { name: cust.name, our_pct: 60 }), "hand-made");
+  const c = ok(await call("admin", "POST", "/api/investors/from-party", { kind: "khata", id: cust.id }), "khata party");
+  assert.equal(c.id, hand.id); assert.equal(c.party_type, "khata");
+  assert.equal((await call("admin", "POST", "/api/investors/from-party", { kind: "wholesale", id: 999999 })).status, 404);
+});

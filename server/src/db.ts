@@ -977,6 +977,9 @@ export function migrate() {
   addColumn("investor_txns", "ref", "TEXT"); // slip / transaction ID / cheque no. the investor paid or was paid with
   addColumn("investors", "profit_mode", "TEXT");
   addColumn("investors", "profit_pct", "REAL");
+  // a supplier / client who invests with the pump: their investor profile stays linked to their party record
+  addColumn("investors", "party_type", "TEXT");
+  addColumn("investors", "party_id", "INTEGER");
   if (!get("SELECT value FROM settings WHERE tenant_id=0 AND key='mig_module_investors'")) {
     for (const t of all("SELECT id FROM tenants")) {
       if (get("SELECT value FROM settings WHERE tenant_id=? AND key='module_investors'", t.id)) continue;

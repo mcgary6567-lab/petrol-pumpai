@@ -43,17 +43,21 @@ export default function Investors() {
   const paged = usePaged(rows, 10);
   const refresh = () => { reload(); reloadSum(); };
   // opened from a supplier / client page: "Investor me transfer" → pick the investor, party is preset
+  // opened from a supplier / client page: THAT party invests with the pump — their own investor profile is made (once) and
+  // kept linked, then the transfer form opens on it with the party preset
   const preset = sp.get("transfer");
   const [xferInv, setXferInv] = useState<any>(null);
+  const [xferErr, setXferErr] = useState<string | null>(null);
+  useEffect(() => {
+    if (!preset || open) return;
+    const [pkind, pid] = preset.split(":");
+    setXferInv(null); setXferErr(null);
+    api("/investors/from-party", { body: { kind: pkind, id: Number(pid) } }).then(setXferInv).catch((e: any) => setXferErr(e.message));
+  }, [preset, open]);
   if (preset && !open) {
     const [pkind, pid] = preset.split(":");
     if (xferInv) return <TransferForm i={xferInv} preset={{ kind: pkind, id: Number(pid) }} onClose={() => { setXferInv(null); setSp({}); }} onDone={() => { setSp({ id: String(xferInv.id) }); refresh(); }} />;
-    return (
-      <div>
-        <PageHeader title={<>Transfer — kis investor ke khate par? · <Ur>کس سرمایہ کار کو</Ur></>} subtitle="Party chuni ja chuki hai; ab investor chunein. Agla qadam: rukh, amount aur (chahein to) cash ke saath." actions={<button className="btn-secondary" onClick={() => setSp({})}>Cancel</button>} />
-        {!data ? <Loading /> : <ul className="card divide-y">{data.filter((i) => i.active).map((i) => <li key={i.id}><button className="flex w-full items-center justify-between px-4 py-3 text-left hover:bg-slate-50" onClick={() => setXferInv(i)}><span><b>{i.name}</b>{i.city ? <span className="text-xs text-slate-500"> · {i.city}</span> : null}</span><span className="text-sm tabular-nums">balance {pkr(i.balance)} · free {pkr(i.free)}</span></button></li>)}</ul>}
-      </div>
-    );
+    return <div><PageHeader title={<>Transfer · <Ur>منتقلی</Ur></>} subtitle="Party ka investor profile khola ja raha hai…" actions={<button className="btn-secondary" onClick={() => setSp({})}>Cancel</button>} />{xferErr ? <p className="card p-4 text-sm text-rose-700">{xferErr}</p> : <Loading />}</div>;
   }
 
   if (open) return <InvestorDetail id={open} onBack={() => { setSp({}); refresh(); }} onEdit={(i) => setForm(i)} form={form} setForm={setForm} />;
@@ -502,6 +506,7 @@ function TransferForm({ i, onClose, onDone, preset }: { i: any; onClose: () => v
   return (
     <Modal open wide title={`Transfer — ${i.name}`} onClose={onClose}>
       <div className="space-y-3">
+        {preset && <p className="rounded-xl bg-emerald-50 p-2.5 text-sm text-emerald-900"><b>{i.name}</b> pump ke saath investment kar raha hai — ye us ka apna investor khata hai{i.created ? " (profile abhi bana, Investors list me aa gaya)" : ""}. Neeche ka hisab isi khate par lagega.</p>}
         <div className="grid gap-2 sm:grid-cols-3">{(Object.keys(XFER_DIR) as (keyof typeof XFER_DIR)[]).filter((k) => !preset || XFER_DIR[k].parties.includes(preset.kind)).map((k) => (
           <button key={k} type="button" onClick={() => pick(k)} aria-pressed={dir === k} className={`min-h-12 rounded-xl px-3 py-2 text-left text-sm font-semibold ring-1 ${dir === k ? "bg-violet-600 text-white ring-violet-600" : "bg-white text-slate-800 ring-slate-300 hover:bg-slate-50"}`}>
             {XFER_DIR[k].short}<span className={`block text-xs font-normal ${dir === k ? "text-white/90" : "text-slate-500"}`}><Ur>{XFER_DIR[k].ur}</Ur></span></button>))}

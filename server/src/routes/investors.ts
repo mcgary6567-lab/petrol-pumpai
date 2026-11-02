@@ -382,6 +382,31 @@ const partyOf = (t: number, type: string, id: number) =>
 /** what the party owes us (+) / we owe them (−) right now, on their own books */
 const partyDue = (type: string, p: Row) => type === "supplier" ? -round2(supplierOwed(p.id as number) + bypassOwed(p.id as number)) : type === "wholesale" ? round2(clientDue(p.id as number)) : round2(p.balance as number);
 
+/** A supplier / wholesale client / khata customer invests WITH THE PUMP: their own investor profile (made once from
+ *  their party record and kept linked), so a transfer lands on their khata — never on some other investor's. */
+investors.post("/investors/from-party", P, h((req) => {
+  const t = tid(req);
+  const b = parse(z.object({ kind: z.enum(["supplier", "wholesale", "khata"]), id: z.number().int().positive() }), req.body);
+  const p = b.kind === "supplier" ? get("SELECT id, name, phone, NULL city, NULL address FROM suppliers WHERE id=? AND tenant_id=?", b.id, t)
+    : b.kind === "wholesale" ? get("SELECT id, name, phone, city, address FROM wholesale_clients WHERE id=? AND tenant_id=?", b.id, t)
+    : get("SELECT id, name, phone, city, NULL address FROM customers WHERE id=? AND tenant_id=?", b.id, t);
+  if (!p) throw new AppError(404, "Party nahi mili");
+  let i = get("SELECT * FROM investors WHERE tenant_id=? AND party_type=? AND party_id=?", t, b.kind, p.id);
+  if (!i) {
+    // an investor already entered by hand with the same name (and no party link) is the same person
+    const same = get("SELECT * FROM investors WHERE tenant_id=? AND LOWER(name)=LOWER(?) AND party_type IS NULL", t, p.name);
+    if (same) { run("UPDATE investors SET party_type=?, party_id=? WHERE id=?", b.kind, p.id, same.id); i = own(t, same.id as number); }
+    else {
+      const id = run(`INSERT INTO investors (tenant_id,name,phone,address,city,our_pct,profit_mode,party_type,party_id,note,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+        t, p.name, p.phone ?? null, p.address ?? null, p.city ?? null, 60, "deal", b.kind, p.id, `${b.kind === "supplier" ? "Supplier" : b.kind === "wholesale" ? "Wholesale client" : "Khata customer"} — pump ke saath investment`, req.user!.name, now()).id;
+      audit(t, req.user!, "investor_add", `investor:${id}`, { from_party: b });
+      i = own(t, id);
+    }
+  }
+  if (!i.active) { run("UPDATE investors SET active=1 WHERE id=?", i.id); i = own(t, i.id as number); }
+  return { ...i, ...figures(i), created: true };
+}));
+
 investors.get("/investors-party", P, h((req) => {
   const t = tid(req), type = String(req.query.kind ?? ""), id = Number(req.query.id);
   if (!["supplier", "wholesale", "khata"].includes(type)) throw new AppError(400, "kind?");
