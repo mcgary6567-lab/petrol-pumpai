@@ -225,6 +225,35 @@ test("Baqi stock (lots): FIFO per supplier bill, delivered / unloaded taken off 
   await books();
 });
 
+test("same-voucher costing: a delivery's drops are costed from its own bill first, held stock only for the excess (no false munafa)", async () => {
+  const sups = ok(await call("wholesale", "GET", "/api/bypass/suppliers"), "suppliers").filter((x: any) => !x.client_id);
+  const S = sups[0];
+  const clients = ok(await call("admin", "GET", "/api/wholesale/clients"), "clients");
+  const W = (clients.clients ?? clients).find((c: any) => c.rates?.HSD);
+  const prod = "HOBC"; // a fuel with no bypass stock yet so the numbers are exact
+  // held stock: 12,000 L bought cheap earlier, nothing delivered
+  ok(await call("wholesale", "POST", "/api/bypass/deliveries", { station_id: st, txn_date: dayAgo(4), purchases: [{ supplier_id: S.id, product: prod, litres: 12_000, cost_rate: 380, ref: "HELD" }] }), "held");
+  // today's voucher: two bills 5,000 L each (397.0512 + 396.8666) and the whole 10,000 L to one client at 396.96
+  ok(await call("admin", "PUT", `/api/wholesale/clients/${W.id}/rates`, { rates: { [prod]: 396.96 } }), "rate card");
+  const del = ok(await call("admin", "POST", "/api/bypass/deliveries", { station_id: st,
+    purchases: [{ supplier_id: S.id, product: prod, litres: 5_000, amount: 1_985_256 }, { supplier_id: S.id, product: prod, litres: 5_000, amount: 1_984_333 }],
+    drops: [{ client_id: W.id, product: prod, litres: 10_000, override_limit: true }] }), "voucher");
+  near(del.billed, 3_969_600); near(del.sold_cost, 3_969_589, "cost = this voucher's own bills, not blended with held 380/L");
+  near(del.margin, 11, "munafa Rs 11, not ~6,000");
+  const d = db.get("SELECT unit_cost, cost_amount FROM bypass_drops WHERE delivery_id=? AND voided=0", del.id)!;
+  near(d.unit_cost, 396.96, "unit cost = own bill rate");
+  // held lot untouched: the Baqi stock view still shows the 12,000 L lot open
+  const lots = ok(await call("wholesale", "GET", "/api/bypass/lots"), "lots").fuels.find((f: any) => f.product === prod);
+  near(lots.balance, 12_000); assert.equal(lots.lots.length, 1); near(lots.lots[0].left, 12_000);
+  // a voucher that drops MORE than it bought: the excess comes from the held stock at 380
+  const del2 = ok(await call("admin", "POST", "/api/bypass/deliveries", { station_id: st,
+    purchases: [{ supplier_id: S.id, product: prod, litres: 1_000, cost_rate: 400 }],
+    drops: [{ client_id: W.id, product: prod, litres: 3_000, override_limit: true }] }), "voucher 2");
+  near(del2.sold_cost, 1_000 * 400 + 2_000 * 380, "own 1,000 @400 + held 2,000 @380");
+  near(ok(await call("wholesale", "GET", "/api/bypass/lots"), "lots").fuels.find((f: any) => f.product === prod).balance, 10_000);
+  await books();
+});
+
 test("own-tank unload edit (officer): litres / tank / day change; bypass stock, tank and stock register follow; sold-out litres refuse", async () => {
   const sups = ok(await call("wholesale", "GET", "/api/bypass/suppliers"), "suppliers").filter((x: any) => !x.client_id);
   const tank = db.get("SELECT * FROM tanks WHERE station_id=? AND product='HSD' ORDER BY id LIMIT 1", st)!;

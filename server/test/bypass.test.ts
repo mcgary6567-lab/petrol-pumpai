@@ -75,8 +75,8 @@ test("bypass delivery: multi-supplier purchase, clients billed, supplier bypass 
     drops: [{ client_id: W1.id, product: "HSD", litres: 2000, override_limit: true }, { client_id: W2.id, product: "HSD", litres: 800, override_limit: true }] }), "delivery");
   // buy 3000 L, deliver 2800 L → 200 L held as bypass stock; cost of the 2800 delivered is at the 3000 L weighted average
   const bought = 2000 * 255 + 1000 * 256;        // = 766000 (we owe the suppliers this much)
-  const avg = round2(bought / 3000);             // weighted-average cost per litre, rounded like the server
-  const soldCost = round2(2000 * avg) + round2(800 * avg); // each drop costed separately
+  const avg = bought / 3000;                     // this voucher's own blended rate (exact, not pre-rounded)
+  const soldCost = round2(2000 * avg) + round2(800 * avg); // each drop costed separately from the voucher's own bills
   const held = round2(bought - soldCost);        // 200 L still in stock
   const billed = DEL.billed;
   const w1Amt = DEL.drops.find((d: any) => d.client_id === W1.id).amount;

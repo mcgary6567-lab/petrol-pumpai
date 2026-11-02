@@ -61,6 +61,21 @@ export function bypassStock(tenantId: number, product?: string) {
   const value = round2((inL.v as number) - (out.v as number));
   return { litres, value, avg_cost: litres > 0.001 ? round2(value / litres) : 0 };
 }
+/** Same-voucher costing: litres going out of a delivery are costed first from that delivery's own purchases of the fuel
+ *  (at the bill's blended rate), then from the stock held before it (at the held average). Call per out-line, in order. */
+export function sameVoucherCoster(purchases: { product: string; litres: number; amount: number }[], heldAvg: Record<string, number>) {
+  const ownL: Record<string, number> = {}, ownV: Record<string, number> = {};
+  for (const p of purchases) { ownL[p.product] = round2((ownL[p.product] ?? 0) + p.litres); ownV[p.product] = round2((ownV[p.product] ?? 0) + p.amount); }
+  const ownRate: Record<string, number> = {};
+  for (const p of Object.keys(ownL)) ownRate[p] = ownL[p] > 0.001 ? ownV[p] / ownL[p] : 0;
+  const left = { ...ownL };
+  return (product: string, litres: number) => {
+    const own = Math.min(litres, left[product] ?? 0);
+    left[product] = round2((left[product] ?? 0) - own);
+    const cost = round2(own * (ownRate[product] ?? 0) + (litres - own) * (heldAvg[product] ?? 0));
+    return { unit: litres > 0.001 ? round2(cost / litres) : 0, cost, from_own: round2(own), from_held: round2(litres - own) };
+  };
+}
 /** Total value of all bypass stock on hand (the "Bypass stock" asset). */
 export function bypassStockValue(tenantId: number): number { return bypassStock(tenantId).value; }
 
@@ -181,6 +196,9 @@ bypass.post("/bypass/deliveries", requirePerm("wholesale.manage"), h((req) => {
   });
   const ts = stampFor(b.txn_date);
   const by = req.user!.name;
+  // held average per fuel BEFORE this voucher's purchases land (what the litres beyond today's bill cost us)
+  const heldAvg: Record<string, number> = {};
+  for (const p of new Set([...Object.keys(dropProd), ...Object.keys(tankProd)])) heldAvg[p] = bypassStock(t, p).avg_cost;
   const out = tx(() => {
     const { id } = run(`INSERT INTO bypass_deliveries (tenant_id,station_id,tanker_id,driver_id,vehicle_no,driver_name,tankers,note,created_by,txn_date,created_at)
       VALUES (?,?,?,?,?,?,?,?,?,?,?)`, t, b.station_id, fl.tanker_id, fl.driver_id, fl.vehicle_no, fl.driver_name, tankersJson, b.note ?? null, by, ts, now());
@@ -199,22 +217,23 @@ bypass.post("/bypass/deliveries", requirePerm("wholesale.manage"), h((req) => {
           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`, t, supplierId, p.amount, "client_direct", p.client_id, wtx, null, null, `cfuel:${pur}`, note, by, ts, now());
       }
     }
-    // the weighted-average cost of each fuel's stock AFTER this delivery's purchases (removing at the average keeps it stable within the batch)
-    const avg: Record<string, number> = {};
-    for (const p of new Set([...Object.keys(dropProd), ...Object.keys(tankProd)])) avg[p] = bypassStock(t, p).avg_cost;
+    // Cost of what goes out in THIS voucher: first the fuel bought in this same voucher at its own rate (the maal the
+    // tanker brought today), and only litres beyond that from the stock already held, at the held average. Blending
+    // today's bill with old held stock showed a false munafa (held 12,000 L @ 395 + bought 10,000 L @ 397 sold @ 397 → "6,000").
+    const takeCost = sameVoucherCoster(purchases, heldAvg);
     // client drops — billed to each client's wholesale khata, and taken out of the bypass stock at its cost
     const drops: any[] = [];
     for (const d of priced) {
       const txn = insertTxn(req, d.c.id, { type: "supply", station_id: b.station_id, tank_id: null, product: d.product, litres: d.litres, rate: d.rate, amount: d.amount,
         ref: d.ref ?? `BYP-${id}`, note: `Bypass delivery #${id}`, location: d.location ?? null, txn_date: ts, ...fl });
       deliverOrder(t, d.order_id, d.c.id, txn.id);
-      const unit = avg[d.product] ?? 0;
+      const { unit, cost } = takeCost(d.product, d.litres);
       run(`INSERT INTO bypass_drops (tenant_id,delivery_id,wtx_id,client_id,product,litres,unit_cost,cost_amount,created_by,txn_date,created_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?)`, t, id, txn.id, d.c.id, d.product, round2(d.litres), unit, round2(d.litres * unit), by, ts, now());
+        VALUES (?,?,?,?,?,?,?,?,?,?,?)`, t, id, txn.id, d.c.id, d.product, round2(d.litres), unit, cost, by, ts, now());
       drops.push(txn);
     }
-    // own-tank unloads (part of the same delivery) — removed from bypass stock at the same batch average cost
-    for (const r of tankRows) unloadToTank(t, by, { tank: r.tank, product: r.product, litres: r.litres, unit: avg[r.product] ?? bypassStock(t, r.product).avg_cost, amount: r.amount, delivery_id: id, note: r.note ?? null, ts, tanker_no: fl.vehicle_no });
+    // own-tank unloads (part of the same delivery) — costed the same way, after the client drops
+    for (const r of tankRows) unloadToTank(t, by, { tank: r.tank, product: r.product, litres: r.litres, unit: takeCost(r.product, r.litres).unit, amount: r.amount, delivery_id: id, note: r.note ?? null, ts, tanker_no: fl.vehicle_no });
     return { id, drops };
   });
   const purCost = round2(purchases.reduce((a, p) => a + p.amount, 0));
@@ -361,7 +380,9 @@ bypass.get("/bypass/lots", h((req) => {
     const over: typeof outs = []; // outs that found no lot to come from (more out than bought)
     for (const o of outs.filter((x) => x.product === p)) {
       let need = round2(o.litres);
-      for (const l of lots) { if (need <= 0.001) break; if (l.left <= 0.001) continue; const take = Math.min(l.left, need); l.left = round2(l.left - take); l.used = round2(l.used + take); need = round2(need - take); }
+      // the fuel bought on the same voucher goes out first, then the oldest held lots (FIFO) — same rule as the costing
+      const order = [...lots.filter((l) => l.delivery_id != null && l.delivery_id === o.delivery_id), ...lots.filter((l) => !(l.delivery_id != null && l.delivery_id === o.delivery_id))];
+      for (const l of order) { if (need <= 0.001) break; if (l.left <= 0.001) continue; const take = Math.min(l.left, need); l.left = round2(l.left - take); l.used = round2(l.used + take); need = round2(need - take); }
       if (need > 0.001) over.push({ ...o, litres: need });
     }
     const bought = round2(lots.reduce((a, l) => a + l.litres, 0));

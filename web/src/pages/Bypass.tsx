@@ -283,14 +283,21 @@ export function BypassDeliveryForm({ onClose, onDone, fromHeld = false, fromClie
   const dropLineAmt = (d: any) => Math.round(Number(d.litres || 0) * clientRate(d) * 100) / 100;
   const buyAmt = buys.reduce((a, b) => a + (Number(b.amount) || 0), 0);
   const dropAmt = drops.reduce((a, d) => a + dropLineAmt(d), 0);
-  // blended cost per litre for a fuel = (held stock value + what we just bought) / (held + bought litres)
+  // Same-voucher costing (mirrors the server): each out-line is costed first from the fuel bought on THIS voucher at the
+  // bill's own rate, and only litres beyond that from the held stock at its average. Blending today's bill with old held
+  // stock showed a false munafa.
   const buyValBy = useMemo(() => buys.reduce((m: Record<string, number>, b) => { m[b.product] = (m[b.product] ?? 0) + (Number(b.amount) || 0); return m; }, {}), [buys]);
-  const costPerL = (prod: string) => { const hl = held(prod), bl = bought[prod] ?? 0, denom = hl + bl; return denom > 0 ? (hl * heldAvg(prod) + (buyValBy[prod] ?? 0)) / denom : 0; };
+  const lineCosts = useMemo(() => {
+    const left: Record<string, number> = { ...bought };
+    const ownRate = (p: string) => (bought[p] ?? 0) > 0 ? (buyValBy[p] ?? 0) / bought[p] : 0;
+    const take = (p: string, L: number) => { const own = Math.min(L, left[p] ?? 0); left[p] = (left[p] ?? 0) - own; return own * ownRate(p) + (L - own) * heldAvg(p); };
+    return { drops: drops.map((d) => take(d.product, Number(d.litres) || 0)), tank: toTank.map((r) => take(r.product, Number(r.litres) || 0)) };
+  }, [drops, toTank, bought, buyValBy, stock.data]);
   const toTankL = toTank.reduce((a, r) => a + (Number(r.litres) || 0), 0);
-  // value of fuel put into our own tank: a typed amount wins, else litres × the blended cost
-  const toTankCost = toTank.reduce((a, r) => a + (Number(r.amount) > 0 ? Number(r.amount) : (Number(r.litres) || 0) * costPerL(r.product)), 0);
+  // value of fuel put into our own tank: a typed amount wins, else its same-voucher cost
+  const toTankCost = toTank.reduce((a, r, i) => a + (Number(r.amount) > 0 ? Number(r.amount) : lineCosts.tank[i]), 0);
   // client profit = what the clients pay − cost of ONLY the litres dropped to clients (own-tank fuel is stock, not a loss)
-  const clientCost = drops.reduce((a, d) => a + Number(d.litres || 0) * costPerL(d.product), 0);
+  const clientCost = lineCosts.drops.reduce((a, c) => a + c, 0);
   const clientProfit = Math.round((dropAmt - clientCost) * 100) / 100;
   const validBuys = buys.filter((b) => b.supplier_id && Number(b.litres) > 0 && Number(b.amount) > 0);
   const validDrops = drops.filter((d) => d.client_id && d.client_id !== "__new__" && Number(d.litres) > 0 && clientRate(d) > 0);
@@ -433,8 +440,8 @@ export function BypassDeliveryForm({ onClose, onDone, fromHeld = false, fromClie
           </div>
           <button type="button" className="mt-2 inline-flex items-center gap-1 rounded-lg border border-brand-300 bg-brand-50 px-3 py-1.5 text-xs font-semibold text-brand-700 hover:bg-brand-100 active:scale-95" onClick={() => setDrops([...drops, { client_id: "", product: "HSD", litres: "", amount: "", order_id: undefined, location: "" }])}><Plus size={14} /> Add drop</button>
           <div className="mt-1 text-xs text-slate-500">Diya: {Object.entries(dropped).map(([p, l]) => `${num(l)} L ${PRODUCTS[p]}`).join(" · ") || "—"} · Client se lene hain {pkr(dropAmt)}{Object.keys({ ...dropped }).map((p) => held(p) > 0 ? ` · ${PRODUCTS[p]} held stock ${num(held(p))} L` : "").join("")}</div>
-          {validDrops.length > 0 && <ul className="mt-1 space-y-0.5 text-xs">{validDrops.map((d, i) => { const c = costPerL(d.product); const m = (clientRate(d) - c) * Number(d.litres); return (
-            <li key={i} className="flex justify-between gap-2"><span className="truncate">{clientById(d.client_id)?.name} · {num(Number(d.litres))} L × <b>Rs {num(clientRate(d), 2)}</b> (aaj ka rate card)</span>
+          {validDrops.length > 0 && <ul className="mt-1 space-y-0.5 text-xs">{validDrops.map((d, i) => { const L = Number(d.litres) || 0; const c = L > 0 ? lineCosts.drops[drops.indexOf(d)] / L : 0; const m = (clientRate(d) - c) * L; return (
+            <li key={i} className="flex justify-between gap-2"><span className="truncate">{clientById(d.client_id)?.name} · {num(Number(d.litres))} L × <b>Rs {num(clientRate(d), 2)}</b> (aaj ka rate card){c > 0 && <span className="text-slate-400"> · cost Rs {num(c, 2)}/L</span>}</span>
               <span className="shrink-0 tabular-nums">{pkr(dropLineAmt(d))}{c > 0 && <span className={m >= 0 ? "text-emerald-700" : "text-rose-600"}> · munafa {pkr(m)}</span>}</span></li>); })}</ul>}
           {(() => { const left = Object.fromEntries([...new Set([...Object.keys(bought), ...Object.keys(dropped), ...(stock.data?.by_product ?? []).map((x: any) => x.product)])]
               .map((p) => [p, Math.round((held(p) + (bought[p] ?? 0) - (dropped[p] ?? 0) - (toTankSum[p] ?? 0)) * 100) / 100]).filter(([, l]) => (l as number) > 0.01));
@@ -456,7 +463,7 @@ export function BypassDeliveryForm({ onClose, onDone, fromHeld = false, fromClie
                 <div className="col-span-12 -mt-1 flex items-center justify-between">
                   <span className="text-xs text-slate-500">{bad ? <span className="text-rose-600">Yeh {PRODUCTS[r.product]} tank nahi</span>
                     : Number(r.amount) > 0 && Number(r.litres) > 0 ? `Rs ${num(Math.round((Number(r.amount) / Number(r.litres)) * 100) / 100, 2)}/L — ye stock hai, loss nahi`
-                    : Number(r.litres) > 0 && costPerL(r.product) > 0 ? `Amount khali chhoden to cost Rs ${num(Math.round(costPerL(r.product) * 100) / 100, 2)}/L lagegi — ye stock hai, loss nahi` : ""}</span>
+                    : Number(r.litres) > 0 && lineCosts.tank[i] > 0 ? `Amount khali chhoden to cost Rs ${num(Math.round((lineCosts.tank[i] / Number(r.litres)) * 100) / 100, 2)}/L lagegi — ye stock hai, loss nahi` : ""}</span>
                   <button type="button" className="text-xs text-red-600" onClick={() => setToTank(toTank.filter((_, j) => j !== i))}>Remove</button>
                 </div>
               </div>
