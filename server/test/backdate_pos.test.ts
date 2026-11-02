@@ -363,3 +363,62 @@ test("Suppliers page payment settles the bypass account first; the pump ↔ bypa
   const txt = JSON.stringify(lg);
   assert.match(txt, /Pump → bypass account transfer/);
 });
+
+test("whole-voucher reversal: plan lists every leg; blockers (stock sold on, cashier voucher, tank short) stop it; void takes all legs back; trip too", async () => {
+  const sups = ok(await call("wholesale", "GET", "/api/bypass/suppliers"), "suppliers").filter((x: any) => !x.client_id);
+  const S = sups[0];
+  const clients = ok(await call("admin", "GET", "/api/wholesale/clients"), "clients");
+  const W = (clients.clients ?? clients).find((c: any) => c.rates?.HSD);
+  const due0 = ok(await call("admin", "GET", `/api/wholesale/clients/${W.id}/statement`), "stmt").closing_balance as number;
+  const owed0 = ok(await call("wholesale", "GET", `/api/bypass/suppliers/${S.id}/statement`), "st").closing_balance as number;
+  const stock0 = ok(await call("wholesale", "GET", "/api/bypass/stock"), "stock").by_product.find((x: any) => x.product === "HSD")?.litres ?? 0;
+  const tank = db.get("SELECT tk.* FROM tanks tk JOIN stations s ON s.id=tk.station_id WHERE s.id=? AND tk.product='HSD' LIMIT 1", st)!;
+  // voucher: buy 2,000 L, drop 1,200 to the client, 300 into our tank → 500 L stays in bypass stock
+  const del = ok(await call("admin", "POST", "/api/bypass/deliveries", { station_id: st, purchases: [{ supplier_id: S.id, product: "HSD", litres: 2_000, cost_rate: 250 }],
+    drops: [{ client_id: W.id, product: "HSD", litres: 1_200, override_limit: true }], to_tank: [{ tank_id: tank.id, product: "HSD", litres: 300 }] }), "voucher");
+  assert.equal((await call("wholesale", "GET", `/api/vouchers/bypass/${del.id}/plan`)).status, 403, "officer cannot");
+  const plan = ok(await call("admin", "GET", `/api/vouchers/bypass/${del.id}/plan`), "plan");
+  assert.equal(plan.ok, true); assert.equal(plan.summary.clients, 1);
+  assert.ok(plan.legs.some((l: any) => l.tone === "supplier" && Math.abs(l.amount + 500_000) < 0.01), "supplier bill leg");
+  assert.ok(plan.legs.some((l: any) => l.tone === "khata" && l.litres === 1_200), "client drop leg");
+  assert.ok(plan.legs.some((l: any) => l.tone === "tank" && l.litres === -300), "tank leg");
+  // blocker 1: a later voucher sells the 500 L left from this bill → cannot reverse
+  const later = ok(await call("admin", "POST", "/api/bypass/deliveries", { station_id: st, drops: [{ client_id: W.id, product: "HSD", litres: Math.round(stock0) + 500, override_limit: true }] }), "later sale from stock");
+  const p2 = ok(await call("admin", "GET", `/api/vouchers/bypass/${del.id}/plan`), "plan 2");
+  assert.equal(p2.ok, false); assert.match(p2.blockers.join(" "), /baad ke kisi voucher/);
+  assert.equal((await call("admin", "POST", `/api/vouchers/bypass/${del.id}/void`, { reason: "galat entry" })).status, 400, "refused while blocked");
+  ok(await call("admin", "POST", `/api/vouchers/bypass/${later.id}/void`, { reason: "test undo" }), "void the later one");
+  // blocker 2: a cashier receipt against the drop
+  const wtx = db.get("SELECT wtx_id FROM bypass_drops WHERE delivery_id=? AND tank_id IS NULL AND voided=0", del.id)!.wtx_id;
+  db.run("INSERT INTO cashier_vouchers (tenant_id,direction,party_type,party_id,party_name,amount,method,src,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)", t, "in", "wholesale", W.id, W.name, 1000, "Cash", `wtx:${wtx}`, "test", new Date().toISOString());
+  assert.match(ok(await call("admin", "GET", `/api/vouchers/bypass/${del.id}/plan`), "plan 3").blockers.join(" "), /cashier voucher/);
+  db.run("DELETE FROM cashier_vouchers WHERE src=?", `wtx:${wtx}`);
+  // now it goes: every book back where it was
+  assert.equal((await call("admin", "POST", `/api/vouchers/bypass/${del.id}/void`, { reason: "no" })).status, 400, "reason too short");
+  const r = ok(await call("admin", "POST", `/api/vouchers/bypass/${del.id}/void`, { reason: "galat gaari par likha" }), "void");
+  assert.equal(r.ok, true);
+  near(ok(await call("admin", "GET", `/api/wholesale/clients/${W.id}/statement`), "stmt").closing_balance, due0, "client due back");
+  near(ok(await call("wholesale", "GET", `/api/bypass/suppliers/${S.id}/statement`), "st").closing_balance, owed0, "supplier owed back");
+  near(ok(await call("wholesale", "GET", "/api/bypass/stock"), "stock").by_product.find((x: any) => x.product === "HSD")?.litres ?? 0, stock0, "bypass stock back");
+  near(db.get("SELECT current_l FROM tanks WHERE id=?", tank.id)!.current_l as number, tank.current_l, "tank back");
+  assert.equal(db.get("SELECT voided FROM bypass_deliveries WHERE id=?", del.id)!.voided, 1);
+  assert.equal(ok(await call("admin", "GET", `/api/vouchers/bypass/${del.id}/plan`), "plan 4").voided, true);
+  assert.equal((await call("admin", "POST", `/api/vouchers/bypass/${del.id}/void`, { reason: "dobara" })).status, 400, "already void");
+  await books();
+  // --- a pump tanker trip: tank litres out, two client drops; reversal puts litres back and clears both khatas
+  const W2 = (clients.clients ?? clients).find((c: any) => c.id !== W.id && c.rates?.HSD) ?? W;
+  const tank1 = db.get("SELECT current_l FROM tanks WHERE id=?", tank.id)!.current_l as number;
+  const due2 = ok(await call("admin", "GET", `/api/wholesale/clients/${W2.id}/statement`), "stmt").closing_balance as number;
+  const trip = ok(await call("admin", "POST", "/api/wholesale/trips", { station_id: st, product: "HSD", drops: [{ client_id: W.id, litres: 400, override_limit: true }, { client_id: W2.id, litres: 600, override_limit: true }] }), "trip");
+  near(db.get("SELECT current_l FROM tanks WHERE id=?", tank.id)!.current_l as number, tank1 - 1000, "tank down 1000");
+  const tp = ok(await call("admin", "GET", `/api/vouchers/trip/${trip.id}/plan`), "trip plan");
+  assert.equal(tp.ok, true); assert.equal(tp.summary.clients, W2.id === W.id ? 1 : 2); near(tp.summary.litres, 1000);
+  assert.ok(tp.legs.some((l: any) => l.tone === "tank" && l.litres === 1000));
+  ok(await call("admin", "POST", `/api/vouchers/trip/${trip.id}/void`, { reason: "driver ne galat sheet di" }), "trip void");
+  near(db.get("SELECT current_l FROM tanks WHERE id=?", tank.id)!.current_l as number, tank1, "tank restored");
+  near(ok(await call("admin", "GET", `/api/wholesale/clients/${W.id}/statement`), "stmt").closing_balance, due0, "client 1 back");
+  near(ok(await call("admin", "GET", `/api/wholesale/clients/${W2.id}/statement`), "stmt").closing_balance, due2, "client 2 back");
+  assert.equal(db.get("SELECT voided FROM wholesale_trips WHERE id=?", trip.id)!.voided, 1);
+  assert.ok(db.get("SELECT 1 x FROM audit_log WHERE tenant_id=? AND action='voucher_void'", t));
+  await books();
+});

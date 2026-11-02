@@ -491,6 +491,11 @@ export function migrate() {
   addColumn("wholesale_txns", "trip_id", "INTEGER");
   // a trip straight from the depot to the clients (bypass): the fuel never enters our tanks, we buy it from the supplier on the way
   addColumn("wholesale_trips", "source", "TEXT NOT NULL DEFAULT 'pump'");
+  // whole-trip reversal (voucherReverse.ts): the trip row stays, struck through with the reason
+  addColumn("wholesale_trips", "voided", "INTEGER NOT NULL DEFAULT 0");
+  addColumn("wholesale_trips", "void_reason", "TEXT");
+  addColumn("wholesale_trips", "voided_by", "TEXT");
+  addColumn("wholesale_trips", "voided_at", "TEXT");
   addColumn("wholesale_trips", "supplier_id", "INTEGER");
   addColumn("wholesale_trips", "depot_ref", "TEXT");
   addColumn("wholesale_trips", "invoice_l", "REAL");

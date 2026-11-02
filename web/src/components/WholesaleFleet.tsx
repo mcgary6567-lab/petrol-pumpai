@@ -3,6 +3,7 @@ import { Plus, Printer, Trash2, Truck, UserRound, Pencil } from "lucide-react";
 import { api, useApi } from "../lib/api";
 import { ProofPhotos, ProofThumbs } from "./Capture";
 import { challanPages, printPages, tripSheetPage } from "./TripPrint";
+import { VoucherVoidButton } from "./VoucherVoid";
 import { WhatsAppDoc } from "./WhatsAppDoc";
 import { Badge, CnicInput, Empty, Field, ListTools, Loading, Modal, Pager, PhoneInput, useAction, usePaged } from "./ui";
 import { supplierOpts } from "./SupplierSelect";
@@ -335,6 +336,7 @@ export function TripSheet({ id, initial, onClose }: { id: number; initial?: any;
           {data.proof_ids && <div className="flex items-center gap-2 text-slate-600">Photos: <ProofThumbs ids={data.proof_ids} /></div>}
           <p className="text-xs text-slate-500">Entered by {data.created_by}. To cancel one drop, void it in that client's statement — {data.depot ? "the supplier's bill stays (fix it in the supplier's account if the depot takes the fuel back)." : "stock goes back to the tank."}</p>
           <div className="flex flex-wrap justify-end gap-2 print:hidden">
+            <VoucherVoidButton kind="trip" id={data.id} voided={!!data.voided} onDone={() => { fetched.reload(); onClose(); }} />
             <button className="btn-secondary" onClick={() => printPages(`Trip ${data.id} sheet`, tripSheetPage(data), data.business?.color)}><Printer size={15} /> Trip sheet (driver)</button>
             <button className="btn-primary" disabled={!data.drops.some((x: any) => !x.voided)} onClick={() => printPages(`Trip ${data.id} challans`, challanPages(data), data.business?.color)}><Printer size={15} /> Print challans · چالان</button>
           </div>
@@ -363,7 +365,7 @@ export function TripsTab({ onNew }: { onNew?: () => void }) {
       <div className="px-4"><ListTools q={q} onQ={setQ} placeholder="Tanker / driver / client… · ٹینکر، ڈرائیور یا کلائنٹ" from={range.from} to={range.to} onFrom={(v) => setRange({ ...range, from: v })} onTo={(v) => setRange({ ...range, to: v })}
         right={filtered ? <button type="button" className="text-xs text-brand-700 hover:underline" onClick={() => { setQ(""); setRange({ from: "", to: "" }); }}>Clear</button> : null} /></div>
       <ul className="divide-y divide-slate-100 sm:hidden">{(paged.slice as any[]).map((t) => (
-        <li key={t.id} className="cursor-pointer space-y-1 px-4 py-3 active:bg-slate-50" onClick={() => setOpen(t.id)}>
+        <li key={t.id} className={`cursor-pointer space-y-1 px-4 py-3 active:bg-slate-50 ${t.voided ? "text-slate-400 line-through" : ""}`} onClick={() => setOpen(t.id)}>
           <div className="flex justify-between gap-2"><span className="font-medium">#{t.id} · {t.vehicle_no ?? "—"}</span><span className="font-semibold tabular-nums">{pkr(t.amount)}</span></div>
           <div className="flex justify-between gap-2 text-xs text-slate-500"><span className="truncate">{dt(t.trip_date)} · {t.driver_name ?? "—"}</span><span className="shrink-0">{t.source === "depot" ? "🏭 " : ""}{fuels(t.product)} · {num(t.litres)} L · {t.drops} drops</span></div>
         </li>
@@ -371,7 +373,7 @@ export function TripsTab({ onNew }: { onNew?: () => void }) {
       <div className="hidden overflow-x-auto sm:block"><table className="w-full">
         <thead><tr><th className="th">Trip</th><th className="th">Date</th><th className="th">Tanker</th><th className="th">Driver</th><th className="th">Product</th><th className="th text-right">Litres</th><th className="th text-right">Drops</th><th className="th text-right">Billed</th></tr></thead>
         <tbody>{(paged.slice as any[]).map((t) => (
-          <tr key={t.id} className="cursor-pointer hover:bg-slate-50" onClick={() => setOpen(t.id)}>
+          <tr key={t.id} className={`cursor-pointer hover:bg-slate-50 ${t.voided ? "text-slate-400 line-through" : ""}`} onClick={() => setOpen(t.id)}>
             <td className="td font-medium">#{t.id}</td><td className="td text-xs">{dt(t.trip_date)}</td><td className="td">{t.vehicle_no ?? "—"}</td><td className="td">{t.driver_name ?? "—"}</td>
             <td className="td">{fuels(t.product)}{t.source === "depot" && <div className="text-xs text-sky-700">🏭 {depotName(t.supplier_name)}</div>}</td><td className="td text-right tabular-nums">{num(t.litres)} L</td><td className="td text-right">{t.drops}</td><td className="td text-right tabular-nums">{pkr(t.amount)}</td>
           </tr>

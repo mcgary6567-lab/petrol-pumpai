@@ -13,6 +13,7 @@ import { supplierOpts } from "../components/SupplierSelect";
 import { FleetPicker, fleetBody } from "../components/WholesaleFleet";
 import { EditBypassPurchase } from "../components/BypassEdit";
 import { challanPages, printPages, tripSheetPage } from "../components/TripPrint";
+import { VoucherVoidButton } from "../components/VoucherVoid";
 
 const Ur = ({ children, className = "" }: { children: React.ReactNode; className?: string }) => <span lang="ur" dir="rtl" className={`font-urdu ${className}`}>{children}</span>;
 
@@ -214,6 +215,7 @@ export function BypassVoucher({ id, onClose }: { id: number; onClose: () => void
           {data.proof_ids && <div className="flex items-center gap-2 text-slate-600">Photos: <ProofThumbs ids={data.proof_ids} /></div>}
 
           <div className="flex flex-wrap justify-end gap-2 print:hidden">
+            <VoucherVoidButton kind="bypass" id={data.id} voided={!!data.voided} onDone={() => { reload(); onClose(); }} />
             <button className="btn-secondary" onClick={() => printPages(`Bypass ${data.id} sheet`, tripSheetPage(data), data.business?.color)}><Printer size={15} /> Delivery sheet (driver)</button>
             <button className="btn-primary" disabled={!data.drops.some((x: any) => !x.voided)} onClick={() => printPages(`Bypass ${data.id} vouchers`, challanPages(data), data.business?.color)}><Printer size={15} /> Print client vouchers · چالان</button>
           </div>
