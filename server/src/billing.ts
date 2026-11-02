@@ -29,9 +29,15 @@ const monthRange = (m: string) => {
 const monthName = (m: string) => new Date(`${m}-15T00:00:00Z`).toLocaleDateString("en-PK", { month: "long", year: "numeric" });
 
 /* ---------------- Signed links ---------------- */
-export const billToken = (tenantId: number, kind: Kind, id: number, month: string) =>
-  jwt.sign({ bill: kind, t: tenantId, id, m: month }, config.jwtSecret, { expiresIn: "400d" });
-export const billLink = (tenantId: number, kind: Kind, id: number, month: string) => `${config.publicUrl}/bill/${billToken(tenantId, kind, id, month)}`;
+/** `period` is a month (YYYY-MM) or a day range (YYYY-MM-DD..YYYY-MM-DD); `mode` "bill" = only what we gave (no payments),
+ *  "statement" = everything with the running balance. */
+export type BillMode = "bill" | "statement";
+export const billToken = (tenantId: number, kind: Kind, id: number, period: string, mode: BillMode = "statement") =>
+  jwt.sign({ bill: kind, t: tenantId, id, m: period, ...(mode === "bill" ? { v: "bill" } : {}) }, config.jwtSecret, { expiresIn: "400d" });
+export const billLink = (tenantId: number, kind: Kind, id: number, period: string, mode: BillMode = "statement") => `${config.publicUrl}/bill/${billToken(tenantId, kind, id, period, mode)}`;
+const PERIOD_RE = /^(\d{4}-\d{2})$|^(\d{4}-\d{2}-\d{2})\.\.(\d{4}-\d{2}-\d{2})$/;
+const periodRange = (m: string) => { const r = PERIOD_RE.exec(m)!; return r[1] ? monthRange(r[1]) : { from: r[2], to: r[3] }; };
+const periodName = (m: string) => { const r = PERIOD_RE.exec(m)!; return r[1] ? monthName(r[1]) : `${r[2]} to ${r[3]}`; };
 
 /* ---------------- Receipts ---------------- */
 export async function khataFillReceipt(tenantId: number, sale: Row) {
@@ -145,34 +151,37 @@ const n2 = (v: number) => Number(v).toLocaleString("en-IN", { maximumFractionDig
 const m2 = (v: number) => Number(v).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 export function renderBill(token: string): string | null {
-  let p: { bill: Kind; t: number; id: number; m: string };
+  let p: { bill: Kind; t: number; id: number; m: string; v?: string };
   try { p = jwt.verify(token, config.jwtSecret) as typeof p; } catch { return null; }
-  if (!p?.bill || !/^\d{4}-\d{2}$/.test(p.m)) return null;
+  if (!p?.bill || !PERIOD_RE.test(p.m)) return null;
   const tenant = get("SELECT * FROM tenants WHERE id=?", p.t);
   if (!tenant) return null;
-  const { from, to } = monthRange(p.m);
+  const { from, to } = periodRange(p.m);
+  const billOnly = p.v === "bill"; // only what we gave: no payments, no running balance (the customer's company wants a bill, not a ledger)
   let title: string, who: Row, rows: string, totals: string, opening: number, closing: number;
   if (p.bill === "k") {
     const s = khataStatement(p.t, p.id, from, to);
-    who = s.customer; opening = s.opening_balance; closing = s.closing_balance; title = "Khata bill";
-    rows = s.lines.map((l: any) => `<tr><td>${dts(l.created_at)}</td><td>${esc(l.vehicle_no)}</td><td>${esc(l.slip_no)}</td><td>${l.type === "debit" ? esc(PRODUCTS[l.product] ?? l.note) : `Payment${l.note ? ` — ${esc(l.note)}` : ""}`}</td>` +
-      `<td class=r>${l.litres ? n2(l.litres) : ""}</td><td class=r>${l.rate ? n2(l.rate) : ""}</td><td class=r>${l.type === "debit" ? m2(l.amount) : ""}</td><td class=r>${l.type === "credit" ? m2(l.amount) : ""}</td><td class=r>${m2(l.balance)}</td></tr>`).join("");
+    who = s.customer; opening = s.opening_balance; closing = s.closing_balance; title = billOnly ? "Bill" : "Khata statement";
+    const lines = billOnly ? s.lines.filter((l: any) => l.type === "debit") : s.lines;
+    rows = lines.map((l: any) => `<tr><td>${dts(l.created_at)}</td><td>${esc(l.vehicle_no)}</td><td>${esc(l.slip_no)}</td><td>${l.type === "debit" ? esc(PRODUCTS[l.product] ?? l.note) : `Payment${l.note ? ` — ${esc(l.note)}` : ""}`}</td>` +
+      `<td class=r>${l.litres ? n2(l.litres) : ""}</td><td class=r>${l.rate ? n2(l.rate) : ""}</td><td class="r m">${l.type === "debit" ? m2(l.amount) : ""}</td>${billOnly ? "" : `<td class="r m">${l.type === "credit" ? m2(l.amount) : ""}</td><td class="r m">${m2(l.balance)}</td>`}</tr>`).join("");
     totals = s.totals.by_product.map((t: any) => `<div>${esc(PRODUCTS[t.product] ?? t.product)}: <b>${n2(t.litres)} L</b> · ${t.entries} fills · <b>Rs ${m2(t.amount)}</b></div>`).join("") +
-      `<div>Charged this month: <b>Rs ${m2(s.totals.charged)}</b> · Paid: <b>Rs ${m2(s.totals.paid)}</b></div>`;
+      (billOnly ? `<div>Total for the period: <b>Rs ${m2(s.totals.charged)}</b></div>` : `<div>Charged: <b>Rs ${m2(s.totals.charged)}</b> · Paid: <b>Rs ${m2(s.totals.paid)}</b></div>`);
   } else {
     const s = wholesaleStatement(p.t, p.id, from, to);
     who = s.client; opening = s.opening_balance; closing = s.closing_balance; title = "Wholesale statement";
     rows = s.lines.filter((l: any) => !l.voided).map((l: any) => `<tr><td>${dts(l.txn_date)}</td><td>${esc(l.vehicle_no)}</td><td>${esc(l.ref)}</td><td>${esc(l.type)}${l.product ? ` — ${esc(PRODUCTS[l.product])}` : ""}${l.voided ? " (void)" : ""}</td>` +
-      `<td class=r>${l.litres ? n2(l.litres) : ""}</td><td class=r>${l.rate ? n2(l.rate) : ""}</td><td class=r>${l.debit ? m2(l.debit) : ""}</td><td class=r>${l.credit ? m2(l.credit) : ""}</td><td class=r>${m2(l.balance)}</td></tr>`).join("");
+      `<td class=r>${l.litres ? n2(l.litres) : ""}</td><td class=r>${l.rate ? n2(l.rate) : ""}</td><td class="r m">${l.debit ? m2(l.debit) : ""}</td><td class="r m">${l.credit ? m2(l.credit) : ""}</td><td class="r m">${m2(l.balance)}</td></tr>`).join("");
     totals = `<div>Supplied: <b>${n2(s.summary.by_product.reduce((a: number, x: any) => a + x.supplied_l, 0))} L</b> · Billed <b>Rs ${m2(s.summary.billed)}</b> · Received <b>Rs ${m2(s.summary.received)}</b></div>`;
   }
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${esc(title)} — ${esc(who.name)} — ${esc(monthName(p.m))}</title>
+<title>${esc(title)} — ${esc(who.name)} — ${esc(periodName(p.m))}</title>
 <style>
 :root{color-scheme:light}body{font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;margin:0;background:#f1f5f9;color:#0f172a}
 .page{max-width:900px;margin:16px auto;background:#fff;padding:24px;border-radius:12px;box-shadow:0 1px 3px #0002}
 h1{margin:0;font-size:22px}.muted{color:#64748b}.top{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;border-bottom:2px solid #064e3b;padding-bottom:12px;margin-bottom:12px}
-.wrap{overflow-x:auto}table{width:100%;border-collapse:collapse;font-size:13px;min-width:640px}th,td{padding:6px 8px;border-bottom:1px solid #e2e8f0;text-align:left}th{background:#f8fafc;font-size:12px;text-transform:uppercase;color:#475569}
+.wrap{overflow-x:auto}table{width:100%;border-collapse:collapse;font-size:13px;min-width:640px}th,td{padding:6px 8px;border:1px solid #cbd5e1;text-align:left}th{background:#f8fafc;font-size:12px;text-transform:uppercase;color:#475569}
+th.m,td.m{border-left:2px solid #64748b;border-right:2px solid #64748b}th.m{background:#1e293b!important}tfoot td{background:#f1f5f9;border-top:2px solid #0f172a;font-weight:700}
 .r{text-align:right;font-variant-numeric:tabular-nums}.void td{color:#94a3b8;text-decoration:line-through}.sum{margin-top:12px;display:grid;gap:4px}
 .big{font-size:20px;margin-top:8px}button{margin-top:16px;padding:10px 18px;border:0;border-radius:8px;background:#064e3b;color:#fff;font-size:15px;cursor:pointer}
 tbody tr:nth-child(even) td{background:#f8fafc}th{background:#0f172a;color:#fff}
@@ -188,16 +197,17 @@ tbody tr:nth-child(even) td{background:#f8fafc}th{background:#0f172a;color:#fff}
   .wrap td:nth-child(5)::before{content:"Litres ";color:#64748b}.wrap td:nth-child(6)::before{content:"Rate ";color:#64748b}
   .wrap td:nth-child(7)::before{content:"Charged ";color:#64748b}.wrap td:nth-child(8)::before{content:"Paid ";color:#64748b}
   .wrap td:nth-child(9){font-weight:700}.wrap td:nth-child(9)::before{content:"Balance ";font-weight:400;color:#64748b}
-  .wrap td.r{text-align:left}.wrap tbody tr:nth-child(even) td{background:none}}
+  .wrap td.r{text-align:left}.wrap tbody tr:nth-child(even) td{background:none}.wrap td.m{border:0}.wrap tfoot{display:none}}
 ${BRAND_CSS}
 </style></head><body><div class="page">
 ${brandHead(p.t, title)}
-<div class="doc">${esc(title.toUpperCase())} · ${esc(monthName(p.m))}</div>
-<div class="acct"><div class="box"><span>Account of</span><b>${esc(who.name)}</b>${who.business_name ? `<div class=muted>${esc(who.business_name)}</div>` : ""}${who.phone ? `<div class=muted>+${esc(who.phone)}</div>` : ""}${who.city ? `<div class=muted>${esc(who.city)}</div>` : ""}</div>
-<div class="box"><span>Period</span><b>${esc(monthName(p.m))}</b><div class=muted>Opening balance: <b>Rs ${m2(opening)}</b></div><div class=muted>Closing balance: <b>Rs ${m2(closing)}</b></div></div></div>
-<div class="wrap"><table><thead><tr><th>Date</th><th>Vehicle</th><th>Slip / ref</th><th>Entry</th><th class=r>Litres</th><th class=r>Rate</th><th class=r>Charged</th><th class=r>Paid</th><th class=r>Balance</th></tr></thead>
-<tbody>${rows || `<tr><td colspan=9 class=muted>No entries this month</td></tr>`}</tbody></table></div>
-<div class="sum">${totals}<div class="big">Balance due: <b>Rs ${m2(closing)}</b></div></div>
+<div class="doc">${esc(title.toUpperCase())} · ${esc(periodName(p.m))}</div>
+<div class="acct"><div class="box"><span>${billOnly ? "Bill to" : "Account of"}</span><b>${esc(who.name)}</b>${who.business_name ? `<div class=muted>${esc(who.business_name)}</div>` : ""}${who.phone ? `<div class=muted>+${esc(who.phone)}</div>` : ""}${who.city ? `<div class=muted>${esc(who.city)}</div>` : ""}</div>
+<div class="box"><span>Period</span><b>${esc(periodName(p.m))}</b>${billOnly ? `<div class=muted>Bill no. ${esc(p.bill.toUpperCase())}-${p.id}-${esc(from.replace(/-/g, ""))}</div>` : `<div class=muted>Opening balance: <b>Rs ${m2(opening)}</b></div><div class=muted>Closing balance: <b>Rs ${m2(closing)}</b></div>`}</div></div>
+<div class="wrap"><table><thead><tr><th>Date</th><th>Vehicle</th><th>Slip / ref</th><th>Entry</th><th class=r>Litres</th><th class=r>Rate</th><th class="r m">${billOnly ? "Amount" : "Debit"}</th>${billOnly ? "" : `<th class="r m">Credit</th><th class="r m">Balance</th>`}</tr></thead>
+<tbody>${rows || `<tr><td colspan=${billOnly ? 7 : 9} class=muted>No entries in this period</td></tr>`}</tbody>
+${billOnly ? `<tfoot><tr><td colspan=6>Total</td><td class="r m">Rs ${m2(p.bill === "k" ? (rows ? khataStatement(p.t, p.id, from, to).totals.charged : 0) : 0)}</td></tr></tfoot>` : ""}</table></div>
+<div class="sum">${totals}${billOnly ? `<div class="big">Bill total: <b>Rs ${m2(p.bill === "k" ? khataStatement(p.t, p.id, from, to).totals.charged : 0)}</b></div><div class=muted>Account balance today: Rs ${m2(closing)}</div>` : `<div class="big">Balance due: <b>Rs ${m2(closing)}</b></div>`}</div>
 <div class="muted" style="margin-top:8px">Generated ${esc(new Date().toLocaleString("en-PK", { timeZone: "Asia/Karachi" }))} · computer statement, no signature needed</div>
 ${brandFoot(p.t)}
 <button onclick="print()">Print / Save as PDF</button></div></body></html>`;

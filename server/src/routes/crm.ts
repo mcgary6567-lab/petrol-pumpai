@@ -316,10 +316,13 @@ crm.post("/customers/:id/cards/reissue", requirePerm("khata.manage"), h((req) =>
 
 /* Monthly bill: printable link + WhatsApp */
 const monthQ = z.object({ month: z.string().regex(/^\d{4}-\d{2}$/).optional() });
+const linkQ = monthQ.extend({ from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), mode: z.enum(["bill", "statement"]).optional() });
+/** Printable link: a month, or any day range (from..to); mode "bill" lists only what we gave (no payments). */
 crm.get("/customers/:id/bill-link", requirePerm("khata.manage"), h((req) => {
   const c = ownCustomer(tid(req), Number(req.params.id));
-  const m = parse(monthQ, req.query).month ?? pkDate().slice(0, 7);
-  return { month: m, url: billLink(tid(req), "k", c.id, m) };
+  const q = parse(linkQ, req.query);
+  const period = q.from && q.to ? `${q.from}..${q.to}` : (q.month ?? pkDate().slice(0, 7));
+  return { month: q.month ?? period.slice(0, 7), period, mode: q.mode ?? "statement", url: billLink(tid(req), "k", c.id, period, q.mode ?? "statement") };
 }));
 crm.post("/customers/:id/send-bill", requirePerm("khata.manage"), h(async (req) => {
   const c = ownCustomer(tid(req), Number(req.params.id));

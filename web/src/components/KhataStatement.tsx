@@ -14,6 +14,9 @@ const today = pkToday;
 /** Khata bill / statement: every fuel slip with litres and the rate on that day, payments, running balance. */
 export default function KhataStatement({ customerId, onClose }: { customerId: number; onClose: () => void }) {
   const [range, setRange] = useState({ from: monthStart(), to: today() });
+  // "bill" = only what we gave (the customer's company wants a bill, not our ledger); "statement" = everything + running balance
+  const [mode, setMode] = useState<"bill" | "statement">("statement");
+  const billOnly = mode === "bill";
   const qs = new URLSearchParams(Object.entries(range).filter(([, v]) => v)).toString();
   const { data: s, reload } = useApi<any>(`/customers/${customerId}/statement?${qs}`);
   // on-screen narrowing of the loaded statement: one vehicle and/or a text search. Print / Excel / PDF stay on the full range.
@@ -21,7 +24,7 @@ export default function KhataStatement({ customerId, onClose }: { customerId: nu
   const [lq, setLq] = useState("");
   const vehicles: string[] = [...new Set<string>(((s?.lines ?? []) as any[]).map((l) => l.vehicle_no).filter(Boolean))].sort();
   const fresh = useNewRows<any>(s?.lines, (l) => l.id);
-  const lines = useListFilter<any>(s?.lines, { q: lq, keep: veh ? (l) => l.vehicle_no === veh : undefined,
+  const lines = useListFilter<any>(s?.lines, { q: lq, keep: (l) => (!veh || l.vehicle_no === veh) && (!billOnly || l.type === "debit"),
     text: (l) => [l.product ? PRODUCTS[l.product] : "", l.product, l.type === "credit" ? "payment" : "", l.note, l.ref, l.slip_no, l.vehicle_no, l.amount, l.litres].filter((v) => v != null && v !== "").join(" ") });
   const narrowed = Boolean(veh || lq.trim());
   // vehicle / slip columns only when some line has one, so the paper is not half dashes
@@ -32,7 +35,8 @@ export default function KhataStatement({ customerId, onClose }: { customerId: nu
   // open the tab at the tap (phones block a tab opened after waiting for the server), then point it at the bill
   const openBill = async () => {
     const tab = window.open("", "_blank");
-    const r = await run(() => api(`/customers/${customerId}/bill-link?month=${month}`));
+    const q = range.from && range.to ? `from=${range.from}&to=${range.to}&mode=${mode}` : `month=${month}&mode=${mode}`;
+    const r = await run(() => api(`/customers/${customerId}/bill-link?${q}`));
     if (r && tab) tab.location.href = r.url; else if (r) window.location.href = r.url; else tab?.close();
   };
 
@@ -43,6 +47,10 @@ export default function KhataStatement({ customerId, onClose }: { customerId: nu
         <Field label="To · تک"><input className="input" type="date" value={range.to} onChange={(e) => setRange({ ...range, to: e.target.value })} /></Field>
         <button className="btn-secondary" onClick={() => setRange({ from: monthStart(), to: today() })}>This month · اس مہینے</button>
         <button className="btn-secondary" onClick={() => setRange({ from: "", to: "" })}>All time · سارا</button>
+        <div className="flex gap-1 rounded-xl bg-slate-100 p-1" role="group" aria-label="Print mode">
+          {([["statement", "Poori statement", "پوری سٹیٹمنٹ"], ["bill", "Bill — sirf diya hua", "صرف بل"]] as const).map(([k, en, ur]) => (
+            <button key={k} type="button" onClick={() => setMode(k)} aria-pressed={mode === k} className={`min-h-9 rounded-lg px-3 text-sm font-semibold ${mode === k ? "bg-white shadow text-brand-900" : "text-slate-600"}`}>{en} · <span className="font-urdu">{ur}</span></button>))}
+        </div>
         <div className="flex w-full flex-wrap gap-2 sm:ml-auto sm:w-auto">
           <button className="btn-secondary" disabled={busy} onClick={() => run(() => api(`/customers/${customerId}/send-bill`, { body: { month } }), `${month} bill sent on WhatsApp`)}><Send size={15} /> WhatsApp bill · واٹس ایپ</button>
           <button className="btn-secondary" onClick={openBill}><ExternalLink size={15} /> Bill link · لنک</button>
@@ -58,13 +66,21 @@ export default function KhataStatement({ customerId, onClose }: { customerId: nu
             <div>
               <div className="text-xl font-bold">{s.customer.name}</div>
               {(s.customer.phone || s.customer.city) && <div className="text-sm text-slate-600">{[s.customer.phone ? phone(String(s.customer.phone)) : "", s.customer.city].filter(Boolean).join(" · ")}</div>}
-              <div className="text-sm text-slate-600">Fuel account statement · {s.from ?? "start"} to {s.to ?? "today"}</div>
+              <div className="text-sm text-slate-600">{billOnly ? "Bill — fuel & goods supplied" : "Fuel account statement"} · {s.from ?? "start"} to {s.to ?? "today"}</div>
             </div>
-            <div className="text-right text-sm">
-              <div>Opening balance{s.opening_balance < -0.5 ? " (advance)" : ""}: <b className="tabular-nums">{pkr(Math.abs(s.opening_balance))}</b></div>
-              <div>Charged: <b className="tabular-nums">{pkr(s.totals.charged)}</b> · Paid: <b className="tabular-nums">{pkr(s.totals.paid)}</b></div>
-              <div className="text-lg">{s.closing_balance < -0.5 ? "Advance with us" : "Amount due"}: <b className="tabular-nums">{pkr(Math.abs(s.closing_balance))}</b></div>
-            </div>
+            {billOnly ? (
+              <div className="text-right text-sm">
+                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Bill · {s.from ?? "start"} → {s.to ?? "today"}</div>
+                <div className="text-lg">Bill total: <b className="tabular-nums">{pkr(s.totals.charged)}</b></div>
+                <div className="text-xs text-slate-500">Account balance today: {pkr(Math.abs(s.closing_balance))}{s.closing_balance < -0.5 ? " (advance)" : ""}</div>
+              </div>
+            ) : (
+              <div className="text-right text-sm">
+                <div>Opening balance{s.opening_balance < -0.5 ? " (advance)" : ""}: <b className="tabular-nums">{pkr(Math.abs(s.opening_balance))}</b></div>
+                <div>Charged: <b className="tabular-nums">{pkr(s.totals.charged)}</b> · Paid: <b className="tabular-nums">{pkr(s.totals.paid)}</b></div>
+                <div className="text-lg">{s.closing_balance < -0.5 ? "Advance with us" : "Amount due"}: <b className="tabular-nums">{pkr(Math.abs(s.closing_balance))}</b></div>
+              </div>
+            )}
           </div>
           <div className="flex flex-wrap items-center gap-2 rounded-lg bg-slate-50 p-2 text-sm print:hidden">
             <a className="btn-secondary min-h-10" href={`/api/customers/${customerId}/notice?token=${linkToken()}`} target="_blank" rel="noreferrer">📜 Payment notice</a>
@@ -106,7 +122,7 @@ export default function KhataStatement({ customerId, onClose }: { customerId: nu
           </ul>
           <div className="hidden max-h-[55vh] overflow-auto rounded-lg border border-slate-200 sm:block print:block print:max-h-none">
             <table className="w-full">
-              <thead className="sticky top-0"><tr>{["Date & time", ...(cols.vehicle ? ["Vehicle"] : []), ...(cols.slip ? ["Slip no."] : []), "Fuel", "Litres", "Rate / L", "Charged", "Paid", "Balance"].map((h) => <th key={h} className={`th whitespace-nowrap ${["Litres", "Rate / L", "Charged", "Paid", "Balance"].includes(h) ? "text-right" : ""}`}>{h}</th>)}</tr></thead>
+              <thead className="sticky top-0"><tr>{["Date & time", ...(cols.vehicle ? ["Vehicle"] : []), ...(cols.slip ? ["Slip no."] : []), "Fuel", "Litres", "Rate / L", billOnly ? "Amount" : "Charged", ...(billOnly ? [] : ["Paid", "Balance"])].map((h) => <th key={h} className={`th whitespace-nowrap ${["Litres", "Rate / L", "Charged", "Paid", "Balance"].includes(h) ? "text-right" : ""}`}>{h}</th>)}</tr></thead>
               <tbody>
                 {lines.map((l: any) => (
                   <tr key={l.id} className={fresh.has(l.id) ? "row-new" : ""}>
@@ -117,11 +133,12 @@ export default function KhataStatement({ customerId, onClose }: { customerId: nu
                     <td className="td whitespace-nowrap text-right tabular-nums">{l.litres != null ? num(l.litres, 2) : ""}</td>
                     <td className="td whitespace-nowrap text-right tabular-nums">{l.rate != null ? `Rs ${Number(l.rate).toFixed(2)}` : ""}</td>
                     <td className="td whitespace-nowrap text-right tabular-nums text-rose-700">{l.type === "debit" ? pkr(l.amount) : ""}</td>
-                    <td className="td whitespace-nowrap text-right tabular-nums text-emerald-700">{l.type === "credit" ? pkr(l.amount) : ""}</td>
-                    <td className="td whitespace-nowrap text-right font-medium tabular-nums">{pkr(l.balance)}</td>
+                    {!billOnly && <td className="td whitespace-nowrap text-right tabular-nums text-emerald-700">{l.type === "credit" ? pkr(l.amount) : ""}</td>}
+                    {!billOnly && <td className="td whitespace-nowrap text-right font-medium tabular-nums">{pkr(l.balance)}</td>}
                   </tr>
                 ))}
               </tbody>
+              {billOnly && lines.length > 0 && <tfoot><tr><td className="td font-semibold" colSpan={3 + (cols.vehicle ? 1 : 0) + (cols.slip ? 1 : 0)}>Total · {lines.length} entries</td><td className="td text-right tabular-nums font-semibold">{num(lines.reduce((a: number, l: any) => a + (l.litres ?? 0), 0), 2)}</td><td className="td"></td><td className="td text-right tabular-nums font-semibold text-rose-700">{pkr(lines.reduce((a: number, l: any) => a + l.amount, 0))}</td></tr></tfoot>}
             </table>
             {!lines.length && <div className="p-6 text-center text-sm text-slate-500">{narrowed ? "No entries match this filter" : "No entries in this period"}</div>}
           </div>

@@ -63,6 +63,17 @@ test("monthly bill: a private printable link with every fill and slip, sent on W
   assert.ok(sent.charged > 0);
   assert.match(lastMsg(acct.id, "monthly_bill").body, /\/bill\//);
   assert.equal((await call("salesman", "GET", `/api/customers/${acct.id}/bill-link`)).status, 403);
+  // bill mode over a day range: only what we gave, no payment lines, no running balance; the statement keeps both
+  ok(await call("admin", "POST", "/api/cashier/receive", { party_type: "khata", party_id: acct.id, amount: 100, method: "Cash", notify: false, note: "TESTPAY-77" }), "a payment");
+  const today = db.pkDate(), from = `${today.slice(0, 7)}-01`;
+  const bl = ok(await call("manager", "GET", `/api/customers/${acct.id}/bill-link?from=${from}&to=${today}&mode=bill`), "bill link");
+  assert.equal(bl.period, `${from}..${today}`); assert.equal(bl.mode, "bill");
+  const bill = await (await fetch(bl.url.replace(/^https?:\/\/[^/]+/, base))).text();
+  assert.match(bill, /P-55/); assert.match(bill, /Bill total/); assert.doesNotMatch(bill, /TESTPAY-77/); assert.doesNotMatch(bill, />Credit</); assert.match(bill, new RegExp(`${from} to ${today}`));
+  const sl = ok(await call("manager", "GET", `/api/customers/${acct.id}/bill-link?from=${from}&to=${today}&mode=statement`), "statement link");
+  const stmt = await (await fetch(sl.url.replace(/^https?:\/\/[^/]+/, base))).text();
+  assert.match(stmt, /TESTPAY-77/); assert.match(stmt, />Credit</); assert.match(stmt, /class="r m"/, "money columns boxed (ERP grid)");
+  assert.equal((await call("manager", "GET", `/api/customers/${acct.id}/bill-link?from=2026-1-1&to=${today}`)).status, 400, "bad date");
 });
 
 test("wholesale clients get a message for every supply, payment and rate change, and a monthly statement", async () => {

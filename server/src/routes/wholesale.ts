@@ -1209,8 +1209,9 @@ wholesale.post("/wholesale/txns/:id/void", requirePerm("wholesale.void"), h((req
 const monthQ = z.object({ month: z.string().regex(/^\d{4}-\d{2}$/).optional() });
 wholesale.get("/wholesale/clients/:id/statement-link", h((req) => {
   const c = ownClient(tid(req), Number(req.params.id));
-  const m = parse(monthQ, req.query).month ?? pkDate().slice(0, 7);
-  return { month: m, url: billLink(tid(req), "w", c.id, m) };
+  const q = parse(monthQ.extend({ from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() }), req.query);
+  const period = q.from && q.to ? `${q.from}..${q.to}` : (q.month ?? pkDate().slice(0, 7));
+  return { month: period.slice(0, 7), period, url: billLink(tid(req), "w", c.id, period) };
 }));
 wholesale.post("/wholesale/clients/:id/send-statement", requirePerm("wholesale.manage"), h(async (req) => {
   const c = ownClient(tid(req), Number(req.params.id));
