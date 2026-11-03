@@ -19,9 +19,9 @@ export function sellPage(): string {
     .split("WHATSAPP_NUMBER").join(num)
     .split("__YEAR__").join(String(new Date().getFullYear()));
   // social card (Open Graph + Twitter) so a shared /sell link shows a pro preview with the hero image
-  const img = pub + "/og.jpg";
-  const desc = "Sales, khata, cashier, bank, stock, staff aur wholesale ERP (voucher, ledger, invoices) — sab aik app mein. Accountant-style P&L aur balance sheet. WhatsApp par receipts, Urdu reports, bank-level security. 30-din free trial.";
-  const ogTitle = "Petrol PumpAI — Petrol pump ka poora hisaab, AI ke sath";
+  const img = pub + "/og.jpg?v=3"; // bump v= when the card changes so WhatsApp / Facebook drop their cached preview
+  const desc = "Aaj ki bikri, cash, udhaar, tank aur munafa har waqt phone par. Salesman se CEO tak sab ka hisaab, shift close ek click, wholesale ERP, WhatsApp par bill. Abhi sign up karein.";
+  const ogTitle = "Ghar baithe apna pump dekhein — Petrol PumpAI";
   const social = [
     '<meta name="description" content="' + desc + '">',
     '<meta name="theme-color" content="#0a3b2b">',
@@ -37,10 +37,10 @@ export function sellPage(): string {
     '<meta property="og:image:type" content="image/jpeg">',
     '<meta property="og:image:width" content="1200">',
     '<meta property="og:image:height" content="630">',
-    '<meta property="og:image:alt" content="Petrol PumpAI dashboard">',
+    '<meta property="og:image:alt" content="Petrol PumpAI — Ghar baithe apna pump dekhein: wholesale dashboard screen">',
     '<meta name="twitter:card" content="summary_large_image">',
     '<meta name="twitter:title" content="' + ogTitle + '">',
-    '<meta name="twitter:description" content="Sales, khata, cashier, stock aur staff — WhatsApp par, Urdu mein. 30-din free trial.">',
+    '<meta name="twitter:description" content="' + desc + '">',
     '<meta name="twitter:image" content="' + img + '">',
   ].join("");
   return '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">'
