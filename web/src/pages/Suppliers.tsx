@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { CancelForm, pinHeader } from "../components/CancelEntry";
 import { useAuth } from "../App";
 import { FullEditEntry } from "../components/FullEdit";
-import { EditBypassPurchase, EditBypassPayment } from "../components/BypassEdit";
+import { EditBypassPurchase, EditBypassPayment, ShiftToClient } from "../components/BypassEdit";
 import { Plus, Printer, Wallet, Building2, Pencil, Download, Trash2 } from "lucide-react";
 import { ImportExport } from "../components/ImportExport";
 import { PrintListButton } from "../components/PrintList";
@@ -245,7 +245,9 @@ function SupplierDetail({ id, onClose, onChanged, depots, onDepots }: { id: numb
   const [voidLine, setVoidLine] = useState<any>(null);
   // a bypass line (the wholesale officer's supplier purchase, or a payment we made) has its own editor; client legs are void + re-enter
   const [bypEdit, setBypEdit] = useState<any>(null);
+  const [shiftLine, setShiftLine] = useState<any>(null); // a pump-side purchase that was really a client's own fuel
   const bypId = (t: any) => Number(String(t.id).replace(/^b/, ""));
+  const canShift = (t: any) => t.source !== "bypass" && t.type === "purchase" && can("entries.edit") && !String(t.ref ?? "").match(/^(wtx:|claim:|shopbuy:|cfuel:)/) && !s?.client_id;
   const canEditBypass = (t: any) => t.source === "bypass" && can("entries.edit") && (t.type === "purchase" || (t.type === "payment" && t.mode === "we_pay"));
   const canEdit = (t: any) => t.source !== "bypass" && can("entries.edit") && !String(t.ref ?? "").match(/^(wtx:|claim:|shopbuy:)/) && t.method !== "WHT" && !t.delivery_id && !t.trip_id;
   const canVoid = (t: any) => t.source === "bypass" ? can("wholesale.void") : can("corrections.manage") && !String(t.ref ?? "").match(/^(wtx:|claim:|shopbuy:)/) && t.method !== "WHT" && !t.delivery_id;
@@ -253,6 +255,7 @@ function SupplierDetail({ id, onClose, onChanged, depots, onDepots }: { id: numb
     <>
       {canEdit(t) && <button className="btn-secondary !px-2 !py-1" aria-label="Edit entry" title="Edit (CEO)" onClick={() => setEditLine(t)}><Pencil size={14} /></button>}
       {canEditBypass(t) && <button className="btn-secondary !px-2 !py-1" aria-label="Edit entry" title="Edit (CEO)" onClick={() => setBypEdit(t)}><Pencil size={14} /></button>}
+      {canShift(t) && <button className="btn-secondary !px-2 !py-1" aria-label="Client par shift" title="Ye maal asal me kisi client se liya tha? — client par shift karein" onClick={() => setShiftLine(t)}>🤝</button>}
       {canVoid(t) && <button className="btn-secondary !px-2 !py-1 !text-red-700" aria-label="Void entry" title="Void (CEO)" onClick={() => setVoidLine(t)}><Trash2 size={14} /></button>}
     </>
   );
@@ -400,6 +403,9 @@ function SupplierDetail({ id, onClose, onChanged, depots, onDepots }: { id: numb
           {editLine && <FullEditEntry kind="supplier" id={editLine.id} onClose={() => setEditLine(null)} onDone={() => { setEditLine(null); reload(); onChanged(); }} />}
           {bypEdit && bypEdit.type === "purchase" && <EditBypassPurchase x={{ ...bypEdit, id: bypId(bypEdit), cost_rate: bypEdit.rate, supplier_name: s?.name, client_fuel: bypEdit.client_fuel || s?.client_id }} onClose={() => setBypEdit(null)} onDone={() => { setBypEdit(null); reload(); onChanged(); }} />}
           {bypEdit && bypEdit.type === "payment" && <EditBypassPayment x={{ ...bypEdit, id: bypId(bypEdit) }} onClose={() => setBypEdit(null)} onDone={() => { setBypEdit(null); reload(); onChanged(); }} />}
+          {shiftLine && <Modal open onClose={() => setShiftLine(null)} title="Khareed client par shift karein · کلائنٹ پر منتقل">
+            <ShiftToClient startOpen url={`/suppliers/txns/${shiftLine.id}/to-client`} x={{ ...shiftLine, supplier_name: s?.name }} onDone={() => { setShiftLine(null); reload(); onChanged(); }} />
+          </Modal>}
           {voidLine && <VoidLine t={voidLine} supplier={label(s)} onClose={() => setVoidLine(null)} onDone={() => { setVoidLine(null); reload(); onChanged(); }} />}
         </div>
       )}

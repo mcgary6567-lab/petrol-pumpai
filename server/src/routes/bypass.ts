@@ -19,7 +19,7 @@ import { linkPhotos, proofPhotos, proofCol } from "./capture.js";
 import { bankAccountFor, accountIdField, isCash } from "./banks.js";
 import { assertCashInHand } from "./backoffice.js";
 import { insertTxn, fleet, priceSupply, clientDue } from "./wholesale.js";
-import { BYPASS_PAY } from "./banks.js";
+import { BYPASS_PAY, DEPOT_PAY } from "./banks.js";
 import { deliverOrder } from "./wholesaleDesk.js";
 import { profile } from "./setup.js";
 import { supplierOwed, supplierOwedAll } from "./suppliers.js";
@@ -687,6 +687,40 @@ bypass.post("/bypass/purchases/:id/to-client", requirePerm("entries.edit"), h((r
   return { ok: true, ...out, old_supplier_owed: bypassOwed(r.supplier_id as number), client_due: clientDue(client.id) };
 }));
 const pkr0 = (n: number) => `Rs ${Math.round(n).toLocaleString("en-PK")}`;
+
+/** The pump-side twin of the shift above: a supplier purchase (tank delivery / depot trip line / manual purchase) that was
+ *  really a wholesale CLIENT's own fuel. The purchase moves to that client's linked supplier card, a "Paid to depot"
+ *  payment on the client's khata lowers their due by the amount (the fuel was theirs), and the matching supplier payment
+ *  row (ref wtx:<id>, like a depot-direct payment) closes it on the client's supplier card — the ledger already books that
+ *  pair as Payable ↔ Wholesale receivable. The old supplier's "we owe" falls by the amount, so it is refused when he was
+ *  already paid for it. */
+bypass.post("/suppliers/txns/:id/to-client", requirePerm("entries.edit"), h((req) => {
+  const t = tid(req);
+  const r = get("SELECT * FROM supplier_txns WHERE id=? AND tenant_id=? AND type='purchase'", Number(req.params.id), t);
+  if (!r) throw new AppError(404, "Khareed ki entry nahi mili");
+  const ref = String(r.ref ?? "");
+  if (/^(wtx:|claim:|shopbuy:|cfuel:)/.test(ref) || r.method === "WHT") throw new AppError(400, "Ye line client par shift nahi ho sakti");
+  if (get("SELECT 1 x FROM supplier_txns WHERE tenant_id=? AND type='payment' AND note LIKE ?", t, `cfuel:stx:${r.id} %`)) throw new AppError(400, "Ye khareed pehle hi client ke khate se judi hui hai");
+  const b = parse(z.object({ client_id: z.number().int(), reason: z.string().trim().min(3, "Wajah likhein (kam se kam 3 harf)") }), req.body);
+  const client = get("SELECT * FROM wholesale_clients WHERE id=? AND tenant_id=?", b.client_id, t);
+  if (!client) throw new AppError(400, "Client not found");
+  const oldSup = get("SELECT id, name, client_id FROM suppliers WHERE id=?", r.supplier_id)!;
+  if (oldSup.client_id === client.id) throw new AppError(400, "Ye khareed pehle hi isi client ke supplier card par hai");
+  const owed = supplierOwed(r.supplier_id as number);
+  if (owed + 0.01 < (r.amount as number)) throw new AppError(400, `${oldSup.name} ka account sirf ${pkr0(owed)} baqi hai — is khareed (${pkr0(r.amount as number)}) ki adaigi us ko ho chuki hai, shift nahi ho sakti`);
+  const supplierId = clientSupplier(t, client.id);
+  const what = r.litres ? `${r.litres} L ${PRODUCTS[r.product as string] ?? r.product ?? ""}${r.rate ? ` @ ${r.rate}` : ""}` : pkr0(r.amount as number);
+  const note = `Client se maal · ${what} (shift: pehle ${oldSup.name} par likhi thi)`;
+  const out = tx(() => {
+    run("UPDATE supplier_txns SET supplier_id=?, note=? WHERE id=?", supplierId, [r.note, `client se maal — pehle ${oldSup.name} par`].filter(Boolean).join(" · "), r.id);
+    const wtx = insertTxn(req, client.id, { type: "payment", amount: r.amount, method: DEPOT_PAY, ref: r.ref ?? `STX-${r.id}`, note, txn_date: r.txn_date, account_id: null });
+    const { id } = run("INSERT INTO supplier_txns (tenant_id,supplier_id,type,amount,method,ref,note,created_by,txn_date,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+      t, supplierId, "payment", r.amount, DEPOT_PAY, `wtx:${wtx.id}`, `cfuel:stx:${r.id} · ${client.name} ka apna maal`, req.user!.name, r.txn_date, now());
+    audit(t, req.user!, "supplier_purchase_to_client", `stx:${r.id}`, { reason: b.reason, from_supplier_id: r.supplier_id, from_supplier: oldSup.name, client_id: client.id, client: client.name, amount: r.amount, wtx_id: wtx.id, settlement_id: id });
+    return { wtx_id: wtx.id as number, settlement_id: id };
+  });
+  return { ok: true, ...out, old_supplier_owed: supplierOwed(r.supplier_id as number), client_due: clientDue(client.id) };
+}));
 
 /** Re-cost the whole bypass history on the same-voucher rule (vouchers saved before it used the pooled weighted average).
  *  Replays purchases and outs in date order: a voucher's client drops take its own bills first, then the stock held

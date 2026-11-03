@@ -371,6 +371,7 @@ function ClientDetail({ id }: { id: string }) {
   const qs = new URLSearchParams(Object.entries(range).filter(([, v]) => v)).toString();
   const stmt = useApi<any>(`/wholesale/clients/${id}/statement${qs ? `?${qs}` : ""}`);
   const [editRow, setEditRow] = useState<any>(null); // CEO: fix a supply / payment in place (reverse + re-post everywhere)
+  const [posEdit, setPosEdit] = useState<any>(null); // wholesale officer: rate / vehicle / note of a POS-nozzle supply
   const [viewRow, setViewRow] = useState<any>(null); // anyone: see every input of one entry + print / WhatsApp
   const [params, setParams] = useSearchParams();
   const [action, setAction] = useState<null | "supply" | "return" | "payment" | "refund" | "adjustment" | "rates" | "edit" | "order" | "promise" | "cheque">(() => (params.get("do") as any) || null);
@@ -482,8 +483,9 @@ function ClientDetail({ id }: { id: string }) {
           <>
             <div className="flex justify-between bg-slate-50 px-4 py-2 text-sm"><span>Opening balance{stmt.data.opening_balance < -0.5 ? " (advance)" : ""}</span><span className="font-medium tabular-nums">{pkr(Math.abs(stmt.data.opening_balance))}</span></div>
             {editRow && <FullEditEntry kind="wholesale" id={editRow.id} onClose={() => setEditRow(null)} onDone={refresh} />}
+            {posEdit && <EditPosSupply x={posEdit} onClose={() => setPosEdit(null)} onDone={() => { setPosEdit(null); refresh(); }} />}
             {viewRow && <WholesaleEntryView clientId={Number(id)} txnId={viewRow.id} onClose={() => setViewRow(null)} />}
-            <LedgerTable rows={stmt.data.lines} running tools onView={(row) => setViewRow(row)} onEdit={can("entries.edit") ? (row) => setEditRow(row) : undefined} onVoid={(can("wholesale.void") || can("wholesale.manage")) ? async (row) => {
+            <LedgerTable rows={stmt.data.lines} running tools onView={(row) => setViewRow(row)} onEdit={can("entries.edit") || can("wholesale.manage") ? (row) => { if (row.sale_id && row.type === "supply") setPosEdit(row); else if (can("entries.edit")) setEditRow(row); else alert("Wholesale officer sirf POS se aayi supply (POS-…) edit kar sakta hai — baqi entries CEO badalta hai"); } : undefined} onVoid={(can("wholesale.void") || can("wholesale.manage")) ? async (row) => {
               if (row.type === "fuel_note") {
                 if (confirm(`Void this fuel payment of ${pkr(row.amount)}? Any bank movement will be reversed.`)) { await api(`/carriage/fuel-payments/${String(row.id).replace("bfp", "")}/void`, { body: {} }).catch((e) => alert(e.message)); refresh(); }
                 return;
@@ -861,5 +863,36 @@ function RateCardEditor({ draft, setDraft, pump }: { draft: RateDraft; setDraft:
         );
       })}
     </div>
+  );
+}
+
+
+/** The wholesale officer's edit of a supply that came from the POS nozzle: rate, vehicle, note. Litres stay with the
+ *  meter (a litre change is the CEO's Sale edit). The server voids and re-posts the row with the same day and POS link. */
+function EditPosSupply({ x, onClose, onDone }: { x: any; onClose: () => void; onDone: () => void }) {
+  const { busy, run } = useAction();
+  const [rate, setRate] = useState(String(x.rate ?? ""));
+  const [vehicle, setVehicle] = useState(String(x.vehicle_no ?? ""));
+  const [note, setNote] = useState(String(x.note ?? ""));
+  const [reason, setReason] = useState("");
+  const litres = Number(x.litres ?? 0), amount = Math.round(litres * (Number(rate) || 0) * 100) / 100;
+  return (
+    <Modal open onClose={onClose} title={`POS supply edit — ${x.ref ?? `#${x.id}`} · ${num(litres)} L`}>
+      <form className="space-y-3" onSubmit={async (e) => {
+        e.preventDefault();
+        const r = await run(() => api(`/wholesale/txns/${x.id}/pos-edit`, { body: { rate: Number(rate), vehicle_no: vehicle || null, note: note || null, reason } }), (d: any) => `Entry badal gayi — ab ${pkr(d.amount)}. ${dueLabel(d.due_after)}`);
+        if (r) onDone();
+      }}>
+        <p className="rounded-lg bg-sky-50 p-2 text-xs text-sky-900">Litre ({num(litres)} L) nozzle meter aur tank se jure hain — woh yahan nahi badalte; zaroorat ho to CEO Sale edit se. <Ur className="block">لیٹر میٹر سے جڑے ہیں</Ur></p>
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="Rate (Rs/L)"><input className="input" type="number" inputMode="decimal" step="0.01" min={0.01} required value={rate} onChange={(e) => setRate(e.target.value)} /></Field>
+          <Field label="Amount"><div className="input bg-slate-50 tabular-nums">{pkr(amount)}</div></Field>
+          <Field label="Gaari number"><input className="input uppercase" value={vehicle} onChange={(e) => setVehicle(e.target.value)} /></Field>
+          <Field label="Note"><input className="input" value={note} onChange={(e) => setNote(e.target.value)} /></Field>
+        </div>
+        <Field label="Wajah (zaroori) · وجہ"><input className="input" required minLength={3} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. rate card ghalat laga tha" /></Field>
+        <div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={onClose}>Cancel</button><button className="btn-primary" disabled={busy || !(Number(rate) > 0) || reason.trim().length < 3}>Save</button></div>
+      </form>
+    </Modal>
   );
 }

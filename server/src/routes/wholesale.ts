@@ -1154,6 +1154,32 @@ wholesale.post("/wholesale/clients/:id/payment", requireAny("wholesale.manage", 
   return insertTxn(req, c.id, { ...b, account_id: bankAccountFor(tid(req), b.account_id, b.method), type: "payment" });
 }));
 
+/** A wholesale supply that came from the POS nozzle (POS-<sale id>): the wholesale officer (or CEO) corrects its rate,
+ *  vehicle or note. The litres stay as the nozzle meter and tank recorded them — a litre change is a sale edit (CEO).
+ *  The old row is voided and re-posted (same day, same POS link) so the client's statement, ledger and bill all follow. */
+wholesale.post("/wholesale/txns/:id/pos-edit", requireAny("wholesale.manage", "entries.edit"), h((req) => {
+  const t = tid(req);
+  const b = parse(z.object({ reason: z.string().trim().min(3, "Wajah likhein (kam se kam 3 harf)"), rate: z.number().positive().max(100000).optional(),
+    vehicle_no: z.string().max(40).nullable().optional(), note: z.string().max(200).nullable().optional() }), req.body);
+  const x = get("SELECT x.*, c.name client_name FROM wholesale_txns x JOIN wholesale_clients c ON c.id=x.client_id WHERE x.id=? AND x.tenant_id=? AND x.voided=0", Number(req.params.id), t);
+  if (!x) throw new AppError(404, "Wholesale entry nahi mili");
+  if (!x.sale_id || x.type !== "supply") throw new AppError(400, "Sirf POS se aayi supply entry yahan se badalti hai — baqi entries CEO ke Edit se");
+  if (get("SELECT 1 FROM wholesale_txns WHERE sale_id=? AND type='payment' AND voided=0", x.sale_id)) throw new AppError(400, "Is sale ki payment bhi saath hui thi — CEO Sale edit se dono badlein");
+  if (get("SELECT 1 FROM cashier_vouchers WHERE tenant_id=? AND src=? AND voided=0", t, `wtx:${x.id}`)) throw new AppError(400, "Is entry par cashier voucher bana hai — Cashier desk se badlein");
+  const rate = round2(b.rate ?? x.rate), litres = round2(x.litres ?? 0), amount = round2(litres * rate);
+  const vehicle = b.vehicle_no !== undefined ? (b.vehicle_no?.toUpperCase() || null) : x.vehicle_no;
+  const note = b.note !== undefined ? b.note : x.note;
+  const saved = tx(() => {
+    run("UPDATE wholesale_txns SET voided=1, void_reason=? WHERE id=?", `${req.user!.name} (POS edit): ${b.reason}`, x.id);
+    const n = insertTxn(req, x.client_id, { type: "supply", station_id: x.station_id, tank_id: null, product: x.product, litres, rate, amount, ref: x.ref, note, vehicle_no: vehicle, txn_date: x.txn_date });
+    run("UPDATE wholesale_txns SET sale_id=?, created_at=? WHERE id=?", x.sale_id, x.created_at, n.id);
+    run("UPDATE sales SET rate=?, amount=?, vehicle_no=? WHERE id=?", rate, amount, vehicle, x.sale_id); // the POS row shows the same figures
+    return n;
+  });
+  audit(t, req.user!, "wholesale_pos_edit", `wtx:${x.id}`, { before: { rate: x.rate, amount: x.amount, vehicle_no: x.vehicle_no, note: x.note }, after: { rate, amount, vehicle_no: vehicle, note }, new_txn_id: saved.id, sale_id: x.sale_id, reason: b.reason });
+  return { ok: true, txn_id: saved.id, amount, due_after: clientDue(x.client_id) };
+}));
+
 wholesale.post("/wholesale/clients/:id/adjustment", requirePerm("wholesale.rates"), h((req) => {
   const c = ownClient(tid(req), Number(req.params.id));
   const b = parse(z.object({ amount: z.number().refine((v) => v !== 0, "Amount cannot be zero"), note: z.string().min(3, "Give a reason"), txn_date: dateStr, photo_ids: proofPhotos }), req.body);

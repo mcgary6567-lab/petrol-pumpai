@@ -51,14 +51,14 @@ export function EditBypassPurchase({ x, onClose, onDone }: { x: any; onClose: ()
 /** "Client se maal" came later: a bill that was written on a plain supplier card can be moved onto the wholesale client
  *  it was really bought from. Same books as a fresh client purchase (khata drops by the amount, settlement on the bypass
  *  account); the old supplier's "we owe" falls by the same amount. */
-function ShiftToClient({ x, onDone }: { x: any; onDone: () => void }) {
+export function ShiftToClient({ x, onDone, url, startOpen = false }: { x: any; onDone: () => void; url?: string; startOpen?: boolean }) {
   const { busy, run } = useAction();
   const clients = useApi<any[]>("/wholesale/clients");
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(startOpen);
   const [client, setClient] = useState("");
   const [reason, setReason] = useState("");
   const pick = (clients.data ?? []).find((c: any) => String(c.id) === client);
-  const shift = () => run(() => api(`/bypass/purchases/${x.id}/to-client`, { body: { client_id: Number(client), reason } }), "Client ke khate par shift ho gaya")
+  const shift = () => run(() => api(url ?? `/bypass/purchases/${x.id}/to-client`, { body: { client_id: Number(client), reason } }), "Client ke khate par shift ho gaya")
     .then((ok) => { if (ok) onDone(); });
   if (!open) return <button type="button" className="text-xs font-semibold text-brand-700 underline" onClick={() => setOpen(true)}>🤝 Ye maal asal me kisi client se liya tha? — client par shift karein</button>;
   return (
