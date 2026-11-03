@@ -5,7 +5,7 @@ import { recordWithholding, taxSettings } from "./tax.js";
 import { all, get, run, now, tx } from "../db.js";
 import { linkPhotos, proofPhotos, proofCol, requireProof, isCheque } from "./capture.js";
 import { bankAccountFor, accountIdField, chequeToRegister, accountName, isCash } from "./banks.js";
-import { assertCashInHand } from "./backoffice.js";
+import { assertCashInHand, backdateAt } from "./backoffice.js";
 import { h, parse, tid, can, requirePerm } from "../auth.js";
 import { AppError, assertNoDuplicateParty, normalizePhone, round2, pkr, partyBalance, partyBalanceAll, audit } from "../services.js";
 import { announce } from "../notifications.js";
@@ -196,8 +196,9 @@ suppliers.post("/suppliers/:id/payment", h(async (req) => {
 registerPayExecutor("supplier_payment", (req, body) => { const { supplier_id, ...rest } = body; return supplierPayment(req, Number(supplier_id), parse(supplierPayBody, rest)); });
 export function supplierPayment(req: Request, supplierId: number, b: z.infer<typeof supplierPayBody>) {
   const s = own(tid(req), supplierId);
-  const ts = b.txn_date ? new Date(b.txn_date).toISOString() : now();
   const t = tid(req);
+  // a payment that was missed on its day, entered later on the real date: CEO / manager only, never a closed day
+  const ts = backdateAt(req, t, b.txn_date?.slice(0, 10)) ?? now();
   if (isCheque(b.method)) requireProof(t, b.photo_ids, "cheque");
   const accountId = bankAccountFor(t, b.account_id, b.method);
   // our cheque leaves the bank only when the depot cashes it: it waits in the cheque register until then

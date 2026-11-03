@@ -229,14 +229,15 @@ function SupplierRefund({ id, owed, onClose, onDone }: { id: number; owed: numbe
 
 function SupplierDetail({ id, onClose, onChanged, depots, onDepots }: { id: number; onClose: () => void; onChanged: () => void; depots: any[]; onDepots: () => void }) {
   const { data: s, reload } = useApi<any>(`/suppliers/${id}`);
-  const [pay, setPay] = useState({ amount: "", method: "Bank transfer", ref: "", wht: "" });
+  const [pay, setPay] = useState({ amount: "", method: "Bank transfer", ref: "", wht: "", txn_date: "" });
   const [photos, setPhotos] = useState<number[]>([]);
   const [account, setAccount] = useState<number | null>(null);
   const [slip, setSlip] = useState<any>(null);
   const [refund, setRefund] = useState(false);
   const [edit, setEdit] = useState(false);
   const { busy, run } = useAction();
-  const { can, modules } = useAuth();
+  const { can, modules, user } = useAuth();
+  const canBackdate = ["admin", "manager"].includes(user?.role ?? ""); // a missed payment entered later on its real date
   const title = s ? label(s) : "Supplier";
   // CEO corrections on a statement line: a pump-side purchase / payment / adjustment is edited in place (amount, ref, note) or
   // voided with a reason; a bypass purchase or payment is voided (then re-entered on the Bypass page — its client leg follows)
@@ -336,7 +337,7 @@ function SupplierDetail({ id, onClose, onChanged, depots, onDepots }: { id: numb
             {Number(s.owed) < -0.5 && <button type="button" className="btn-secondary min-h-10 !text-emerald-700" onClick={() => setRefund(true)}><Wallet size={15} /> Overpayment wapas · <Ur>ایڈوانس واپس</Ur></button>}
             <form className="grid w-full basis-full grid-cols-2 items-end gap-2 sm:flex sm:min-w-0 sm:flex-1 sm:basis-auto sm:flex-wrap" onSubmit={async (e) => {
               e.preventDefault();
-              const res: any = await run(() => api(`/suppliers/${id}/payment`, { body: { amount: Number(pay.amount), method: pay.method, ref: pay.ref || null, withholding: Number(pay.wht) || 0, photo_ids: photos, account_id: account } }), (r: any) => r.pending ? r.message : `Payment saved. We now owe ${pkr(r.owed)}`);
+              const res: any = await run(() => api(`/suppliers/${id}/payment`, { body: { amount: Number(pay.amount), method: pay.method, ref: pay.ref || null, withholding: Number(pay.wht) || 0, photo_ids: photos, account_id: account, ...(pay.txn_date ? { txn_date: pay.txn_date } : {}) } }), (r: any) => r.pending ? r.message : `Payment saved. We now owe ${pkr(r.owed)}`);
               if (res?.pending) { alert(res.message); setPay({ ...pay, amount: "", ref: "", wht: "" }); setPhotos([]); reload(); return; }
               if (res) { setPay({ ...pay, amount: "", ref: "", wht: "" }); setPhotos([]); reload(); onChanged(); if (res.payment) setSlip(voucherOf(res.payment, res.owed)); }
             }}>
@@ -344,6 +345,7 @@ function SupplierDetail({ id, onClose, onChanged, depots, onDepots }: { id: numb
               <Field label="Method"><select className="input" value={pay.method} onChange={(e) => setPay({ ...pay, method: e.target.value })}>{["Bank transfer", "Pay order", "Online (1LINK)", "Cheque", "Cash"].map((m) => <option key={m}>{m}</option>)}</select></Field>
               <Field label="Ref"><input className="input sm:w-32" value={pay.ref} onChange={(e) => setPay({ ...pay, ref: e.target.value })} /></Field>
               <Field label="Tax withheld (Rs)"><input className="input sm:w-32" type="number" inputMode="decimal" min={0} placeholder="0" value={pay.wht} onChange={(e) => setPay({ ...pay, wht: e.target.value })} /></Field>
+              {canBackdate && <Field label="Entry ki date (agar aaj ki nahi) · پرانی تاریخ"><input className="input sm:w-40" type="date" max={new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 10)} value={pay.txn_date} onChange={(e) => setPay({ ...pay, txn_date: e.target.value })} /></Field>}
               <div className="col-span-2 w-full"><AccountPicker method={pay.method} label="Paid from which bank? · کس بینک سے" value={account} onChange={setAccount} /></div>
               <button className="btn-primary col-span-2" disabled={busy || (pay.method === "Cheque" && !photos.length)}><Wallet size={15} /> Record payment</button>
               <div className="col-span-2 w-full"><ProofPhotos value={photos} onChange={setPhotos} required={pay.method === "Cheque"} hint="pay order, cheque, bank / 1LINK receipt" /></div>
