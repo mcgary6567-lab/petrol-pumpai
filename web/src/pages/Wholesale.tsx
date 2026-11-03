@@ -58,6 +58,8 @@ function ClientList() {
   const action = params.get("do"); // add-client | trip | rate | tanker | driver (from the menu)
   const setTab = (t: string) => setParams(t === "dashboard" ? {} : { tab: t });
   const clearAction = () => { const p = new URLSearchParams(params); p.delete("do"); setParams(p, { replace: true }); };
+  const subRaw = params.get("sub");
+  const sub = (["trips", "deliveries", "suppliers", "stock", "tank", "profit"] as const).find((k) => k === subRaw) ?? "trips";
   const [sheet, setSheet] = useState<any | null>(null); // the trip just saved
   const [tripsKey, setTripsKey] = useState(0);
   const s = summary.data;
@@ -70,7 +72,17 @@ function ClientList() {
           <button key={k} onClick={() => (k === "ledger" || k === "invoices" || k === "board" ? nav(`/wholesale/${k}`) : setTab(k))} className={`whitespace-nowrap border-b-2 px-3 py-1.5 text-center text-sm leading-tight ${tab === k ? "border-brand-600 font-medium text-brand-700" : "border-transparent text-slate-600"}`}>{l}<Ur className="block text-xs">{u}</Ur></button>
         ))}
       </div>
-      {tab === "trips" && <><TripsTab key={tripsKey} onNew={can("wholesale.manage") ? () => setParams({ tab: "trips", do: "trip" }) : undefined} /><div className="mt-6 border-t pt-6"><BypassPanel key={tripsKey} /></div></>}
+      {tab === "trips" && <>
+        {/* one KPI strip, then sub-tabs — the page used to stack every bypass section under the trips table */}
+        <BypassPanel key={`k${tripsKey}`} section="kpis" />
+        <div className="flex gap-1 overflow-x-auto rounded-xl bg-slate-100 p-1">
+          {([["trips", "🚛 Trips", "ٹرپ"], ["deliveries", "🏭 Bypass deliveries", "ڈیلیوری"], ["suppliers", "👤 Bypass suppliers", "سپلائر"], ["stock", "📦 Baqi stock", "باقی اسٹاک"], ["tank", "⛽ Apne tank", "اپنا ٹینک"], ["profit", "📈 Munafa", "منافع"]] as const).map(([k, l, u]) => (
+            <button key={k} onClick={() => { const p = new URLSearchParams(params); p.set("tab", "trips"); p.set("sub", k); setParams(p, { replace: true }); }}
+              className={`whitespace-nowrap rounded-lg px-3 py-1.5 text-sm leading-tight ${sub === k ? "bg-white font-semibold text-brand-700 shadow-sm" : "text-slate-600 hover:bg-white/60"}`}>{l}<Ur className="ml-1 text-xs">{u}</Ur></button>
+          ))}
+        </div>
+        {sub === "trips" ? <TripsTab key={tripsKey} onNew={can("wholesale.manage") ? () => setParams({ tab: "trips", do: "trip" }) : undefined} /> : <BypassPanel key={`${sub}${tripsKey}`} section={sub} />}
+      </>}
       {tab === "fleet" && <FleetTab key={action ?? "fleet"} start={action === "tanker" || action === "driver" ? action : null} />}
       {tab === "orders" && <OrdersTab onTrip={() => setParams({ tab: "orders", do: "trip" })} />}
       {tab === "collect" && <CollectTab />}

@@ -18,7 +18,9 @@ import { VoucherVoidButton } from "../components/VoucherVoid";
 const Ur = ({ children, className = "" }: { children: React.ReactNode; className?: string }) => <span lang="ur" dir="rtl" className={`font-urdu ${className}`}>{children}</span>;
 
 /** Bypass delivery — shown inside the Wholesale "Tanker trips" tab: buy fuel from suppliers at the depot and deliver straight to wholesale clients. */
-export function BypassPanel() {
+export type BypassSection = "all" | "kpis" | "deliveries" | "suppliers" | "stock" | "tank" | "profit";
+export function BypassPanel({ section = "all" }: { section?: BypassSection }) {
+  const show = (k: Exclude<BypassSection, "all">) => section === "all" || section === k;
   const sups = useApi<any[]>("/bypass/suppliers");
   const [dq, setDq] = useState("");
   const [dqDebounced, setDqDebounced] = useState("");
@@ -38,26 +40,36 @@ export function BypassPanel() {
   const stockLines = (stock.data?.by_product ?? []) as any[];
   return (
     <div className="space-y-4">
+      {section === "all" && <>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div><h2 className="flex items-center gap-2 text-lg font-semibold"><Truck size={18} className="text-slate-500" /> Bypass supplier accounts · <Ur>بائی پاس</Ur></h2>
           <p className="text-sm text-slate-500">Depot se seedha client ko — naya bypass "New trip" button se banayein (Depot bypass mode)</p></div>
       </div>
       <p className="rounded-lg bg-sky-50 px-3 py-2 text-xs text-sky-900">Hum supplier se cost par maal lete hain aur client ko unke rate par dete hain — farq (margin) humara munafa. Supplier ka bypass khata pump-stock se bilkul alag hai, aur jitna maal liya usse zyada deliver nahi ho sakta. <Ur className="block">سپلائر کا بائی پاس کھاتہ پمپ اسٹاک سے الگ</Ur></p>
+      </>}
 
-      <div className="flex flex-wrap gap-3">
-        <Stat label="We owe bypass suppliers" value={pkrShort(owedTotal)} tone="red" />
-        <Stat label="Bypass stock on hand" value={pkrShort(stock.data?.total?.value ?? 0)} hint={stockLines.length ? stockLines.map((p) => `${num(p.litres)} L ${PRODUCTS[p.product]}`).join(" · ") : "koi stock nahi"} />
-        <Stat label="Is mahine ka munafa" value={pkrShort(stock.data?.month?.profit ?? 0)} tone={(stock.data?.month?.profit ?? 0) >= 0 ? "green" : "red"}
-          hint={stock.data?.month ? `bika ${pkrShort(stock.data.month.billed)} − cost ${pkrShort(stock.data.month.cost)}` : "—"} />
-        <Stat label="Pichle mahine ka munafa" value={pkrShort(stock.data?.month?.last?.profit ?? 0)} tone={(stock.data?.month?.last?.profit ?? 0) >= 0 ? "green" : "red"}
-          hint={stock.data?.month?.last ? `${stock.data.month.last.month} · bika ${pkrShort(stock.data.month.last.billed)} − cost ${pkrShort(stock.data.month.last.cost)}` : "—"} />
-        <Stat label={`${stock.data?.month?.year?.year ?? ""} ka munafa`} value={pkrShort(stock.data?.month?.year?.profit ?? 0)} tone={(stock.data?.month?.year?.profit ?? 0) >= 0 ? "green" : "red"}
-          hint={stock.data?.month?.year ? `is saal · bika ${pkrShort(stock.data.month.year.billed)} − cost ${pkrShort(stock.data.month.year.cost)}` : "—"} />
-      </div>
-      <LeftoverToTank stock={stockLines} onChanged={refresh} />
+      {show("kpis") && (() => {
+        const m = stock.data?.month, tone = (v: number) => (v >= 0 ? "text-emerald-700" : "text-rose-700");
+        const tiles: { l: string; v: string; h?: string; cls?: string }[] = [
+          { l: "We owe bypass suppliers", v: pkrShort(owedTotal), cls: owedTotal > 0 ? "text-rose-700" : "" },
+          { l: "Bypass stock on hand", v: pkrShort(stock.data?.total?.value ?? 0), h: stockLines.length ? stockLines.map((p) => `${num(p.litres)} L ${PRODUCTS[p.product]}`).join(" · ") : "koi stock nahi" },
+          { l: "Is mahine ka munafa", v: pkrShort(m?.profit ?? 0), h: m ? `bika ${pkrShort(m.billed)} − cost ${pkrShort(m.cost)}` : "—", cls: tone(m?.profit ?? 0) },
+          { l: "Pichle mahine", v: pkrShort(m?.last?.profit ?? 0), h: m?.last ? `${m.last.month} · bika ${pkrShort(m.last.billed)}` : "—", cls: tone(m?.last?.profit ?? 0) },
+          { l: `${m?.year?.year ?? ""} ka munafa`, v: pkrShort(m?.year?.profit ?? 0), h: m?.year ? `bika ${pkrShort(m.year.billed)} − cost ${pkrShort(m.year.cost)}` : "—", cls: tone(m?.year?.profit ?? 0) },
+        ];
+        // one compact strip (the old page had five tall cards here, then every section stacked below)
+        return <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">{tiles.map((t) => (
+          <div key={t.l} className="rounded-xl border border-slate-200 bg-white px-3 py-2">
+            <div className="truncate text-[10.5px] font-semibold uppercase tracking-wide text-slate-500" title={t.l}>{t.l}</div>
+            <div className={`text-lg font-bold tabular-nums ${t.cls ?? ""}`}>{t.v}</div>
+            {t.h && <div className="truncate text-[11px] text-slate-500" title={t.h}>{t.h}</div>}
+          </div>
+        ))}</div>;
+      })()}
+      {show("tank") && <LeftoverToTank stock={stockLines} onChanged={refresh} always={section === "tank"} />}
 
       {/* Bacha hua maal: supplier se jitna liya − client ko jitna diya = jo abhi humare paas ruka hai */}
-      <div className="card overflow-hidden">
+      {show("stock") && <div className="card overflow-hidden">
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 p-4">
           <h2 className="flex items-center gap-2 font-semibold"><Truck size={16} className="text-slate-500" /> Bacha hua maal (ruka hua stock) · <Ur>باقی مال</Ur></h2>
           <span className="text-sm font-semibold tabular-nums text-slate-700">{num(stock.data?.total?.litres ?? 0)} L · {pkr(stock.data?.total?.value ?? 0)}</span>
@@ -85,11 +97,11 @@ export function BypassPanel() {
             </p>
           </>
         )}
-      </div>
+      </div>}
 
-      <MonthlyProfitChart data={monthly.data ?? []} />
+      {show("profit") && <MonthlyProfitChart data={monthly.data ?? []} />}
 
-      <div className="card overflow-hidden">
+      {show("suppliers") && <div className="card overflow-hidden">
         <h2 className="border-b p-4 font-semibold"><Factory size={15} className="mr-1 inline text-slate-500" /> Bypass suppliers · <Ur>سپلائر</Ur></h2>
         {sups.loading ? <Loading /> : sups.error ? <ErrorBox error={sups.error} /> : !(sups.data ?? []).length ? <Empty>Koi supplier nahi.</Empty> : (
           <ul className="divide-y divide-slate-100">
@@ -102,10 +114,10 @@ export function BypassPanel() {
             ))}
           </ul>
         )}
-      </div>
+      </div>}
 
-      <div className="card overflow-hidden">
-        <h2 className="border-b p-4 font-semibold">Recent deliveries · <Ur>حالیہ</Ur></h2>
+      {show("deliveries") && <div className="card overflow-hidden">
+        <h2 className="border-b p-4 font-semibold">{section === "deliveries" ? "Bypass deliveries" : "Recent deliveries"} · <Ur>حالیہ</Ur></h2>
         <div className="px-4 pt-3"><ListTools q={dq} onQ={setDq} placeholder="Tanker / client / supplier / fuel… · تلاش" from={dRange.from} to={dRange.to} onFrom={(v) => setDRange({ ...dRange, from: v })} onTo={(v) => setDRange({ ...dRange, to: v })}
           right={delsFiltered ? <button type="button" className="text-xs text-brand-700 hover:underline" onClick={() => { setDq(""); setDRange({ from: "", to: "" }); }}>Clear</button> : null} /></div>
         {dels.loading && !dels.data ? <Loading /> : !(dels.data ?? []).length ? <Empty>{delsFiltered ? "Kuch nahi mila · کچھ نہیں ملا" : "Abhi tak koi delivery nahi."}</Empty> : (
@@ -148,7 +160,7 @@ export function BypassPanel() {
         )}
         {(dels.data ?? []).length > 10 && <div className="border-t px-3 py-2"><Pager page={delsPaged.page} pages={delsPaged.pages} setPage={delsPaged.setPage} total={delsPaged.total} size={delsPaged.size} /></div>}
         {(dels.data ?? []).length >= dLimit && dLimit < 500 && <div className="p-3"><button type="button" className="btn-secondary w-full" onClick={() => setDLimit((n) => Math.min(500, n + 60))}>Show more · <Ur>مزید دکھائیں</Ur></button></div>}
-      </div>
+      </div>}
 
       {openSup && <SupplierStatement id={openSup} onClose={() => setOpenSup(null)} onChanged={refresh} />}
       {voucher != null && <BypassVoucher id={voucher} onClose={() => setVoucher(null)} />}
@@ -696,7 +708,7 @@ function EditToTank({ r, tanks, onClose, onDone }: { r: any; tanks: any[]; onClo
   );
 }
 
-function LeftoverToTank({ stock, onChanged }: { stock: any[]; onChanged: () => void }) {
+function LeftoverToTank({ stock, onChanged, always = false }: { stock: any[]; onChanged: () => void; always?: boolean }) {
   const { can } = useAuth();
   const stations = useApi<any[]>("/stations");
   const list = useApi<any[]>("/bypass/to-tank");
@@ -714,7 +726,7 @@ function LeftoverToTank({ stock, onChanged }: { stock: any[]; onChanged: () => v
   const allRows = (list.data ?? []).filter((r: any) => !r.voided);
   const matched = useListFilter(allRows, { q: lq, text: (r: any) => [r.product, PRODUCTS[r.product], r.tank, r.station, r.note, r.created_by, r.litres].filter((v) => v != null && v !== "").join(" ") });
   const rows = showAll || lq ? matched : matched.slice(0, 8);
-  if (!stock.length && !allRows.length) return null;
+  if (!always && !stock.length && !allRows.length) return null;
   return (
     <div className="card p-4">
       <div className="flex flex-wrap items-center gap-2">

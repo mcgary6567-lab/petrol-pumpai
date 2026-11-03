@@ -19,8 +19,8 @@ export function sellPage(): string {
     .split("WHATSAPP_NUMBER").join(num)
     .split("__YEAR__").join(String(new Date().getFullYear()));
   // social card (Open Graph + Twitter) so a shared /sell link shows a pro preview with the hero image
-  const img = pub + "/og.jpg?v=3"; // bump v= when the card changes so WhatsApp / Facebook drop their cached preview
-  const desc = "Aaj ki bikri, cash, udhaar, tank aur munafa har waqt phone par. Salesman se CEO tak sab ka hisaab, shift close ek click, wholesale ERP, WhatsApp par bill. Abhi sign up karein.";
+  const img = pub + "/og.jpg?v=4"; // bump v= when the card changes so WhatsApp / Facebook drop their cached preview
+  const desc = "Din bhar ki sale, cash, udhaar, tank aur munafa har waqt phone par. Salesman se CEO tak sab ka hisaab, shift close ek click, wholesale ERP, WhatsApp par bill. Abhi sign up karein.";
   const ogTitle = "Ghar baithe apna pump dekhein — Petrol PumpAI";
   const social = [
     '<meta name="description" content="' + desc + '">',
