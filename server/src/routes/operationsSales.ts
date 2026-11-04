@@ -4,7 +4,7 @@ import { registerDecider, requestApproval, closeApproval } from "./approvals.js"
 import { walletAfterFill } from "./prepaid.js";
 import { askRating } from "./feedback.js";
 import { claimForDelivery } from "./claims.js";
-import { all, get, run, tx, now, getSetting, pkDate, pkDayStart, pkStart, pkEnd, METER, meterName, type Row } from "../db.js";
+import { all, get, run, tx, now, getSetting, pkDate, pkDayStart, pkStart, pkEnd, METER, meterName, type Row, pkStamp } from "../db.js";
 import { meterSales } from "./reports.js";
 import { h, parse, tid, requirePerm, requireAny, scopedStation, can, modulesOf } from "../auth.js";
 import { resolveCategory } from "./expenses.js";
@@ -110,13 +110,20 @@ saleRoutes.post("/sales", requirePerm("sales.create"), h((req) => {
     /** when the sale was made on a tablet without internet; billed at the price in force then */
     offline_at: z.string().datetime({ offset: true }).nullable().optional(),
   /** manager / CEO: a missed sale entered on its real past day (YYYY-MM-DD) — dated and priced there */
-  entry_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
+  entry_date: z.string().regex(/^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2})?$/).optional().nullable(), // a day (noon) or the exact minute
     /** a wholesale client fuelled from the nozzle: billed at their wholesale rate. payment_method is then the settlement
      * (khata = on credit, or cash / a money method / cheque = paid now). */
     wholesale_client_id: z.number().int().positive().nullable().optional(),
     cheque_bank: z.string().max(80).nullable().optional(),
     cheque_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   }), req.body);
+  // when the fuel actually went out: an offline tablet's own clock, or (manager / CEO) a missed entry on its real past day /
+  // minute — the sale is dated there, priced at THAT moment's board rate (or the client's rate card then), and lands on the
+  // shift that was open then. Computed first so the wholesale-client branch below gets it too.
+  let at = b.offline_at ? new Date(b.offline_at).toISOString() : null;
+  if (at && (Date.parse(at) > Date.now() + 60_000 || Date.parse(at) < Date.now() - 48 * 3600_000))
+    throw new AppError(400, "Offline sale time is not valid (must be within the last 48 hours)");
+  if (!at && b.entry_date && req.user!.role !== "salesman") at = backdateAt(req, tid(req), b.entry_date) ?? null;
   // ---- Wholesale client fuelled straight from the pump nozzle (billed at their wholesale rate) ----
   if (b.wholesale_client_id) {
     if (!modulesOf(tid(req)).wholesale) throw new AppError(403, "Wholesale module is off for this pump");
@@ -125,7 +132,7 @@ saleRoutes.post("/sales", requirePerm("sales.create"), h((req) => {
     const settle = b.payment_method; // "khata" = on credit; otherwise a money method / "cheque" = paid now
     const payNow = settle !== "khata";
     // rate comes from the client's own wholesale rate card; paid-now sales never add to the outstanding, so skip the limit
-    const { c, rate, amount } = priceSupply(req, b.wholesale_client_id, { product: b.product, litres: b.litres }, 0, payNow);
+    const { c, rate, amount } = priceSupply(req, b.wholesale_client_id, { product: b.product, litres: b.litres }, 0, payNow, at ?? undefined); // the client's rate card as of that moment
     const salesman = req.user!.role === "salesman";
     const shift = salesman
       ? get("SELECT * FROM shifts WHERE station_id=? AND status='open' AND attendant=? ORDER BY id DESC LIMIT 1", b.station_id, req.user!.name)
@@ -134,10 +141,11 @@ saleRoutes.post("/sales", requirePerm("sales.create"), h((req) => {
     // the litres/stock/meter go on a sales row (method 'wholesale'); the money is a wholesale supply (tank_id NULL = not a 2nd stock-out)
     const saved = recordSale(tid(req), { station_id: b.station_id, product: b.product, litres: b.litres, payment_method: "wholesale",
       wholesale_client_id: c.id, rate, nozzle_id: b.nozzle_id ?? null, vehicle_no: b.vehicle_no ?? null, slip_no: b.slip_no ?? null,
-      shift_id: shift?.id ?? null, created_by: req.user!.id, client_uid: b.client_uid ?? null });
+      shift_id: shift?.id ?? null, created_by: req.user!.id, client_uid: b.client_uid ?? null, ...(at ? { created_at: at } : {}) });
     if (saved.duplicate) return saved;
+    if (at) run("UPDATE sales SET entered_at=? WHERE id=?", now(), saved.id); // typed now, dated then
     const supply = insertTxn(req, c.id, { type: "supply", station_id: b.station_id, tank_id: null, product: b.product, litres: b.litres, rate, amount,
-      ref: `POS-${saved.id}`, note: `Pump nozzle sale (POS #${saved.id})${b.slip_no ? ` · slip ${b.slip_no}` : ""}`, vehicle_no: b.vehicle_no ?? null });
+      ref: `POS-${saved.id}`, note: `Pump nozzle sale (POS #${saved.id})${b.slip_no ? ` · slip ${b.slip_no}` : ""}`, vehicle_no: b.vehicle_no ?? null, txn_date: at ?? undefined });
     run("UPDATE wholesale_txns SET sale_id=? WHERE id=?", saved.id, supply.id);
     let cheque_pending = false;
     if (payNow) {
@@ -169,12 +177,6 @@ saleRoutes.post("/sales", requirePerm("sales.create"), h((req) => {
     if (b.discount > max && !can(req.user, "customers.edit"))
       throw new AppError(403, `${direct ? "Direct discount" : "Discount"} above ${pkr(max)} needs the manager / CEO. Ask them to enter it.`);
   }
-  // when the fuel actually went out: an offline tablet's own clock, or (manager / CEO) a missed entry on its real past day —
-  // the sale is dated there and priced at THAT day's board rate, and it lands on the shift that was open then
-  let at = b.offline_at ? new Date(b.offline_at).toISOString() : null;
-  if (at && (Date.parse(at) > Date.now() + 60_000 || Date.parse(at) < Date.now() - 48 * 3600_000))
-    throw new AppError(400, "Offline sale time is not valid (must be within the last 48 hours)");
-  if (!at && b.entry_date && req.user!.role !== "salesman") at = backdateAt(req, tid(req), b.entry_date) ?? null;
   if (b.client_uid) {
     const dup = get("SELECT * FROM sales WHERE client_uid=? AND station_id=?", b.client_uid, b.station_id);
     if (dup) return { ...dup, duplicate: true };
@@ -213,6 +215,7 @@ saleRoutes.post("/sales", requirePerm("sales.create"), h((req) => {
   if (b.account_id && !get("SELECT id FROM bank_accounts WHERE id=? AND tenant_id=? AND active=1", b.account_id, tid(req))) throw new AppError(400, "Bank account not found");
   const { offline_at: _o, ...sale } = b;
   const saved = recordSale(tid(req), { ...sale, shift_id: shift?.id ?? null, created_by: req.user!.id, ...(at ? { created_at: at } : {}) });
+  if (at && !saved.duplicate) run("UPDATE sales SET entered_at=? WHERE id=?", now(), saved.id); // typed now, dated then
   if (!saved.duplicate && saved.discount_kind === "direct") directDiscountWatch(tid(req), saved);
   // khata slip "baqi cash / saman": cash or shop goods went out against a khata slip — the CEO is told at once (in-app + WhatsApp)
   if (!saved.duplicate && ((saved.cash_back ?? 0) > 0 || (saved.items_cost ?? 0) > 0)) khataCashBackWatch(tid(req), saved, req.user!.name);
@@ -362,9 +365,9 @@ const account_idInvalid = (t: number, id?: number | null) => id != null && !get(
 /** Board prices as they stood on a past day (noon PK) — the POS shows and uses these for a back-dated entry. */
 saleRoutes.get("/sales/prices-on", h((req) => {
   const day = String(req.query.date ?? "");
-  const ms = Date.parse(`${day}T12:00:00+05:00`);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || Number.isNaN(ms)) throw new AppError(400, "date=YYYY-MM-DD");
-  const at = new Date(ms).toISOString();
+  if (!/^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2})?$/.test(day)) throw new AppError(400, "date=YYYY-MM-DD[THH:MM]");
+  let at: string; // the board rate in force at that minute (noon when only a day is given)
+  try { at = pkStamp(day); } catch { throw new AppError(400, "date theek nahi"); }
   return { date: day, prices: Object.fromEntries(Object.entries(currentPrices(tid(req), at)).map(([k, v]) => [k, v.price])) };
 }));
 

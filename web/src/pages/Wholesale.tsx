@@ -9,7 +9,7 @@ import { PartyAdmin } from "../components/PartyAdmin";
 import { api, linkToken, useApi } from "../lib/api";
 import { Badge, Empty, ErrorBox, Field, ListTools, Loading, Modal, PageHeader, Pager, PhoneInput, useAction, useListFilter, usePaged } from "../components/ui";
 import { WhatsAppDoc } from "../components/WhatsAppDoc";
-import { PRODUCTS, ago, d, dt, num, phone, pkr, pkrShort, dueLabel } from "../lib/format";
+import { PRODUCTS, ago, d, dt, num, phone, pkr, pkrShort, dueLabel, nowLocal } from "../lib/format";
 import { useAuth } from "../App";
 import { OpeningBalanceField, type AdvanceReceipt } from "../components/OpeningBalanceField";
 import { WholesaleDashboard } from "../components/WholesaleDashboard";
@@ -606,7 +606,7 @@ function FuelEntry({ kind, client, orderId, onClose, onDone }: { kind: "supply" 
   const stations = useApi<any[]>("/stations");
   const products = Object.keys(client.rates).length ? Object.keys(client.rates) : Object.keys(PRODUCTS);
   const [photos, setPhotos] = useState<number[]>([]);
-  const [f, setF] = useState<any>({ station_id: "", product: products[0], litres: "", rate: "", tanker_id: "", driver_id: "", vehicle_no: "", location: client.city ?? "", ref: "", note: "", txn_date: new Date().toISOString().slice(0, 10), override_limit: false });
+  const [f, setF] = useState<any>({ station_id: "", product: products[0], litres: "", rate: "", tanker_id: "", driver_id: "", vehicle_no: "", location: client.city ?? "", ref: "", note: "", txn_date: nowLocal(), override_limit: false });
   useEffect(() => { if (stations.data && !f.station_id) setF((x: any) => ({ ...x, station_id: stations.data![0].id })); }, [stations.data]);
   useEffect(() => { if (order) setF((x: any) => ({ ...x, product: order.product, litres: String(order.litres), location: order.location ?? x.location, note: order.note ?? x.note })); }, [order?.id]);
   const [step, setStep] = useState(1);
@@ -634,7 +634,7 @@ function FuelEntry({ kind, client, orderId, onClose, onDone }: { kind: "supply" 
             <Field label="Product · تیل"><select className="input" value={f.product} onChange={(e) => setF({ ...f, product: e.target.value })}>{products.map((p) => <option key={p} value={p}>{PRODUCTS[p]}</option>)}</select></Field>
             <Field label="Litres · لیٹر"><input className="input" type="number" inputMode="decimal" step="0.01" min={1} required value={f.litres} onChange={(e) => setF({ ...f, litres: e.target.value })} /></Field>
             <Field label={can("wholesale.rates") ? "Rate (Rs/L) — blank = rate card" : "Rate (Rs/L)"}><input className="input" type="number" inputMode="decimal" step="0.01" disabled={!can("wholesale.rates")} placeholder={client.rates[f.product] ? String(client.rates[f.product]) : "last supply rate"} value={f.rate} onChange={(e) => setF({ ...f, rate: e.target.value })} /></Field>
-            <Field label="Date · تاریخ"><input className="input" type="date" value={f.txn_date} onChange={(e) => setF({ ...f, txn_date: e.target.value })} /></Field>
+            <Field label="Date & time · تاریخ و وقت"><input className="input" type="datetime-local" max={nowLocal()} value={f.txn_date} onChange={(e) => setF({ ...f, txn_date: e.target.value })} /></Field>
             <Field label="Tanker / vehicle no."><input className="input" value={f.vehicle_no} onChange={(e) => setF({ ...f, vehicle_no: e.target.value })} /></Field>
             <Field label="Note"><input className="input" value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} /></Field>
           </div>

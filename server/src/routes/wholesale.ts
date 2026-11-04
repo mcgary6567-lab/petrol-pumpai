@@ -6,7 +6,7 @@
 import { Router, type Request } from "express";
 import { fuelCostPerL } from "../fuelCost.js";
 import { z } from "zod";
-import { all, get, run, tx, now, pkDayStart, pkDate, pkStart, pkEnd, type Row } from "../db.js";
+import { all, get, run, tx, now, pkDayStart, pkDate, pkStart, pkEnd, type Row, pkStamp } from "../db.js";
 import { h, parse, tid, requirePerm, requireAny, can } from "../auth.js";
 import { AppError, assertNoDuplicateParty, createAlert, normalizePhone, round2, pkr, currentPrices, audit, partyBalance, partyBalanceAll } from "../services.js";
 import { productSchema } from "../products.js";
@@ -30,7 +30,7 @@ const product = productSchema();
 // a date that really exists on the calendar (the shape alone lets 2026-13-45 through and SQLite then throws a 500)
 const realDay = (v: string) => { const d = v.slice(0, 10); return !Number.isNaN(Date.parse(d + "T00:00:00Z")) && new Date(d + "T00:00:00Z").toISOString().slice(0, 10) === d; };
 // an empty string (a cleared date box: `?from=&to=`) means "no filter", same as leaving the param out
-const dateStr = z.preprocess((v) => (v === "" ? undefined : v), z.string().regex(/^\d{4}-\d{2}-\d{2}/).refine(realDay, "Invalid date").optional());
+const dateStr = z.preprocess((v) => (v === "" ? undefined : v), z.string().regex(/^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}|T.*)?$/).refine(realDay, "Invalid date").optional()); // a day, a day+minute, or an ISO stamp
 
 function ownClient(tenantId: number, id: number) {
   const c = get("SELECT * FROM wholesale_clients WHERE id=? AND tenant_id=?", id, tenantId);
@@ -119,6 +119,23 @@ const ratesFromCard = (card: RateCard): Record<string, number> =>
 /** Effective rate per product today (pump-linked rates follow the current pump price). */
 function rates(clientId: number): Record<string, number> {
   return ratesFromCard(rateCard(clientId));
+}
+/** The client's rate card as it stood at `at` (a back-dated supply is billed at THAT day's rate): a fixed rate comes from
+ *  wholesale_rate_history (the last change on or before `at`, else the old value of the first change after it, else today's);
+ *  a discount-mode rate is that moment's pump price minus the discount. */
+export function ratesAt(clientId: number, at?: string | null): Record<string, number> {
+  if (!at || Date.parse(at) >= Date.now() - 60_000) return rates(clientId);
+  const tenant = get("SELECT tenant_id FROM wholesale_clients WHERE id=?", clientId)!.tenant_id as number;
+  const pump = currentPrices(tenant, at);
+  const out: Record<string, number> = {};
+  for (const r of all("SELECT * FROM wholesale_rates WHERE client_id=?", clientId)) {
+    if (r.mode === "discount") { const p = pump[r.product]?.price; if (p != null) out[r.product] = round2(p - (r.discount ?? 0)); continue; }
+    const before = get("SELECT new_rate FROM wholesale_rate_history WHERE client_id=? AND product=? AND created_at <= ? ORDER BY created_at DESC, id DESC LIMIT 1", clientId, r.product, at);
+    const after = before ? null : get("SELECT old_rate FROM wholesale_rate_history WHERE client_id=? AND product=? AND created_at > ? ORDER BY created_at ASC, id ASC LIMIT 1", clientId, r.product, at);
+    const v = before?.new_rate ?? after?.old_rate ?? r.rate;
+    if (v != null && v > 0) out[r.product] = round2(v);
+  }
+  return out;
 }
 
 function summary(clientId: number, from?: string, to?: string) {
@@ -724,7 +741,7 @@ function pickTank(tenantId: number, stationId: number, prod: string) {
 }
 
 export function insertTxn(req: Request, clientId: number, f: Row) {
-  const ts = f.txn_date ? new Date(f.txn_date).toISOString() : now();
+  const ts = f.txn_date ? pkStamp(String(f.txn_date)) : now(); // "YYYY-MM-DD" → noon PK, "YYYY-MM-DDTHH:MM" → that minute PK, ISO as is
   const { id } = run(
     `INSERT INTO wholesale_txns (tenant_id,client_id,type,station_id,tank_id,product,litres,rate,amount,method,vehicle_no,ref,note,created_by,txn_date,created_at,
        trip_id,tanker_id,driver_id,driver_name,location,account_id)
@@ -757,10 +774,10 @@ export function fleet(t: number, b: { tanker_id?: number | null; driver_id?: num
 }
 
 /** Rate and amount for one supply to one client, after the rate-permission and credit-limit checks. */
-export function priceSupply(req: Request, clientId: number, p: { product: string; litres: number; rate?: number; amount?: number; override_limit?: boolean; allowAnyRate?: boolean }, alreadyAdded = 0, skipLimit = false) {
+export function priceSupply(req: Request, clientId: number, p: { product: string; litres: number; rate?: number; amount?: number; override_limit?: boolean; allowAnyRate?: boolean }, alreadyAdded = 0, skipLimit = false, at?: string | null) {
   const c = ownClient(tid(req), clientId);
   if (!c.active) throw new AppError(400, `${c.name} is inactive`);
-  const card = rates(c.id)[p.product];
+  const card = ratesAt(c.id, at)[p.product]; // the rate card as of the entry's own moment (today's card when not back-dated)
   // allowAnyRate: bypass trades are negotiated deal-by-deal, so the officer may set the sale amount directly
   if (p.rate !== undefined && p.rate !== card && !p.allowAnyRate && !can(req.user, "wholesale.rates")) throw new AppError(403, "Only the admin can change the rate on a supply");
   const rate = p.rate ?? card;
@@ -780,7 +797,7 @@ function limitAlert(req: Request, c: Row, dueAfter: number) {
 
 wholesale.post("/wholesale/clients/:id/supply", requirePerm("wholesale.manage"), h((req) => {
   const b = parse(fuelBody, req.body);
-  const { c, rate, amount } = priceSupply(req, Number(req.params.id), b);
+  const { c, rate, amount } = priceSupply(req, Number(req.params.id), b, 0, false, b.txn_date ? pkStamp(b.txn_date) : null);
   const fl = fleet(tid(req), b);
   const tank = pickTank(tid(req), b.station_id, b.product);
   if (tank.current_l < b.litres) throw new AppError(400, `Not enough stock in ${tank.name} (${Math.round(tank.current_l)} L available)`);
@@ -809,7 +826,7 @@ type VoucherBody = z.infer<typeof voucherBody>;
 export function voucherPreview(req: Request, clientId: number, b: VoucherBody) {
   const t = tid(req);
   const c = ownClient(t, clientId);
-  const card = rates(c.id);
+  const card = ratesAt(c.id, b.txn_date ? pkStamp(b.txn_date) : null); // voucher lines bill at the rate card of the voucher's own day
   const station = get("SELECT id, name FROM stations WHERE id=? AND tenant_id=?", b.station_id, t);
   const issues: string[] = [];
   if (!c.active) issues.push(`${c.name} is inactive`);
@@ -947,7 +964,7 @@ wholesale.post("/wholesale/trips", requirePerm("wholesale.manage"), h(async (req
   const added: Record<number, number> = {};
   const priced = b.drops.map((d) => {
     const prod = d.product ?? b.product;
-    const p = priceSupply(req, d.client_id, { ...d, product: prod }, added[d.client_id] ?? 0);
+    const p = priceSupply(req, d.client_id, { ...d, product: prod }, added[d.client_id] ?? 0, false, b.txn_date ? pkStamp(b.txn_date) : null);
     added[d.client_id] = (added[d.client_id] ?? 0) + p.amount;
     return { ...d, ...p, product: prod };
   });
@@ -968,10 +985,10 @@ wholesale.post("/wholesale/trips", requirePerm("wholesale.manage"), h(async (req
   const freight = depot && b.freight_by !== "rate" ? round2(b.freight ?? 0) : 0;
   if (depot && b.freight_by !== "rate" && !freight) throw new AppError(400, "Enter the freight amount, or choose \"included in the rate\"");
   // the freight expense must be bookable on that day (a closed day would refuse it after the trip was saved)
-  const freightDay = new Date(Date.parse(b.txn_date ?? now()) + 5 * 3600_000).toISOString().slice(0, 10);
+  const freightDay = new Date(Date.parse(b.txn_date ? pkStamp(b.txn_date) : now()) + 5 * 3600_000).toISOString().slice(0, 10);
   if (freight && b.freight_by === "cash") guardClosedDay(req, tid(req), freightDay);
   const mixed = products.length > 1;
-  const ts = b.txn_date ? new Date(b.txn_date).toISOString() : now();
+  const ts = b.txn_date ? pkStamp(b.txn_date) : now();
   const trip = tx(() => {
     for (const p of Object.keys(tanks)) run("UPDATE tanks SET current_l = current_l - ? WHERE id=?", litresOf(p), tanks[p].id);
     const tank = depot ? null : tanks[products[0]];

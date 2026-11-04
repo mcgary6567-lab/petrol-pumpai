@@ -36,6 +36,7 @@ export function WholesaleEntryView({ clientId, txnId, onClose }: { clientId: num
           <div className="rounded-xl border border-slate-200 p-3">
             <Row k="Kism" v={TY[e.type] ?? e.type} />
             <Row k="Tareekh / waqt" v={dt(e.txn_date ?? e.created_at)} />
+            {e.txn_date && e.created_at && Math.abs(Date.parse(e.created_at) - Date.parse(e.txn_date)) > 2 * 60_000 && <Row k="Likhi gayi (asal waqt) · درج" v={dt(e.created_at)} />}
             <Row k="Amount" v={<span className={e.type === "payment" || e.type === "return" ? "text-emerald-700" : ""}>{pkr(e.amount)}</span>} />
             <Row k="Fuel" v={e.product ? (PRODUCTS[e.product] ?? e.product) : null} />
             <Row k="Litres" v={e.litres != null ? `${num(e.litres, 2)} L` : null} />

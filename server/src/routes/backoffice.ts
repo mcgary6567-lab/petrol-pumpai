@@ -10,7 +10,7 @@ import { BRAND_CSS, brandHead, brandFoot } from "../brandPrint.js";
 import { Router } from "express";
 import { z } from "zod";
 import jwt from "jsonwebtoken";
-import { all, get, run, tx, now, pkDate, pkStart, pkEnd, getSetting } from "../db.js";
+import { all, get, run, tx, now, pkDate, pkStart, pkEnd, getSetting, hasClock, pkStamp } from "../db.js";
 import { rentalIncome } from "./property.js";
 import { bankAccounts, unlinkedMoney } from "./banks.js";
 import { cashWithSalesmen } from "./cashier.js";
@@ -329,12 +329,15 @@ export function guardClosedDay(req: { user?: { role: string } }, t: number, date
  *  undefined for "today / now". Only the CEO or a manager may back-date; a closed day is admin-only; the future is refused. */
 export function backdateAt(req: { user?: { role: string } }, t: number, entry_date?: string | null): string | undefined {
   if (!entry_date) return undefined;
-  const today = pkDate();
-  if (entry_date >= today) return undefined; // today (or anything not earlier) books at the real time, as usual
+  const today = pkDate(), day = entry_date.slice(0, 10), clock = hasClock(entry_date);
+  if (day > today) throw new AppError(400, "Aane wali tareekh par entry nahi ho sakti");
+  if (day === today && !clock) return undefined; // today without a time books at the real time, as usual
+  const at = pkStamp(entry_date);
+  if (day === today) { if (Date.parse(at) > Date.now() + 60_000) throw new AppError(400, "Aane wala waqt nahi chun sakte"); return at; }
   if (!["admin", "manager"].includes(req.user?.role ?? "")) throw new AppError(403, "Purani date par entry sirf CEO ya manager daal sakta hai");
-  if (entry_date < "2000-01-01") throw new AppError(400, "Date theek nahi");
-  guardClosedDay(req, t, entry_date); // a closed day is CEO-only
-  return new Date(`${entry_date}T12:00:00+05:00`).toISOString();
+  if (day < "2000-01-01") throw new AppError(400, "Date theek nahi");
+  guardClosedDay(req, t, day); // a closed day is CEO-only
+  return at; // the chosen minute, or noon when only a day was given
 }
 const dayToken = (t: number, day: string) => jwt.sign({ day, t }, config.jwtSecret, { expiresIn: "400d" });
 

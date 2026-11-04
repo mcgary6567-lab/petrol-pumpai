@@ -7,7 +7,7 @@ import { api, useApi, linkToken } from "../lib/api";
 import { Loading, Modal, Pager, SearchBar, matchQuery, useAction, usePaged, useToast } from "../components/ui";
 import { WhatsAppDoc } from "../components/WhatsAppDoc";
 import { newUid, isOffline, queueSale, dropQueued, patchQueued, dismissFailed, useOfflineQueue, cacheGet, cacheSet } from "../lib/offline";
-import { num, pkr, PRODUCTS, PRODUCT_COLORS, PRODUCT_UR, activeProducts } from "../lib/format";
+import { num, pkr, PRODUCTS, PRODUCT_COLORS, PRODUCT_UR, activeProducts, nowLocal, dtLocal } from "../lib/format";
 import { iconMap, labelMap, useLookups, type LookupEntry } from "../lib/lookups";
 import { useAuth } from "../App";
 import { useNotifications } from "../components/Notifications";
@@ -340,15 +340,15 @@ export default function Pos() {
       {/* Aaj ke rates — bada aur saaf; CEO/admin side se set hote hain, salesman sirf dekhta hai */}
       <div className="mb-3 rounded-2xl border border-amber-200 bg-amber-50 p-3 shadow-sm">
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-          <span className="text-sm font-bold text-amber-900">{entryDate ? <>{entryDate} ke rate · <Ur>اس دن کے ریٹ</Ur></> : <>Aaj ke rate · <Ur>آج کے ریٹ</Ur></>}</span>
+          <span className="text-sm font-bold text-amber-900">{entryDate ? <>{dtLocal(entryDate)} ke rate · <Ur>اس وقت کے ریٹ</Ur></> : <>Aaj ke rate · <Ur>آج کے ریٹ</Ur></>}</span>
           {isSalesman ? <span className="text-xs text-amber-700">CEO/admin set karte hain</span> : (
             <label className="flex items-center gap-2 text-xs text-amber-900">Purani tareekh ki entry · <Ur>پرانی تاریخ</Ur>
-              <input type="date" className="input !h-8 !w-auto !py-0 text-xs" max={new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 10)} value={entryDate} onChange={(e) => setEntryDate(e.target.value)} aria-label="Entry ki tareekh" />
+              <input type="datetime-local" className="input !h-8 !w-auto !py-0 text-xs" max={nowLocal()} value={entryDate} onChange={(e) => setEntryDate(e.target.value)} aria-label="Entry ki tareekh" />
               {entryDate && <button type="button" className="underline" onClick={() => setEntryDate("")}>aaj</button>}
             </label>
           )}
         </div>
-        {entryDate && <p className="mb-2 rounded-lg bg-white/70 px-2 py-1 text-xs text-amber-900">Entry <b>{entryDate}</b> par darj hogi, us din ke rate par (khata rate card bhi usi par lagega). Band din sirf CEO.{!histPrices && " Us din ke rate load ho rahe hain…"}</p>}
+        {entryDate && <p className="mb-2 rounded-lg bg-white/70 px-2 py-1 text-xs text-amber-900">Entry <b>{dtLocal(entryDate)}</b> par darj hogi, us waqt ke rate par (khata / wholesale rate card bhi usi par lagega); likhne ka asal waqt alag se mehfooz rehta hai. Band din sirf CEO.{!histPrices && " Us din ke rate load ho rahe hain…"}</p>}
         <div className={`grid gap-2 ${d.products.length >= 3 ? "grid-cols-3" : "grid-cols-2"}`}>
           {d.products.map((p: string) => (
             <div key={p} className="rounded-xl bg-white px-3 py-2 text-center shadow-sm ring-1 ring-amber-100">

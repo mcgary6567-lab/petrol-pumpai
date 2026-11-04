@@ -8,7 +8,7 @@ import { WhatsAppDoc } from "./WhatsAppDoc";
 import { Badge, CnicInput, Empty, Field, ListTools, Loading, Modal, Pager, PhoneInput, useAction, usePaged } from "./ui";
 import { supplierOpts } from "./SupplierSelect";
 import { BypassDeliveryForm } from "../pages/Bypass";
-import { PRODUCTS, d, dt, num, phone, pkr } from "../lib/format";
+import { PRODUCTS, d, dt, num, phone, pkr, nowLocal } from "../lib/format";
 import { useAuth } from "../App";
 
 const today = () => new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 10);
@@ -74,7 +74,7 @@ export function TripForm({ onClose, onDone }: { onClose: () => void; onDone: (tr
   const orders = useApi<any>("/wholesale/orders");
   const depots = useApi<any[]>("/wholesale/depots");
   const [mode, setMode] = useState<"pump" | "bypass" | "held" | "client">("pump");
-  const [f, setF] = useState<any>({ station_id: "", product: "HSD", tanker_id: "", driver_id: "", vehicle_no: "", txn_date: today(), note: "", override_limit: false,
+  const [f, setF] = useState<any>({ station_id: "", product: "HSD", tanker_id: "", driver_id: "", vehicle_no: "", txn_date: nowLocal(), note: "", override_limit: false,
     source: "pump", supplier_id: "", depot_ref: "", freight_by: "rate", freight: "" });
   // depot-direct: purchase rate and billed litres per fuel (blank = the supplier's last rate / the litres dropped)
   const [cost, setCost] = useState<Record<string, string>>({});
@@ -150,7 +150,7 @@ export function TripForm({ onClose, onDone }: { onClose: () => void; onDone: (tr
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <Field label={depot ? "Pump (books under)" : "Loaded from station"}><select className="input" value={f.station_id} onChange={(e) => setF({ ...f, station_id: e.target.value })}>{(stations.data ?? []).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></Field>
           <Field label={mixed ? "Main fuel (drops can differ)" : "Fuel"}><select className="input" value={f.product} onChange={(e) => setF({ ...f, product: e.target.value })}>{Object.entries(PRODUCTS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></Field>
-          <Field label="Date"><input className="input" type="date" value={f.txn_date} onChange={(e) => setF({ ...f, txn_date: e.target.value })} /></Field>
+          <Field label="Date & time · تاریخ و وقت"><input className="input" type="datetime-local" max={nowLocal()} value={f.txn_date} onChange={(e) => setF({ ...f, txn_date: e.target.value })} /></Field>
           <FleetPicker f={f} setF={setF} />
           <Field label="Note"><input className="input" value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} /></Field>
         </div>

@@ -49,3 +49,8 @@ export const ago = (iso?: string | null) => {
 export const dt = (iso?: string | null) => (iso ? new Date(iso).toLocaleString("en-PK", { dateStyle: "medium", timeStyle: "short" }) : "—");
 export const d = (iso?: string | null) => (iso ? new Date(iso).toLocaleDateString("en-PK", { day: "numeric", month: "short" }) : "—");
 export const phone = (p: string) => (p?.startsWith("92") ? `+92 ${p.slice(2, 5)} ${p.slice(5)}` : p);
+
+/** Current wall-clock time as a `datetime-local` value ("YYYY-MM-DDTHH:MM"); the server treats it as Pakistan time. */
+export const nowLocal = () => { const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 16); };
+/** "YYYY-MM-DDTHH:MM" → "DD-Mon, hh:mm am" for labels; a bare day stays a day. */
+export const dtLocal = (v: string) => (v.length > 10 ? new Date(v).toLocaleString("en-PK", { day: "2-digit", month: "short", hour: "numeric", minute: "2-digit" }) : v);

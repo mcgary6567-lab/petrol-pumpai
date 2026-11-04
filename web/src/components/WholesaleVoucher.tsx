@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { CheckCircle2, Plus, X } from "lucide-react";
 import { api, useApi } from "../lib/api";
 import { ErrorBox, Loading, Modal, useAction } from "./ui";
-import { PRODUCTS, num, pkr } from "../lib/format";
+import { PRODUCTS, num, pkr, nowLocal } from "../lib/format";
 import { useAuth } from "../App";
 import { ProofPhotos } from "./Capture";
 import { FleetPicker, fleetBody } from "./WholesaleFleet";
@@ -26,7 +26,7 @@ export function SupplyVoucher() {
   const client = (clients.data ?? []).find((c: any) => String(c.id) === clientId);
   const desk = useApi<any>(clientId ? `/wholesale/clients/${clientId}/desk` : null);
   const orders = (desk.data?.orders ?? []).filter((o: any) => o.status === "open" || !o.status);
-  const [f, setF] = useState<any>({ station_id: "", txn_date: pkToday(), ref: "", location: "", note: "", order_id: params.get("order") ?? "", tanker_id: "", driver_id: "", vehicle_no: "", carriage: "", override_limit: false });
+  const [f, setF] = useState<any>({ station_id: "", txn_date: nowLocal(), ref: "", location: "", note: "", order_id: params.get("order") ?? "", tanker_id: "", driver_id: "", vehicle_no: "", carriage: "", override_limit: false });
   const [lines, setLines] = useState<Line[]>([{ product: "HSD", litres: "", rate: "" }]);
   const [photos, setPhotos] = useState<number[]>([]);
   const [preview, setPreview] = useState<any>(null);
@@ -104,7 +104,7 @@ export function SupplyVoucher() {
                   <option value="">— choose client —</option>
                   {clients.data.filter((c: any) => c.active !== 0).map((c: any) => <option key={c.id} value={c.id}>{c.name}{c.city ? ` — ${c.city}` : ""}</option>)}
                 </select></label>
-              <label><span className="label">Voucher date *</span><input type="date" className="input" max={pkToday()} value={f.txn_date} onChange={(e) => setF({ ...f, txn_date: e.target.value })} /></label>
+              <label><span className="label">Voucher date & time *</span><input type="datetime-local" className="input" max={nowLocal()} value={f.txn_date} onChange={(e) => setF({ ...f, txn_date: e.target.value })} /></label>
               <label><span className="label">From station *</span>
                 <select className="input" value={f.station_id} onChange={(e) => setF({ ...f, station_id: e.target.value })}>{stations.data.map((s: any) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></label>
               <FleetPicker f={f} setF={setF} />

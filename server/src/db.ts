@@ -101,8 +101,16 @@ export const pkDate = (ms = Date.now()) => new Date(ms + 5 * 3600_000).toISOStri
 export const stampFor = (d?: string | null) => {
   if (!d) return now();
   const day = d.slice(0, 10);
-  if (day >= pkDate()) return now();
-  return new Date(`${day}T12:00:00+05:00`).toISOString();
+  if (day >= pkDate() && !hasClock(d)) return now();
+  return pkStamp(d);
+};
+/** "YYYY-MM-DDTHH:MM" from a date-time box (no zone) — the user's Pakistan wall clock. */
+export const hasClock = (d: string) => /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(d) && !/Z$|[+-]\d{2}:\d{2}$/.test(d);
+/** A Pakistan date ("YYYY-MM-DD" → noon), a Pakistan date-time ("YYYY-MM-DDTHH:MM" → that minute) or an ISO stamp → ISO. */
+export const pkStamp = (d: string) => {
+  if (hasClock(d)) return new Date(`${d.slice(0, 16)}:00+05:00`).toISOString();
+  if (d.length === 10) return new Date(`${d}T12:00:00+05:00`).toISOString();
+  return new Date(d).toISOString();
 };
 /** A "YYYY-MM-DD" Pakistan date → UTC timestamp of its midnight (ISO strings pass through). */
 export const pkStart = (d: string) => (d.length === 10 ? new Date(`${d}T00:00:00+05:00`).toISOString() : d);
@@ -601,6 +609,7 @@ export function migrate() {
     units REAL, amount REAL NOT NULL, due_date TEXT, reference TEXT, photo_id INTEGER, expense_id INTEGER, prev_amount REAL, prev_units REAL,
     change_pct REAL, created_by TEXT, created_at TEXT NOT NULL)`);
   addColumn("sales", "coupon_id", "INTEGER");
+  addColumn("sales", "entered_at", "TEXT"); // real clock time a back-dated sale was typed (created_at = the chosen time)
   // money: tanker shortage claims, freight per tanker, withholding tax
   addColumn("deliveries", "freight", "REAL"); // Rs paid for transport of this tanker
   db.exec(`CREATE TABLE IF NOT EXISTS shortage_claims (
