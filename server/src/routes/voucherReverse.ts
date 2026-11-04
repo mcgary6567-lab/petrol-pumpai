@@ -10,6 +10,7 @@
  * already recovered) is refused with the exact line to fix first — never a half reversal.
  */
 import { Router } from "express";
+import { dropClientFuelSettlement } from "./clientFuel.js";
 import { z } from "zod";
 import { all, get, run, tx, now } from "../db.js";
 import { h, parse, tid, requirePerm } from "../auth.js";
@@ -120,6 +121,7 @@ function tripReverse(t: number, by: string, id: number, reason: string) {
     run("UPDATE wholesale_txns SET voided=1, void_reason=? WHERE id=?", `${by} (voucher void): ${reason}`, w.id);
     run("UPDATE wholesale_orders SET status='open', txn_id=NULL, done_at=NULL WHERE tenant_id=? AND txn_id=? AND status='done'", t, w.id);
   }
+  for (const p of all("SELECT id FROM supplier_txns WHERE tenant_id=? AND trip_id=? AND type='purchase'", t, id)) dropClientFuelSettlement(t, p.id as number, `${by} (voucher void): ${reason}`);
   run("DELETE FROM supplier_txns WHERE tenant_id=? AND trip_id=? AND type='purchase'", t, id);
   run("DELETE FROM shortage_claims WHERE tenant_id=? AND trip_id=?", t, id);
   run("DELETE FROM expenses WHERE tenant_id=? AND note LIKE ? AND status<>'rejected'", t, `Trip #${id} —%`);

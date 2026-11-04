@@ -134,10 +134,15 @@ saleRoutes.post("/sales", requirePerm("sales.create"), h((req) => {
     // rate comes from the client's own wholesale rate card; paid-now sales never add to the outstanding, so skip the limit
     const { c, rate, amount } = priceSupply(req, b.wholesale_client_id, { product: b.product, litres: b.litres }, 0, payNow, at ?? undefined); // the client's rate card as of that moment
     const salesman = req.user!.role === "salesman";
+    // a back-dated fill belongs to the shift that was open THEN; that shift's meter already settled those litres as cash
+    // once it closed, so it cannot take a second stock-out — the CEO corrects that shift's sale instead
     const shift = salesman
       ? get("SELECT * FROM shifts WHERE station_id=? AND status='open' AND attendant=? ORDER BY id DESC LIMIT 1", b.station_id, req.user!.name)
-      : get("SELECT * FROM shifts WHERE station_id=? AND status='open' ORDER BY id DESC LIMIT 1", b.station_id);
+      : at
+        ? get("SELECT * FROM shifts WHERE station_id=? AND opened_at<=? AND (closed_at IS NULL OR closed_at>=?) ORDER BY id DESC LIMIT 1", b.station_id, at, at)
+        : get("SELECT * FROM shifts WHERE station_id=? AND status='open' ORDER BY id DESC LIMIT 1", b.station_id);
     if (salesman && !shift) throw new AppError(400, "Start your shift first (Shifts page) before recording sales");
+    if (shift && shift.status !== "open") throw new AppError(409, "Us waqt ki shift band ho chuki hai aur us ke meter ne ye litre gin liye the — CEO us shift ki sale ko wholesale client par edit kare (Corrections → Sale edit)");
     // the litres/stock/meter go on a sales row (method 'wholesale'); the money is a wholesale supply (tank_id NULL = not a 2nd stock-out)
     const saved = recordSale(tid(req), { station_id: b.station_id, product: b.product, litres: b.litres, payment_method: "wholesale",
       wholesale_client_id: c.id, rate, nozzle_id: b.nozzle_id ?? null, vehicle_no: b.vehicle_no ?? null, slip_no: b.slip_no ?? null,
@@ -155,11 +160,11 @@ saleRoutes.post("/sales", requirePerm("sales.create"), h((req) => {
         if (no !== "—" && get("SELECT id FROM wholesale_cheques WHERE tenant_id=? AND bank=? AND cheque_no=? AND status<>'returned'", tid(req), bank, no))
           throw new AppError(400, `Cheque ${no} of ${bank} is already in the register`);
         run(`INSERT INTO wholesale_cheques (tenant_id,client_id,amount,bank,cheque_no,cheque_date,status,note,created_by,created_at,updated_at,sale_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-          tid(req), c.id, amount, bank, no, b.cheque_date || pkDate(), "in_hand", `POS nozzle sale #${saved.id}`, req.user!.name, now(), now(), saved.id);
+          tid(req), c.id, amount, bank, no, b.cheque_date || pkDate(), "in_hand", `POS nozzle sale #${saved.id}`, req.user!.name, at ?? now(), now(), saved.id);
         cheque_pending = true;
       } else {
         const pay = insertTxn(req, c.id, { type: "payment", amount, method: settle, account_id: bankAccountFor(tid(req), b.account_id, settle),
-          ref: `POS-${saved.id}`, note: `Pump nozzle sale #${saved.id} (paid ${settle})` });
+          ref: `POS-${saved.id}`, note: `Pump nozzle sale #${saved.id} (paid ${settle})`, txn_date: at ?? undefined });
         run("UPDATE wholesale_txns SET sale_id=? WHERE id=?", saved.id, pay.id);
       }
     }
@@ -366,8 +371,8 @@ const account_idInvalid = (t: number, id?: number | null) => id != null && !get(
 saleRoutes.get("/sales/prices-on", h((req) => {
   const day = String(req.query.date ?? "");
   if (!/^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2})?$/.test(day)) throw new AppError(400, "date=YYYY-MM-DD[THH:MM]");
-  let at: string; // the board rate in force at that minute (noon when only a day is given)
-  try { at = pkStamp(day); } catch { throw new AppError(400, "date theek nahi"); }
+  const at = pkStamp(day); // the board rate in force at that minute (noon when only a day is given)
+  if (Number.isNaN(Date.parse(at))) throw new AppError(400, "date theek nahi");
   return { date: day, prices: Object.fromEntries(Object.entries(currentPrices(tid(req), at)).map(([k, v]) => [k, v.price])) };
 }));
 

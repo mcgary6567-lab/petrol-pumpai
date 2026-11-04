@@ -22,6 +22,7 @@ import { guardClosedDay } from "./backoffice.js";
 import { profile } from "./setup.js";
 import { SOCIALS } from "../brandPrint.js";
 import { deliverOrder, deskSuggestions, openOrders, promises, cheques } from "./wholesaleDesk.js";
+import { unshiftClientFuel } from "./clientFuel.js";
 
 export const wholesale = Router();
 wholesale.use("/wholesale", requirePerm("wholesale.view"));
@@ -30,7 +31,7 @@ const product = productSchema();
 // a date that really exists on the calendar (the shape alone lets 2026-13-45 through and SQLite then throws a 500)
 const realDay = (v: string) => { const d = v.slice(0, 10); return !Number.isNaN(Date.parse(d + "T00:00:00Z")) && new Date(d + "T00:00:00Z").toISOString().slice(0, 10) === d; };
 // an empty string (a cleared date box: `?from=&to=`) means "no filter", same as leaving the param out
-const dateStr = z.preprocess((v) => (v === "" ? undefined : v), z.string().regex(/^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}|T.*)?$/).refine(realDay, "Invalid date").optional()); // a day, a day+minute, or an ISO stamp
+const dateStr = z.preprocess((v) => (v === "" ? undefined : v), z.string().regex(/^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})?)?$/).refine(realDay, "Invalid date").refine((v) => !Number.isNaN(Date.parse(pkStamp(v))), "Invalid date / time").optional()); // a day, a day+minute (PK), or an ISO stamp
 
 function ownClient(tenantId: number, id: number) {
   const c = get("SELECT * FROM wholesale_clients WHERE id=? AND tenant_id=?", id, tenantId);
@@ -129,10 +130,12 @@ export function ratesAt(clientId: number, at?: string | null): Record<string, nu
   const pump = currentPrices(tenant, at);
   const out: Record<string, number> = {};
   for (const r of all("SELECT * FROM wholesale_rates WHERE client_id=?", clientId)) {
-    if (r.mode === "discount") { const p = pump[r.product]?.price; if (p != null) out[r.product] = round2(p - (r.discount ?? 0)); continue; }
     const before = get("SELECT new_rate FROM wholesale_rate_history WHERE client_id=? AND product=? AND created_at <= ? ORDER BY created_at DESC, id DESC LIMIT 1", clientId, r.product, at);
     const after = before ? null : get("SELECT old_rate FROM wholesale_rate_history WHERE client_id=? AND product=? AND created_at > ? ORDER BY created_at ASC, id ASC LIMIT 1", clientId, r.product, at);
-    const v = before?.new_rate ?? after?.old_rate ?? r.rate;
+    // the history rows store the effective rate for discount clients too; only with no history at all fall back to that
+    // moment's pump price minus today's discount (fixed-mode: today's rate)
+    const fallback = r.mode === "discount" ? (pump[r.product]?.price != null ? round2(pump[r.product].price - (r.discount ?? 0)) : null) : r.rate;
+    const v = before?.new_rate ?? after?.old_rate ?? fallback;
     if (v != null && v > 0) out[r.product] = round2(v);
   }
   return out;
@@ -1183,6 +1186,8 @@ wholesale.post("/wholesale/txns/:id/pos-edit", requireAny("wholesale.manage", "e
   if (!x.sale_id || x.type !== "supply") throw new AppError(400, "Sirf POS se aayi supply entry yahan se badalti hai — baqi entries CEO ke Edit se");
   if (get("SELECT 1 FROM wholesale_txns WHERE sale_id=? AND type='payment' AND voided=0", x.sale_id)) throw new AppError(400, "Is sale ki payment bhi saath hui thi — CEO Sale edit se dono badlein");
   if (get("SELECT 1 FROM cashier_vouchers WHERE tenant_id=? AND src=? AND voided=0", t, `wtx:${x.id}`)) throw new AppError(400, "Is entry par cashier voucher bana hai — Cashier desk se badlein");
+  guardClosedDay(req, t, String(x.txn_date).slice(0, 10)); // a closed day is CEO-only
+  if (b.rate !== undefined && round2(b.rate) !== round2(x.rate ?? 0) && !can(req.user, "wholesale.rates")) throw new AppError(403, "Rate sirf CEO (ya jise rate ki ijazat ho) badal sakta hai — gaari number / note aap badal sakte hain");
   const rate = round2(b.rate ?? x.rate), litres = round2(x.litres ?? 0), amount = round2(litres * rate);
   const vehicle = b.vehicle_no !== undefined ? (b.vehicle_no?.toUpperCase() || null) : x.vehicle_no;
   const note = b.note !== undefined ? b.note : x.note;
@@ -1241,7 +1246,7 @@ wholesale.post("/wholesale/txns/:id/void", requirePerm("wholesale.void"), h((req
     }
     run("UPDATE wholesale_txns SET voided=1, void_reason=? WHERE id=?", `${b.reason} (by ${req.user!.name})`, t.id);
     // a payment made straight to our depot: the depot's side goes too
-    if (t.type === "payment" && t.method === DEPOT_PAY) run("DELETE FROM supplier_txns WHERE tenant_id=? AND ref=? AND method=?", tid(req), `wtx:${t.id}`, DEPOT_PAY);
+    if (t.type === "payment" && t.method === DEPOT_PAY) { unshiftClientFuel(tid(req), t.id as number); run("DELETE FROM supplier_txns WHERE tenant_id=? AND ref=? AND method=?", tid(req), `wtx:${t.id}`, DEPOT_PAY); }
     const c = get("SELECT name FROM wholesale_clients WHERE id=?", t.client_id)!;
     createAlert(tid(req), { type: "wholesale_void", severity: "info", title: `Wholesale ${t.type} #${t.id} voided — ${c.name}`, body: `${pkr(t.amount)}. Reason: ${b.reason}. By ${req.user!.name}.` });
     return { ...get("SELECT * FROM wholesale_txns WHERE id=?", t.id)!, due_after: clientDue(t.client_id) };

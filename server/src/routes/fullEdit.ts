@@ -13,6 +13,7 @@
  * bypass_drops row follows (litres at the same unit cost); fuel and kind stay fixed and extra litres must fit in the bypass stock.
  */
 import { Router } from "express";
+import { dropClientFuelSettlement } from "./clientFuel.js";
 import { z } from "zod";
 import { all, get, run, tx, now, pkDate, stampFor, type Row } from "../db.js";
 import { h, parse, tid, requirePerm } from "../auth.js";
@@ -241,6 +242,7 @@ fullEdit.post("/corrections/entry/:kind/:id/full-edit", requirePerm("entries.edi
       run("UPDATE wholesale_orders SET txn_id=? WHERE tenant_id=? AND txn_id=?", newId, t, x.id);
       run("UPDATE photos SET ref=? WHERE tenant_id=? AND ref=?", `wtx:${newId}`, t, `wtx:${x.id}`);
     } else if (kind === "supplier") {
+      if (x.type === "purchase" && (type !== "purchase" || partyId !== x.supplier_id)) dropClientFuelSettlement(t, x.id as number, "purchase re-posted (full edit)");
       run("DELETE FROM supplier_txns WHERE id=? AND tenant_id=?", x.id, t);
       newId = run(`INSERT INTO supplier_txns (tenant_id,supplier_id,type,amount,method,ref,note,product,litres,rate,created_by,txn_date,created_at,account_id)
         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, t, partyId, type, amount, method ?? (type === "payment" ? "Cash" : null), ref ?? null, note ?? null, product ?? null, litres, rate, x.created_by ?? who, stamp, x.created_at ?? now(), account).id as number;

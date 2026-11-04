@@ -23,6 +23,7 @@ import { all, get, run, tx, now, pkStart, pkEnd, type Row } from "../db.js";
 import { h, parse, tid, requirePerm } from "../auth.js";
 import type { Request } from "express";
 import { AppError, round2, pkr, reverseSale, recordSale, khataEntry, audit, adjustClosedShiftCash, saleCash } from "../services.js";
+import { dropClientFuelSettlement, unshiftClientFuel } from "./clientFuel.js";
 import { moneyMethods } from "./lookups.js";
 import { productSchema } from "../products.js";
 import { insertTxn, clientDue } from "./wholesale.js";
@@ -249,7 +250,7 @@ corrections.post("/corrections/delivery/:id/void", requirePerm("corrections.mana
   const sup: Row[] = all("SELECT * FROM supplier_txns WHERE tenant_id=? AND delivery_id=?", t, d.id);
   tx(() => {
     // the supplier payable + the Fuel-purchases expense both derive from this purchase row
-    for (const s of sup) run("DELETE FROM supplier_txns WHERE id=? AND tenant_id=?", s.id, t);
+    for (const s of sup) { dropClientFuelSettlement(t, s.id as number, "purchase voided (delivery)"); run("DELETE FROM supplier_txns WHERE id=? AND tenant_id=?", s.id, t); }
     // take the received litres back out of the tank
     run("UPDATE tanks SET current_l = MAX(0, current_l - ?) WHERE id=?", d.received_l, d.tank_id);
     // drop a still-open shortage claim that this delivery had opened
@@ -295,6 +296,7 @@ corrections.post("/corrections/supplier-txn/:id/void", requirePerm("corrections.
   const whtRec = wht ? get("SELECT * FROM tax_withholdings WHERE supplier_txn_id=?", wht.id) : null;
   if (whtRec?.cpr_no) throw new AppError(400, "Is payment ka withholding tax FBR me jama (CPR) ho chuka — pehle tax deposit undo karein.");
   tx(() => {
+    if (x.type === "purchase") dropClientFuelSettlement(t, x.id as number, `purchase voided: ${reason}`); // a "client se maal" shift goes with it
     run("DELETE FROM supplier_txns WHERE id=? AND tenant_id=?", x.id, t);
     if (wht) {
       run("DELETE FROM supplier_txns WHERE id=? AND tenant_id=?", wht.id, t);
@@ -335,6 +337,8 @@ corrections.post("/corrections/supplier-txn/:id/edit", requirePerm("entries.edit
   if (type === "adjustment" ? amount === 0 : amount <= 0) throw new AppError(400, "Amount theek nahi");
   const ref = b.ref !== undefined ? b.ref : x.ref, note = b.note !== undefined ? b.note : x.note;
   const before = { type, amount: x.amount, method: x.method, ref: x.ref, note: x.note, litres: x.litres, rate: x.rate };
+  if (type === "purchase" && get("SELECT 1 FROM supplier_txns WHERE tenant_id=? AND type='payment' AND note LIKE ?", t, `cfuel:stx:${x.id}:%`))
+    throw new AppError(400, "Ye khareed client ke khate par shift hui hai — pehle client ki 'Paid to depot' payment void karein (shift wapas), phir edit karein.");
   tx(() => {
     run("DELETE FROM supplier_txns WHERE id=? AND tenant_id=?", x.id, t);
     run(`INSERT INTO supplier_txns (tenant_id,supplier_id,type,amount,method,ref,note,product,litres,rate,created_by,txn_date,created_at,account_id)
@@ -382,6 +386,7 @@ corrections.post("/corrections/wholesale-txn/:id/void", requirePerm("corrections
     // a supply drew stock out of a tank — put it back
     if (x.type === "supply" && x.tank_id && x.litres) run("UPDATE tanks SET current_l = current_l + ? WHERE id=?", x.litres, x.tank_id);
     // a depot-direct supply booked a supplier leg against ref wtx:<id>
+    unshiftClientFuel(t, x.id as number); // a shifted client-fuel purchase goes back to its supplier first
     run("DELETE FROM supplier_txns WHERE tenant_id=? AND ref=?", t, `wtx:${x.id}`);
   });
   audit(t, req.user!, "wholesale_txn_void", `wtx:${x.id}`, { type: x.type, amount: x.amount, litres: x.litres, product: x.product, method: x.method, reason });

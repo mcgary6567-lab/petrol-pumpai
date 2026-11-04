@@ -17,7 +17,7 @@ import { productSchema } from "../products.js";
 import { PRODUCTS } from "../config.js";
 import { linkPhotos, proofPhotos, proofCol } from "./capture.js";
 import { bankAccountFor, accountIdField, isCash } from "./banks.js";
-import { assertCashInHand } from "./backoffice.js";
+import { assertCashInHand, guardClosedDay } from "./backoffice.js";
 import { insertTxn, fleet, priceSupply, clientDue } from "./wholesale.js";
 import { BYPASS_PAY, DEPOT_PAY } from "./banks.js";
 import { deliverOrder } from "./wholesaleDesk.js";
@@ -700,12 +700,14 @@ bypass.post("/suppliers/txns/:id/to-client", requirePerm("entries.edit"), h((req
   if (!r) throw new AppError(404, "Khareed ki entry nahi mili");
   const ref = String(r.ref ?? "");
   if (/^(wtx:|claim:|shopbuy:|cfuel:)/.test(ref) || r.method === "WHT") throw new AppError(400, "Ye line client par shift nahi ho sakti");
-  if (get("SELECT 1 x FROM supplier_txns WHERE tenant_id=? AND type='payment' AND note LIKE ?", t, `cfuel:stx:${r.id} %`)) throw new AppError(400, "Ye khareed pehle hi client ke khate se judi hui hai");
+  if (get("SELECT 1 x FROM supplier_txns WHERE tenant_id=? AND type='payment' AND note LIKE ?", t, `cfuel:stx:${r.id}:%`)) throw new AppError(400, "Ye khareed pehle hi client ke khate se judi hui hai");
   const b = parse(z.object({ client_id: z.number().int(), reason: z.string().trim().min(3, "Wajah likhein (kam se kam 3 harf)") }), req.body);
   const client = get("SELECT * FROM wholesale_clients WHERE id=? AND tenant_id=?", b.client_id, t);
   if (!client) throw new AppError(400, "Client not found");
-  const oldSup = get("SELECT id, name, client_id FROM suppliers WHERE id=?", r.supplier_id)!;
+  const oldSup = get("SELECT id, name, client_id FROM suppliers WHERE id=?", r.supplier_id);
+  if (!oldSup) throw new AppError(404, "Is khareed ka supplier nahi mila");
   if (oldSup.client_id === client.id) throw new AppError(400, "Ye khareed pehle hi isi client ke supplier card par hai");
+  guardClosedDay(req, t, String(r.txn_date).slice(0, 10)); // both legs post on the purchase's own day
   const owed = supplierOwed(r.supplier_id as number);
   if (owed + 0.01 < (r.amount as number)) throw new AppError(400, `${oldSup.name} ka account sirf ${pkr0(owed)} baqi hai — is khareed (${pkr0(r.amount as number)}) ki adaigi us ko ho chuki hai, shift nahi ho sakti`);
   const supplierId = clientSupplier(t, client.id);
@@ -713,9 +715,9 @@ bypass.post("/suppliers/txns/:id/to-client", requirePerm("entries.edit"), h((req
   const note = `Client se maal · ${what} (shift: pehle ${oldSup.name} par likhi thi)`;
   const out = tx(() => {
     run("UPDATE supplier_txns SET supplier_id=?, note=? WHERE id=?", supplierId, [r.note, `client se maal — pehle ${oldSup.name} par`].filter(Boolean).join(" · "), r.id);
-    const wtx = insertTxn(req, client.id, { type: "payment", amount: r.amount, method: DEPOT_PAY, ref: r.ref ?? `STX-${r.id}`, note, txn_date: r.txn_date, account_id: null });
+    const wtx = insertTxn(req, client.id, { type: "payment", amount: r.amount, method: DEPOT_PAY, ref: r.ref ?? `STX-${r.id}`, note, txn_date: r.txn_date, account_id: null, silent: true }); // an internal reclass, not a receipt to WhatsApp
     const { id } = run("INSERT INTO supplier_txns (tenant_id,supplier_id,type,amount,method,ref,note,created_by,txn_date,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
-      t, supplierId, "payment", r.amount, DEPOT_PAY, `wtx:${wtx.id}`, `cfuel:stx:${r.id} · ${client.name} ka apna maal`, req.user!.name, r.txn_date, now());
+      t, supplierId, "payment", r.amount, DEPOT_PAY, `wtx:${wtx.id}`, `cfuel:stx:${r.id}:from:${oldSup.id} · ${client.name} ka apna maal`, req.user!.name, r.txn_date, now());
     audit(t, req.user!, "supplier_purchase_to_client", `stx:${r.id}`, { reason: b.reason, from_supplier_id: r.supplier_id, from_supplier: oldSup.name, client_id: client.id, client: client.name, amount: r.amount, wtx_id: wtx.id, settlement_id: id });
     return { wtx_id: wtx.id as number, settlement_id: id };
   });

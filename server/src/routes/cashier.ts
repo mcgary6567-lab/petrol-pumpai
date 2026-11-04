@@ -8,6 +8,7 @@
  * The rights (cashier.desk, cash.receive, cash.pay, cheques.manage, shifts.handover, bank.*) are ticked per role by the admin.
  */
 import { Router, type Request } from "express";
+import { unshiftClientFuel } from "./clientFuel.js";
 import { z } from "zod";
 import { all, get, run, tx, now, pkDate, pkStart, pkEnd, pkDayStart, type Row } from "../db.js";
 import { h, parse, tid, requirePerm, can } from "../auth.js";
@@ -351,6 +352,7 @@ function reverseOneSrc(t: number, v: Row, who: string, reason: string, src: stri
     }
   } else if (kind === "wtx") {
     run("UPDATE wholesale_txns SET voided=1, void_reason=? WHERE id=? AND tenant_id=?", `${who}: ${reason}`, srcId, t);
+    unshiftClientFuel(t, srcId); // a shifted client-fuel purchase goes back to its supplier first
     run("DELETE FROM supplier_txns WHERE tenant_id=? AND ref=?", t, `wtx:${srcId}`); // depot-direct's supplier leg, if any
   } else if (kind === "stx") {
     run("DELETE FROM supplier_txns WHERE id=? AND tenant_id=?", srcId, t);

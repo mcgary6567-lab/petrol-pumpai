@@ -108,9 +108,8 @@ export const stampFor = (d?: string | null) => {
 export const hasClock = (d: string) => /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(d) && !/Z$|[+-]\d{2}:\d{2}$/.test(d);
 /** A Pakistan date ("YYYY-MM-DD" → noon), a Pakistan date-time ("YYYY-MM-DDTHH:MM" → that minute) or an ISO stamp → ISO. */
 export const pkStamp = (d: string) => {
-  if (hasClock(d)) return new Date(`${d.slice(0, 16)}:00+05:00`).toISOString();
-  if (d.length === 10) return new Date(`${d}T12:00:00+05:00`).toISOString();
-  return new Date(d).toISOString();
+  const ms = hasClock(d) ? Date.parse(`${d.slice(0, 16)}:00+05:00`) : d.length === 10 ? Date.parse(`${d}T12:00:00+05:00`) : Date.parse(d);
+  return Number.isNaN(ms) ? "Invalid Date" : new Date(ms).toISOString(); // callers refuse "Invalid Date" with a 400 (validators check Date.parse)
 };
 /** A "YYYY-MM-DD" Pakistan date → UTC timestamp of its midnight (ISO strings pass through). */
 export const pkStart = (d: string) => (d.length === 10 ? new Date(`${d}T00:00:00+05:00`).toISOString() : d);

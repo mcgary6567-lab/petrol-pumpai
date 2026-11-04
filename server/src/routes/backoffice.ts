@@ -333,6 +333,7 @@ export function backdateAt(req: { user?: { role: string } }, t: number, entry_da
   if (day > today) throw new AppError(400, "Aane wali tareekh par entry nahi ho sakti");
   if (day === today && !clock) return undefined; // today without a time books at the real time, as usual
   const at = pkStamp(entry_date);
+  if (Number.isNaN(Date.parse(at))) throw new AppError(400, "Date / waqt theek nahi");
   if (day === today) { if (Date.parse(at) > Date.now() + 60_000) throw new AppError(400, "Aane wala waqt nahi chun sakte"); return at; }
   if (!["admin", "manager"].includes(req.user?.role ?? "")) throw new AppError(403, "Purani date par entry sirf CEO ya manager daal sakta hai");
   if (day < "2000-01-01") throw new AppError(400, "Date theek nahi");

@@ -1,8 +1,9 @@
 # A–Z system audit — run this before saying "sab theek hai"
 
-Last full run: **2026-11-02** (commits 4e26c28 security, a1969bf hisaab, 57221da mobile/a11y).
-Baseline after that run: 735/735 server tests, e2e 9/9, `/books/check` 0 farq after every flow,
-100 route×tab variants × 2 viewports with **0 JS errors, 0 stuck modals, 0 desktop overflow, 0 print overflow**.
+Last full run: **2026-11-04** (incremental, from the 2026-11-02 baseline: commits 42a0738…db03f09 + review fixes).
+Baseline after that run: 750/750 server tests, e2e 9/9, `/books/check` 0 farq after every flow, crawl of the 16 routes
+touched (30 route×viewport) with **0 JS errors, 0 overflow, 0 failed API**, print audit clean. The full crawl of all
+106 routes last ran 2026-11-02 (0 errors).
 Next time start from here — re-run the four legs, compare with this baseline, fix only what regressed or is new.
 
 ## 0. Baseline (5 min)
@@ -37,6 +38,10 @@ Every table that moves money or stock must (a) post in `routes/ledger.ts`, (b) r
 (`cashier.ts dayBook`). Known-correct rules to keep: shift cash corrections go through `services.adjustClosedShiftCash`;
 every cash-out door calls `backoffice.assertCashInHand`; shop parchi cash ≤ salesman bag (`shiftSummary.cash_expected`);
 expenses book on `expense_date`; bill mode uses `crm.isBilledDebit` (no refund:/xfer:/open: lines).
+Review of 2026-11-04 (new code: to-client shift, POS edit, date-time back-dating) fixed: back-dated POS→wholesale fill on
+a closed shift is refused (409); a shifted purchase and its client payment reverse each other (`routes/clientFuel.ts`);
+pos-edit rate needs `wholesale.rates` + closed-day guard; paid-now leg dated with the fill; strict date-time validation
+(no 500s); ratesAt uses history for every rate mode.
 Still open (judged low / by design, re-check if touched): investors void hard-DELETEs cashier_vouchers/bank_txns;
 bypass reversal does not flag supplier payments already made against the voided bill; `/books/check` has no tie for
 unbilled card-pending fuel or depot money held; `splitTax` rounding could drift with GST on.

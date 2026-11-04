@@ -872,6 +872,8 @@ function RateCardEditor({ draft, setDraft, pump }: { draft: RateDraft; setDraft:
  *  meter (a litre change is the CEO's Sale edit). The server voids and re-posts the row with the same day and POS link. */
 function EditPosSupply({ x, onClose, onDone }: { x: any; onClose: () => void; onDone: () => void }) {
   const { busy, run } = useAction();
+  const { can } = useAuth();
+  const canRate = can("wholesale.rates"); // the rate is the CEO's; the officer fixes vehicle / note
   const [rate, setRate] = useState(String(x.rate ?? ""));
   const [vehicle, setVehicle] = useState(String(x.vehicle_no ?? ""));
   const [note, setNote] = useState(String(x.note ?? ""));
@@ -881,12 +883,12 @@ function EditPosSupply({ x, onClose, onDone }: { x: any; onClose: () => void; on
     <Modal open onClose={onClose} title={`POS supply edit — ${x.ref ?? `#${x.id}`} · ${num(litres)} L`}>
       <form className="space-y-3" onSubmit={async (e) => {
         e.preventDefault();
-        const r = await run(() => api(`/wholesale/txns/${x.id}/pos-edit`, { body: { rate: Number(rate), vehicle_no: vehicle || null, note: note || null, reason } }), (d: any) => `Entry badal gayi — ab ${pkr(d.amount)}. ${dueLabel(d.due_after)}`);
+        const r = await run(() => api(`/wholesale/txns/${x.id}/pos-edit`, { body: { ...(canRate ? { rate: Number(rate) } : {}), vehicle_no: vehicle || null, note: note || null, reason } }), (d: any) => `Entry badal gayi — ab ${pkr(d.amount)}. ${dueLabel(d.due_after)}`);
         if (r) onDone();
       }}>
         <p className="rounded-lg bg-sky-50 p-2 text-xs text-sky-900">Litre ({num(litres)} L) nozzle meter aur tank se jure hain — woh yahan nahi badalte; zaroorat ho to CEO Sale edit se. <Ur className="block">لیٹر میٹر سے جڑے ہیں</Ur></p>
         <div className="grid grid-cols-2 gap-2">
-          <Field label="Rate (Rs/L)"><input className="input" type="number" inputMode="decimal" step="0.01" min={0.01} required value={rate} onChange={(e) => setRate(e.target.value)} /></Field>
+          <Field label={canRate ? "Rate (Rs/L)" : "Rate (Rs/L) — sirf CEO badal sakta hai"}><input className="input" type="number" inputMode="decimal" step="0.01" min={0.01} required disabled={!canRate} value={rate} onChange={(e) => setRate(e.target.value)} /></Field>
           <Field label="Amount"><div className="input bg-slate-50 tabular-nums">{pkr(amount)}</div></Field>
           <Field label="Gaari number"><input className="input uppercase" value={vehicle} onChange={(e) => setVehicle(e.target.value)} /></Field>
           <Field label="Note"><input className="input" value={note} onChange={(e) => setNote(e.target.value)} /></Field>

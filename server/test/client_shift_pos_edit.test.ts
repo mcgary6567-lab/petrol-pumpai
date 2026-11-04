@@ -56,6 +56,20 @@ test("supplier purchase → client: due and payable move, books tally, refused w
   near(Number(ok(await call("admin", "GET", "/api/suppliers"), "sups2").find((s: any) => s.id === linked.id)?.owed ?? 0), 0, "client-supplier card square");
   // shifting again is refused
   assert.equal((await call("admin", "POST", `/api/suppliers/txns/${pid}/to-client`, { client_id: client.id, reason: "dobara" })).status, 400);
+  // void the client's DEPOT_PAY payment → the purchase goes back to the original supplier, settlement row gone
+  ok(await call("admin", "POST", `/api/wholesale/txns/${r.wtx_id}/void`, { reason: "ghalat shift" }), "void wtx");
+  assert.equal(db.get("SELECT supplier_id FROM supplier_txns WHERE id=?", pid)!.supplier_id, sup.id, "purchase back on the old supplier");
+  assert.equal(db.get("SELECT COUNT(*) n FROM supplier_txns WHERE tenant_id=? AND type='payment' AND note LIKE ?", t, `cfuel:stx:${pid}:%`)!.n, 0, "settlement row removed");
+  near(Number(ok(await call("admin", "GET", "/api/suppliers"), "sups3").find((s: any) => s.id === sup.id).owed), 250_000, "old supplier owed again");
+  const cA = ok(await call("admin", "GET", `/api/wholesale/clients/${client.id}`), "cA"); near(Number(cA.summary?.due ?? cA.due), due0, "client due restored");
+  await books();
+  // shift once more, then void the PURCHASE itself → settlement + client payment go too
+  const r2 = ok(await call("admin", "POST", `/api/suppliers/txns/${pid}/to-client`, { client_id: client.id, reason: "client ka maal tha" }), "shift 2");
+  ok(await call("admin", "POST", `/api/corrections/supplier-txn/${pid}/void`, { reason: "ghalat bill" }), "void purchase");
+  assert.equal(db.get("SELECT voided FROM wholesale_txns WHERE id=?", r2.wtx_id)!.voided, 1, "client payment voided with the purchase");
+  assert.equal(db.get("SELECT COUNT(*) n FROM supplier_txns WHERE tenant_id=? AND type='payment' AND note LIKE ?", t, `cfuel:stx:${pid}:%`)!.n, 0, "settlement row removed");
+  const cB = ok(await call("admin", "GET", `/api/wholesale/clients/${client.id}`), "cB"); near(Number(cB.summary?.due ?? cB.due), due0, "client due back to where it started");
+  await books();
   // a purchase the supplier was already paid for cannot be shifted
   const pid2 = db.run("INSERT INTO supplier_txns (tenant_id,supplier_id,type,product,litres,rate,amount,ref,created_by,txn_date,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
     t, sup.id, "purchase", "HSD", 100, 250, 25_000, "INV-PAID", "test", db.now(), db.now()).id;
@@ -73,12 +87,16 @@ test("wholesale officer edits a POS-nozzle supply (rate / vehicle), litres stay;
   const sale = ok(await call("admin", "POST", "/api/sales", { station_id: st, product: "HSD", litres: 100, payment_method: "khata", wholesale_client_id: client.id, vehicle_no: "LEB-1" }), "pos ws sale");
   const supply = db.get("SELECT * FROM wholesale_txns WHERE sale_id=? AND type='supply' AND voided=0", sale.id)!;
   near(Number(supply.amount), 26_000, "billed at the rate card");
-  // officer: rate 262 → amount follows, litres unchanged, POS row follows
-  const e = ok(await call("wholesale", "POST", `/api/wholesale/txns/${supply.id}/pos-edit`, { rate: 262, vehicle_no: "leb-2", reason: "rate card ghalat tha" }), "pos edit");
+  // officer: a rate change is the CEO's; vehicle / note are the officer's
+  assert.equal((await call("wholesale", "POST", `/api/wholesale/txns/${supply.id}/pos-edit`, { rate: 262, reason: "rate card ghalat tha" })).status, 403);
+  const v = ok(await call("wholesale", "POST", `/api/wholesale/txns/${supply.id}/pos-edit`, { vehicle_no: "leb-9", reason: "gaari ghalat likhi" }), "officer vehicle edit");
+  assert.equal(db.get("SELECT vehicle_no, rate FROM wholesale_txns WHERE id=?", v.txn_id)!.vehicle_no, "LEB-9");
+  // CEO: rate 262 → amount follows, litres unchanged, POS row follows
+  const e = ok(await call("admin", "POST", `/api/wholesale/txns/${v.txn_id}/pos-edit`, { rate: 262, vehicle_no: "leb-2", reason: "rate card ghalat tha" }), "pos edit");
   near(e.amount, 26_200, "new amount");
   const n = db.get("SELECT * FROM wholesale_txns WHERE id=?", e.txn_id)!;
   assert.equal(n.sale_id, sale.id); near(Number(n.litres), 100); assert.equal(n.vehicle_no, "LEB-2");
-  assert.equal(db.get("SELECT voided FROM wholesale_txns WHERE id=?", supply.id)!.voided, 1);
+  assert.equal(db.get("SELECT voided FROM wholesale_txns WHERE id=?", v.txn_id)!.voided, 1);
   near(Number(db.get("SELECT amount FROM sales WHERE id=?", sale.id)!.amount), 26_200, "POS sale row follows");
   const cd = ok(await call("admin", "GET", `/api/wholesale/clients/${client.id}`), "c"); near(Number(cd.summary?.due ?? cd.due), 26_200, "client due = new amount");
   await books();
@@ -86,4 +104,23 @@ test("wholesale officer edits a POS-nozzle supply (rate / vehicle), litres stay;
   const manual = ok(await call("wholesale", "POST", `/api/wholesale/clients/${client.id}/supply`, { product: "HSD", litres: 50, station_id: st }), "manual supply");
   const no = await call("wholesale", "POST", `/api/wholesale/txns/${manual.id}/pos-edit`, { rate: 1, reason: "test" });
   assert.equal(no.status, 400);
+});
+
+
+test("POS→wholesale-client fill back-dated onto a CLOSED shift is refused (meter already settled it); the paid-now leg carries the same date", async () => {
+  const t = db.get("SELECT id FROM tenants ORDER BY id LIMIT 1")!.id as number;
+  const st = db.get("SELECT id FROM stations WHERE tenant_id=? ORDER BY id LIMIT 1", t)!.id as number;
+  const c = ok(await call("admin", "POST", "/api/wholesale/clients", { name: "Late Fill Client", phone: "03001230004", type: "business", credit_limit: 5_000_000 }), "client");
+  ok(await call("admin", "PUT", `/api/wholesale/clients/${c.id}/rates`, { rates: { HSD: 260 } }), "rate");
+  const closed = db.get("SELECT * FROM shifts sh JOIN stations s ON s.id=sh.station_id WHERE s.tenant_id=? AND sh.status='closed' AND sh.closed_at IS NOT NULL ORDER BY sh.id DESC LIMIT 1", t)!;
+  const mid = new Date((Date.parse(closed.opened_at as string) + Date.parse(closed.closed_at as string)) / 2);
+  const midLocal = new Date(mid.getTime() + 5 * 3600_000).toISOString().slice(0, 16);
+  const r = await call("admin", "POST", "/api/sales", { station_id: st, product: "HSD", litres: 50, payment_method: "khata", wholesale_client_id: c.id, entry_date: midLocal });
+  assert.equal(r.status, 409, JSON.stringify(r.data));
+  // a day long before any shift: books plainly, paid-now leg dated the same minute
+  const old = new Date(Date.now() - 60 * 86_400_000 + 5 * 3600_000).toISOString().slice(0, 10) + "T11:05";
+  const s = ok(await call("admin", "POST", "/api/sales", { station_id: st, product: "HSD", litres: 50, payment_method: "cash", wholesale_client_id: c.id, entry_date: old }), "old paid fill");
+  const rows = db.all("SELECT type, txn_date FROM wholesale_txns WHERE sale_id=? AND voided=0 ORDER BY id", s.id);
+  assert.equal(rows.length, 2); assert.equal(rows[0].txn_date, rows[1].txn_date, "supply and payment on the same moment");
+  await books();
 });
