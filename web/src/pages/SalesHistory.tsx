@@ -6,6 +6,7 @@ import { Empty, ListTools, Loading, Pager, PageHeader, useListFilter, usePaged }
 import { Ur } from "../components/VoiceShell";
 import { dt, num, pkr } from "../lib/format";
 import { useAuth } from "../App";
+import { LateBadge } from "../components/LateBadge";
 
 const today = () => new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 10);
 const PRODUCT: Record<string, string> = { PMG: "Petrol", HSD: "Diesel", HOBC: "Hi-Octane", CNG: "CNG", LPG: "LPG" };
@@ -63,7 +64,7 @@ export default function SalesHistory() {
                       <span className="shrink-0 font-semibold tabular-nums">{pkr(r.amount)}</span>
                     </div>
                     <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs text-slate-500">
-                      <span>{dt(r.created_at)}</span><span className="capitalize">· {r.payment_method}</span>{r.station_name && <span>· {r.station_name}</span>}
+                      <span>{dt(r.created_at)}</span><LateBadge at={r.created_at} typed={r.entered_at} /><span className="capitalize">· {r.payment_method}</span>{r.station_name && <span>· {r.station_name}</span>}
                       {r.discount ? <span className="text-rose-600">· disc {pkr(r.discount)}</span> : null}
                     </div>
                     {(r.customer_name || r.vehicle_no || r.slip_no || r.attendant) && (
@@ -80,7 +81,7 @@ export default function SalesHistory() {
                 <thead><tr><th className="th">Date</th><th className="th">Station</th><th className="th">Fuel</th><th className="th text-right">Litres</th><th className="th text-right">Rate</th><th className="th text-right">Amount</th><th className="th">Method</th><th className="th">Customer / gaari</th><th className="th">Slip</th><th className="th">Salesman</th></tr></thead>
                 <tbody>{paged.slice.map((r) => (
                   <tr key={r.id} className="border-t border-slate-100 hover:bg-slate-50">
-                    <td className="td whitespace-nowrap">{dt(r.created_at)}{r.at_close ? <span className="ml-1 rounded bg-slate-100 px-1 text-[10px]">close</span> : null}</td>
+                    <td className="td whitespace-nowrap">{dt(r.created_at)}{r.at_close ? <span className="ml-1 rounded bg-slate-100 px-1 text-[10px]">close</span> : null}<LateBadge at={r.created_at} typed={r.entered_at} className="ml-1" /></td>
                     <td className="td">{r.station_name}</td><td className="td">{PRODUCT[r.product] ?? r.product}</td>
                     <td className="td text-right tabular-nums">{num(r.litres, 2)}</td><td className="td text-right tabular-nums">{r.rate}</td>
                     <td className="td text-right font-semibold tabular-nums">{pkr(r.amount)}{r.discount ? <span className="block text-[10px] font-normal text-rose-600">disc {pkr(r.discount)}</span> : null}</td>

@@ -8,6 +8,7 @@ import { PhotoButton, ProofThumbs, PhotoThumb } from "./Capture";
 import { PRODUCTS, ago, dt, num, pkr } from "../lib/format";
 import { useAuth } from "../App";
 import { EditSale } from "../pages/Corrections";
+import { LateBadge } from "./LateBadge";
 
 const Ur = ({ children }: { children: ReactNode }) => <span lang="ur" dir="rtl" className="font-urdu">{children}</span>;
 
@@ -509,7 +510,7 @@ function ShiftSales({ shiftId }: { shiftId: number }) {
           <tbody>
             {rows.map((s: any) => (
               <tr key={s.id} className="border-t border-slate-100">
-                <td className="whitespace-nowrap px-2 py-1 text-xs text-slate-500">{dt(s.created_at)}</td>
+                <td className="whitespace-nowrap px-2 py-1 text-xs text-slate-500">{dt(s.created_at)}<LateBadge at={s.created_at} typed={s.entered_at} className="ml-1" /></td>
                 <td className="px-2 py-1">{PRODUCTS[s.product] ?? s.product}</td>
                 <td className="px-2 py-1 text-right tabular-nums">{num(s.litres, 2)}</td>
                 <td className="px-2 py-1 text-right font-medium tabular-nums">{pkr(s.amount)}</td>

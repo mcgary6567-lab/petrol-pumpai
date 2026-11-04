@@ -37,7 +37,7 @@ salesHistory.get("/sales/history", requirePerm("sales.view"), h((req) => {
   }
   const W = where.join(" AND ");
   const FROM = `FROM sales s JOIN stations st ON st.id=s.station_id LEFT JOIN customers c ON c.id=s.customer_id LEFT JOIN shifts sh ON sh.id=s.shift_id`;
-  const rows = all(`SELECT s.id, s.created_at, st.name station_name, s.station_id, s.shift_id, sh.attendant, s.product, s.litres, s.rate, s.amount, s.discount, s.payment_method,
+  const rows = all(`SELECT s.id, s.created_at, s.entered_at, st.name station_name, s.station_id, s.shift_id, sh.attendant, s.product, s.litres, s.rate, s.amount, s.discount, s.payment_method,
       s.customer_id, c.name customer_name, s.vehicle_no, s.slip_no, s.source, s.at_close ${FROM} WHERE ${W} ORDER BY s.id DESC LIMIT ?`, ...P, f.limit);
   const tot = get(`SELECT COUNT(*) n, COALESCE(SUM(s.litres),0) litres, COALESCE(SUM(s.amount),0) amount ${FROM} WHERE ${W}`, ...P)!;
   return {

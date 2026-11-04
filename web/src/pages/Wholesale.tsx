@@ -28,6 +28,7 @@ import { SupplyVoucher } from "../components/WholesaleVoucher";
 import { SupplyInvoices } from "../components/WholesaleInvoices";
 import { OrderToCash } from "../components/WholesalePipeline";
 import { Client360, ClientVehicles } from "../components/WholesaleClient360";
+import { LateBadge } from "../components/LateBadge";
 const Ur = ({ children, className = "" }: { children: React.ReactNode; className?: string }) => <span lang="ur" dir="rtl" className={`font-urdu ${className}`}>{children}</span>;
 
 const TYPE: Record<string, { label: string; tone: string }> = {
@@ -538,7 +539,7 @@ function LedgerTable({ rows: allRows, running, showClient, tools, onVoid, onEdit
         return (
           <li key={r.id} className={`flex gap-3 px-4 py-2.5 ${r.voided ? "text-slate-400 line-through print:hidden" : ""}`}>
             <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-500"><Badge tone={TYPE[r.type].tone}>{TYPE[r.type].label}</Badge>{r.voided ? <Badge tone="red">VOID</Badge> : null}{dt(r.txn_date)}</div>
+              <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-500"><Badge tone={TYPE[r.type].tone}>{TYPE[r.type].label}</Badge>{r.voided ? <Badge tone="red">VOID</Badge> : null}{dt(r.txn_date)}<LateBadge at={r.txn_date} typed={r.created_at} /></div>
               {showClient && <Link to={`/wholesale/${r.client_id}`} className="flex min-h-9 items-center font-medium hover:underline">{r.client_name}</Link>}
               <div className="text-sm">{r.type === "fuel_note" ? <>Fuel <b>{pkr(r.amount)}</b> · {fuelLabel(r)}</> : r.type === "carriage" ? "Kiraya" : !r.product ? r.method ?? "" : null}</div>
               {r.type !== "fuel_note" && (r.vehicle_no || r.product) && <div className="flex flex-wrap gap-x-3 text-xs tabular-nums text-slate-700">
@@ -571,7 +572,7 @@ function LedgerTable({ rows: allRows, running, showClient, tools, onVoid, onEdit
             const credit = r.type === "fuel_note" ? 0 : running ? r.credit : debit ? 0 : Math.abs(r.amount);
             return (
               <tr key={r.id} className={r.voided ? "text-slate-400 line-through print:hidden" : ""}>
-                <td className="td whitespace-nowrap text-xs"><span className="print:hidden">{dt(r.txn_date).split(", ").map((x, i) => <span key={i} className={i ? "block text-slate-400" : "block"}>{x}</span>)}</span><span className="hidden whitespace-nowrap print:inline">{d(r.txn_date)}</span></td>
+                <td className="td whitespace-nowrap text-xs"><span className="print:hidden">{dt(r.txn_date).split(", ").map((x, i) => <span key={i} className={i ? "block text-slate-400" : "block"}>{x}</span>)}</span><span className="hidden whitespace-nowrap print:inline">{d(r.txn_date)}</span><LateBadge at={r.txn_date} typed={r.created_at} className="mt-0.5" /></td>
                 {showClient && <td className="td text-sm"><Link to={`/wholesale/${r.client_id}`} className="hover:underline">{r.client_name}</Link></td>}
                 <td className="td"><Badge tone={TYPE[r.type].tone}>{TYPE[r.type].label}</Badge> {r.voided ? <Badge tone="red">VOID</Badge> : null}</td>
                 <td className="td text-xs print:max-w-[95px]">{r.vehicle_no ? <b className="whitespace-nowrap font-semibold text-slate-800">🚛 {r.vehicle_no}</b> : <span className="text-slate-300">—</span>}{r.driver_name && <span className="block text-slate-500">{r.driver_name}</span>}</td>

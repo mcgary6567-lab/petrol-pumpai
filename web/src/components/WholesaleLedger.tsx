@@ -7,6 +7,7 @@ import { PRODUCTS, num, pkr } from "../lib/format";
 import { useAuth } from "../App";
 import { WholesaleEntryView } from "./EntryView";
 import { ErpBar, ErpSearch, Ur, bal } from "./WholesaleErp";
+import { LateBadge } from "./LateBadge";
 
 const pkToday = () => new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 10);
 const dayLabel = (iso: string) => new Date(Date.parse(iso)).toLocaleDateString("en-PK", { day: "2-digit", month: "short", year: "2-digit" });
@@ -156,7 +157,7 @@ export function PartyLedger() {
                   const note = l.type === "fuel_note";
                   return (
                     <tr key={l.id} className={`border-b border-slate-100 ${l.voided ? "text-slate-400 line-through" : note ? "text-slate-500" : "hover:bg-slate-50"}`}>
-                      <td className={`${TD} whitespace-nowrap`}>{dayLabel(l.txn_date)}</td>
+                      <td className={`${TD} whitespace-nowrap`}>{dayLabel(l.txn_date)}<LateBadge at={l.txn_date} typed={l.created_at} className="ml-1" /></td>
                       <td className={`${TD} whitespace-nowrap`}>{note ? "—" : <button className="inline-flex min-h-6 items-center font-medium text-brand-700 hover:underline print:text-slate-900" onClick={() => setOpen(l)}>{voucherNo(l)}</button>}</td>
                       <td className={TD}>{particulars(l)}{l.voided ? " (VOID)" : ""}</td>
                       {showFleet && <><td className={`${TD} whitespace-nowrap`}>{l.vehicle_no ?? ""}</td>
