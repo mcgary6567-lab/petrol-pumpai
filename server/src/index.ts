@@ -417,7 +417,7 @@ app.use("/api", api);
 // Serve the built dashboard in production
 const webDist = path.resolve(process.env.WEB_DIST ?? "../web/dist");
 if (fs.existsSync(webDist)) {
-  app.use(express.static(webDist));
+  app.use(express.static(webDist, { redirect: false })); // "/help" is an app page, not the "help/" PDF folder — never 301 it to "/help/"
   app.get(/^\/(?!api|webhooks).*/, (_req, res) => res.sendFile(path.join(webDist, "index.html")));
 }
 app.use(errorHandler);

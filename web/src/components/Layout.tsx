@@ -484,14 +484,16 @@ export default function Layout() {
 /** A small "?" on every page that opens the user guide at the module for THIS page. */
 function PageGuideButton() {
   const loc = useLocation();
-  if (loc.pathname === "/help") return null;
+  const nav = useNavigate();
+  if (loc.pathname.replace(/\/$/, "") === "/help") return null;
   const base = "/" + loc.pathname.split("/")[1];
   const id = ROUTE_GUIDE[base];
+  const to = id ? `/help#${id}` : "/help";
   return (
-    <Link to={id ? `/help#${id}` : "/help"} title={id ? "Is page ka guide · اس صفحے کی رہنمائی" : "User guide · رہنمائی"} aria-label="User guide for this page"
-      className="fixed bottom-20 right-4 z-30 flex h-11 w-11 items-center justify-center rounded-full bg-brand-900 text-white shadow-lg ring-2 ring-white/70 hover:bg-brand-700 lg:bottom-6 print:hidden">
+    <button type="button" onClick={() => nav(to)} title={id ? "Is page ka guide · اس صفحے کی رہنمائی" : "User guide · رہنمائی"} aria-label="User guide for this page"
+      className="fixed bottom-20 right-4 z-40 flex h-11 w-11 items-center justify-center rounded-full bg-brand-900 text-white shadow-lg ring-2 ring-white/70 hover:bg-brand-700 lg:bottom-6 print:hidden">
       <CircleHelp size={22} />
-    </Link>
+    </button>
   );
 }
 
