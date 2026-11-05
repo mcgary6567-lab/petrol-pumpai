@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { askCancel, pinHeader, } from "../components/CancelEntry";
+import { useMovable, ShiftPaymentButton, KhataLink } from "../components/PartyShift";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Plus, Search, Truck, Wallet, Undo2, SlidersHorizontal, Download, Printer, Ban, ArrowLeft, Pencil, Send, Receipt, Eye } from "lucide-react";
 import { ImportExport } from "../components/ImportExport";
@@ -384,6 +385,8 @@ function ClientDetail({ id }: { id: string }) {
   const [sending, setSending] = useState(false);
   const { run: runMsg } = useAction();
   const refresh = () => { client.reload(); stmt.reload(); setDeskKey((k) => k + 1); };
+  const payIds = useMemo(() => (stmt.data?.lines ?? []).filter((l: any) => l.type === "payment" && !l.voided).map((l: any) => l.id), [stmt.data]);
+  const movable = useMovable("wholesale", payIds, deskKey);
 
   if (client.error) return <ErrorBox error={client.error} />;
   if (!client.data) return <Loading />;
@@ -412,6 +415,7 @@ function ClientDetail({ id }: { id: string }) {
           <PartyAdmin kind="client" id={c.id} name={c.name} backTo="/wholesale?tab=clients" />
         </div>} />
 
+      <KhataLink clientId={c.id} onChange={refresh} />
       <Client360 c={c} refreshKey={deskKey} onAction={setAction} onTab={(t) => setTab(t as typeof tab)} />
 
       {(can("wholesale.manage") || can("wholesale.view")) && <div className="print:hidden"><WholesaleVoice compact clientId={c.id} onDone={refresh} /></div>}
@@ -486,7 +490,7 @@ function ClientDetail({ id }: { id: string }) {
             {editRow && <FullEditEntry kind="wholesale" id={editRow.id} onClose={() => setEditRow(null)} onDone={refresh} />}
             {posEdit && <EditPosSupply x={posEdit} onClose={() => setPosEdit(null)} onDone={() => { setPosEdit(null); refresh(); }} />}
             {viewRow && <WholesaleEntryView clientId={Number(id)} txnId={viewRow.id} onClose={() => setViewRow(null)} />}
-            <LedgerTable rows={stmt.data.lines} running tools onView={(row) => setViewRow(row)} onEdit={can("entries.edit") || can("wholesale.manage") ? (row) => { if (row.sale_id && row.type === "supply") setPosEdit(row); else if (can("entries.edit")) setEditRow(row); else alert("Wholesale officer sirf POS se aayi supply (POS-…) edit kar sakta hai — baqi entries CEO badalta hai"); } : undefined} onVoid={(can("wholesale.void") || can("wholesale.manage")) ? async (row) => {
+            <LedgerTable rows={stmt.data.lines} running tools movable={movable} onShifted={refresh} onView={(row) => setViewRow(row)} onEdit={can("entries.edit") || can("wholesale.manage") ? (row) => { if (row.sale_id && row.type === "supply") setPosEdit(row); else if (can("entries.edit")) setEditRow(row); else alert("Wholesale officer sirf POS se aayi supply (POS-…) edit kar sakta hai — baqi entries CEO badalta hai"); } : undefined} onVoid={(can("wholesale.void") || can("wholesale.manage")) ? async (row) => {
               if (row.type === "fuel_note") {
                 if (confirm(`Void this fuel payment of ${pkr(row.amount)}? Any bank movement will be reversed.`)) { await api(`/carriage/fuel-payments/${String(row.id).replace("bfp", "")}/void`, { body: {} }).catch((e) => alert(e.message)); refresh(); }
                 return;
@@ -513,7 +517,7 @@ function ClientDetail({ id }: { id: string }) {
   );
 }
 
-function LedgerTable({ rows: allRows, running, showClient, tools, onVoid, onEdit, onView }: { rows: any[]; running?: boolean; showClient?: boolean; tools?: boolean; onVoid?: (row: any) => void; onEdit?: (row: any) => void; onView?: (row: any) => void }) {
+function LedgerTable({ rows: allRows, running, showClient, tools, onVoid, onEdit, onView, movable, onShifted }: { rows: any[]; running?: boolean; showClient?: boolean; tools?: boolean; onVoid?: (row: any) => void; onEdit?: (row: any) => void; onView?: (row: any) => void; movable?: Record<number, string | null>; onShifted?: () => void }) {
   const [q, setQ] = useState("");
   const [type, setType] = useState("");
   const typeChips = [{ k: "", label: "All", n: allRows.length }, ...["supply", "return", "payment", "adjustment", "carriage"].map((k) => ({ k, label: TYPE[k].label, n: allRows.filter((r) => r.type === k).length })).filter((c) => c.n > 0)];
@@ -555,6 +559,7 @@ function LedgerTable({ rows: allRows, running, showClient, tools, onVoid, onEdit
               {onView && r.type !== "fuel_note" && <button className="-mr-2 inline-flex h-9 w-9 items-center justify-center text-slate-400 hover:text-brand-700" title="Poori detail dekhein" aria-label="View entry" onClick={() => onView(r)}><Eye size={14} /></button>}
               {onEdit && !r.voided && r.type !== "fuel_note" && <button className="-mr-2 inline-flex h-9 w-9 items-center justify-center text-slate-400 hover:text-brand-700" title="Edit entry (CEO)" aria-label="Edit entry" onClick={() => onEdit(r)}><Pencil size={14} /></button>}
               {onVoid && !r.voided && <button className="-mr-2 inline-flex h-9 w-9 items-center justify-center text-slate-400 hover:text-red-600" title="Void entry" aria-label="Void entry" onClick={() => onVoid(r)}><Ban size={14} /></button>}
+              {movable && onShifted && !r.voided && movable[r.id] === null && <ShiftPaymentButton side="wholesale" row={r} onDone={onShifted} />}
             </div>
           </li>
         );
@@ -588,7 +593,7 @@ function LedgerTable({ rows: allRows, running, showClient, tools, onVoid, onEdit
                 <td className="td whitespace-nowrap text-right tabular-nums text-rose-700">{debit ? pkr(debit) : ""}</td>
                 <td className="td whitespace-nowrap text-right tabular-nums text-emerald-700">{credit ? pkr(credit) : ""}</td>
                 {running && <td className="td whitespace-nowrap text-right font-medium tabular-nums">{pkr(r.balance)}</td>}
-                <td className="td print:hidden"><span className="flex gap-2">{onView && r.type !== "fuel_note" && <button className="text-slate-400 hover:text-brand-700" title="Poori detail dekhein" aria-label="View entry" onClick={() => onView(r)}><Eye size={14} /></button>}{onEdit && !r.voided && r.type !== "fuel_note" && <button className="text-slate-400 hover:text-brand-700" title="Edit entry (CEO)" onClick={() => onEdit(r)}><Pencil size={14} /></button>}{onVoid && !r.voided && <button className="text-slate-400 hover:text-red-600" title="Void entry" onClick={() => onVoid(r)}><Ban size={14} /></button>}</span></td>
+                <td className="td print:hidden"><span className="flex gap-2">{onView && r.type !== "fuel_note" && <button className="text-slate-400 hover:text-brand-700" title="Poori detail dekhein" aria-label="View entry" onClick={() => onView(r)}><Eye size={14} /></button>}{onEdit && !r.voided && r.type !== "fuel_note" && <button className="text-slate-400 hover:text-brand-700" title="Edit entry (CEO)" onClick={() => onEdit(r)}><Pencil size={14} /></button>}{onVoid && !r.voided && <button className="text-slate-400 hover:text-red-600" title="Void entry" onClick={() => onVoid(r)}><Ban size={14} /></button>}{movable && onShifted && !r.voided && movable[r.id] === null && <ShiftPaymentButton side="wholesale" row={r} onDone={onShifted} />}</span></td>
               </tr>
             );
           })}

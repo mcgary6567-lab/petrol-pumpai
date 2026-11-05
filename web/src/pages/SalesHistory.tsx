@@ -17,12 +17,14 @@ export default function SalesHistory() {
   const [from, setFrom] = useState(today()), [to, setTo] = useState(today());
   const [q, setQ] = useState(""), [dq, setDq] = useState("");
   const [method, setMethod] = useState("all"), [product, setProduct] = useState("all"), [station, setStation] = useState("");
+  const [lateOnly, setLateOnly] = useState(false); // entries typed more than an hour after the moment they are dated for
   useEffect(() => { const h = setTimeout(() => setDq(q.trim()), 300); return () => clearTimeout(h); }, [q]);
   const params = new URLSearchParams({ from, to, limit: "500" });
   if (dq) params.set("q", dq); if (station) params.set("station_id", station);
   const { data } = useApi<any>(`/sales/history?${params}`);
   const stations = useApi<any>("/stations");
-  const rows = useListFilter<any>(data?.rows, { keep: (r) => (method === "all" || r.payment_method === method) && (product === "all" || r.product === product) });
+  const rows = useListFilter<any>(data?.rows, { keep: (r) => (method === "all" || r.payment_method === method) && (product === "all" || r.product === product)
+    && (!lateOnly || (!!r.entered_at && Date.parse(r.entered_at) - Date.parse(r.created_at) > 3600_000)) });
   const methods: string[] = [...new Set<string>((data?.rows ?? []).map((r: any) => String(r.payment_method)))];
   const products: string[] = [...new Set<string>((data?.rows ?? []).map((r: any) => String(r.product)))];
   const shownAmt = rows.reduce((a, r) => a + r.amount, 0), shownL = rows.reduce((a, r) => a + r.litres, 0);
@@ -41,6 +43,7 @@ export default function SalesHistory() {
         chips={[{ k: "all", label: "All" }, ...methods.map((m) => ({ k: m, label: m }))]} chip={method} onChip={setMethod}
         shown={rows.length} total={data?.rows?.length}
         right={<>
+          <button type="button" onClick={() => setLateOnly((v) => !v)} className={`rounded-full px-2.5 py-1 text-xs font-semibold ${lateOnly ? "bg-amber-600 text-white" : "bg-amber-50 text-amber-800"}`} aria-pressed={lateOnly}>⏱ Sirf baad mein darj</button>
           {products.length > 1 && <div className="flex gap-1">{["all", ...products].map((p) => <button key={p} type="button" onClick={() => setProduct(p)} className={`rounded-full px-2.5 py-1 text-xs font-semibold ${product === p ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-600"}`}>{p === "all" ? "Sab fuel" : PRODUCT[p] ?? p}</button>)}</div>}
           {(stations.data?.length ?? 0) > 1 && <select className="input w-auto" aria-label="Station" value={station} onChange={(e) => setStation(e.target.value)}><option value="">All stations</option>{stations.data.map((s: any) => <option key={s.id} value={s.id}>{s.name}</option>)}</select>}
         </>} />

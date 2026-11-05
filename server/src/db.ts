@@ -546,6 +546,7 @@ export function migrate() {
   // links a wholesale supply/payment raised from a pump-nozzle sale back to that sales row (so an Undo reverses both)
   addColumn("wholesale_txns", "sale_id", "INTEGER");
   addColumn("wholesale_txns", "voucher_no", "TEXT");
+  addColumn("wholesale_clients", "khata_customer_id", "INTEGER"); // the same person's khata account (payments can be shifted across)
   // a client-generated key per form draft: a network retry of the same POST returns the first answer instead of posting twice
   db.exec(`CREATE TABLE IF NOT EXISTS idempotency_keys (tenant_id INTEGER NOT NULL, key TEXT NOT NULL, response TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY (tenant_id, key))`); // ERP supply voucher: every fuel line + kiraya posted together share one number (WS-<first id>)
   addColumn("meter_readings", "handover_gap", "REAL");
@@ -1003,6 +1004,11 @@ export function migrate() {
   }
   // a quantity typed into an item's Unit box ("10") is not a unit: back to pieces (the stock itself is entered via Stock in)
   db.exec("UPDATE shop_items SET unit='pc' WHERE TRIM(COALESCE(unit,''))='' OR unit NOT GLOB '*[A-Za-z]*'");
+  // a client's back-dated payment straight to our depot used to land on the supplier's khata at the typing date: put the
+  // supplier leg on the client payment's own date (dates only, amounts untouched; a no-op once in step)
+  db.exec(`UPDATE supplier_txns SET txn_date=(SELECT w.txn_date FROM wholesale_txns w WHERE w.id=CAST(substr(supplier_txns.ref,5) AS INTEGER) AND w.tenant_id=supplier_txns.tenant_id)
+    WHERE method='Paid to depot' AND ref LIKE 'wtx:%' AND COALESCE(note,'') NOT LIKE 'cfuel:%'
+      AND EXISTS (SELECT 1 FROM wholesale_txns w WHERE w.id=CAST(substr(supplier_txns.ref,5) AS INTEGER) AND w.tenant_id=supplier_txns.tenant_id AND w.txn_date IS NOT NULL AND w.txn_date<>supplier_txns.txn_date)`);
 }
 
 /** Allow the cashier role on databases made before it (the users table keeps every column it has today). */

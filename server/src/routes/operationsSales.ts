@@ -45,8 +45,9 @@ saleRoutes.get("/sales", requirePerm("sales.view"), h((req) => {
  *    charged at the rate of the time, the shift report shows it, and the cash the salesman owed goes down by the same
  *    rupees. Stock and meters do not move (the fuel already left at close). Managers are told.
  */
-function rebookLateSale(req: Request, shift: Row, s: Omit<SaleInput, "shift_id" | "created_by" | "created_at">, at: string): Row {
+function rebookLateSale(req: Request, shift: Row, s: Omit<SaleInput, "shift_id" | "created_by" | "created_at">, at: string, backdated = false): Row {
   const t = tid(req);
+  if (backdated) return backdateOnClosedShift(req, shift, s, at);
   if (s.payment_method === "cash") return { covered_by_meter: true, shift_id: shift.id, payment_method: "cash", product: s.product, litres: s.litres ?? null, amount: s.amount ?? null };
   const rate = priceOf(t, s.product, at);
   if (!(rate > 0) && s.litres == null && (s.amount ?? 0) > 0) throw new AppError(400, `${s.product} ka rate 0 hai — pehle is fuel ka rate daalein`);
@@ -80,6 +81,71 @@ function rebookLateSale(req: Request, shift: Row, s: Omit<SaleInput, "shift_id" 
   })!;
 }
 
+/**
+ * A manager / CEO enters a missed sale on its real (past) minute and the shift open then is already closed. The entry
+ * still belongs to that shift and its salesman: it is booked on the shift (shift report, salesman's list, ledgers all
+ * show it on that day). The litres the meter settled as cash at close are moved out of that meter cash first (up to
+ * what the meter holds); any rest is fuel the books never saw and leaves the tank now. The salesman's cash expected
+ * follows: a credit / card sale lowers it by the meter cash it freed, a cash sale adds only the part the meter missed.
+ */
+function backdateOnClosedShift(req: Request, shift: Row, s: Omit<SaleInput, "shift_id" | "created_by" | "created_at">, at: string): Row {
+  const t = tid(req);
+  const fullCash = s.payment_method === "khata" && !(s.litres ?? s.amount); // "poora parcha cash": no fuel pumped
+  const rate = priceOf(t, s.product, at);
+  if (!fullCash && !(rate > 0) && s.litres == null && (s.amount ?? 0) > 0) throw new AppError(400, `${s.product} ka rate 0 hai — pehle is fuel ka rate daalein`);
+  const litres = fullCash ? 0 : round2(s.litres ?? (s.amount ? s.amount / rate : 0));
+  if (!fullCash && !(litres > 0)) throw new AppError(400, "Litres or amount required");
+  if (s.payment_method === "khata" && s.customer_id && litres > 0) {
+    const dup = get("SELECT * FROM sales WHERE shift_id=? AND payment_method='khata' AND customer_id=? AND product=? AND at_close=1 AND ABS(litres-?)<0.01 ORDER BY id DESC LIMIT 1", shift.id, s.customer_id, s.product, litres);
+    if (dup) return { ...dup, duplicate: true };
+  }
+  return tx(() => {
+    const meter = litres > 0 ? get("SELECT * FROM sales WHERE shift_id=? AND product=? AND source='meter' AND created_by IS NULL ORDER BY litres DESC LIMIT 1", shift.id, s.product) : null;
+    const cover = meter ? round2(Math.min(litres, meter.litres)) : 0;
+    let freed = 0;
+    if (cover > 0.009) {
+      const keepL = round2(meter!.litres - cover);
+      const keepA = keepL > 0.009 ? round2(keepL * meter!.rate) : 0;
+      freed = round2(meter!.amount - keepA);
+      if (keepL > 0.009) run("UPDATE sales SET litres=?, amount=? WHERE id=?", keepL, keepA, meter!.id);
+      else run("DELETE FROM sales WHERE id=?", meter!.id);
+      // the covered litres already left the tank at close: give them back, recordSale takes the whole fill out again
+      const tank = get("SELECT id FROM tanks WHERE station_id=? AND product=? ORDER BY current_l DESC LIMIT 1", shift.station_id, s.product);
+      if (tank) run("UPDATE tanks SET current_l = current_l + ? WHERE id=?", cover, tank.id);
+    }
+    const saved = recordSale(t, { ...s, nozzle_id: null, ...(fullCash ? {} : { litres, amount: undefined }), shift_id: shift.id, created_by: req.user!.id, created_at: at, source: "pos", at_close: true });
+    if (saved.duplicate) return saved;
+    const cashIn = s.payment_method === "cash" ? round2(saved.amount ?? 0) : 0;
+    const cashOut = round2((saved.cash_back ?? 0)); // khata "baqi cash" handed from the bag
+    const expected = round2((shift.cash_expected ?? 0) - freed + cashIn - cashOut);
+    if (Math.abs(expected - (shift.cash_expected ?? 0)) > 0.005)
+      run("UPDATE shifts SET cash_expected=?, variance=? WHERE id=?", expected, round2((shift.cash_actual ?? 0) - expected), shift.id);
+    run("UPDATE sales SET entered_at=? WHERE id=?", now(), saved.id);
+    audit(t, req.user!, "backdated_sale_on_closed_shift", `SALE-${saved.id}`, { shift_id: shift.id, attendant: shift.attendant, product: s.product, litres, payment: s.payment_method,
+      customer_id: s.customer_id ?? null, moved_from_meter_cash: freed, cash_expected_before: shift.cash_expected ?? 0, cash_expected_after: expected, at });
+    if (Math.abs(expected - (shift.cash_expected ?? 0)) > 0.005)
+      createAlert(t, { station_id: shift.station_id, type: "late_sale", severity: "info",
+        title: `Baad mein darj sale — ${shift.attendant}`,
+        body: `${req.user!.name} ne ${litres} L ${PRODUCTS[s.product] ?? s.product} (${s.payment_method}, ${pkr(saved.amount)}) band shift #${shift.id} par darj ki. Cash expected ${pkr(shift.cash_expected ?? 0)} → ${pkr(expected)}.`, dedupe_key: `late-sale-${saved.id}` });
+    return { ...saved, late_rebooked: true, backdated: true, moved_from_meter_cash: freed, cash_expected: expected, shift_attendant: shift.attendant };
+  })!;
+}
+
+/** Which shift (and so which salesman) a back-dated entry at this minute lands on, plus that day's shifts to pick from. */
+saleRoutes.get("/sales/shift-at", requirePerm("sales.create"), h((req) => {
+  const day = String(req.query.at ?? "");
+  if (!/^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2})?$/.test(day)) throw new AppError(400, "at=YYYY-MM-DD[THH:MM]");
+  const at = pkStamp(day);
+  if (Number.isNaN(Date.parse(at))) throw new AppError(400, "date theek nahi");
+  const station = scopedStation(req, Number(req.query.station_id) || undefined);
+  const st = get("SELECT id FROM stations WHERE id=? AND tenant_id=?", station ?? 0, tid(req));
+  if (!st) throw new AppError(404, "Station not found");
+  const match = get("SELECT id, attendant, status, opened_at, closed_at FROM shifts WHERE station_id=? AND opened_at<=? AND (closed_at IS NULL OR closed_at>=?) ORDER BY id DESC LIMIT 1", st.id, at, at) ?? null;
+  const d = pkDate(Date.parse(at));
+  const shifts = all("SELECT id, attendant, status, opened_at, closed_at FROM shifts WHERE station_id=? AND opened_at < ? AND (closed_at IS NULL OR closed_at >= ?) ORDER BY opened_at", st.id, pkEnd(d), pkStart(d));
+  return { at, match, shifts };
+}));
+
 saleRoutes.post("/sales", requirePerm("sales.create"), h((req) => {
   const b = parse(z.object({
     station_id: z.number(), product, litres: z.number().positive().optional(), amount: z.number().positive().optional(),
@@ -111,6 +177,8 @@ saleRoutes.post("/sales", requirePerm("sales.create"), h((req) => {
     offline_at: z.string().datetime({ offset: true }).nullable().optional(),
   /** manager / CEO: a missed sale entered on its real past day (YYYY-MM-DD) — dated and priced there */
   entry_date: z.string().regex(/^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2})?$/).optional().nullable(), // a day (noon) or the exact minute
+    /** with entry_date: book it on this shift (that day's) instead of the one open at that minute — the right salesman */
+    shift_id: z.number().int().positive().nullable().optional(),
     /** a wholesale client fuelled from the nozzle: billed at their wholesale rate. payment_method is then the settlement
      * (khata = on credit, or cash / a money method / cheque = paid now). */
     wholesale_client_id: z.number().int().positive().nullable().optional(),
@@ -196,13 +264,13 @@ saleRoutes.post("/sales", requirePerm("sales.create"), h((req) => {
       ? get("SELECT * FROM shifts WHERE station_id=? AND opened_at<=? AND (closed_at IS NULL OR closed_at>=?) ORDER BY id DESC LIMIT 1", b.station_id, at, at)
       : get("SELECT * FROM shifts WHERE station_id=? AND status='open' ORDER BY id DESC LIMIT 1", b.station_id);
   if (salesman && !shift) throw new AppError(400, "Start your shift first (Shifts page) before recording sales");
-  // a manager's back-dated entry that lands on a CLOSED shift: if that shift's meter settlement still holds these litres as
-  // cash, the sale is moved out of it (below, like a late offline sale); if the meter never saw this fuel (the entry was
-  // simply missed from the books), it is booked plainly on its day, off the shift
-  if (shift && shift.status !== "open" && at && !salesman && b.payment_method !== "cash") {
-    const want = b.litres ?? (b.amount ? b.amount / priceOf(tid(req), b.product, at) : 0);
-    const meter = get("SELECT litres FROM sales WHERE shift_id=? AND product=? AND source='meter' AND created_by IS NULL ORDER BY litres DESC LIMIT 1", shift.id, b.product);
-    if (!meter || meter.litres + 0.01 < want) shift = null;
+  // a manager's back-dated entry: the shift (salesman) it belongs to — the one open at that minute, or the one picked
+  const backdated = !!(at && b.entry_date && !b.offline_at && !salesman);
+  if (backdated && b.shift_id) {
+    shift = get("SELECT * FROM shifts WHERE id=? AND station_id=?", b.shift_id, b.station_id);
+    if (!shift) throw new AppError(400, "Ye shift is station ki nahi");
+    const d = pkDate(Date.parse(at!));
+    if (!(shift.opened_at < pkEnd(d) && (!shift.closed_at || shift.closed_at >= pkStart(d)))) throw new AppError(400, "Ye shift us din ki nahi");
   }
   if (shift && shift.status !== "open") {
     // a sale made on the tablet without internet that only uploads after the shift was closed: the meters already
@@ -210,7 +278,7 @@ saleRoutes.post("/sales", requirePerm("sales.create"), h((req) => {
     if (!at) throw new AppError(409, "This shift is already closed; its litres were counted from the meter. Tell the manager about this sale.");
     if (b.account_id && !get("SELECT id FROM bank_accounts WHERE id=? AND tenant_id=? AND active=1", b.account_id, tid(req))) throw new AppError(400, "Bank account not found");
     const { offline_at: _o, ...sale } = b;
-    const late = rebookLateSale(req, shift, sale, at);
+    const late = rebookLateSale(req, shift, sale, at, backdated);
     if (!late.duplicate && !late.covered_by_meter) setImmediate(() => { khataFillReceipt(tid(req), late).catch((e) => console.error("[khata receipt]", e.message)); });
     return late.covered_by_meter ? late : { ...late, receipt_url: receiptUrl(tid(req), "f", late.id) };
   }

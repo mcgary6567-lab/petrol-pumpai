@@ -7,7 +7,7 @@ import { api, useApi, linkToken } from "../lib/api";
 import { Loading, Modal, Pager, SearchBar, matchQuery, useAction, usePaged, useToast } from "../components/ui";
 import { WhatsAppDoc } from "../components/WhatsAppDoc";
 import { newUid, isOffline, queueSale, dropQueued, patchQueued, dismissFailed, useOfflineQueue, cacheGet, cacheSet } from "../lib/offline";
-import { num, pkr, PRODUCTS, PRODUCT_COLORS, PRODUCT_UR, activeProducts, nowLocal, dtLocal } from "../lib/format";
+import { num, pkr, PRODUCTS, PRODUCT_COLORS, PRODUCT_UR, activeProducts, nowLocal, dtLocal, dt } from "../lib/format";
 import { iconMap, labelMap, useLookups, type LookupEntry } from "../lib/lookups";
 import { useAuth } from "../App";
 import { useNotifications } from "../components/Notifications";
@@ -92,6 +92,17 @@ export default function Pos() {
     api<any>(`/sales/prices-on?date=${entryDate}`).then((r) => { if (live) setHistPrices(r.prices); }).catch(() => { if (live) setHistPrices(null); });
     return () => { live = false; };
   }, [entryDate]);
+  // which shift (salesman) a back-dated entry lands on: the one open at that minute, or one of that day's picked by hand
+  const [shiftAt, setShiftAt] = useState<any>(null);
+  const [pickShift, setPickShift] = useState<number | null>(null);
+  const posStation = today.data?.station?.id ?? stationId;
+  useEffect(() => {
+    setPickShift(null);
+    if (!entryDate || !posStation) { setShiftAt(null); return; }
+    let live = true;
+    api<any>(`/sales/shift-at?station_id=${posStation}&at=${entryDate}`).then((r) => { if (live) setShiftAt(r); }).catch(() => { if (live) setShiftAt(null); });
+    return () => { live = false; };
+  }, [entryDate, posStation]);
   const [pay, setPay] = useState<string | null>(null);
   const [khata, setKhata] = useState<{ account: any; vehicle: string; slip: string; photo_id?: number | null; pending?: boolean; discount?: number; cashOn?: boolean; cashBack?: number; cashBackLitres?: number; fullCash?: boolean; itemsOn?: boolean; itemsCost?: number; itemsNote?: string } | null>(null);
   // direct (walk-in) discount on a cash / card / online sale: fixed rupees or Rs per litre; the reference (who / why) is typed right after saving
@@ -222,7 +233,7 @@ export default function Pos() {
 
   const save = async () => {
     if (!ready || !d || saving) return;
-    const body: any = { station_id: d.station.id, product, payment_method: pay, [mode]: value, client_uid: newUid(), ...(entryDate && !isSalesman ? { entry_date: entryDate } : {}) };
+    const body: any = { station_id: d.station.id, product, payment_method: pay, [mode]: value, client_uid: newUid(), ...(entryDate && !isSalesman ? { entry_date: entryDate, ...(pickShift ? { shift_id: pickShift } : {}) } : {}) };
     if (pay === "wholesale" && ws) {
       // the fill always goes to the client's wholesale khata; payment_method carries how it is settled now
       Object.assign(body, { payment_method: ws.settle, litres, wholesale_client_id: ws.client.id });
@@ -349,6 +360,16 @@ export default function Pos() {
           )}
         </div>
         {entryDate && <p className="mb-2 rounded-lg bg-white/70 px-2 py-1 text-xs text-amber-900">Entry <b>{dtLocal(entryDate)}</b> par darj hogi, us waqt ke rate par (khata / wholesale rate card bhi usi par lagega); likhne ka asal waqt alag se mehfooz rehta hai. Band din sirf CEO.{!histPrices && " Us din ke rate load ho rahe hain…"}</p>}
+        {entryDate && shiftAt && <div className="mb-2 flex flex-wrap items-center gap-2 rounded-lg bg-white/70 px-2 py-1 text-xs text-amber-900">
+          {shiftAt.shifts?.length ? <>
+            <span>Shift / salesman:</span>
+            <select className="input !h-8 !w-auto !py-0 text-xs" aria-label="Shift" value={pickShift ?? shiftAt.match?.id ?? ""} onChange={(e) => setPickShift(Number(e.target.value) || null)}>
+              {!shiftAt.match && <option value="">Koi shift nahi (din ke hisaab mein)</option>}
+              {shiftAt.shifts.map((x: any) => <option key={x.id} value={x.id}>#{x.id} · {x.attendant} · {dt(x.opened_at)}{x.status === "closed" ? " (band)" : ""}</option>)}
+            </select>
+            <span>Entry is shift aur salesman ki report mein jayegi; band shift ho to us ka cash expected bhi theek ho jayega.</span>
+          </> : <span>Us waqt koi shift nahi thi: entry din ke hisaab mein jayegi.</span>}
+        </div>}
         <div className={`grid gap-2 ${d.products.length >= 3 ? "grid-cols-3" : "grid-cols-2"}`}>
           {d.products.map((p: string) => (
             <div key={p} className="rounded-xl bg-white px-3 py-2 text-center shadow-sm ring-1 ring-amber-100">

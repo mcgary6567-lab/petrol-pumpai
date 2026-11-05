@@ -374,7 +374,11 @@ function backdateOneSrc(t: number, src: string, at: string) {
   if (!id) return;
   if (kind === "byppay") run("UPDATE bypass_supplier_payments SET txn_date=? WHERE id=? AND tenant_id=?", at, id, t);
   else if (kind === "khata") run("UPDATE khata_ledger SET created_at=? WHERE id=?", at, id);
-  else if (kind === "wtx") run("UPDATE wholesale_txns SET txn_date=?, created_at=? WHERE id=? AND tenant_id=?", at, at, id, t);
+  else if (kind === "wtx") {
+    run("UPDATE wholesale_txns SET txn_date=?, created_at=? WHERE id=? AND tenant_id=?", at, at, id, t);
+    // a client's payment straight to our depot has a twin on the supplier's khata: same day on both sides
+    run("UPDATE supplier_txns SET txn_date=?, created_at=? WHERE tenant_id=? AND ref=? AND method=?", at, at, t, `wtx:${id}`, DEPOT_PAY);
+  }
   else if (kind === "stx") run("UPDATE supplier_txns SET txn_date=?, created_at=? WHERE id=? AND tenant_id=?", at, at, id, t);
   else if (kind === "staff") run("UPDATE staff_ledger SET created_at=? WHERE id=? AND tenant_id=?", at, id, t);
   else if (kind === "expense") run("UPDATE expenses SET created_at=?, expense_date=? WHERE id=? AND tenant_id=?", at, pkDate(Date.parse(at)), id, t);

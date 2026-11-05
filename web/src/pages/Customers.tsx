@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { Plus, MessageCircle, Wallet, BellRing, Car, Pencil, Trash2, Eye } from "lucide-react";
 import { VoidWithReason } from "./Corrections";
@@ -22,6 +22,7 @@ import { ProofPhotos, ProofThumbs } from "../components/Capture";
 import { AccountPicker } from "../components/BankParts";
 import { KhataVoice } from "../components/KhataVoice";
 import { Ur } from "../components/VoiceShell";
+import { useMovable, ShiftPaymentButton, LinkedClientChip } from "../components/PartyShift";
 
 const SEGMENTS = ["", "VIP", "Regular", "At risk", "New", "Fleet", "Agri", "Institution"];
 const segTone: Record<string, string> = { VIP: "violet", Regular: "green", "At risk": "red", New: "blue", Fleet: "amber", Agri: "amber", Institution: "blue" };
@@ -204,11 +205,16 @@ function CustomerDetail({ id, onClose, onChanged }: { id: string; onClose: () =>
   const [voidLine, setVoidLine] = useState<any>(null);
   const [viewLine, setViewLine] = useState<any>(null);
   const fixable = (l: any) => !/^(SALE-|SHOP-|oth-|open:|LATE-)/.test(String(l.ref ?? "")) && !l.product;
+  // same person also a wholesale client: a payment booked here by mistake can be shifted to their wholesale khata
+  const [shiftKey, setShiftKey] = useState(0);
+  const creditIds = useMemo(() => (c?.ledger ?? []).filter((l: any) => l.type === "credit").map((l: any) => l.id), [c?.ledger]);
+  const movable = useMovable("khata", creditIds, shiftKey);
   const lineActions = (l: any) => (
     <span className="ml-auto flex shrink-0 gap-1">
       <button className="btn-secondary !px-2 !py-1" aria-label="View entry" title="Poori detail dekhein" onClick={() => setViewLine(l)}><Eye size={13} /></button>
       {can("entries.edit") && fixable(l) && <button className="btn-secondary !px-2 !py-1" aria-label="Edit khata entry" title="Edit (CEO)" onClick={() => setEditLine(l)}><Pencil size={13} /></button>}
       {can("corrections.manage") && fixable(l) && <button className="btn-secondary !px-2 !py-1 !text-red-700" aria-label="Void khata entry" title="Void (CEO)" onClick={() => setVoidLine(l)}><Trash2 size={13} /></button>}
+      {movable[l.id] === null && <ShiftPaymentButton side="khata" row={l} small onDone={() => { setShiftKey((k) => k + 1); refresh(); }} />}
     </span>
   );
 
@@ -223,6 +229,7 @@ function CustomerDetail({ id, onClose, onChanged }: { id: string; onClose: () =>
             {can("customers.edit") && <button className="min-h-9 px-1 text-xs text-slate-500 hover:underline" disabled={busy} onClick={() => confirm(c.active ? `Archive ${c.name}? They leave the POS, lists and campaigns; their history stays. Khata must be settled first.` : `Bring ${c.name} back?`) && run(() => api(`/customers/${c.id}/archive`, { body: { archived: c.active } }), c.active ? "Archived" : "Restored").then(() => { refresh(); onChanged(); })}>{c.active ? "Archive" : "Restore"}</button>}
             <PartyAdmin kind="customer" id={c.id} name={c.name} backTo="/customers" onDone={onChanged} className="!min-h-9 !px-2 !py-1 !text-xs" />
           </div>
+          <LinkedClientChip customerId={c.id} />
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <Stat label={c.balance < -0.5 ? "Advance with us · ایڈوانس" : "Khata balance"} value={pkr(Math.abs(c.balance))} tone={c.balance < -0.5 ? "green" : "slate"} hint={c.balance < -0.5 ? "Customer's cash lying with us — khata sales are cut from it first" : c.credit_limit ? `Limit ${pkr(c.credit_limit)}` : "No credit"} />
             <Stat label="Loyalty points" value={num(c.loyalty_points)} />
