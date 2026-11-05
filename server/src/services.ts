@@ -133,17 +133,37 @@ export interface SaleInput {
   items_note?: string | null;
 }
 
-/** The rate a khata customer's fill bills at: their rate card (fixed, or pump − X) capped at the board rate; else the board rate. */
-export function khataSpecialRate(tenantId: number, customerId: number, product: string, boardRate: number): number {
+type KhataCard = { mode: "fixed" | "minus"; value: number };
+/** A khata customer's card for one fuel as of a moment: the history row in force then (or, before the first logged
+ *  change, the card that change replaced, or the new card when there was none); with no history, the current card. */
+export function khataCardAt(tenantId: number, customerId: number, product: string, at?: string | null): KhataCard | null {
+  if (at) {
+    const h = get("SELECT mode, value FROM khata_rate_history WHERE tenant_id=? AND customer_id=? AND product=? AND created_at<=? ORDER BY created_at DESC, id DESC LIMIT 1", tenantId, customerId, product, at);
+    if (h) return h.mode ? { mode: h.mode, value: Number(h.value) } : null;
+    // before the first logged change: the card it replaced; a brand-new card (nothing before it) reaches back too, so
+    // slips of a deal agreed earlier but entered late still get it
+    const first = get("SELECT mode, value, old_mode, old_value FROM khata_rate_history WHERE tenant_id=? AND customer_id=? AND product=? AND created_at>? ORDER BY created_at, id LIMIT 1", tenantId, customerId, product, at);
+    if (first) return first.old_mode ? { mode: first.old_mode, value: Number(first.old_value) } : first.mode ? { mode: first.mode, value: Number(first.value) } : null;
+  }
   const raw = get("SELECT khata_rates FROM customers WHERE id=? AND tenant_id=?", customerId, tenantId)?.khata_rates;
-  if (!raw) return boardRate;
-  try {
-    const r = (JSON.parse(raw) as Record<string, { mode: "fixed" | "minus"; value: number }>)[product];
-    if (r && Number.isFinite(r.value)) {
-      const special = r.mode === "minus" ? boardRate - r.value : r.value;
-      if (special > 0) return round2(Math.min(boardRate, special)); // discount-only
-    }
-  } catch { /* malformed card → board rate */ }
+  if (!raw) return null;
+  try { const r = (JSON.parse(raw) as Record<string, KhataCard>)[product]; return r && Number.isFinite(r.value) ? r : null; } catch { return null; }
+}
+
+/** Log a change of one fuel's khata card (call when it actually changes). */
+export function logKhataRate(tenantId: number, customerId: number, product: string, before: KhataCard | null | undefined, after: KhataCard | null | undefined, by: string, note?: string | null) {
+  run("INSERT INTO khata_rate_history (tenant_id,customer_id,product,mode,value,old_mode,old_value,changed_by,note,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+    tenantId, customerId, product, after?.mode ?? null, after?.value ?? null, before?.mode ?? null, before?.value ?? null, by, note ?? null, now());
+}
+
+/** The rate a khata customer's fill bills at: their rate card (fixed, or pump − X) capped at the board rate; else the board
+ *  rate. `at` = the moment of the fill (a back-dated entry uses the card that was in force then). */
+export function khataSpecialRate(tenantId: number, customerId: number, product: string, boardRate: number, at?: string | null): number {
+  const r = khataCardAt(tenantId, customerId, product, at);
+  if (r) {
+    const special = r.mode === "minus" ? boardRate - r.value : r.value;
+    if (special > 0) return round2(Math.min(boardRate, special)); // discount-only
+  }
   return boardRate;
 }
 
@@ -163,7 +183,7 @@ export function recordSale(tenantId: number, s: SaleInput): Row {
   // sends the plain board rate (the POS, a shift close) still gets the card applied; only a deliberately different rate
   // (an edit keeping the old rate, a cleared hold) is left alone.
   if (s.payment_method === "khata" && s.customer_id && !s.pending && (s.rate == null || Math.abs(s.rate - board) < 0.005)) {
-    rate = khataSpecialRate(tenantId, s.customer_id, s.product, rate);
+    rate = khataSpecialRate(tenantId, s.customer_id, s.product, rate, s.price_at ?? s.created_at);
   }
   // A wholesale client fuelled straight from the nozzle, at their own wholesale rate. The litres leave the tank and run
   // through the meter like any sale (so the stock register and shift settlement count them once), but the money is NOT

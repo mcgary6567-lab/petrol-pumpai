@@ -5,7 +5,7 @@ import { all, get, run, tx, now, pkStart, pkEnd, pkDate } from "../db.js";
 import { linkPhotos, proofPhotos, proofCol, requireProof, isCheque } from "./capture.js";
 import { bankAccountFor, accountIdField, chequeToRegister } from "./banks.js";
 import { h, parse, tid, requirePerm, requireAny, can } from "../auth.js";
-import { AppError, assertNoDuplicateParty, khataEntry, normalizePhone, paymentLink, pkr, dueText, recordSale, audit, round2 } from "../services.js";
+import { AppError, assertNoDuplicateParty, khataEntry, normalizePhone, paymentLink, pkr, dueText, recordSale, audit, round2, currentPrices, logKhataRate } from "../services.js";
 import { setKhataOpening } from "./opening.js";
 import { productSchema } from "../products.js";
 import { assertLookup } from "./lookups.js";
@@ -125,11 +125,95 @@ crm.post("/customers/:id/khata-rates", requirePerm("customers.edit"), h((req) =>
   const c = ownCustomer(tid(req), Number(req.params.id));
   const b = parse(z.object({ rates: z.record(z.string().max(20), z.object({ mode: z.enum(["fixed", "minus"]), value: z.number().min(0) }).nullable()) }), req.body);
   const cur: Record<string, { mode: "fixed" | "minus"; value: number }> = c.khata_rates ? JSON.parse(c.khata_rates) : {};
-  for (const [p, v] of Object.entries(b.rates)) { if (!v || !(v.value > 0)) delete cur[p]; else cur[p] = { mode: v.mode, value: round2(v.value) }; }
+  for (const [p, v] of Object.entries(b.rates)) {
+    const before = cur[p] ? { ...cur[p] } : null;
+    if (!v || !(v.value > 0)) delete cur[p]; else cur[p] = { mode: v.mode, value: round2(v.value) };
+    const after = cur[p] ?? null;
+    if ((before?.mode ?? null) !== (after?.mode ?? null) || Math.abs((before?.value ?? 0) - (after?.value ?? 0)) > 0.004) logKhataRate(tid(req), c.id, p, before, after, req.user!.name);
+  }
   const json = Object.keys(cur).length ? JSON.stringify(cur) : null;
   run("UPDATE customers SET khata_rates=? WHERE id=? AND tenant_id=?", json, c.id, tid(req));
   audit(tid(req), req.user!, "khata_rate_set", `customer:${c.id}`, { name: c.name, rates: cur });
   return get("SELECT * FROM customers WHERE id=?", c.id);
+}));
+
+/**
+ * CEO: change khata special rates for many customers in one go (like the wholesale "sab clients ka rate badlo").
+ *  - mode "delta": every special card moves by +/- Rs per litre. Fixed rate → rate + delta; "pump − X" → X − delta (the
+ *    effective rate moves by the same rupees). A "pump − X" whose X drops to 0 or below goes back to the plain pump rate.
+ *  - mode "set": give the same card (fixed rate, or pump − X; null = back to pump rate) to every khata customer in scope.
+ * scope "carded" = only customers who already have a special rate for that fuel; "all" = every active khata account.
+ * Customers with no special rate already follow the pump (board) rate, so a pump price change needs nothing here.
+ * Only future khata fills use the new card; each customer can be told on WhatsApp.
+ */
+crm.post("/customers/khata-rates/bulk", requirePerm("customers.edit"), h(async (req) => {
+  if (!can(req.user, "credit.set_limit")) throw new AppError(403, "Sirf CEO/admin khata rates badal sakta hai");
+  const t = tid(req);
+  const card = z.object({ mode: z.enum(["fixed", "minus"]), value: z.number().min(0).max(100_000) }).nullable();
+  const b = parse(z.object({
+    mode: z.enum(["delta", "set"]),
+    deltas: z.record(z.string().max(20), z.number().min(-100_000).max(100_000)).optional(),
+    cards: z.record(z.string().max(20), card).optional(),
+    scope: z.enum(["carded", "all"]).default("carded"),
+    customer_ids: z.array(z.number().int().positive()).max(5000).optional(),
+    note: z.string().trim().max(120).optional().nullable(),
+    notify: z.boolean().optional(),
+  }), req.body);
+  const changes: Record<string, unknown> = b.mode === "delta"
+    ? Object.fromEntries(Object.entries(b.deltas ?? {}).filter(([, v]) => v !== 0))
+    : Object.fromEntries(Object.entries(b.cards ?? {}).filter(([, v]) => v === null || v.value > 0));
+  if (!Object.keys(changes).length) throw new AppError(400, "Kam se kam ek fuel ka change daalein");
+  const pump = Object.fromEntries(Object.entries(currentPrices(t)).map(([p, v]) => [p, Number(v.price)]));
+  const only = b.customer_ids?.length ? new Set(b.customer_ids) : null;
+  const rows = all("SELECT id, name, khata_rates FROM customers WHERE tenant_id=? AND active=1 AND (credit_limit > 0 OR balance < -0.5 OR khata_rates IS NOT NULL) ORDER BY id", t)
+    .filter((c) => !only || only.has(c.id as number));
+  const count: Record<string, { updated: number; cleared: number }> = {};
+  const lines: Record<number, string[]> = {};
+  const eff = (p: string, r: { mode: string; value: number } | undefined) => {
+    const base = pump[p] ?? 0;
+    if (!r) return base;
+    const v = r.mode === "minus" ? base - r.value : r.value;
+    return round2(base > 0 ? Math.min(base, v) : v);
+  };
+  tx(() => {
+    for (const c of rows) {
+      let cur: Record<string, { mode: "fixed" | "minus"; value: number }> = {};
+      try { cur = c.khata_rates ? JSON.parse(c.khata_rates as string) : {}; } catch { cur = {}; }
+      let touched = false;
+      for (const [p, ch] of Object.entries(changes)) {
+        const had = cur[p];
+        if (b.scope === "carded" && !had) continue;
+        const before = eff(p, had);
+        if (b.mode === "delta") {
+          if (!had) continue; // no card: already on the pump rate
+          const d = round2(ch as number);
+          const next = had.mode === "minus" ? { mode: "minus" as const, value: round2(had.value - d) } : { mode: "fixed" as const, value: round2(had.value + d) };
+          if (!(next.value > 0)) { delete cur[p]; (count[p] ??= { updated: 0, cleared: 0 }).cleared++; }
+          else { cur[p] = next; (count[p] ??= { updated: 0, cleared: 0 }).updated++; }
+        } else {
+          const want = ch as { mode: "fixed" | "minus"; value: number } | null;
+          if (!want) { if (!had) continue; delete cur[p]; (count[p] ??= { updated: 0, cleared: 0 }).cleared++; }
+          else { if (had && had.mode === want.mode && Math.abs(had.value - want.value) < 0.005) continue; cur[p] = { mode: want.mode, value: round2(want.value) }; (count[p] ??= { updated: 0, cleared: 0 }).updated++; }
+        }
+        touched = true;
+        logKhataRate(t, c.id as number, p, had ?? null, cur[p] ?? null, req.user!.name, b.note || (b.mode === "delta" ? `Sab ka rate ${(ch as number) >= 0 ? "+" : ""}${ch}` : "Sab ko ek rate"));
+        const after = eff(p, cur[p]);
+        if (Math.abs(after - before) > 0.005) (lines[c.id as number] ??= []).push(`${PRODUCTS[p] ?? p}: Rs ${after}/L (pehle Rs ${before})`);
+      }
+      if (touched) run("UPDATE customers SET khata_rates=? WHERE id=? AND tenant_id=?", Object.keys(cur).length ? JSON.stringify(cur) : null, c.id, t);
+    }
+  });
+  audit(t, req.user!, "khata_rate_bulk", "customers", { mode: b.mode, scope: b.scope, changes, note: b.note ?? null, count });
+  let notified = 0;
+  if (b.notify) {
+    const pumpName = get("SELECT name FROM tenants WHERE id=?", t)?.name ?? "";
+    for (const [id, ls] of Object.entries(lines)) {
+      const c = get("SELECT * FROM customers WHERE id=? AND tenant_id=?", Number(id), t);
+      if (!c?.phone) continue;
+      try { await sendWhatsApp(t, c, `${c.name}\n⛽ Aap ka naya khata rate (${pkDate()}):\n${ls.join("\n")}\n— ${pumpName}`, "system", { kind: "khata_rate" }); notified++; } catch { /* keep going */ }
+    }
+  }
+  return { ok: true, changed: count, customers: Object.keys(lines).length, notified };
 }));
 
 crm.get("/customers/:id", requirePerm("customers.view"), h((req) => {

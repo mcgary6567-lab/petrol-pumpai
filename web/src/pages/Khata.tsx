@@ -7,6 +7,7 @@ import { TYPE_ICON } from "./Pos";
 import { BellRing } from "lucide-react";
 import { PrintListButton } from "../components/PrintList";
 import { WhatsAppDoc } from "../components/WhatsAppDoc";
+import { KhataBulkRateButton } from "../components/KhataBulkRate";
 import { api, useApi } from "../lib/api";
 import { Empty, ListTools, Loading, PageHeader, Pager, Stat, matchQuery, useAction, useNewRows, usePaged } from "../components/ui";
 import { ago, phone, pkr, pkrShort } from "../lib/format";
@@ -53,7 +54,7 @@ export default function Khata() {
               { label: "Advance · ایڈوانس", r: true, v: (c: any) => c.balance < -0.5 ? pkr(-c.balance) : "—", total: (rs: any[]) => pkr(rs.reduce((a, c) => a + Math.max(0, -(c.balance ?? 0)), 0)) },
               { label: "Last payment", v: (c: any) => ago(c.last_payment) === "—" ? "never" : ago(c.last_payment) },
             ]} />
-          <WhatsAppDoc kind="customer_list" id={0} label="WhatsApp" />
+          <KhataBulkRateButton /><WhatsAppDoc kind="customer_list" id={0} label="WhatsApp" />
           <button className="btn-secondary" disabled={busy} onClick={() => run(() => api("/automations/khata_reminders/run", { body: {} }), (r: any) => r.result).then(reload)}><BellRing size={15} /> Send reminders now · <Ur>ابھی یاد دہانی بھیجیں</Ur></button>
         </div>} />
       <div className="mb-4"><KhataVoice onDone={reload} /></div>

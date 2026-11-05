@@ -546,7 +546,13 @@ export function migrate() {
   // links a wholesale supply/payment raised from a pump-nozzle sale back to that sales row (so an Undo reverses both)
   addColumn("wholesale_txns", "sale_id", "INTEGER");
   addColumn("wholesale_txns", "voucher_no", "TEXT");
-  addColumn("wholesale_clients", "khata_customer_id", "INTEGER"); // the same person's khata account (payments can be shifted across)
+  addColumn("wholesale_clients", "khata_customer_id", "INTEGER");
+  // every change to a khata customer's special rate card (so a back-dated khata entry bills at the card of ITS moment).
+  // mode/value = the card from created_at on (mode NULL = back on the pump rate); old_* = the card just before.
+  db.exec(`CREATE TABLE IF NOT EXISTS khata_rate_history (
+    id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, customer_id INTEGER NOT NULL, product TEXT NOT NULL,
+    mode TEXT, value REAL, old_mode TEXT, old_value REAL, changed_by TEXT, note TEXT, created_at TEXT NOT NULL)`);
+  db.exec("CREATE INDEX IF NOT EXISTS idx_khata_rate_hist ON khata_rate_history(customer_id, product, created_at)"); // the same person's khata account (payments can be shifted across)
   // a client-generated key per form draft: a network retry of the same POST returns the first answer instead of posting twice
   db.exec(`CREATE TABLE IF NOT EXISTS idempotency_keys (tenant_id INTEGER NOT NULL, key TEXT NOT NULL, response TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY (tenant_id, key))`); // ERP supply voucher: every fuel line + kiraya posted together share one number (WS-<first id>)
   addColumn("meter_readings", "handover_gap", "REAL");

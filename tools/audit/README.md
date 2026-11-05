@@ -1,7 +1,7 @@
 # A–Z system audit — run this before saying "sab theek hai"
 
 Last full run: **2026-11-04** (incremental, from the 2026-11-02 baseline: commits 42a0738…db03f09 + review fixes).
-Baseline after that run: 750/753 server tests, e2e 9/9, `/books/check` 0 farq after every flow, crawl of the 16 routes
+Baseline after that run: 750/754 server tests, e2e 9/9, `/books/check` 0 farq after every flow, crawl of the 16 routes
 touched (30 route×viewport) with **0 JS errors, 0 overflow, 0 failed API**, print audit clean. The full crawl of all
 106 routes last ran 2026-11-02 (0 errors).
 Next time start from here — re-run the four legs, compare with this baseline, fix only what regressed or is new.
