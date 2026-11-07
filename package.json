@@ -13,12 +13,14 @@
     "start": "npm run start -w server",
     "seed": "npm run seed -w server",
     "test": "npm run test -w server",
-    "typecheck": "npm run typecheck -w server && npm run typecheck -w web"
+    "typecheck": "npm run typecheck -w server && npm run typecheck -w web",
+    "prebuild": "node -e \"const m=require('module');try{m.createRequire(process.cwd()+'/web/')('typescript');m.createRequire(process.cwd()+'/web/')('vite')}catch{process.exit(1)}\" || npm install --include=dev --no-audit --no-fund"
   },
   "devDependencies": {
     "concurrently": "^9.1.0"
   },
   "engines": {
     "node": "22.x"
-  }
+  },
+  "main": "app.js"
 }

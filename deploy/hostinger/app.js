@@ -9,9 +9,11 @@
  */
 import path from "node:path";
 import fs from "node:fs";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
-const here = path.dirname(fileURLToPath(import.meta.url));
+const self = path.dirname(fileURLToPath(import.meta.url));
+// the ready-built "hostinger" branch has server/dist next to this file; on main this file sits in deploy/hostinger
+const here = fs.existsSync(path.join(self, "server", "dist", "index.js")) ? self : path.resolve(self, "..", "..");
 // hPanel lists every setting the code reads; a row left empty must count as "not set" (an empty PORT or TZ_NAME would
 // otherwise start the app on a random port or break the backup / reminder clock)
 for (const [k, v] of Object.entries(process.env)) if (typeof v === "string" && v.trim() === "") delete process.env[k];
@@ -31,4 +33,6 @@ process.env.BACKUP_DIR ??= path.join(path.dirname(db), "backups");
 process.env.WEB_DIST ??= path.join(here, "web", "dist");
 if (!process.env.CRON_KEY || process.env.CRON_KEY.length < 16) console.warn("[PumpAI] CRON_KEY set nahi — raat ka backup aur reminders tabhi chalenge jab koi app khola hua ho. HOSTINGER.md dekhein.");
 
-await import("./server/dist/index.js");
+const entry = path.join(here, "server", "dist", "index.js");
+if (!fs.existsSync(entry)) stop(`${entry} nahi mila — build nahi hua. hPanel me Build command "npm run build" rakhein.`);
+await import(pathToFileURL(entry).href);

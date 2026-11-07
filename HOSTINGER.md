@@ -33,7 +33,10 @@ Poora rasta note karein, misal: `/home/u123456789/pumpai-data` (apna `u…` numb
 
 hPanel → **Websites → Add website → Node.js Web App** (ya apni website → **Node.js**):
 
-- **Source:** GitHub → is repo ko connect karein → branch **`hostinger`**
+- **Source:** GitHub → is repo ko connect karein → branch **`hostinger`** (sab se halka) **ya `main`** (dono chalti hain;
+  `main` par Build command **`npm run build`** rakhein — build ke tools khud aa jate hain)
+- Ye **Websites → Node.js app** wala tareeqa hai. "Advanced → Git → Deploy from GitHub (public_html)" PHP / static sites ke
+  liye hai — us se Node app nahi chalta
 - **Node version:** **22** (22.13 ya naya)
 - **Entry file:** `app.js`
 - **Install command:** `npm install --omit=dev` (agar poochhe) · **Build command:** khaali / `npm run build` (sirf "already built" likhta hai)
@@ -72,7 +75,8 @@ Check: browser me ye link kholein — `{"ok":true,...}` aana chahiye. Galat key 
 
 ## 5. Pehli dafa chalayein (khali database ke saath — test)
 
-hPanel me app **Deploy / Start** karein, `https://aap-ka-domain.com` kholein. Agar `DB_PATH` galat ho to log me saaf
+hPanel me app **Deploy / Start** karein, `https://aap-ka-domain.com` kholein. Setup wizard ek **SETUP CODE** maangta hai:
+wo app ke log me `[setup] SETUP CODE: XXXXXXXX` likha hota hai (aur `pumpai-data/.setup_code` file me). Agar `DB_PATH` galat ho to log me saaf
 message aata hai (hPanel → Node.js → Logs). Phir **zaroor ye test karein**:
 
 1. App me koi chhoti entry karein.
