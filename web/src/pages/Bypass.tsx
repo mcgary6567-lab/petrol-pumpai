@@ -11,7 +11,7 @@ import { ProofPhotos, ProofThumbs } from "../components/Capture";
 import { AccountPicker } from "../components/BankParts";
 import { supplierOpts } from "../components/SupplierSelect";
 import { FleetPicker, fleetBody } from "../components/WholesaleFleet";
-import { EditBypassPurchase } from "../components/BypassEdit";
+import { EditBypassPurchase, SupplierClientLink } from "../components/BypassEdit";
 import { challanPages, printPages, tripSheetPage } from "../components/TripPrint";
 import { VoucherVoidButton } from "../components/VoucherVoid";
 
@@ -584,6 +584,7 @@ function SupplierStatement({ id, onClose, onChanged }: { id: number; onClose: ()
           <div className="flex flex-wrap items-end gap-3 print:hidden">
             <Stat label="We owe (bypass)" value={pkr(s.bypass_owed)} tone="red" hint={Math.abs(s.pump_owed ?? 0) > 0.5 ? `+ pump ${pkr(s.pump_owed)} = total ${pkr(s.total_owed)}` : undefined} />
             {can("wholesale.manage") && <button className="btn-primary min-h-10" onClick={() => setPay(true)}><HandCoins size={15} /> Pay supplier</button>}
+            {can("entries.edit") && <SupplierClientLink supplier={s} onDone={refresh} />}
             <Field label="From"><input className="input" type="date" value={range.from} onChange={(e) => setRange({ ...range, from: e.target.value })} /></Field>
             <Field label="To"><input className="input" type="date" value={range.to} onChange={(e) => setRange({ ...range, to: e.target.value })} /></Field>
             <a className="btn-secondary min-h-10" href={csvUrl}><Download size={15} /> Excel / CSV</a>

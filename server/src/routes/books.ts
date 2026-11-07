@@ -100,7 +100,7 @@ export function reconcileBooks(t: number) {
   safe("Bypass stock", () => push("Bypass stock", bypassStockValue(t), tb("Bypass stock")));
   // go-live fuel value: Σ active opening rows (litres × rate) must equal what the ledger carries on "Fuel stock (go-live)"
   safe("Fuel stock (go-live value)", () => push("Fuel stock (go-live value)", get("SELECT COALESCE(SUM(amount),0) v FROM fuel_opening_values WHERE tenant_id=? AND voided=0", t)!.v as number, tb("Fuel stock (go-live)")));
-  safe("Bypass suppliers payable", () => push("Bypass suppliers payable", all("SELECT DISTINCT supplier_id FROM bypass_purchases WHERE tenant_id=?", t).reduce((a, s) => a + bypassOwed(s.supplier_id), 0), -tb("Bypass suppliers payable")));
+  safe("Bypass suppliers payable", () => push("Bypass suppliers payable", all("SELECT supplier_id FROM bypass_purchases WHERE tenant_id=? UNION SELECT supplier_id FROM bypass_supplier_payments WHERE tenant_id=?", t, t).reduce((a, s) => a + bypassOwed(s.supplier_id), 0), -tb("Bypass suppliers payable")));
 
   safe("Investors payable", () => push("Investors payable", investorsOwed(t), -tb(INVESTORS)));
 

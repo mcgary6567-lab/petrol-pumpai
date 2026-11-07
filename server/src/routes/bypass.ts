@@ -24,6 +24,7 @@ import { deliverOrder } from "./wholesaleDesk.js";
 import { profile } from "./setup.js";
 import { supplierOwed, supplierOwedAll } from "./suppliers.js";
 import { SOCIALS } from "../brandPrint.js";
+import { mergeParty } from "./parties.js";
 
 export const bypass = Router();
 bypass.use("/bypass", requirePerm("wholesale.view"));
@@ -662,29 +663,116 @@ bypass.patch("/bypass/payments/:id", requirePerm("entries.edit"), h((req) => {
  *  the line moves to the client's supplier side, the client's khata drops by the amount (BYPASS_PAY payment) and the
  *  settlement row (client_direct, cfuel:<id>) closes it on the bypass account. The old supplier's "we owe" falls by the
  *  amount — so it is refused when that supplier was already paid for it (shifting would leave him over-paid). */
+/** How much of a bypass bill the supplier it sits on has already been paid (his "we owe" is smaller than the bill). */
+function paidPart(r: Row): { owed: number; paid: number } {
+  const owed = bypassOwed(r.supplier_id as number);
+  return { owed, paid: round2(Math.max(0, (r.amount as number) - Math.max(0, owed))) };
+}
+
+/**
+ * Option "the payment went to the client too": move `amount` of our own payments (mode we_pay) from one supplier card to
+ * another, so the bill and what we paid for it travel together. Payments on/after the bill's day go first (oldest first),
+ * then earlier ones (newest first); the last one is split when only part of it is needed (same day, method and bank, the
+ * cashier voucher that posted it then covers both halves). Cash book and banks do not move: only whose card the rows sit on.
+ */
+function moveBypassPayments(t: number, fromSup: number, toSup: number, amount: number, since: string, tag: string): number[] {
+  const rows = all(`SELECT * FROM bypass_supplier_payments WHERE tenant_id=? AND supplier_id=? AND voided=0 AND mode='we_pay' AND COALESCE(ref,'') NOT LIKE 'cfuel:%'
+    ORDER BY CASE WHEN txn_date >= ? THEN 0 ELSE 1 END, CASE WHEN txn_date >= ? THEN txn_date END ASC, txn_date DESC, id DESC`, t, fromSup, since, since);
+  let left = round2(amount);
+  const ids: number[] = [];
+  for (const p of rows) {
+    if (left < 0.005) break;
+    const note = `${p.note ? `${p.note} · ` : ""}${tag}`;
+    if (p.amount <= left + 0.005) {
+      run("UPDATE bypass_supplier_payments SET supplier_id=?, note=? WHERE id=?", toSup, note, p.id);
+      ids.push(p.id as number); left = round2(left - p.amount);
+    } else {
+      run("UPDATE bypass_supplier_payments SET amount=? WHERE id=?", round2(p.amount - left), p.id);
+      const { id } = run(`INSERT INTO bypass_supplier_payments (tenant_id,supplier_id,amount,mode,client_id,wtx_id,method,account_id,ref,note,created_by,txn_date,created_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`, t, toSup, left, "we_pay", null, null, p.method, p.account_id, p.ref, `${note} (hissa of #${p.id})`, p.created_by, p.txn_date, p.created_at);
+      // the cashier voucher that posted the payment now posts both halves (a void takes both back)
+      for (const v of all("SELECT id, src FROM cashier_vouchers WHERE tenant_id=? AND (src=? OR src LIKE ? OR src LIKE ? OR src LIKE ?)", t, `byppay:${p.id}`, `byppay:${p.id}+%`, `%+byppay:${p.id}`, `%+byppay:${p.id}+%`))
+        run("UPDATE cashier_vouchers SET src=? WHERE id=?", `${v.src}+byppay:${id}`, v.id);
+      ids.push(id as number); left = 0;
+    }
+  }
+  if (left > 0.01) throw new AppError(400, `Supplier ki itni adaigi nahi mili (${pkr0(left)} kam) — pehle adaigi check karein`);
+  return ids;
+}
+
+/** Before the shift: how much of this bill was already paid, so the screen can offer "payment bhi client ko gayi thi". */
+bypass.get("/bypass/purchases/:id/to-client/check", requirePerm("entries.edit"), h((req) => {
+  const t = tid(req);
+  const r = get("SELECT p.*, s.name supplier_name, s.client_id sup_client FROM bypass_purchases p JOIN suppliers s ON s.id=p.supplier_id WHERE p.id=? AND p.tenant_id=? AND p.voided=0", Number(req.params.id), t);
+  if (!r) throw new AppError(404, "Entry not found");
+  const { owed, paid } = paidPart(r);
+  return { amount: r.amount, owed, paid, unpaid: round2((r.amount as number) - paid), supplier: { id: r.supplier_id, name: r.supplier_name, client_id: r.sup_client ?? null } };
+}));
+
 bypass.post("/bypass/purchases/:id/to-client", requirePerm("entries.edit"), h((req) => {
   const t = tid(req);
   const r = get("SELECT * FROM bypass_purchases WHERE id=? AND tenant_id=? AND voided=0", Number(req.params.id), t);
   if (!r) throw new AppError(404, "Entry not found");
   if (get("SELECT 1 x FROM bypass_supplier_payments WHERE tenant_id=? AND ref=? AND voided=0", t, `cfuel:${r.id}`)) throw new AppError(400, "Ye khareed pehle hi client ke khate se judi hui hai");
-  const b = parse(z.object({ client_id: z.number().int(), reason: z.string().trim().min(3, "Wajah likhein (kam se kam 3 harf)") }), req.body);
+  const b = parse(z.object({ client_id: z.number().int(), reason: z.string().trim().min(3, "Wajah likhein (kam se kam 3 harf)"),
+    /** the payment we made to the supplier for this bill really went to this client (same party): move it along */
+    with_payment: z.boolean().optional() }), req.body);
   const client = get("SELECT * FROM wholesale_clients WHERE id=? AND tenant_id=?", b.client_id, t);
   if (!client) throw new AppError(400, "Client not found");
   const oldSup = get("SELECT id, name, client_id FROM suppliers WHERE id=?", r.supplier_id)!;
   if (oldSup.client_id === client.id) throw new AppError(400, "Ye khareed pehle hi isi client ke supplier card par hai");
-  const owed = bypassOwed(r.supplier_id);
-  if (owed + 0.01 < (r.amount as number)) throw new AppError(400, `${oldSup.name} ka bypass account sirf ${pkr0(owed)} baqi hai — is khareed (${pkr0(r.amount as number)}) ki adaigi us ko ho chuki hai. Pehle wo adaigi void / shift karein, phir client par shift karein`);
+  guardClosedDay(req, t, String(r.txn_date).slice(0, 10));
+  const { paid } = paidPart(r);
+  if (paid > 0.01 && !b.with_payment) throw new AppError(400, `${oldSup.name} ko is khareed (${pkr0(r.amount as number)}) ki ${pkr0(paid)} adaigi ho chuki hai. Agar wo adaigi bhi asal me ${client.name} ko gayi thi to "Adaigi bhi client ki" chun kar shift karein`);
   const supplierId = clientSupplier(t, client.id);
+  const unpaid = round2((r.amount as number) - (b.with_payment ? paid : 0));
   const note = `Client se maal · ${r.litres} L ${PRODUCTS[r.product as string] ?? r.product} @ ${r.cost_rate} (shift: pehle ${oldSup.name} par likhi thi)`;
   const out = tx(() => {
     run("UPDATE bypass_purchases SET supplier_id=? WHERE id=?", supplierId, r.id);
-    const wtx = insertTxn(req, client.id, { type: "payment", amount: r.amount, method: BYPASS_PAY, ref: r.ref ?? (r.delivery_id ? `BYP-${r.delivery_id}` : `BYP#${r.id}`), note, txn_date: r.txn_date, silent: true }).id as number;
-    const { id } = run(`INSERT INTO bypass_supplier_payments (tenant_id,supplier_id,amount,mode,client_id,wtx_id,method,account_id,ref,note,created_by,txn_date,created_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`, t, supplierId, r.amount, "client_direct", client.id, wtx, null, null, `cfuel:${r.id}`, note, req.user!.name, r.txn_date, now());
-    audit(t, req.user!, "bypass_purchase_to_client", `byppur:${r.id}`, { reason: b.reason, from_supplier_id: r.supplier_id, from_supplier: oldSup.name, client_id: client.id, client: client.name, amount: r.amount, wtx_id: wtx, settlement_id: id });
-    return { wtx_id: wtx, settlement_id: id };
-  });
+    // the part we already paid travels with the bill (option 1); only the unpaid rest is settled against the client's khata
+    const moved = b.with_payment && paid > 0.01 ? moveBypassPayments(t, oldSup.id, supplierId, paid, String(r.txn_date), `shift ke saath: ${r.delivery_id ? `BYP-${r.delivery_id}` : `BYP#${r.id}`} ki adaigi (pehle ${oldSup.name} par)`) : [];
+    let wtx: number | null = null, id: number | null = null;
+    if (unpaid > 0.01) {
+      wtx = insertTxn(req, client.id, { type: "payment", amount: unpaid, method: BYPASS_PAY, ref: r.ref ?? (r.delivery_id ? `BYP-${r.delivery_id}` : `BYP#${r.id}`), note, txn_date: r.txn_date, silent: true }).id as number;
+      id = run(`INSERT INTO bypass_supplier_payments (tenant_id,supplier_id,amount,mode,client_id,wtx_id,method,account_id,ref,note,created_by,txn_date,created_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`, t, supplierId, unpaid, "client_direct", client.id, wtx, null, null, `cfuel:${r.id}`, note, req.user!.name, r.txn_date, now()).id as number;
+    }
+    audit(t, req.user!, "bypass_purchase_to_client", `byppur:${r.id}`, { reason: b.reason, from_supplier_id: r.supplier_id, from_supplier: oldSup.name, client_id: client.id, client: client.name, amount: r.amount,
+      paid_moved: b.with_payment ? paid : 0, moved_payment_ids: moved, settled_on_khata: unpaid > 0.01 ? unpaid : 0, wtx_id: wtx, settlement_id: id });
+    return { wtx_id: wtx, settlement_id: id, moved_payments: moved, paid_moved: b.with_payment ? paid : 0 };
+  })!;
   return { ok: true, ...out, old_supplier_owed: bypassOwed(r.supplier_id as number), client_due: clientDue(client.id) };
+}));
+
+/**
+ * One party, two cards: a supplier we buy bypass / pump fuel from IS this wholesale client. Linking makes this supplier the
+ * client's own supplier card (suppliers.client_id), so "maal client se liya" lands here, the bills and our payments stay
+ * together, and no shift is needed again. If the client already had a supplier card (made by an earlier shift), it is merged
+ * into this one first (every entry moves, nothing is re-valued). Null unlinks. CEO only.
+ */
+bypass.post("/suppliers/:id/link-client", requirePerm("entries.edit"), h((req) => {
+  const t = tid(req);
+  const b = parse(z.object({ client_id: z.number().int().positive().nullable() }), req.body);
+  const sup = get("SELECT * FROM suppliers WHERE id=? AND tenant_id=?", Number(req.params.id), t);
+  if (!sup) throw new AppError(404, "Supplier nahi mila");
+  if (b.client_id === null) {
+    run("UPDATE suppliers SET client_id=NULL WHERE id=?", sup.id);
+    audit(t, req.user!, "supplier_client_unlink", `supplier:${sup.id}`, { client_id: sup.client_id });
+    return { ok: true, supplier_id: sup.id, client_id: null };
+  }
+  const client = get("SELECT id, name FROM wholesale_clients WHERE id=? AND tenant_id=?", b.client_id, t);
+  if (!client) throw new AppError(404, "Client nahi mila");
+  if (sup.client_id && sup.client_id !== client.id) throw new AppError(400, "Ye supplier pehle kisi aur client se juda hai — pehle wo link hatayein");
+  const merged = tx(() => {
+    const other = get("SELECT id, name FROM suppliers WHERE tenant_id=? AND client_id=? AND id<>?", t, client.id, sup.id);
+    let m: { name: string; moved: Record<string, number> } | null = null;
+    if (other) { const r = mergeParty(t, "supplier", other.id as number, sup.id as number); m = { name: other.name as string, moved: r.moved }; }
+    run("UPDATE suppliers SET client_id=? WHERE id=?", client.id, sup.id);
+    return m;
+  });
+  audit(t, req.user!, "supplier_client_link", `supplier:${sup.id}`, { client_id: client.id, client: client.name, merged_card: merged });
+  return { ok: true, supplier_id: sup.id, client_id: client.id, merged: merged ? { name: merged.name, rows: Object.values(merged.moved).reduce((a, n) => a + n, 0) } : null,
+    bypass_owed: bypassOwed(sup.id as number), owed: supplierOwed(sup.id as number) };
 }));
 const pkr0 = (n: number) => `Rs ${Math.round(n).toLocaleString("en-PK")}`;
 

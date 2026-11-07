@@ -109,15 +109,15 @@ parties.delete("/parties/:kind/:id", requirePerm("corrections.manage"), h((req) 
   return { ok: true, deleted: { id: p.id, name: p.name } };
 }));
 
-/** Merge this (duplicate) party into another: every entry moves, balances add up, the duplicate row goes. */
-parties.post("/parties/:kind/:id/merge", requirePerm("corrections.manage"), h((req) => {
-  const kind = kindOf(req.params.kind), k = KINDS[kind], t = tid(req);
-  const b = parse(z.object({ into: z.number().int() }), req.body);
-  const src = party(kind, Number(req.params.id), t);
-  if (b.into === src.id) throw new AppError(400, "Same party — kisi doosre me merge karein");
-  const dst = party(kind, b.into, t);
+/** Merge one party into another inside the caller's tx: every entry moves, balances add up, the duplicate row goes.
+ *  Returns how many rows moved per table. Also used when a supplier card is linked to a wholesale client. */
+export function mergeParty(t: number, kindName: string, srcId: number, dstId: number): { src: any; dst: any; moved: Record<string, number> } {
+  const kind = kindOf(kindName), k = KINDS[kind];
+  const src = party(kind, srcId, t);
+  if (dstId === src.id) throw new AppError(400, "Same party — kisi doosre me merge karein");
+  const dst = party(kind, dstId, t);
   const moved: Record<string, number> = {};
-  tx(() => {
+  {
     for (const tbl of refTables(kind)) {
       if (tbl === "wholesale_rates") {
         // one rate per client & product: the kept client's own rate wins, the duplicate's fills any gap
@@ -135,7 +135,15 @@ parties.post("/parties/:kind/:id/merge", requirePerm("corrections.manage"), h((r
     // a duplicate with a phone the kept one lacks: keep the phone
     if (!dst.phone && src.phone) run(`UPDATE ${k.table} SET phone=? WHERE id=?`, src.phone, dst.id);
     run(`DELETE FROM ${k.table} WHERE id=? AND tenant_id=?`, src.id, t);
-  });
+  }
+  return { src, dst, moved };
+}
+
+/** Merge this (duplicate) party into another: every entry moves, balances add up, the duplicate row goes. */
+parties.post("/parties/:kind/:id/merge", requirePerm("corrections.manage"), h((req) => {
+  const kind = kindOf(req.params.kind), t = tid(req);
+  const b = parse(z.object({ into: z.number().int() }), req.body);
+  const { src, dst, moved } = tx(() => mergeParty(t, kind, Number(req.params.id), b.into))!;
   audit(t, req.user!, `${kind}_merge`, `${kind}:${dst.id}`, { from: src, into: { id: dst.id, name: dst.name }, moved });
   return { ok: true, into: { id: dst.id, name: dst.name }, from: { id: src.id, name: src.name }, moved: describe(moved), total: Object.values(moved).reduce((a, b) => a + b, 0) };
 }));
