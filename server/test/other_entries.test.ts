@@ -122,7 +122,7 @@ test("the CEO entries are private — a manager cannot see them, but both books 
 });
 
 test("the cashier day book hides the CEO detail but the cash still reconciles", async () => {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 10); // the Pakistan day (the day book is per PK day)
   const adminDay = ok(await call(adminTok, "GET", `/api/cashier/daybook?date=${today}`), "admin daybook");
   const cashDay = ok(await call(cashTok, "GET", `/api/cashier/daybook?date=${today}`), "cashier daybook");
   const txt = (d: any) => JSON.stringify(d.rows);

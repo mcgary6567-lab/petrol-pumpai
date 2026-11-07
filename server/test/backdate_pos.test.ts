@@ -63,7 +63,7 @@ test("back-dated POS entry (manager / CEO): dated on that day, priced at that da
   ok(await call("salesman", "POST", "/api/shifts/open", {}), "open shift");
   const s3 = ok(await call("salesman", "POST", "/api/sales", { station_id: st, product: "HSD", litres: 10, payment_method: "cash", entry_date: dayAgo(8) }), "salesman");
   near(s3.rate, todayHSD, "salesman cannot back-date");
-  assert.equal(String(s3.created_at).slice(0, 10), dayAgo(0));
+  assert.equal(db.pkDate(Date.parse(s3.created_at)), dayAgo(0), "booked today (Pakistan day, not the UTC date)");
   await books();
 });
 
