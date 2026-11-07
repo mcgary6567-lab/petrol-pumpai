@@ -312,7 +312,7 @@ export function EditSale({ sale, onClose, onDone }: { sale: any; onClose: () => 
           </select>
           <input className="input flex-1" type="number" inputMode="decimal" value={val} onChange={(e) => setVal(e.target.value)} />
         </div>
-        <p className="text-xs text-slate-500">Rate wahi rahega ({pkr(sale.rate)}/L); {mode === "litres" ? "amount" : "litres"} khud ban jayega. Khata/cash/stock sab update honge.</p>
+        <p className="text-xs text-slate-500">Rate wahi rahega ({pkr(sale.rate)}/L); {mode === "litres" ? "amount" : "litres"} khud ban jayega. Khata/cash/stock sab update honge. Shift band ho to bhi edit hoga: litres badhe to meter wala cash utna kam, ghate to utna zyada, aur salesman ka cash expected bhi usi hisaab se badlega.</p>
         <Field label="Vehicle no (optional)"><input className="input" value={vehicle} onChange={(e) => setVehicle(e.target.value)} /></Field>
         <Field label="Slip / parchi no (optional)"><input className="input" value={slip} onChange={(e) => setSlip(e.target.value)} /></Field>
         {hasBaqi && (

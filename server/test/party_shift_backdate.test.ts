@@ -130,3 +130,30 @@ test("client pays our depot, entered back-dated at the cashier: the supplier leg
   assert.equal(s.txn_date, w.txn_date, "supplier side on the client's date");
   await books();
 });
+
+test("CEO edits a khata slip on a CLOSED shift: more litres come out of the meter cash, fewer go back; tank and cash expected follow", async () => {
+  const t = db.get("SELECT id FROM tenants ORDER BY id LIMIT 1")!.id as number;
+  const smName = db.get("SELECT name FROM users WHERE email='salesman@pumpai.pk'")!.name;
+  const sh0 = db.get(`SELECT sh.* FROM shifts sh JOIN stations s ON s.id=sh.station_id WHERE s.tenant_id=? AND sh.status='closed' AND sh.attendant=? ORDER BY sh.id DESC LIMIT 1 OFFSET 3`, t, smName)!;
+  const rate = 280;
+  db.run("INSERT INTO sales (station_id,shift_id,product,litres,rate,amount,payment_method,source,at_close,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+    sh0.station_id, sh0.id, "HSD", 100, rate, 100 * rate, "cash", "meter", 1, sh0.closed_at);
+  db.run("UPDATE shifts SET cash_expected=cash_expected+?, cash_actual=cash_actual+? WHERE id=?", 100 * rate, 100 * rate, sh0.id);
+  const mid = new Date((Date.parse(sh0.opened_at as string) + Date.parse(sh0.closed_at as string)) / 2).toISOString();
+  const cust = db.get("SELECT id FROM customers WHERE tenant_id=? AND credit_limit - balance > 100000 ORDER BY credit_limit - balance DESC LIMIT 1", t)!.id;
+  const s = ok(await call("admin", "POST", "/api/sales", { station_id: sh0.station_id, product: "HSD", litres: 20, payment_method: "khata", customer_id: cust, entry_date: pkMinute(mid) }), "slip");
+  const meterL = () => Number(db.get("SELECT COALESCE(SUM(litres),0) v FROM sales WHERE shift_id=? AND product='HSD' AND source='meter' AND created_by IS NULL", sh0.id)!.v);
+  const exp = () => Number(db.get("SELECT cash_expected FROM shifts WHERE id=?", sh0.id)!.cash_expected);
+  const tankL = () => Number(db.get("SELECT current_l FROM tanks WHERE station_id=? AND product='HSD' ORDER BY current_l DESC LIMIT 1", sh0.station_id)!.current_l);
+  const m0 = meterL(), e0 = exp(), k0 = tankL();
+  near(m0, 80, "the slip already took 20 L out of the meter cash");
+  // 20 → 30 L: 10 more out of the meter cash, cash expected down by 10 × meter rate, tank unchanged
+  const up = ok(await call("admin", "POST", `/api/corrections/sale/${s.id}/edit`, { reason: "parchi 30 L ki thi", litres: 30 }), "edit up");
+  near(meterL(), 70); near(exp(), e0 - 10 * rate, "cash expected down"); near(tankL(), k0, "tank: fuel left at close already");
+  assert.ok(up.shift_cash && up.shift_cash.shift_id === sh0.id);
+  // 30 → 15 L: 15 back into the meter cash, cash expected up, tank still the same (the meter says it went out)
+  const s2 = up.sale.id;
+  ok(await call("admin", "POST", `/api/corrections/sale/${s2}/edit`, { reason: "parchi 15 L ki thi", litres: 15 }), "edit down");
+  near(meterL(), 85); near(exp(), e0 + 5 * rate, "cash expected up by the litres given back"); near(tankL(), k0, "tank unchanged");
+  const books = ok(await call("admin", "GET", "/api/books/check"), "books"); assert.equal(books.ok, true, JSON.stringify(books.checks.filter((c: any) => !c.ok)));
+});

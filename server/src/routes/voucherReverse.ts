@@ -21,7 +21,9 @@ import { bypassStock } from "./bypass.js";
 export const vouchers = Router();
 type Kind = "trip" | "bypass";
 export type Leg = { what: string; party?: string | null; amount?: number | null; litres?: number | null; tone: "khata" | "supplier" | "stock" | "tank" | "cash" | "other" };
-export type Plan = { kind: Kind; id: number; title: string; date: string; legs: Leg[]; blockers: string[]; ok: boolean; voided: boolean; summary: { clients: number; suppliers: number; litres: number } };
+/** A later voucher that holds this one's stock — shown as a tappable #number under the blocker it explains. */
+export type BlockLink = { blocker: number; kind: "bypass" | "unload"; id: number; label: string; litres: number; date: string };
+export type Plan = { kind: Kind; id: number; title: string; date: string; legs: Leg[]; blockers: string[]; links?: BlockLink[]; ok: boolean; voided: boolean; summary: { clients: number; suppliers: number; litres: number } };
 
 const fuel = (p: string | null | undefined) => (p ? PRODUCTS[p] ?? p : "");
 
@@ -29,7 +31,7 @@ const fuel = (p: string | null | undefined) => (p ? PRODUCTS[p] ?? p : "");
 function bypassPlan(t: number, id: number): Plan {
   const d = get("SELECT * FROM bypass_deliveries WHERE id=? AND tenant_id=?", id, t);
   if (!d) throw new AppError(404, "Delivery not found");
-  const legs: Leg[] = [], blockers: string[] = [];
+  const legs: Leg[] = [], blockers: string[] = [], links: BlockLink[] = [];
   const purchases = all("SELECT p.*, s.name supplier, s.client_id sup_client FROM bypass_purchases p JOIN suppliers s ON s.id=p.supplier_id WHERE p.delivery_id=? AND p.voided=0 ORDER BY p.id", id);
   const drops = all(`SELECT x.*, c.name client, w.amount sale_amount, w.id wtx, w.voided wvoided FROM bypass_drops x LEFT JOIN wholesale_clients c ON c.id=x.client_id LEFT JOIN wholesale_txns w ON w.id=x.wtx_id
     WHERE x.delivery_id=? AND x.voided=0 ORDER BY x.id`, id);
@@ -54,12 +56,34 @@ function bypassPlan(t: number, id: number): Plan {
   }
   for (const p of new Set([...Object.keys(inL), ...Object.keys(outL)])) {
     const after = round2(bypassStock(t, p).litres - (inL[p] ?? 0) + (outL[p] ?? 0));
-    if (after < -0.01) blockers.push(`${fuel(p)}: is bill ka ${Math.abs(after).toLocaleString()} L maal baad ke kisi voucher me nikal chuka hai — pehle wo voucher theek karein.`);
+    if (after < -0.01) {
+      // the outs made after this voucher, newest first, until they cover the shortfall: those are the vouchers to fix
+      const need = Math.abs(after), at = blockers.length, found: BlockLink[] = [];
+      let got = 0;
+      const later = all(`SELECT x.delivery_id, x.id, x.litres, x.txn_date, x.tank_id, c.name client FROM bypass_drops x LEFT JOIN wholesale_clients c ON c.id=x.client_id
+        WHERE x.tenant_id=? AND x.voided=0 AND x.product=? AND COALESCE(x.delivery_id,0)<>? AND (x.delivery_id > ? OR (x.delivery_id IS NULL AND x.created_at > ?))
+        ORDER BY x.txn_date DESC, x.id DESC`, t, p, id, id, d.created_at);
+      const byVoucher = new Map<string, BlockLink>();
+      for (const x of later) {
+        if (got >= need - 0.01) break;
+        got = round2(got + x.litres);
+        const key = x.delivery_id ? `b${x.delivery_id}` : `u${x.id}`;
+        const cur = byVoucher.get(key);
+        if (cur) { cur.litres = round2(cur.litres + x.litres); continue; }
+        const link: BlockLink = x.delivery_id
+          ? { blocker: at, kind: "bypass", id: x.delivery_id, label: `BYP-${x.delivery_id}`, litres: x.litres, date: x.txn_date }
+          : { blocker: at, kind: "unload", id: x.id, label: `Tank unload #${x.id}`, litres: x.litres, date: x.txn_date };
+        byVoucher.set(key, link); found.push(link);
+      }
+      const names = found.map((l) => l.label).join(", ");
+      blockers.push(`${fuel(p)}: is bill ka ${Math.abs(after).toLocaleString()} L maal baad ke ${found.length > 1 ? "in vouchers" : "is voucher"} me nikal chuka hai${names ? ` (${names})` : ""} — pehle ${found.length > 1 ? "wo vouchers" : "wo voucher"} theek karein.`);
+      links.push(...found);
+    }
     else if (inL[p]) legs.push({ what: `Bypass stock ${fuel(p)}: ${after.toLocaleString()} L reh jayega`, litres: round2((outL[p] ?? 0) - (inL[p] ?? 0)), tone: "stock" });
   }
   if (!purchases.length && !drops.length) blockers.push("Is voucher me koi zinda line nahi (sab pehle hi mansookh).");
   const clients = new Set(drops.filter((x) => !x.tank_id).map((x) => x.client_id)).size, suppliers = new Set(purchases.map((p) => p.supplier_id)).size;
-  return { kind: "bypass", id, title: `Bypass delivery #${id}`, date: d.txn_date, legs, blockers, ok: !d.voided && !blockers.length, voided: !!d.voided,
+  return { kind: "bypass", id, title: `Bypass delivery #${id}`, date: d.txn_date, legs, blockers, links, ok: !d.voided && !blockers.length, voided: !!d.voided,
     summary: { clients, suppliers, litres: round2(Object.values(outL).reduce((a, v) => a + v, 0)) } };
 }
 function bypassReverse(t: number, by: string, id: number, reason: string) {

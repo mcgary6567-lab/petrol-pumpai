@@ -385,7 +385,8 @@ test("whole-voucher reversal: plan lists every leg; blockers (stock sold on, cas
   // blocker 1: a later voucher sells the 500 L left from this bill → cannot reverse
   const later = ok(await call("admin", "POST", "/api/bypass/deliveries", { station_id: st, drops: [{ client_id: W.id, product: "HSD", litres: Math.round(stock0) + 500, override_limit: true }] }), "later sale from stock");
   const p2 = ok(await call("admin", "GET", `/api/vouchers/bypass/${del.id}/plan`), "plan 2");
-  assert.equal(p2.ok, false); assert.match(p2.blockers.join(" "), /baad ke kisi voucher/);
+  assert.equal(p2.ok, false); assert.match(p2.blockers.join(" "), /baad ke (is|in) voucher/);
+  assert.ok(p2.links.some((l: any) => l.kind === "bypass" && l.id === later.id), "the later voucher is named, tappable");
   assert.equal((await call("admin", "POST", `/api/vouchers/bypass/${del.id}/void`, { reason: "galat entry" })).status, 400, "refused while blocked");
   ok(await call("admin", "POST", `/api/vouchers/bypass/${later.id}/void`, { reason: "test undo" }), "void the later one");
   // blocker 2: a cashier receipt against the drop

@@ -97,9 +97,51 @@ corrections.post("/corrections/sale/:id/void", requirePerm("corrections.manage")
   return { ok: true, reversed: did, amount: round2(sale.amount), shift_cash: shiftCash };
 }));
 
+/**
+ * Litres of a slip on a CLOSED shift changed. At close the meters booked every litre not on a POS slip as one CASH row
+ * per fuel (source 'meter'), and the fuel left the tank then. So:
+ *  - more litres on the slip: taken out of that meter cash row (up to what it holds) and given back to the tank first
+ *    (the re-recorded slip takes them out again); any rest is fuel the books never saw and leaves the tank now;
+ *  - fewer litres: those litres go back into the meter cash row (made at the slip's rate if missing) and leave the tank
+ *    again, because the meter says they went out. A shift with no meter settlement just keeps the stock move.
+ * Returns the cash freed from the bag (+ = cash expected drops, − = it rises). Run inside the caller's tx.
+ */
+function closedShiftLitres(t: number, shift: Row, out: Record<string, number>, back: Record<string, number>, rate: number): number {
+  const delta: Record<string, number> = {};
+  for (const [p, l] of Object.entries(out)) delta[p] = round2((delta[p] ?? 0) + (l ?? 0));
+  for (const [p, l] of Object.entries(back)) delta[p] = round2((delta[p] ?? 0) + (l ?? 0));
+  const metered = !!get("SELECT 1 x FROM sales WHERE shift_id=? AND source='meter' AND created_by IS NULL LIMIT 1", shift.id);
+  if (!metered) return 0;
+  let freed = 0;
+  for (const [p, d] of Object.entries(delta)) {
+    if (Math.abs(d) < 0.005) continue;
+    const tank = get("SELECT id FROM tanks WHERE station_id=? AND product=? ORDER BY current_l DESC LIMIT 1", shift.station_id, p);
+    const meter = get("SELECT * FROM sales WHERE shift_id=? AND product=? AND source='meter' AND created_by IS NULL ORDER BY litres DESC LIMIT 1", shift.id, p);
+    if (d > 0) {
+      const cover = round2(Math.min(d, meter?.litres ?? 0));
+      if (cover > 0.009) {
+        const keepL = round2(meter!.litres - cover), keepA = keepL > 0.009 ? round2(keepL * meter!.rate) : 0;
+        freed += round2(meter!.amount - keepA);
+        if (keepL > 0.009) run("UPDATE sales SET litres=?, amount=? WHERE id=?", keepL, keepA, meter!.id); else run("DELETE FROM sales WHERE id=?", meter!.id);
+        if (tank) run("UPDATE tanks SET current_l = current_l + ? WHERE id=?", cover, tank.id);
+      }
+    } else {
+      const l = round2(-d);
+      if (meter) { const r = meter.rate; run("UPDATE sales SET litres=?, amount=? WHERE id=?", round2(meter.litres + l), round2((meter.litres + l) * r), meter.id); freed -= round2((meter.litres + l) * r - meter.amount); }
+      else {
+        run("INSERT INTO sales (station_id,shift_id,product,litres,rate,amount,payment_method,source,at_close,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+          shift.station_id, shift.id, p, l, rate, round2(l * rate), "cash", "meter", 1, shift.closed_at ?? now());
+        freed -= round2(l * rate);
+      }
+      if (tank) run("UPDATE tanks SET current_l = current_l - ? WHERE id=?", l, tank.id);
+    }
+  }
+  return round2(freed);
+}
+
 /** CEO edit of ANY fuel sale: reverse it + re-record with the new values in one transaction, so stock, meter, khata,
- *  cash/bank and the ledger all stay balanced. Money-side fields can change on any sale; the litres/amount only while the
- *  shift is still open (otherwise the closed shift's meter↔sales tie would break — void & re-enter instead). */
+ *  cash/bank and the ledger all stay balanced. On a closed shift the meter cash and the salesman's cash expected follow
+ *  (closedShiftLitres), so litres / amount / baqi-cash can change there too. */
 corrections.post("/corrections/sale/:id/edit", requirePerm("entries.edit"), h((req) => {
   const t = tid(req);
   const b = parse(z.object({
@@ -118,7 +160,6 @@ corrections.post("/corrections/sale/:id/edit", requirePerm("entries.edit"), h((r
   const method = b.payment_method ?? sale.payment_method;
   if (![...moneyMethods(t), "khata"].includes(method)) throw new AppError(400, `Sale sirf cash / card / online / khata ho sakti hai — ${method} nahi.`);
   const litresChanges = b.litres !== undefined || b.amount !== undefined;
-  if (litresChanges && (!sale.shift_id || sale.shift_status !== "open")) throw new AppError(400, "Band shift ki sale ke litres/amount edit nahi hote (meter hisaab). Sirf khula shift — warna void karein.");
   const customer_id = b.customer_id !== undefined ? b.customer_id : sale.customer_id;
   if (method === "khata" && !customer_id) throw new AppError(400, "Khata sale ke liye customer chahiye");
   const litres = b.litres ?? (b.amount ? undefined : sale.litres);
@@ -142,10 +183,12 @@ corrections.post("/corrections/sale/:id/edit", requirePerm("entries.edit"), h((r
         items_cost: b.items_cost ?? sale.items_cost ?? 0, items_note: b.items_note !== undefined ? b.items_note : sale.items_note,
       } : {}),
     });
-    // on a CLOSED shift the bag's cash follows: cash → khata/card (or a smaller cash amount) frees counted cash → expected drops;
-    // khata/card → cash would ADD cash that was never counted → refused (the tx rolls back)
-    if (shift?.status === "closed" && round2(saved.cash_back ?? 0) !== round2(sale.cash_back ?? 0)) throw new AppError(400, "Band shift par baqi-cash nahi badal sakta — sale void karke khuli shift me dobara daalein");
-    const shiftCash = adjustClosedShiftCash(shift, saleCash(sale.payment_method, sale.amount) - saleCash(saved.payment_method, saved.amount), `${sale.payment_method} → ${saved.payment_method} edit`);
+    // on a CLOSED shift the bag's cash follows the edit: the meter settled every litre not on a POS slip as cash at close,
+    // so more litres on this slip come out of that meter cash, fewer go back into it (see closedShiftLitres); a cash sale's
+    // own amount and the khata baqi-cash handed from the bag move it too. The salesman's cash expected / short-over shows it.
+    let freed = saleCash(sale.payment_method, sale.amount) - saleCash(saved.payment_method, saved.amount) + round2((saved.cash_back ?? 0) - (sale.cash_back ?? 0));
+    if (shift?.status === "closed") freed += closedShiftLitres(t, shift, { [sale.product]: -sale.litres }, { [saved.product]: saved.litres }, saved.rate);
+    const shiftCash = adjustClosedShiftCash(shift, freed, `${sale.payment_method} → ${saved.payment_method} edit`, true);
     return { saved, shiftCash };
   });
   audit(t, req.user!, "sale_edit", `sale:${sale.id}`, { before, after: { product: saved.product, litres: saved.litres, amount: saved.amount, method: saved.payment_method, customer_id: saved.customer_id }, new_sale_id: saved.id, reason: b.reason, shift_cash: shiftCash });

@@ -8,6 +8,7 @@ import { askCancel, pinHeader } from "./CancelEntry";
 import { useAuth } from "../App";
 import { Ur } from "./VoiceShell";
 import { dt, num, pkr } from "../lib/format";
+import { BypassVoucher } from "../pages/Bypass";
 
 const TONE: Record<string, string> = { khata: "bg-amber-50 text-amber-900", supplier: "bg-sky-50 text-sky-900", stock: "bg-slate-50 text-slate-800", tank: "bg-emerald-50 text-emerald-900", cash: "bg-rose-50 text-rose-900", other: "bg-slate-50 text-slate-700" };
 
@@ -25,8 +26,9 @@ export function VoucherVoidButton({ kind, id, onDone, voided }: { kind: "trip" |
 }
 
 function VoucherVoidModal({ kind, id, onClose, onDone }: { kind: "trip" | "bypass"; id: number; onClose: () => void; onDone: () => void }) {
-  const { data: plan, error } = useApi<any>(`/vouchers/${kind}/${id}/plan`);
+  const { data: plan, error, reload } = useApi<any>(`/vouchers/${kind}/${id}/plan`);
   const { busy, run } = useAction();
+  const [openVoucher, setOpenVoucher] = useState<number | null>(null); // a later voucher named in a blocker, opened in place
   const go = async () => {
     const a = await askCancel({ title: `${plan.title} — poora mansookh`, what: <>{plan.summary.clients} client · {num(plan.summary.litres)} L · {plan.legs.length} legs</>, hint: "Upar di gayi har line wapas hogi. Statements me ye entries kati hui (struck) dikhti rahengi, wajah ke saath. Apna PIN likhein." });
     if (a) run(() => api(`/vouchers/${kind}/${id}/void`, { body: { reason: a.reason }, headers: pinHeader(a) }), "Voucher poora mansookh ho gaya — sab khate update").then((r) => { if (r) onDone(); });
@@ -46,7 +48,16 @@ function VoucherVoidModal({ kind, id, onClose, onDone }: { kind: "trip" | "bypas
           {plan.blockers.length > 0 && (
             <div className="rounded-xl border border-rose-300 bg-rose-50 p-3 text-rose-900">
               <div className="mb-1 flex items-center gap-2 font-semibold"><AlertTriangle size={16} /> Abhi mansookh nahi ho sakta — pehle ye theek karein:</div>
-              <ul className="list-disc space-y-0.5 pl-5">{plan.blockers.map((b: string, i: number) => <li key={i}>{b}</li>)}</ul>
+              <ul className="list-disc space-y-1 pl-5">{plan.blockers.map((b: string, i: number) => {
+                const links = (plan.links ?? []).filter((l: any) => l.blocker === i);
+                return <li key={i}>{b}
+                  {links.length > 0 && <div className="mt-1 flex flex-wrap gap-1.5">
+                    {links.map((l: any) => l.kind === "bypass"
+                      ? <button key={`${l.kind}${l.id}`} type="button" onClick={() => setOpenVoucher(l.id)} className="inline-flex min-h-8 items-center gap-1 rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-rose-800 underline ring-1 ring-rose-300 hover:bg-rose-100" title="Ye voucher kholein">{l.label} · {num(l.litres)} L · {dt(l.date).slice(0, 11)}</button>
+                      : <span key={`${l.kind}${l.id}`} className="inline-flex min-h-8 items-center rounded-full bg-white px-2.5 py-1 text-xs text-rose-800 ring-1 ring-rose-200">{l.label} · {num(l.litres)} L · {dt(l.date).slice(0, 11)}</span>)}
+                  </div>}
+                </li>;
+              })}</ul>
             </div>
           )}
           {plan.voided && <p className="text-rose-700">Ye voucher pehle hi mansookh hai.</p>}
@@ -57,6 +68,7 @@ function VoucherVoidModal({ kind, id, onClose, onDone }: { kind: "trip" | "bypas
           </div>
         </div>
       )}
+      {openVoucher != null && <BypassVoucher id={openVoucher} onClose={() => { setOpenVoucher(null); reload(); }} />}
     </Modal>
   );
 }
