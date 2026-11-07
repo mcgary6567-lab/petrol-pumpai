@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import express from "express";
 import path from "node:path";
 import fs from "node:fs";
@@ -84,7 +85,7 @@ import { machines } from "./routes/machines.js";
 import { lookupsRouter } from "./routes/lookups.js";
 import { productsRouter, refreshProducts } from "./products.js";
 import { getSetting } from "./db.js";
-import { startScheduler } from "./automation/scheduler.js";
+import { startScheduler, runDueJobs } from "./automation/scheduler.js";
 import { seed } from "./seed.js";
 
 migrate();
@@ -120,6 +121,18 @@ app.use(/^\/(w|k|i)\/[^/]+\/?$/, rateLimit("portal", 60, 10 * 60_000));
 app.use("/api/signup", rateLimit("signup", 10, 10 * 60_000));
 app.use("/api/platform/login", rateLimit("platform-login", 20, 10 * 60_000));
 app.use("/api/account/activate", rateLimit("activate", 15, 10 * 60_000));
+
+/** Shared hosting (Hostinger business): a hosting cron job opens this every few minutes. It wakes the app (which the
+ *  host puts to sleep when idle) and runs the scheduled jobs that fell due meanwhile. Off unless CRON_KEY is set. */
+app.get("/api/cron/tick", (req, res) => {
+  const key = process.env.CRON_KEY ?? "";
+  if (key.length < 16) { res.status(404).json({ error: "Not found" }); return; }
+  const given = String(req.query.key ?? req.get("x-cron-key") ?? "");
+  const a = Buffer.from(given), b = Buffer.from(key);
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) { res.status(403).json({ error: "Forbidden" }); return; }
+  const started = config.schedulerEnabled ? runDueJobs() : [];
+  res.json({ ok: true, at: new Date().toISOString(), started });
+});
 
 app.get("/api/health", (_req, res) => {
   let db = true;

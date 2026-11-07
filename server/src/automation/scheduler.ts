@@ -43,10 +43,75 @@ export function startScheduler() {
   for (const job of JOBS) {
     cron.schedule(job.cron, async () => {
       for (const t of all("SELECT id FROM tenants")) {
-        const a = get("SELECT enabled, cron FROM automations WHERE tenant_id=? AND key=?", t.id, job.key);
-        if (a?.enabled) await runJob(t.id, job.key);
+        const a = get("SELECT enabled, cron, last_run_at FROM automations WHERE tenant_id=? AND key=?", t.id, job.key);
+        // a cron tick (shared hosting) may already have run it this minute
+        if (a?.enabled && !(a.last_run_at && Date.now() - Date.parse(a.last_run_at as string) < 60_000)) await runJob(t.id, job.key);
       }
     }, { timezone: config.timezone });
   }
   console.log(`[automation] ${JOBS.length} jobs scheduled (${config.timezone})`);
+}
+
+/* ---------------- catch-up runs (shared hosting) ----------------
+ * On hosting where the app is put to sleep when nobody visits (Hostinger web/business hosting), the in-process timers
+ * above do not fire while it sleeps. A hosting cron job opens /api/cron/tick every few minutes: that wakes the app and
+ * runs every job whose last scheduled moment fell inside the catch-up window and has not run since. The window is short
+ * (default 2 hours) so a customer reminder due at 11:00 is never sent late at night after a long outage. */
+
+/** Does one cron field match this value? Supports *, *\/n, a, a-b, a-b/n and comma lists. */
+function fieldMatches(field: string, v: number, min: number): boolean {
+  for (const part of field.split(",")) {
+    const [range, stepS] = part.split("/");
+    const step = stepS ? Number(stepS) : 1;
+    let lo: number, hi: number;
+    if (range === "*") { lo = min; hi = Number.MAX_SAFE_INTEGER; }
+    else if (range.includes("-")) { const [a, b] = range.split("-").map(Number); lo = a; hi = b; }
+    else { lo = Number(range); hi = stepS ? Number.MAX_SAFE_INTEGER : lo; }
+    if (v >= lo && v <= hi && (v - lo) % step === 0) return true;
+  }
+  return false;
+}
+
+/** The wall-clock parts of a moment in the pump's time zone. */
+function zoned(ms: number, tz: string) {
+  const p = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: tz, hour12: false, year: "numeric", month: "numeric", day: "numeric", hour: "numeric", minute: "numeric", weekday: "short" })
+    .formatToParts(new Date(ms)).map((x) => [x.type, x.value]));
+  const dow = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(p.weekday);
+  return { minute: Number(p.minute), hour: Number(p.hour) % 24, day: Number(p.day), month: Number(p.month), dow };
+}
+
+export function cronMatches(expr: string, ms: number, tz = config.timezone): boolean {
+  const [mi, ho, dom, mon, dw] = expr.trim().split(/\s+/);
+  const z = zoned(ms, tz);
+  const dowOk = fieldMatches(dw, z.dow, 0) || (z.dow === 0 && fieldMatches(dw, 7, 0));
+  const domOk = fieldMatches(dom, z.day, 1);
+  // classic cron: when both day fields are restricted, either may match
+  const dayOk = dom !== "*" && dw !== "*" ? domOk || dowOk : domOk && dowOk;
+  return fieldMatches(mi, z.minute, 0) && fieldMatches(ho, z.hour, 0) && fieldMatches(mon, z.month, 1) && dayOk;
+}
+
+/** The latest scheduled minute at or before `nowMs`, looking back at most `windowMin` minutes (null = none in the window). */
+export function lastFire(expr: string, nowMs: number, windowMin: number, tz = config.timezone): number | null {
+  const start = Math.floor(nowMs / 60_000) * 60_000;
+  for (let i = 0; i <= windowMin; i++) { const t = start - i * 60_000; if (cronMatches(expr, t, tz)) return t; }
+  return null;
+}
+
+/** Run every enabled job that was due in the catch-up window and has not run since. Returns what was started. */
+export function runDueJobs(nowMs = Date.now(), windowMin = Number(process.env.CRON_CATCHUP_MIN ?? 120)): { tenant_id: number; key: string; due_at: string }[] {
+  const started: { tenant_id: number; key: string; due_at: string }[] = [];
+  for (const t of all("SELECT id FROM tenants")) {
+    ensureAutomations(t.id as number);
+    for (const job of JOBS) {
+      const a = get("SELECT enabled, last_run_at FROM automations WHERE tenant_id=? AND key=?", t.id, job.key);
+      if (!a?.enabled) continue;
+      const due = lastFire(job.cron, nowMs, windowMin);
+      if (due == null) continue;
+      if (a.last_run_at && Date.parse(a.last_run_at as string) >= due) continue;
+      started.push({ tenant_id: t.id as number, key: job.key, due_at: new Date(due).toISOString() });
+    }
+  }
+  // one after another in the background, so the cron request returns at once (hosting cuts a request at 120 s)
+  setImmediate(async () => { for (const s of started) await runJob(s.tenant_id, s.key); });
+  return started;
 }

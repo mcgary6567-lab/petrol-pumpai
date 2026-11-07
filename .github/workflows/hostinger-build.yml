@@ -1,0 +1,41 @@
+# Ready-built copy of the app for Hostinger web / business hosting.
+#
+# On every push to main this builds the app and puts the result on the branch "hostinger" (only built files: app.js,
+# server/dist, web/dist, package.json). In hPanel connect the Node.js app to THIS repo, branch "hostinger", entry file
+# app.js — Hostinger then only installs the few runtime packages and starts it; no heavy build runs on the shared server.
+# See HOSTINGER.md. The database is never in this branch (it lives in DB_PATH outside the app folder).
+name: Hostinger build
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: hostinger-build
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: node deploy/hostinger/build.mjs dist-hostinger
+      - name: Push to the hostinger branch
+        run: |
+          cd dist-hostinger
+          git init -q -b hostinger
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Hostinger build of ${GITHUB_SHA::7}"
+          git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${GITHUB_REPOSITORY}.git" hostinger

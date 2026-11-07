@@ -23,6 +23,7 @@ git push -q origin main && echo "DEPLOYED OK"
 ```
 
 The push triggers the **Fly Deploy** GitHub Action (`.github/workflows/fly-deploy.yml`); watch it with `gh run list --repo mcgary6567-lab/petrol-pumpai --branch main`.
+Hostinger business (web) hosting is also supported: `.github/workflows/hostinger-build.yml` puts a ready-built copy on branch `hostinger` (entry `app.js`, from `deploy/hostinger/`), and the hosting cron opens `/api/cron/tick?key=CRON_KEY` to wake the app and run due jobs. Steps: `HOSTINGER.md`. Never run Fly and Hostinger live together (two SQLite copies split the books).
 
 Deploy after every change. The live site is network-blocked from the sandbox, so **verify on a local production build** instead: build the web (`cd /home/user/petrol-pumpai/web && npx vite build`), run the demo server `cd /home/user/petrol-pumpai/server && NODE_ENV=development DEMO_DATA=1 PORT=4712 WEB_DIST=/home/user/petrol-pumpai/web/dist DB_PATH=<scratch>/pp.db npx tsx src/index.ts`, and drive it with Playwright (`/opt/node-tools/node_modules/playwright`). Login: `admin@pumpai.pk` / `demo1234` (set `localStorage.pumpai_token` from `POST /api/auth/login`).
 
