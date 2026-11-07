@@ -37,7 +37,8 @@ function setupCode(): string {
 }
 
 export const config = {
-  port: Number(process.env.PORT ?? 4000),
+  // a number, or (LiteSpeed / Passenger on shared hosting) a socket path the host hands over in PORT
+  port: ((p) => (/^\d+$/.test(p) ? Number(p) : p))(String(process.env.PORT ?? "4000").trim() || "4000") as number | string,
   dbPath,
   jwtSecret: jwtSecret(),
   publicUrl: process.env.PUBLIC_URL ?? (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : "http://localhost:4000"),

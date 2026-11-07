@@ -71,6 +71,9 @@ Ye app ko jagata hai aur raat ka backup (2 baje), Dropbox backup, alerts, remind
 server kai ghante band raha ho to 2 ghante se purane kaam **dobara nahi** chalte (taa ke subah 11 baje wala reminder raat 11
 baje na jaye) — wo agle din apne waqt par chalenge.
 
+**Agar site 503 / 403 de aur Runtime logs khaali hon:** File Manager me `public_html` ke bahar (usi level par)
+`pumpai-startup.log` kholein — har start aur har rukawat ki wajah wahan likhi hoti hai. Entry file `app.js` zaroor likhein.
+
 Check: browser me ye link kholein — `{"ok":true,...}` aana chahiye. Galat key par 403.
 
 ## 5. Pehli dafa chalayein (khali database ke saath — test)
