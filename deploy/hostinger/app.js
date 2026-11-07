@@ -12,6 +12,9 @@ import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
+// hPanel lists every setting the code reads; a row left empty must count as "not set" (an empty PORT or TZ_NAME would
+// otherwise start the app on a random port or break the backup / reminder clock)
+for (const [k, v] of Object.entries(process.env)) if (typeof v === "string" && v.trim() === "") delete process.env[k];
 const stop = (msg) => { console.error(`\n[PumpAI] ${msg}\n`); process.exit(1); };
 
 const [maj, min] = process.versions.node.split(".").map(Number);
