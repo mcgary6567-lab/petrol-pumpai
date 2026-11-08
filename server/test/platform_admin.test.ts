@@ -252,7 +252,15 @@ test("POS and Customers & khata modules: ON for a new pump; the super-admin swit
   ok(await call(ceo, "GET", "/api/bookings"), "bookings while on");
 
   // khata off: customers / khata APIs closed even for the CEO, permissions gone, cashier offers no khata party
-  ok(await call(p, "POST", `/api/platform/tenants/${t}/module`, { module: "khata", on: false }), "khata off");
+  // first a warning (nothing is switched yet), with how much is still on the khata
+  ok(await call(ceo, "POST", "/api/customers", { name: "Udhaar Wala", phone: "03001234500", credit_limit: 50000 }), "customer");
+  const cid = ok(await call(ceo, "GET", "/api/customers"), "list").find((c: any) => c.name === "Udhaar Wala").id;
+  db.run("UPDATE customers SET balance=12500 WHERE id=?", cid);
+  const warn = ok(await call(p, "POST", `/api/platform/tenants/${t}/module`, { module: "khata", on: false }), "khata off ask");
+  assert.equal(warn.needs_confirm, true); assert.equal(warn.open.owe_n, 1); assert.equal(warn.open.owe, 12500);
+  assert.match(warn.message, /12,500/, "amount shown");
+  assert.equal((await row()).module_khata, true, "not switched before the confirm");
+  ok(await call(p, "POST", `/api/platform/tenants/${t}/module`, { module: "khata", on: false, force: true }), "khata off");
   assert.equal((await row()).module_khata, false);
   const me1 = ok(await call(ceo, "GET", "/api/me"), "me1");
   assert.equal(me1.modules.khata, false);

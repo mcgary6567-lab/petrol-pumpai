@@ -18,7 +18,7 @@ import bcrypt from "bcryptjs";
 import { config } from "../config.js";
 import { all, get, run, now, setSetting, tx, db } from "../db.js";
 import { h, parse, tid, forgetModules } from "../auth.js";
-import { AppError, audit, normalizePhone } from "../services.js";
+import { AppError, audit, normalizePhone, pkr } from "../services.js";
 import { setupBody, provisionTenant, integrationsValues, applyIntegrations } from "./setup.js";
 import { mountBackupRoutes, makeBackup, listBackups } from "./system.js";
 import { mountMigrationExport } from "./migration.js";
@@ -142,10 +142,35 @@ platform.get("/tenants", h(() =>
        COALESCE((SELECT value FROM settings s WHERE s.tenant_id=t.id AND s.key='module_khata'),'1')='1' module_khata
      FROM tenants t ORDER BY t.id DESC`).map((r) => ({ ...r, module_wholesale: Boolean(r.module_wholesale), module_investors: Boolean(r.module_investors), module_pos: Boolean(r.module_pos), module_khata: Boolean(r.module_khata), pump_url: r.slug ? `${config.publicUrl}/p/${r.slug}` : null })) })));
 // turn a paid add-on module on/off for one pump (extra payment taken offline) — only the super-admin can do this
+/** What a pump's khata still holds: money customers owe, advances they paid, wallet money. */
+function khataOpen(t: number) {
+  const r = get(`SELECT SUM(CASE WHEN balance > 0.5 THEN 1 ELSE 0 END) owe_n, COALESCE(SUM(CASE WHEN balance > 0.5 THEN balance END),0) owe,
+    SUM(CASE WHEN balance < -0.5 THEN 1 ELSE 0 END) adv_n, COALESCE(SUM(CASE WHEN balance < -0.5 THEN -balance END),0) adv,
+    SUM(CASE WHEN COALESCE(wallet_balance,0) > 0.5 THEN 1 ELSE 0 END) wallet_n, COALESCE(SUM(CASE WHEN wallet_balance > 0.5 THEN wallet_balance END),0) wallet
+    FROM customers WHERE tenant_id=?`, t)!;
+  const n = (v: unknown) => Number(v ?? 0), m = (v: unknown) => Math.round(Number(v ?? 0));
+  return { owe_n: n(r.owe_n), owe: m(r.owe), adv_n: n(r.adv_n), adv: m(r.adv), wallet_n: n(r.wallet_n), wallet: m(r.wallet) };
+}
 platform.post("/tenants/:id/module", h((req) => {
   const id = Number(req.params.id);
-  const b = parse(z.object({ module: z.enum(["wholesale", "investors", "pos", "khata"]), on: z.boolean() }), req.body);
+  const b = parse(z.object({ module: z.enum(["wholesale", "investors", "pos", "khata"]), on: z.boolean(), force: z.boolean().optional() }), req.body);
   if (!get("SELECT id FROM tenants WHERE id=?", id)) throw new AppError(404, "Pump nahi mila");
+  // switching khata off while customers still owe (or hold an advance / wallet money) hides that money from the pump:
+  // say exactly how much first, and only go ahead when the owner confirms
+  if (b.module === "khata" && !b.on && !b.force) {
+    const k = khataOpen(id);
+    if (!(k.owe_n || k.adv_n || k.wallet_n))
+      return { ok: false, needs_confirm: true, open: k, message: "Khata band karein? Customers, khata, coupons aur orders ki screens chhup jayengi. Kisi customer ka baqaya nahi hai. (Data mehfooz rahega, wapas ON karne par sab milega.)" };
+    {
+      const parts = [
+        k.owe_n ? `${k.owe_n} customers par ${pkr(k.owe)} baqaya hai` : "",
+        k.adv_n ? `${k.adv_n} customers ka ${pkr(k.adv)} advance hai` : "",
+        k.wallet_n ? `${k.wallet_n} wallets mein ${pkr(k.wallet)} hain` : "",
+      ].filter(Boolean);
+      return { ok: false, needs_confirm: true, open: k,
+        message: `⚠️ Khata band karne se pehle: ${parts.join(", ")}.\n\nBand karne par ye screens chhup jayengi aur yeh paisa pump ko nazar nahi aayega (data mehfooz rahega, wapas ON karne par sab milega). Pehle wasooli / wapsi kar lein.\n\nPhir bhi band karein?` };
+    }
+  }
   setSetting(id, `module_${b.module}`, b.on ? "1" : "0");
   forgetModules(id);
   return { ok: true, module: b.module, on: b.on };

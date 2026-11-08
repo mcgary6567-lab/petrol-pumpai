@@ -83,7 +83,14 @@ function Panel({ onLogout }: { onLogout: () => void }) {
   useEffect(() => { load(); const id = setInterval(load, 60_000); return () => clearInterval(id); }, [load]);
 
   const act = async (id: number, action: string) => { await pfetch(`/platform/tenants/${id}/${action}`, {}).then(load).catch((e) => setErr(e.message)); };
-  const toggleModule = async (id: number, on: boolean, module: "wholesale" | "investors" | "pos" | "khata" = "wholesale") => { await pfetch(`/platform/tenants/${id}/module`, { module, on }).then(load).catch((e) => setErr(e.message)); };
+  const toggleModule = async (id: number, on: boolean, module: "wholesale" | "investors" | "pos" | "khata" = "wholesale") => {
+    try {
+      const r = await pfetch(`/platform/tenants/${id}/module`, { module, on });
+      // khata off with money still on it: the server lists it first; go ahead only on a second, informed yes
+      if (r?.needs_confirm && confirm(r.message)) await pfetch(`/platform/tenants/${id}/module`, { module, on, force: true });
+      load();
+    } catch (e: any) { setErr(e.message); }
+  };
   const [codePlan, setCodePlan] = useState("lifetime");
   const makeCode = async () => { const r = await pfetch("/platform/codes", { count: 1, plan: codePlan }).catch((e) => setErr(e.message)); if (r) { setMade(r.codes); load(); } };
   const [resetFor, setResetFor] = useState<any>(null);
@@ -123,7 +130,7 @@ function Panel({ onLogout }: { onLogout: () => void }) {
       <button className={`rounded-lg px-2 py-1 text-xs font-semibold ${t.module_wholesale ? "bg-indigo-600 text-white" : "border border-indigo-300 text-indigo-700"}`} title="Wholesale & carriage module (paid add-on)" onClick={() => toggleModule(t.id, !t.module_wholesale)}>Wholesale {t.module_wholesale ? "ON" : "OFF"}</button>
       <button className={`rounded-lg px-2 py-1 text-xs font-semibold ${t.module_investors ? "bg-teal-600 text-white" : "border border-teal-300 text-teal-700"}`} title="Investors module (capital, deals, munafa ka batwara, investor portal)" onClick={() => toggleModule(t.id, !t.module_investors, "investors")}>Investors {t.module_investors ? "ON" : "OFF"}</button>
       <button className={`rounded-lg px-2 py-1 text-xs font-semibold ${t.module_pos ? "bg-emerald-600 text-white" : "border border-emerald-300 text-emerald-700"}`} title="POS (counter sale) module" onClick={() => { if (!t.module_pos || confirm(`${t.name}: POS band karein? Counter sale ki screen chhup jayegi (data mehfooz rahega).`)) toggleModule(t.id, !t.module_pos, "pos"); }}>POS {t.module_pos ? "ON" : "OFF"}</button>
-      <button className={`rounded-lg px-2 py-1 text-xs font-semibold ${t.module_khata ? "bg-amber-600 text-white" : "border border-amber-300 text-amber-700"}`} title="Customers & khata module (udhaar, coupons, orders, complaints)" onClick={() => { if (!t.module_khata || confirm(`${t.name}: Customers & khata band karein? Khata, customers aur coupons ki screens chhup jayengi (data mehfooz rahega).`)) toggleModule(t.id, !t.module_khata, "khata"); }}>Khata {t.module_khata ? "ON" : "OFF"}</button>
+      <button className={`rounded-lg px-2 py-1 text-xs font-semibold ${t.module_khata ? "bg-amber-600 text-white" : "border border-amber-300 text-amber-700"}`} title="Customers & khata module (udhaar, coupons, orders, complaints)" onClick={() => toggleModule(t.id, !t.module_khata, "khata")}>Khata {t.module_khata ? "ON" : "OFF"}</button>
       <button className="rounded-lg border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700" title="CEO ka email / phone / password / PIN reset" onClick={() => setResetFor(t)}>CEO login</button>
       <button className="rounded-lg border border-rose-300 px-2 py-1 text-xs font-semibold text-rose-700" title="Pump aur uska poora data delete (pehle backup banta hai)" onClick={() => setDeleteFor(t)}>Delete</button>
     </div>
