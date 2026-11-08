@@ -48,4 +48,8 @@ if (!process.env.CRON_KEY || process.env.CRON_KEY.length < 16) note("CRON_KEY se
 
 const entry = path.join(here, "server", "dist", "index.js");
 if (!fs.existsSync(entry)) stop(`${entry} nahi mila — build nahi hua. Build command "npm run build" rakhein.`);
-import(pathToFileURL(entry).href).then(() => note("server loaded")).catch((e) => { note(`CRASH (load): ${e && e.stack ? e.stack : e}`); process.exit(1); });
+import(pathToFileURL(entry).href).then(() => {
+  note("server loaded");
+  // the setup code guards the first-run wizard and the /migrate upload; the owner reads it here (this log is not web-served)
+  try { const code = fs.readFileSync(path.join(path.dirname(db), ".setup_code"), "utf8").trim(); if (code) note(`SETUP CODE: ${code}  (setup wizard / migrate page)`); } catch { /* SETUP_TOKEN set instead */ }
+}).catch((e) => { note(`CRASH (load): ${e && e.stack ? e.stack : e}`); process.exit(1); });

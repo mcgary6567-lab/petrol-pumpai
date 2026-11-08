@@ -86,6 +86,7 @@ import { lookupsRouter } from "./routes/lookups.js";
 import { productsRouter, refreshProducts } from "./products.js";
 import { getSetting } from "./db.js";
 import { startScheduler, runDueJobs } from "./automation/scheduler.js";
+import { migrationPublic } from "./routes/migration.js";
 import { seed } from "./seed.js";
 
 migrate();
@@ -144,6 +145,7 @@ app.use("/api", attendPublic); // non-login workers' QR + 4-digit self check-in 
 app.use("/api", cloudPublic); // Google Drive OAuth callback (browser redirect, no auth header — guarded by state nonce)
 app.use("/api", setupPublic); // setup wizard + branding (no login)
 app.use("/api", saasPublic); // SaaS mode: public sign-up + platform owner panel (no login)
+app.use("/api", migrationPublic); // moving from another server: setup-code guarded upload of the migration file
 // business logo (login page, receipts, bills, TV board, app icon)
 /**
  * The pump's own app icon: its logo on a square PNG (192 / 512 for the manifest, 180 for iOS). ?pump=<slug> or ?v=<logo id>;

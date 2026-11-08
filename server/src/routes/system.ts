@@ -7,6 +7,7 @@ import { z } from "zod";
 import fs from "node:fs";
 import path from "node:path";
 import { db, get, all, getSetting, setSetting, closeDb } from "../db.js";
+import { mountMigrationExport } from "./migration.js";
 import { execFile } from "node:child_process";
 import { h, parse, tid, requirePerm } from "../auth.js";
 import { AppError, audit, createAlert } from "../services.js";
@@ -209,6 +210,7 @@ const tenantBackupGuard: import("express").RequestHandler = (req, res, next) => 
   requirePerm("settings.manage")(req, res, next);
 };
 mountBackupRoutes(system, tenantBackupGuard, (req) => ({ t: tid(req), user: req.user! }));
+mountMigrationExport(system, tenantBackupGuard, (req) => req.user?.name ?? "admin");
 
 /** Under systemd / Docker the app comes straight back after exiting — used to finish a restore from the browser. */
 system.post("/system/restart", requirePerm("settings.manage"), h((req) => {

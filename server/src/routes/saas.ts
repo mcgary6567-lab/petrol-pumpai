@@ -21,6 +21,7 @@ import { h, parse, tid, forgetModules } from "../auth.js";
 import { AppError, audit, normalizePhone } from "../services.js";
 import { setupBody, provisionTenant, integrationsValues, applyIntegrations } from "./setup.js";
 import { mountBackupRoutes, makeBackup, listBackups } from "./system.js";
+import { mountMigrationExport } from "./migration.js";
 import fs from "node:fs";
 import { randomInt } from "node:crypto";
 /** Unambiguous A-Z/2-9 code from the CSPRNG (activation codes are bearer credentials worth a paid plan). */
@@ -328,6 +329,7 @@ platform.post("/tenants/:id/:action", h((req) => {
 platform.get("/codes", h(() => ({ codes: all("SELECT * FROM activation_codes ORDER BY id DESC LIMIT 200") })));
 // whole-database backups (every pump in one file) + Google Drive / Dropbox copies — platform owner only in SaaS
 mountBackupRoutes(platform, (_req, _res, next) => next(), (req) => ({ t: 0, user: { id: 0, name: `platform:${(req as Request & { padmin?: { email: string } }).padmin?.email ?? ""}` } }));
+mountMigrationExport(platform, (_req, _res, next) => next(), (req) => `platform:${(req as Request & { padmin?: { email: string } }).padmin?.email ?? ""}`);
 platform.get("/integrations", h(() => integrationsValues()));
 platform.put("/integrations", h((req) => {
   const changed = applyIntegrations(req.body);

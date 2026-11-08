@@ -86,24 +86,27 @@ message aata hai (hPanel → Node.js → Logs). Phir **zaroor ye test karein**:
 2. hPanel se **Redeploy** karein.
 3. Entry wahin hai? → data folder sahi jagah hai. Nahi hai → `DB_PATH` check karein, shift na karein.
 
-## 6. Fly se shift (ek raat me)
+## 6. Fly se shift (ek raat me — 3 clicks, terminal nahi)
 
 1. Pump walon ko batayein: **raat X baje se aadha ghanta entry na karein.**
-2. Fly ki secrets ki values nikalein (ek dafa, apne computer par `flyctl` se):
-   ```
-   fly ssh console -a petrol-pumpai -C "printenv"
-   fly ssh console -a petrol-pumpai -C "cat /data/.jwt_secret"
-   ```
-   `JWT_SECRET` (ya `.jwt_secret` file wali value) aur baqi zaroori values Hostinger ke environment variables me daalein.
-3. Aakhri backup: app me **Platform → Backups → "Backup now"**, phir wo file **download** karein.
-4. Hostinger par app **Stop** karein. File Manager → `pumpai-data` me downloaded file upload karein aur naam rakhein
-   **`pumpai.db`** (agar test wali `pumpai.db`, `pumpai.db-wal`, `pumpai.db-shm` hain to pehle delete karein).
-5. App **Start** karein, login karein, Dashboard / khate / aaj ki sales check karein. Admin: `/books/check` → 0 farq.
-6. Domain ka DNS Hostinger ki taraf karein (agar domain badla to `PUBLIC_URL`, WhatsApp webhook (Meta) aur Google login
-   redirect URL bhi naye domain par).
-7. Sab theek ho to **Fly band karein**: `fly scale count 0 -a petrol-pumpai` (volume abhi rehne dein — ek hafte baad
-   delete karein). GitHub par Fly wala workflow bhi band kar dein (Actions → "Fly Deploy" → Disable), warna har push par
-   Fly phir chal parega.
+2. **Purana server (Fly):** `petrol-pumpai.fly.dev/platform` → **Backups** → neeche **"🚚 Naye server par le jane ki file"** →
+   ek password (10+ harf, yaad rakhein) do dafa → **Migration file download karein**. Ek `.pumpai` file milegi — is me poora
+   database, saari photos aur login secret hai (password se band). Ise kisi ko na dein.
+3. **Naya server (Hostinger):** `https://petrolpump.site/migrate` kholein →
+   - **Setup code:** hPanel → Runtime logs me `SETUP CODE`, ya File Manager (🏠) → `pumpai-startup.log` me `SETUP CODE: ...`
+   - **File:** wohi `.pumpai` file · **Password:** wohi password → **Data laayein**.
+   File tukron me upload hoti hai, check hoti hai, data sahi folder me rakha jata hai aur app khud restart hota hai. Ghalat
+   password / adhoori file par kuch nahi badalta. Pehle wala (test) data `pumpai-data` me `.before-restore-*` ban kar rehta hai.
+4. Purane email / password se login karein (users ke PIN devices, customer portal aur bill links bhi wohi chalenge — login
+   secret saath aata hai, `JWT_SECRET` badalne ki zarurat nahi). Dashboard, khate, aaj ki sales check karein; Admin → **Books
+   check = 0 farq**. App 1–2 minute me na khule to hPanel → **Redeploy**.
+5. Domain / links: agar purane links `petrol-pumpai.fly.dev` wale the to WhatsApp webhook (Meta), Google login redirect URL
+   naye domain par karein; `PUBLIC_URL` = `https://petrolpump.site`.
+6. Sab theek ho to **Fly band karein**: Fly dashboard → app → Machines → Stop (volume ek hafta rehne dein), aur GitHub →
+   Actions → "Fly Deploy" → **Disable workflow**, warna har push par Fly phir chal parega.
+
+**Purana tareeqa (terminal ke saath)** bhi chalta hai: Fly par Backup download → File Manager se `pumpai-data/pumpai.db`
+rakhein → `JWT_SECRET` = `fly ssh console -a petrol-pumpai -C "printenv JWT_SECRET"`.
 
 ## 7. Roz ka kaam
 

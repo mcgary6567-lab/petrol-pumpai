@@ -81,6 +81,7 @@ function PumpLink() {
 const Activate = lazy(() => import("./pages/Activate"));
 const AttendPublic = lazy(() => import("./pages/AttendPublic"));
 const Platform = lazy(() => import("./pages/Platform"));
+const Migrate = lazy(() => import("./pages/Migrate"));
 
 loadBranding().catch(() => {});
 
@@ -209,6 +210,7 @@ export default function App() {
             <Route path="/setup" element={<Setup />} />
             <Route path="/signup" element={<Setup signup />} />
             <Route path="/platform" element={<Platform />} />
+            <Route path="/migrate" element={<Migrate />} />
             <Route element={<Protected><Layout /></Protected>}>
               <Route index element={<Home />} />
               <Route path="inbox" element={<Need perm="whatsapp.inbox"><Inbox /></Need>} />

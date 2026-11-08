@@ -18,6 +18,8 @@ function keptSecret(name: string, make: () => string): string {
 }
 const WEAK = /change|put-a-long|dev-secret|secret-here|example/i;
 function jwtSecret(): string {
+  // moved here from another server (/migrate): keep that server's secret so every sign-in, PIN device and link keeps working
+  try { const v = fs.readFileSync(path.join(path.dirname(dbPath), ".jwt_secret_imported"), "utf8").trim(); if (v.length >= 16) return v; } catch { /* none */ }
   const env = process.env.JWT_SECRET?.trim();
   if (env) {
     if (isProduction && (env.length < 32 || WEAK.test(env))) {

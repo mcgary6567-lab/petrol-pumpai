@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { ErrorBox, Field, Modal, Pager, usePaged } from "../components/ui";
 import { BackupsPanel } from "../components/BackupsPanel";
+import { MigrationExport } from "../components/MigrationExport";
 import { Integrations } from "../components/BusinessSettings";
 
 /** Platform owner (super-admin) panel: every pump, activate / suspend, and one-time activation codes. Separate login. */
@@ -281,7 +282,10 @@ function Panel({ onLogout }: { onLogout: () => void }) {
         )}
 
         {tab === "backups" && (
+          <div className="space-y-4">
           <BackupsPanel title="Backups — saare pumps (poora database)" base="/platform/backups" request={(p, i) => pfetch(p, i?.body, i?.method)} downloadUrl={(n) => `/api/platform/backups/${n}?token=${getTok() ?? ""}`} />
+          <MigrationExport url="/platform/migration/export" token={getTok} />
+          </div>
         )}
       </div>
 
