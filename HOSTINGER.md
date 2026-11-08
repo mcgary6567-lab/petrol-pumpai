@@ -120,3 +120,33 @@ rakhein → `JWT_SECRET` = `fly ssh console -a petrol-pumpai -C "printenv JWT_SE
 - Request zyada se zyada 120 second; bari Excel / backup download is se pehle ho jate hain.
 - Live screens (dashboard live, board) chalti hain lekin app sone ke baad pehla page khulne me 2–5 second lag sakte hain.
 - Pumps barhne par (10+ pumps, bhaari AI use) **VPS (KVM 1)** par jana behtar — wahan yahi `app.js` / Docker dono chalte hain.
+
+## 8. Main site (petrolpump.site) + app (app.petrolpump.site)
+
+Main domain par sales page (`/sell`), aur system subdomain `app.petrolpump.site` par. Do tareeqe:
+
+### A. (Tajweez) Main site = sadi files, app = Node.js subdomain par
+
+GitHub har push par branch **`site`** banata hai (`.github/workflows/site-build.yml`): sirf sales page + tasweerein.
+
+1. **Pehle** purani Node.js app jo `petrolpump.site` par chal rahi hai, us ko hata dein (hPanel → petrolpump.site → ⋮ → Delete
+   website, ya Node.js app band karein). Data `pumpai-data` folder me rehta hai — wo nahi mitta. (Ek hi data par do Node apps
+   ek saath na chalayein — reminders / backup do dafa chal jayenge.)
+2. **App:** hPanel → Websites → **Add website → Node.js app** → domain **`app.petrolpump.site`** (subdomain) → GitHub repo,
+   branch **`hostinger`**, entry **`app.js`**, Node 22. Environment variables wohi (`DB_PATH` wahi rasta!), bas
+   **`PUBLIC_URL=https://app.petrolpump.site`**. Cron job ka link bhi `https://app.petrolpump.site/api/cron/tick?key=...` kar dein.
+3. **Main site:** hPanel → Websites → `petrolpump.site` (khaali website) → **Advanced → Git** → repo, branch **`site`**,
+   directory `public_html` → **Deploy**. Har push par GitHub `site` branch update karta hai; hPanel me "Auto deployment" on karein.
+4. WhatsApp button ke liye GitHub → Settings → Secrets and variables → Actions → **Variables** → `SALES_PHONE` =
+   `923001234567` (apna number). Domain alag hon to `SITE_URL` / `APP_URL` bhi yahan.
+
+### B. Ek hi Node app dono pate (agar hPanel app par alias / extra domain lagane de)
+
+Node app ke environment variables me:
+```
+PUBLIC_URL=https://app.petrolpump.site
+SITE_URL=https://petrolpump.site
+MARKETING_HOST=petrolpump.site,www.petrolpump.site
+```
+Phir `petrolpump.site` par "/" sales page dikhata hai aur login / signup / baqi pages `app.petrolpump.site` par bhej deta hai.
+API, webhooks aur files dono pate par chalte hain.

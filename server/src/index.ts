@@ -263,6 +263,24 @@ app.get("/day/:token", (req, res) => {
 });
 app.get("/privacy", (_req, res) => res.type("html").send(privacyPage()));
 app.get("/terms", (_req, res) => res.type("html").send(termsPage()));
+// one app answering two addresses: the marketing site (MARKETING_HOST, e.g. "petrolpump.site,www.petrolpump.site") shows the
+// sales page at "/" and sends every app page to PUBLIC_URL (e.g. https://app.petrolpump.site); API, webhooks and files are
+// served on both, so nothing that is already linked breaks
+const marketingHosts = (process.env.MARKETING_HOST ?? "").split(",").map((x) => x.trim().toLowerCase()).filter(Boolean);
+if (config.saas && marketingHosts.length) {
+  const appUrl = (config.publicUrl || "").replace(/\/+$/, "");
+  const appHost = (() => { try { return new URL(appUrl).hostname.toLowerCase(); } catch { return ""; } })();
+  app.use((req, res, next) => {
+    if (req.method !== "GET" && req.method !== "HEAD") return next();
+    const host = String(req.get("x-forwarded-host") ?? req.get("host") ?? "").split(",")[0].trim().toLowerCase().replace(/:\d+$/, "");
+    if (!marketingHosts.includes(host)) return next();
+    const p = req.path;
+    if (p === "/" || p === "/sell" || p === "/landing") { res.type("html").send(sellPage()); return; }
+    if (/^\/(api|webhooks|\.well-known)(\/|$)/.test(p) || /\.[a-z0-9]{2,5}$/i.test(p) || p === "/privacy" || p === "/terms") return next();
+    if (!appHost || appHost === host) return next();
+    res.redirect(302, appUrl + req.originalUrl);
+  });
+}
 // public sales / landing page (SaaS) — pump owners read it and sign up
 if (config.saas) {
   app.get(["/sell", "/landing"], (_req, res) => res.type("html").send(sellPage()));

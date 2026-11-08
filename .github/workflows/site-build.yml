@@ -1,0 +1,43 @@
+# The marketing site (sales page) as plain files on branch "site", for the main domain (e.g. petrolpump.site) on ordinary
+# hosting — Hostinger: Advanced → Git → Deploy from GitHub, branch "site", into public_html. The app itself runs on the
+# app subdomain (PUBLIC_URL). Repository VARIABLES (Settings → Secrets and variables → Actions → Variables) can change:
+#   SITE_URL (default https://petrolpump.site) · APP_URL (default https://app.petrolpump.site) · SALES_PHONE (WhatsApp button)
+name: Site build
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: site-build
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: node deploy/site/build.mjs dist-site
+        env:
+          SITE_URL: ${{ vars.SITE_URL || 'https://petrolpump.site' }}
+          PUBLIC_URL: ${{ vars.APP_URL || 'https://app.petrolpump.site' }}
+          SALES_PHONE: ${{ vars.SALES_PHONE }}
+      - name: Push to the site branch
+        run: |
+          cd dist-site
+          git init -q -b site
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Site build of ${GITHUB_SHA::7}"
+          git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${GITHUB_REPOSITORY}.git" site

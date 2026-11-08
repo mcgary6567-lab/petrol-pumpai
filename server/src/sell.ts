@@ -10,6 +10,10 @@ const BODY = "\n\n<!-- ===== icon sprite ===== -->\n<svg width=\"0\" height=\"0\
 
 export function sellPage(): string {
   const pub = (config.publicUrl || "").replace(/\/+$/, "");
+  // the marketing site may live on its own address (petrolpump.site) while the app is on app.petrolpump.site:
+  // canonical / social card point at the site; sign-up, privacy and terms stay on the app
+  const site = (process.env.SITE_URL || "").replace(/\/+$/, "");
+  const here = site ? site + "/" : pub + "/sell";
   const phone = (config.salesPhone || "").replace(/\D/g, "");
   const wa = phone ? "https://wa.me/" + phone : pub + "/signup";
   const num = phone ? "+" + phone : pub.replace(/^https?:\/\//, "");
@@ -17,19 +21,22 @@ export function sellPage(): string {
     .split("SIGNUP_URL").join(pub + "/signup")
     .split("WHATSAPP_URL").join(wa)
     .split("WHATSAPP_NUMBER").join(num)
-    .split("__YEAR__").join(String(new Date().getFullYear()));
+    .split("__YEAR__").join(String(new Date().getFullYear()))
+    // on the separate marketing site, privacy / terms are the app's pages
+    .split('href="/privacy"').join('href="' + (site ? pub : "") + '/privacy"')
+    .split('href="/terms"').join('href="' + (site ? pub : "") + '/terms"');
   // social card (Open Graph + Twitter) so a shared /sell link shows a pro preview with the hero image
-  const img = pub + "/og.jpg?v=4"; // bump v= when the card changes so WhatsApp / Facebook drop their cached preview
+  const img = (site || pub) + "/og.jpg?v=4"; // bump v= when the card changes so WhatsApp / Facebook drop their cached preview
   const desc = "Din bhar ki sale, cash, udhaar, tank aur munafa har waqt phone par. Salesman se CEO tak sab ka hisaab, shift close ek click, wholesale ERP, WhatsApp par bill. Abhi sign up karein.";
   const ogTitle = "Ghar baithe apna pump dekhein — Petrol PumpAI";
   const social = [
     '<meta name="description" content="' + desc + '">',
     '<meta name="theme-color" content="#0a3b2b">',
-    '<link rel="canonical" href="' + pub + '/sell">',
+    '<link rel="canonical" href="' + here + '">',
     '<meta property="og:type" content="website">',
     '<meta property="og:site_name" content="Petrol PumpAI">',
     '<meta property="og:locale" content="en_PK">',
-    '<meta property="og:url" content="' + pub + '/sell">',
+    '<meta property="og:url" content="' + here + '">',
     '<meta property="og:title" content="' + ogTitle + '">',
     '<meta property="og:description" content="' + desc + '">',
     '<meta property="og:image" content="' + img + '">',
