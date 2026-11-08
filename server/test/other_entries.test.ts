@@ -200,3 +200,53 @@ test("to-party income/expense moves the PARTY's khata (not the P&L), cash follow
   assert.equal(Math.round(cash2 - cash0), 2500);
   await tallyBooks("after undoing a to-party entry");
 });
+
+test("on-account (no cash): a client bore our expense → their CREDIT + our expense; a charge → their DEBIT + income; undo / edit follow", async () => {
+  const parties = ok(await call(adminTok, "GET", "/api/other-entries/parties"), "parties");
+  const khata = parties.khata[2] ?? parties.khata[0]; const whole = parties.wholesale[2] ?? parties.wholesale[0];
+  const due0 = ok(await call(adminTok, "GET", `/api/wholesale/clients/${whole.id}`), "cli0").summary.due as number;
+  const bal0 = ok(await call(adminTok, "GET", `/api/customers/${khata.id}`), "cust0").balance as number;
+  const cash0 = ok(await call(adminTok, "GET", "/api/cash"), "cash0").cash_in_hand as number;
+  const pl0 = ok(await call(adminTok, "GET", `/api/analysis/pl?month=${month}`), "pl0").pl;
+
+  // the wholesale client paid our tanker freight himself: his due goes DOWN, it is our expense, no cash moves
+  const exp = ok(await call(adminTok, "POST", "/api/other-entries", { kind: "expense", party_type: "wholesale", party_id: whole.id, reason: "Tanker freight", amount: 3000, party_mode: "on_account" }), "exp on account");
+  assert.equal(exp.party_mode, "on_account"); assert.equal(exp.to_party, 0); assert.equal(exp.method, "Party khata");
+  assert.match(String(exp.src), /^wtx:\d+$/);
+  // we charge a khata customer Rs 1,200 (e.g. a broken nozzle) without cash: his khata DEBIT, our income
+  const inc = ok(await call(adminTok, "POST", "/api/other-entries", { kind: "income", party_type: "khata", party_id: khata.id, reason: "Nozzle damage", amount: 1200, party_mode: "on_account" }), "inc on account");
+  assert.match(String(inc.src), /^khata:\d+$/);
+
+  const due1 = ok(await call(adminTok, "GET", `/api/wholesale/clients/${whole.id}`), "cli1").summary.due as number;
+  const bal1 = ok(await call(adminTok, "GET", `/api/customers/${khata.id}`), "cust1").balance as number;
+  assert.equal(Math.round(due1 - due0), -3000, "client owes 3000 less (credit)");
+  assert.equal(Math.round(bal1 - bal0), 1200, "khata customer owes 1200 more (debit)");
+  assert.equal(Math.round(ok(await call(adminTok, "GET", "/api/cash"), "cash1").cash_in_hand - cash0), 0, "no cash moved");
+  const pl1 = ok(await call(adminTok, "GET", `/api/analysis/pl?month=${month}`), "pl1").pl;
+  assert.equal(Math.round(pl1.net_profit - pl0.net_profit), -3000 + 1200, "P&L: expense 3000, income 1200");
+  await tallyBooks("after on-account entries");
+
+  // the expense statement lists it under Other kharche, as "khate se", not as cash
+  const today = new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 10);
+  const st = ok(await call(adminTok, "GET", `/api/expenses/statement?from=${today}&to=${today}&categories=__other__`), "statement");
+  assert.ok(st.on_account >= 3000, "on-account total shown");
+  assert.equal(ok(await call(adminTok, "GET", `/api/expenses/statement?from=${today}&to=${today}&categories=__other__&pay=bank`), "st bank").categories.flatMap((g: any) => g.lines).filter((l: any) => l.id === exp.id).length, 0, "not under bank");
+
+  // the wrong old style can be corrected: switch the client entry to "cash" (paid on his behalf) → debit + cash out
+  ok(await call(adminTok, "POST", `/api/other-entries/${exp.id}/edit`, { why: "galat option", kind: "expense", party_type: "wholesale", party_id: whole.id, reason: "Tanker freight", amount: 3000, method: "Cash", party_mode: "cash" }), "edit to cash");
+  const due2 = ok(await call(adminTok, "GET", `/api/wholesale/clients/${whole.id}`), "cli2").summary.due as number;
+  assert.equal(Math.round(due2 - due0), 3000, "now a debit: client owes 3000 more");
+  assert.equal(Math.round(ok(await call(adminTok, "GET", "/api/cash"), "cash2").cash_in_hand - cash0), -3000, "cash went out");
+  // ...and back to on-account
+  ok(await call(adminTok, "POST", `/api/other-entries/${exp.id}/edit`, { why: "wapas", kind: "expense", party_type: "wholesale", party_id: whole.id, reason: "Tanker freight", amount: 3000, party_mode: "on_account" }), "edit back");
+  assert.equal(Math.round(ok(await call(adminTok, "GET", `/api/wholesale/clients/${whole.id}`), "cli3").summary.due - due0), -3000);
+  assert.equal(Math.round(ok(await call(adminTok, "GET", "/api/cash"), "cash3").cash_in_hand - cash0), 0);
+  await tallyBooks("after editing the mode");
+
+  // undo both → everything back
+  ok(await call(adminTok, "DELETE", `/api/other-entries/${exp.id}`), "undo exp");
+  ok(await call(adminTok, "DELETE", `/api/other-entries/${inc.id}`), "undo inc");
+  assert.equal(Math.round(ok(await call(adminTok, "GET", `/api/wholesale/clients/${whole.id}`), "cli4").summary.due - due0), 0);
+  assert.equal(Math.round(ok(await call(adminTok, "GET", `/api/customers/${khata.id}`), "cust4").balance - bal0), 0);
+  await tallyBooks("after undo");
+});

@@ -105,7 +105,7 @@ export function ExpenseStatement({ categories, stations, onVoucher }: { categori
             <Stat label={`Kul kharcha · ${data.days} din`} value={pkr(data.total)} tone="red"
               hint={data.previous.change_pct != null ? `Pichle ${data.days} din se ${data.previous.change_pct > 0 ? "+" : ""}${data.previous.change_pct}% (${pkr(data.previous.total)})` : `${data.n} entries`} />
             <Stat label="Roz ka average" value={pkr(data.per_day)} hint={`${data.n} entries`} />
-            <Stat label="Cash se" value={pkr(data.cash)} hint={`Bank / online ${pkr(data.bank)}`} />
+            <Stat label="Cash se" value={pkr(data.cash)} hint={`Bank / online ${pkr(data.bank)}${data.on_account > 0 ? ` · Party khate se ${pkr(data.on_account)}` : ""}`} />
             <Stat label="Manzoori baqi" value={data.pending.n} tone={data.pending.n ? "amber" : "slate"} hint={data.pending.n ? `${pkr(data.pending.amount)} — kul me shamil nahi` : "Kuch pending nahi"} />
           </div>
 

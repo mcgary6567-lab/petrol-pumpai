@@ -178,6 +178,7 @@ wholesaleErp.get("/wholesale/clients/:id/360", h((req) => {
   for (const x of all(`SELECT x.*, ${KEY} inv_no FROM wholesale_txns x WHERE x.client_id=? ORDER BY x.created_at DESC, x.id DESC LIMIT 40`, c.id))
     ev.push({ at: x.created_at, who: x.created_by, kind: x.type, txn_id: x.id, voided: !!x.voided, amount: x.amount,
       text: x.type === "supply" ? `Supply ${x.inv_no} · ${Math.round(x.litres ?? 0).toLocaleString("en-PK")} L ${P(x.product)}${x.vehicle_no ? ` · ${x.vehicle_no}` : ""}`
+        : String(x.ref ?? "").startsWith("oth-jnl:") ? (x.note ?? (x.type === "payment" ? "Credit · kharcha client ne diya" : "Debit · client par charge"))
         : x.type === "payment" ? `Payment received · ${x.method ?? "cash"}${x.ref && x.ref !== "refund:" ? ` · ${x.ref}` : ""}`
         : x.type === "return" ? `Return · ${Math.round(x.litres ?? 0)} L ${P(x.product)}`
         : x.type === "carriage" ? `Kiraya ${x.inv_no}` : x.ref === "refund:" ? "Advance returned" : `Adjustment${x.note ? ` · ${x.note}` : ""}` });

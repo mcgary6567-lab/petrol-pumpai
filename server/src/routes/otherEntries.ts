@@ -67,16 +67,45 @@ const body = z.object({
   /** income/expense with a real party: ALSO post it on the party's own khata (expense → they owe us more, income → they
    *  paid us). The money then moves against the party's receivable, not the CEO's P&L — it is the party's udhaar/wasooli. */
   to_party: z.boolean().optional().nullable(),
+  /** how a real party is involved in an income/expense (replaces to_party when sent):
+   *   none       — the pump's own income/expense, the party is only a name
+   *   cash       — money moved for the party: expense = paid to them (party DEBIT), income = got from them (party CREDIT)
+   *   on_account — NO cash/bank: the party's khata settles it, and it is the pump's income/expense (P&L):
+   *                expense = the party bore our expense (party CREDIT), income = we charge the party (party DEBIT) */
+  party_mode: z.enum(["none", "cash", "on_account"]).optional().nullable(),
   /** a missed entry recorded a few days late on its real date (YYYY-MM-DD) — CEO/manager only, never a closed day */
   entry_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
 });
 
 /** The entry is a money move on a party's own account (not the CEO's P&L). */
-export const isToParty = (b: { kind: string; party_type: string; to_party?: boolean | null }) => (b.kind === "income" || b.kind === "expense") && b.party_type !== "other" && !!b.to_party;
+export const isToParty = (b: { kind: string; party_type: string; to_party?: boolean | null; party_mode?: string | null }) => partyMode(b) === "cash";
+/** The party mode of an income/expense, from party_mode (new) or to_party (old clients / old rows). */
+export function partyMode(b: { kind: string; party_type: string; to_party?: boolean | null; party_mode?: string | null }): "none" | "cash" | "on_account" {
+  if ((b.kind !== "income" && b.kind !== "expense") || b.party_type === "other") return "none";
+  if (b.party_mode) return b.party_mode as any;
+  return b.to_party ? "cash" : "none";
+}
+/** The method an on-account entry carries (no cash, no bank) — reports read it as "khate se". */
+export const ON_ACCOUNT = "Party khata";
 
 /** Do the money / balance side of an other-entry (income+expense cash-bank, or a party discount). Returns its `src` tag. */
 function applyOtherMoney(t: number, by: string, b: z.infer<typeof body>, oeId: number, name: string, at: string): string {
   const amount = round2(b.amount);
+  if ((b.kind === "income" || b.kind === "expense") && partyMode(b) === "on_account") {
+    // no money moves: the party's own khata takes the other side. Expense → they bore it (CREDIT, they owe less);
+    // income → we charge them (DEBIT, they owe more). ledger.ts books it against the CEO's P&L ("oth-jnl:").
+    const ref = `oth-jnl:${oeId}`, pid = b.party_id!, credit = b.kind === "expense";
+    const note = `${credit ? "Kharcha party ne diya (CEO)" : "Party se charge (CEO)"}: ${b.reason}${b.note ? ` · ${b.note}` : ""}`;
+    if (b.party_type === "khata") {
+      const id = run("INSERT INTO khata_ledger (customer_id,type,amount,ref,note,created_at) VALUES (?,?,?,?,?,?)", pid, credit ? "credit" : "debit", amount, ref, note, at).id;
+      run("UPDATE customers SET balance = balance + ? WHERE id=? AND tenant_id=?", credit ? -amount : amount, pid, t);
+      return `khata:${id}`;
+    }
+    if (b.party_type === "wholesale") return `wtx:${run(`INSERT INTO wholesale_txns (tenant_id,client_id,type,amount,method,ref,note,voided,created_by,txn_date,created_at)
+      VALUES (?,?,?,?,?,?,?,0,?,?,?)`, t, pid, credit ? "payment" : "adjustment", amount, ON_ACCOUNT, ref, note, by, at, at).id}`;
+    return `ctx:${run(`INSERT INTO carriage_txns (tenant_id,thekedar_id,type,amount,method,account_id,ref,note,voided,created_by,txn_date,created_at)
+      VALUES (?,?,?,?,?,?,?,?,0,?,?,?)`, t, pid, credit ? "payment" : "adjustment", amount, ON_ACCOUNT, null, ref, note, by, at, at).id}`;
+  }
   if (b.kind === "income" || b.kind === "expense") {
     const toParty = isToParty(b);
     const ref = `${toParty ? "oth-pty" : b.kind === "income" ? "oth-inc" : "oth-exp"}:${oeId}`;
@@ -139,17 +168,19 @@ function reverseOtherMoney(t: number, e: any) {
 
 /** Write the `other_entries` record's own columns (not the money side). */
 function writeOtherRow(t: number, b: z.infer<typeof body>, name: string, by: string, at: string, id: number | null): number {
-  const method = b.kind === "discount" ? null : (b.method ?? "cash");
-  const account_id = b.kind === "discount" ? null : (isCash(b.method) ? null : b.account_id ?? null);
+  const mode = partyMode(b), onAcc = mode === "on_account";
+  const method = b.kind === "discount" ? null : onAcc ? ON_ACCOUNT : (b.method ?? "cash");
+  const account_id = b.kind === "discount" || onAcc ? null : (isCash(b.method) ? null : b.account_id ?? null);
   const pid = b.party_type === "other" ? null : b.party_id ?? null;
-  const toParty = isToParty(b) ? 1 : 0;
+  // to_party = 1 only for "cash" (the party's udhaar/wasooli, not P&L); an on-account entry IS the pump's income/expense
+  const toParty = mode === "cash" ? 1 : 0, pm = b.kind === "discount" ? null : mode;
   if (id) {
-    run(`UPDATE other_entries SET kind=?, party_type=?, party_id=?, party_name=?, reason=?, amount=?, method=?, account_id=?, note=?, to_party=? WHERE id=?`,
-      b.kind, b.party_type, pid, name, b.reason, round2(b.amount), method, account_id, b.note ?? null, toParty, id);
+    run(`UPDATE other_entries SET kind=?, party_type=?, party_id=?, party_name=?, reason=?, amount=?, method=?, account_id=?, note=?, to_party=?, party_mode=? WHERE id=?`,
+      b.kind, b.party_type, pid, name, b.reason, round2(b.amount), method, account_id, b.note ?? null, toParty, pm, id);
     return id;
   }
-  return run(`INSERT INTO other_entries (tenant_id,kind,party_type,party_id,party_name,reason,amount,method,account_id,src,note,to_party,created_by,created_at)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, t, b.kind, b.party_type, pid, name, b.reason, round2(b.amount), method, account_id, null, b.note ?? null, toParty, by, at).id;
+  return run(`INSERT INTO other_entries (tenant_id,kind,party_type,party_id,party_name,reason,amount,method,account_id,src,note,to_party,party_mode,created_by,created_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, t, b.kind, b.party_type, pid, name, b.reason, round2(b.amount), method, account_id, null, b.note ?? null, toParty, pm, by, at).id;
 }
 
 otherEntries.post("/other-entries", requirePerm("other_entries.manage"), h((req) => {

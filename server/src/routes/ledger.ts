@@ -41,8 +41,8 @@ const OPENING_EQ = "Opening balances (go-live)", OPEN_REF = "open:";
 const specialSide = (ref: string | null | undefined) =>
   !ref ? null : ref.startsWith("shopbuy:") ? "Shop stock" : ref.startsWith("wht:") ? "Withholding tax payable" : ref.startsWith("claim:") ? "Shortage claims recovered" : ref.startsWith("coupon-refund:") ? "Fuel coupons (unused)" : ref.startsWith("bypassfuel:") ? "Depot money held" : ref.startsWith("inv:") ? INVESTORS : null;
 /** CEO-only "other" markers: income / expense / discount. Hidden from non-admin views (shown as owner capital/drawings). */
-const otherKind = (ref: string | null | undefined): "inc" | "exp" | "disc" | "pty" | null =>
-  !ref ? null : ref.startsWith("oth-inc:") ? "inc" : ref.startsWith("oth-exp:") ? "exp" : ref.startsWith("oth-disc:") ? "disc" : ref.startsWith("oth-pty:") ? "pty" : null;
+const otherKind = (ref: string | null | undefined): "inc" | "exp" | "disc" | "pty" | "jnl" | null =>
+  !ref ? null : ref.startsWith("oth-inc:") ? "inc" : ref.startsWith("oth-exp:") ? "exp" : ref.startsWith("oth-disc:") ? "disc" : ref.startsWith("oth-pty:") ? "pty" : ref.startsWith("oth-jnl:") ? "jnl" : null;
 const isOtherDisc = (ref: string | null | undefined) => otherKind(ref) === "disc";
 /** An advance refund: cash/bank returned to a khata customer / wholesale client who overpaid (ref "refund:" — for khata the
  *  method follows the colon). The party's balance moves back toward zero and the money actually leaves cash/bank; for a
@@ -54,6 +54,9 @@ const isXfer = (ref: string | null | undefined) => String(ref ?? "").startsWith(
  *  receivable (the party's own ledger row is skipped — it only moves the balance). Not private: it is on the party's statement. */
 const isToParty = (ref: string | null | undefined) => otherKind(ref) === "pty";
 const PARTY_RECV: Record<string, string> = { khata: "Khata receivable", wholesale: "Wholesale receivable", carriage: "Carriage receivable" };
+/** CEO income/expense settled on a party's khata with no cash ("oth-jnl:<entry>"): the party row IS the posting. A credit on
+ *  the party = they bore our expense (Dr Other expense / Cr receivable); a debit = we charged them (Dr receivable / Cr Other income). */
+const isOnAccount = (ref: string | null | undefined) => otherKind(ref) === "jnl";
 const toPartyAccount = (ref: string) => PARTY_RECV[get("SELECT party_type FROM other_entries WHERE id=?", Number(ref.slice(8)))?.party_type ?? ""] ?? "Suspense";
 
 /** `showPrivate` (default true) includes the CEO-only "other income/expense/discount" with their real
@@ -167,10 +170,18 @@ function journalNow(t: number, fromDay: string, toDay: string, showPrivate = tru
   // of that bill and sits in the payable until it is deposited with FBR (the deposit voucher, ref wht:, clears it)
   for (const r of all(`SELECT w.* FROM tax_withholdings w WHERE w.tenant_id=? AND w.supplier_txn_id IS NULL AND w.supplier_id IS NULL AND w.txn_date >= ? AND w.txn_date < ?`, ...P))
     add(day(r.txn_date), "Journal", `Income tax withheld — ${r.payee}${r.section ? ` (s.${r.section})` : ""}`, [dr("Expense: Withholding tax (on behalf)", r.amount), cr("Withholding tax payable", r.amount)]);
+  // CEO income/expense settled on a party's khata, no cash: P&L on one side, the party's receivable on the other
+  const onAccount = (d: string, credit: boolean, recv: string, name: string, note: string | null, amt: number) => {
+    if (credit) add(d, "Journal", showPrivate ? `Kharcha party ne diya — ${name}${note ? ` (${note})` : ""}` : "Owner's drawings",
+      [dr(showPrivate ? OTHER_EXPENSE_CEO : OWN_DRAW, amt), cr(recv, amt)]);
+    else add(d, "Journal", showPrivate ? `Party se charge — ${name}${note ? ` (${note})` : ""}` : "Owner's capital introduced",
+      [dr(recv, amt), cr(showPrivate ? OTHER_INCOME_CEO : OWN_CAP, amt)]);
+  };
   // khata: payments received, and charges other than fuel (late fee, adjustments)
   for (const r of all(`SELECT k.*, c.name FROM khata_ledger k JOIN customers c ON c.id=k.customer_id WHERE c.tenant_id=? AND k.created_at >= ? AND k.created_at < ? AND COALESCE(k.ref,'') NOT LIKE 'SALE%' AND COALESCE(k.ref,'') NOT LIKE 'SHOP-%'`, ...P)) {
     // go-live opening balance: brought forward, not this period's income
     if (isToParty(r.ref)) continue; // booked from the cash/bank row against Khata receivable
+    if (isOnAccount(r.ref)) { onAccount(day(r.created_at), r.type === "credit", "Khata receivable", r.name, r.note, r.amount); continue; }
     if (r.ref === OPEN_REF) { add(day(r.created_at), "Opening", `Opening balance — ${r.name}`, r.type === "debit" ? [dr("Khata receivable", r.amount), cr(OPENING_EQ, r.amount)] : [dr(OPENING_EQ, r.amount), cr("Khata receivable", r.amount)]); continue; }
     if (isXfer(r.ref)) continue; // party ↔ investor transfer: one journal from investor_transfers (below)
     if (r.type === "credit") {
@@ -186,6 +197,7 @@ function journalNow(t: number, fromDay: string, toDay: string, showPrivate = tru
   for (const r of all(`SELECT w.*, c.name FROM wholesale_txns w JOIN wholesale_clients c ON c.id=w.client_id WHERE w.tenant_id=? AND w.voided=0 AND w.txn_date >= ? AND w.txn_date < ?`, ...P)) {
     const d = day(r.txn_date);
     if (isToParty(r.ref)) continue; // booked from the cash/bank row against Wholesale receivable
+    if (isOnAccount(r.ref)) { onAccount(d, r.type === "payment", "Wholesale receivable", r.name, r.note, r.amount); continue; }
     if (isXfer(r.ref)) continue; // party ↔ investor transfer: one journal from investor_transfers (below)
     if (r.type === "supply") add(d, "Sales", `Wholesale supply — ${r.name} ${r.litres} L ${PRODUCTS[r.product] ?? r.product ?? ""}`, [dr("Wholesale receivable", r.amount), cr("Wholesale sales", r.amount)]);
     if (r.type === "return") add(d, "Credit note", `Wholesale return — ${r.name} ${r.litres} L`, [dr("Wholesale sales", r.amount), cr("Wholesale receivable", r.amount)]);
@@ -208,6 +220,7 @@ function journalNow(t: number, fromDay: string, toDay: string, showPrivate = tru
   for (const r of all(`SELECT c.*, k.name FROM carriage_txns c JOIN thekedars k ON k.id=c.thekedar_id WHERE c.tenant_id=? AND c.voided=0 AND c.txn_date >= ? AND c.txn_date < ?`, ...P)) {
     const d = day(r.txn_date);
     if (isToParty(r.ref)) continue; // booked from the cash/bank row against Carriage receivable
+    if (isOnAccount(r.ref)) { onAccount(d, r.type === "payment", "Carriage receivable", r.name, r.note, r.amount); continue; }
     if (r.type === "carriage") add(d, "Journal", `Carriage / kiraya — ${r.name}${r.litres ? ` ${r.litres} L ${PRODUCTS[r.product] ?? r.product ?? ""}` : ""}${r.ref ? ` (inv ${r.ref})` : ""}`, [dr("Carriage receivable", r.amount), cr("Carriage income", r.amount)]);
     if (r.type === "payment") {
       const od = isOtherDisc(r.ref);

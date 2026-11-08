@@ -93,7 +93,8 @@ export default function OtherEntries() {
                   <div key={e.id} className="flex items-center gap-2 rounded-lg border p-2 text-sm">
                     <div className="min-w-0 flex-1">
                       <div className="font-medium">{e.party_name} · <span className="font-semibold">{pkr(e.amount)}</span></div>
-                      <div className="truncate text-xs text-slate-500">{e.reason}{e.method ? ` · ${e.method}` : ""} · {dt(e.created_at)}{e.to_party ? <span className="ml-1 rounded bg-brand-100 px-1.5 py-0.5 text-[10px] font-semibold text-brand-700">khate par</span> : null}</div>
+                      <div className="truncate text-xs text-slate-500">{e.reason}{e.method ? ` · ${e.method}` : ""} · {dt(e.created_at)}{e.party_mode === "on_account" ? <span className="ml-1 rounded bg-violet-100 px-1.5 py-0.5 text-[10px] font-semibold text-violet-700">{e.kind === "expense" ? "Credit · khate se, bina cash" : "Debit · khate par, bina cash"}</span>
+                        : e.to_party ? <span className="ml-1 rounded bg-brand-100 px-1.5 py-0.5 text-[10px] font-semibold text-brand-700">{e.kind === "expense" ? "Debit · party ko diya" : "Credit · party se aaya"}</span> : null}</div>
                     </div>
                     <button onClick={() => setEdit(e)} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-500 hover:bg-emerald-100 hover:text-emerald-700" aria-label="Edit"><Pencil size={15} /></button>
                     <button onClick={async () => { const a = await askCancel({ title: `${meta.en} undo karein`, needReason: false, button: "Undo karein", what: <><b>{pkr(e.amount)}</b> · {e.party_name}{e.reason ? ` · ${e.reason}` : ""}</> }); if (a) api(`/other-entries/${e.id}`, { method: "DELETE", headers: pinHeader(a) }).then(reload).catch((x) => alert(x.message)); }}
@@ -117,14 +118,22 @@ function EditOther({ e, meta, onClose, onDone }: { e: any; meta: { en: string };
   const [amount, setAmount] = useState(String(e.amount ?? ""));
   const [note, setNote] = useState(e.note ?? "");
   const [why, setWhy] = useState("");
+  const was: PMode = e.party_mode ?? (e.to_party ? "cash" : "none");
+  const [mode, setMode] = useState<PMode>(was);
+  const realParty = e.kind !== "discount" && e.party_type !== "other";
+  // leaving "on account" needs real money: it goes back as cash (change it in a fresh entry for a bank)
+  const leaving = was === "on_account" && mode !== "on_account";
   const save = () => run(() => api(`/other-entries/${e.id}/edit`, {
-    body: { kind: e.kind, party_type: e.party_type, party_id: e.party_id ?? undefined, party_name: e.party_name, to_party: !!e.to_party,
-      reason: e.reason, amount: Number(amount), method: e.method ?? undefined, account_id: e.account_id ?? undefined, note: note || null, why: why.trim() },
+    body: { kind: e.kind, party_type: e.party_type, party_id: e.party_id ?? undefined, party_name: e.party_name, party_mode: realParty ? mode : "none",
+      reason: e.reason, amount: Number(amount), method: leaving ? "Cash" : mode === "on_account" ? undefined : e.method ?? undefined,
+      account_id: leaving || mode === "on_account" ? undefined : e.account_id ?? undefined, note: note || null, why: why.trim() },
   }), "Theek ho gaya — poore system me update, books tally").then((r) => { if (r) { onDone(); onClose(); } });
   return (
     <Modal open title={`Edit ${meta.en.toLowerCase()} — ${e.party_name}`} onClose={onClose}>
       <div className="space-y-3">
         <Field label="Amount (Rs)"><input className="input" type="number" inputMode="decimal" value={amount} onChange={(ev) => setAmount(ev.target.value)} /></Field>
+        {realParty && <PartyModePicker kind={e.kind} name={e.party_name} amount={Number(amount) || 0} value={mode} onChange={setMode} />}
+        {leaving && <p className="rounded-lg bg-amber-50 p-2 text-xs text-amber-800">Ab paisa <b>cash</b> se maana jayega (cash in hand badlega).</p>}
         <p className="text-xs text-slate-500">Reason <b>{e.reason}</b>{e.method ? ` · ${e.method}` : ""} wahi rahega. {e.kind === "discount" ? "Party ka balance" : "Cash/bank"} naye amount par aa jayega.</p>
         <Field label="Note (optional)"><input className="input" value={note} onChange={(ev) => setNote(ev.target.value)} /></Field>
         <Field label="Wajah (kyun badla) — zaroori"><input className="input" value={why} onChange={(ev) => setWhy(ev.target.value)} placeholder="e.g. amount ghalat tha" /></Field>
@@ -146,10 +155,12 @@ function EntryForm({ kind, meta, onSaved }: { kind: Kind; meta: { en: string; to
   const [method, setMethod] = useState("Cash");
   const [account, setAccount] = useState<number | null>(null);
   const [notes, setNotes] = useState<Record<string, string>>({});
-  const [toParty, setToParty] = useState(true); // income/expense with a real party: also post it on their khata
+  const [mode, setMode] = useState<PMode | null>(null); // income/expense with a real party: how their khata is involved — chosen, never assumed
   const [entryDate, setEntryDate] = useState(""); // a missed entry recorded on its real (past) date
   const { data: parties } = useApi<any>(ptype === "other" ? null : `/other-entries/parties?q=${encodeURIComponent(q)}`);
-  const cash = isCashM(method);
+  const realParty = kind !== "discount" && ptype !== "other";
+  const onAcc = realParty && mode === "on_account";
+  const cash = onAcc || isCashM(method);
 
   // discount can't use a free-text party
   useEffect(() => { if (kind === "discount" && ptype === "other") setPtype("khata"); }, [kind, ptype]);
@@ -157,20 +168,20 @@ function EntryForm({ kind, meta, onSaved }: { kind: Kind; meta: { en: string; to
   useEffect(() => { setAccount(null); }, [method]); // a new method needs its own account chosen
 
   const list = ptype === "other" ? [] : (parties?.[ptype] ?? []);
-  const reset = () => { setParty(null); setOtherName(""); setReason(""); setAmount(""); setQ(""); setMethod("Cash"); setAccount(null); setNotes({}); setToParty(true); setEntryDate(""); };
+  const reset = () => { setParty(null); setOtherName(""); setReason(""); setAmount(""); setQ(""); setMethod("Cash"); setAccount(null); setNotes({}); setMode(null); setEntryDate(""); };
 
   const submit = () => {
     const amt = Number(amount);
     if (!(amt > 0)) return run(() => Promise.reject(new Error("Amount theek likhein")), "");
     const b: any = { kind, party_type: ptype, reason, amount: amt, ...(entryDate ? { entry_date: entryDate } : {}),
       ...(ptype === "other" ? { party_name: otherName } : { party_id: party?.id }),
-      ...(kind === "discount" ? {} : { method, account_id: cash ? null : account, to_party: ptype !== "other" && toParty,
-        notes: cash ? Object.fromEntries(Object.entries(notes).filter(([, n]) => Number(n) > 0).map(([k, n]) => [k, Number(n)])) : undefined }) };
+      ...(kind === "discount" ? {} : { method: onAcc ? undefined : method, account_id: cash ? null : account, party_mode: realParty ? mode : "none",
+        notes: cash && !onAcc ? Object.fromEntries(Object.entries(notes).filter(([, n]) => Number(n) > 0).map(([k, n]) => [k, Number(n)])) : undefined }) };
     run(() => api("/other-entries", { body: b }), `${meta.en} saved`).then(() => { reset(); onSaved(); });
   };
 
   const ready = reason.trim().length >= 2 && Number(amount) > 0 && (ptype === "other" ? otherName.trim().length >= 2 : !!party)
-    && (kind === "discount" || cash || !!account);
+    && (kind === "discount" || cash || !!account) && (!realParty || !!mode);
 
   return (
     <div className="card space-y-3 p-4">
@@ -198,7 +209,9 @@ function EntryForm({ kind, meta, onSaved }: { kind: Kind; meta: { en: string; to
       <Field label="Kis cheez ka? (wajah) · وجہ"><input className="input" value={reason} onChange={(e) => setReason(e.target.value)} placeholder={kind === "income" ? "e.g. Generator kiraya" : kind === "expense" ? "e.g. Gate welding" : "e.g. Purani adjustment"} /></Field>
       <Field label="Amount (Rs)"><input className="input text-lg font-semibold" type="number" inputMode="decimal" min={1} value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" /></Field>
 
-      {kind !== "discount" && (
+      {realParty && <PartyModePicker kind={kind} name={party?.name ?? "Party"} amount={Number(amount) || 0} value={mode} onChange={setMode} />}
+
+      {kind !== "discount" && !onAcc && (
         <Field label={kind === "income" ? "Paisa kahan aaya? · رقم کہاں آئی" : "Paisa kahan se gaya? · رقم کہاں سے گئی"}>
           <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-5">
             {PAY.map((p) => (
@@ -210,26 +223,9 @@ function EntryForm({ kind, meta, onSaved }: { kind: Kind; meta: { en: string; to
           </div>
         </Field>
       )}
-      {kind !== "discount" && cash && <NoteGrid notes={notes} onChange={setNotes} amount={Number(amount) || 0} />}
-      {kind !== "discount" && !cash && <AccountPicker method={method} value={account} onChange={setAccount} required label="Kaun sa account? · کون سا اکاؤنٹ" />}
+      {kind !== "discount" && !onAcc && cash && <NoteGrid notes={notes} onChange={setNotes} amount={Number(amount) || 0} />}
+      {kind !== "discount" && !onAcc && !cash && <AccountPicker method={method} value={account} onChange={setAccount} required label="Kaun sa account? · کون سا اکاؤنٹ" />}
 
-      {kind !== "discount" && ptype !== "other" && (
-        <div className={`rounded-xl border p-3 ${toParty ? "border-brand-300 bg-brand-50" : "border-slate-200 bg-slate-50"}`}>
-          <label className="flex cursor-pointer items-start gap-2">
-            <input type="checkbox" className="mt-0.5 h-4 w-4" checked={toParty} onChange={(e) => setToParty(e.target.checked)} />
-            <span className="text-sm">
-              <b>Party ke khate par bhi daalein · <Ur>کھاتے میں درج کریں</Ur></b>
-              <span className="block text-xs text-slate-600">
-                {toParty
-                  ? (kind === "expense"
-                    ? `Paisa ${party?.name ?? "party"} ko diya → unke khate me DEBIT (unhein ${pkr(Number(amount) || 0)} aur dena hoga). Cash/bank se nikla, ledger me party ka udhaar — pump ka kharcha nahi.`
-                    : `Paisa ${party?.name ?? "party"} se aaya → unke khate me CREDIT (unka balance ${pkr(Number(amount) || 0)} kam). Cash/bank me aaya, ledger me party ki wasooli — pump ki income nahi.`)
-                  : `Sirf naam ke liye: ${party?.name ?? "party"} ka khata NAHI badlega — yeh pump ka apna ${kind === "expense" ? "kharcha (P&L expense)" : "income (P&L)"} hai.`}
-              </span>
-            </span>
-          </label>
-        </div>
-      )}
       {kind === "discount" && <p className="rounded-lg bg-amber-50 p-2 text-xs text-amber-800">Discount se is party ka outstanding {pkr(Number(amount) || 0)} kam ho jayega, aur profit bhi utna kam hoga.</p>}
       <Field label="Entry ki date (agar aaj ki nahi reh gayi) · پرانی تاریخ"><input className="input" type="date" max={new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 10)} value={entryDate} onChange={(e) => setEntryDate(e.target.value)} /></Field>
       <button disabled={busy || !ready} onClick={submit} className={`btn-primary w-full ${!ready ? "opacity-60" : ""}`}>{busy ? "Saving…" : `${meta.en} save karein`}</button>
@@ -264,6 +260,46 @@ function NoteGrid({ notes, onChange, amount }: { notes: Record<string, string>; 
           <span>{diff === 0 ? "Matches ✓" : diff > 0 ? `Rs ${num(Math.abs(diff))} zyada` : `Rs ${num(Math.abs(diff))} kam`}</span>
         </div>
       )}
+    </fieldset>
+  );
+}
+
+type PMode = "none" | "cash" | "on_account";
+/** Income / expense with a real party: how their khata moves. Three plain choices, each saying what changes where. */
+function PartyModePicker({ kind, name, amount, value, onChange }: { kind: string; name: string; amount: number; value: PMode | null; onChange: (m: PMode) => void }) {
+  const exp = kind === "expense", rs = amount > 0 ? pkr(amount) : "raqam";
+  const opts: { m: PMode; tag: string; tone: string; title: string; ur: string; lines: [string, string][] }[] = [
+    { m: "none", tag: "—", tone: "bg-slate-100 text-slate-700", title: exp ? "Sirf pump ka kharcha" : "Sirf pump ki income", ur: exp ? "صرف پمپ کا خرچہ" : "صرف پمپ کی آمدنی",
+      lines: [["Pump cash/bank", exp ? `− ${rs} nikla` : `+ ${rs} aaya`], ["Party ka khata", "koi farq nahi (naam sirf yaad ke liye)"], ["P&L", exp ? "kharcha" : "income"]] },
+    { m: "cash", tag: exp ? "DEBIT" : "CREDIT", tone: exp ? "bg-rose-100 text-rose-700" : "bg-emerald-100 text-emerald-700",
+      title: exp ? `Paisa ${name} ko / un ki taraf se diya` : `Paisa ${name} se aaya`, ur: exp ? "پارٹی کی طرف سے دیا — ڈیبٹ" : "پارٹی سے آیا — کریڈٹ",
+      lines: [["Pump cash/bank", exp ? `− ${rs} nikla` : `+ ${rs} aaya`], ["Party ka khata", exp ? `DEBIT: ${rs} aur dena hoga` : `CREDIT: baqaya ${rs} kam`], ["P&L", "nahi (party ka len-den)"]] },
+    { m: "on_account", tag: exp ? "CREDIT" : "DEBIT", tone: exp ? "bg-emerald-100 text-emerald-700" : "bg-rose-100 text-rose-700",
+      title: exp ? `${name} ne humara kharcha diya (bina cash)` : `${name} par charge (bina cash)`, ur: exp ? "پارٹی نے خرچہ دیا — کریڈٹ" : "پارٹی پر چارج — ڈیبٹ",
+      lines: [["Pump cash/bank", "koi farq nahi"], ["Party ka khata", exp ? `CREDIT: baqaya ${rs} kam` : `DEBIT: ${rs} aur dena hoga`], ["P&L", exp ? "kharcha" : "income"]] },
+  ];
+  return (
+    <fieldset>
+      <legend className="label">{name} ka khata · <Ur>پارٹی کا کھاتہ</Ur> *</legend>
+      <div className="grid gap-2 sm:grid-cols-3" role="radiogroup">
+        {opts.map((o) => {
+          const on = value === o.m;
+          return (
+            <button key={o.m} type="button" role="radio" aria-checked={on} onClick={() => onChange(o.m)}
+              className={`rounded-xl border p-3 text-left transition ${on ? "border-brand-500 bg-brand-50 ring-2 ring-brand-500/30" : "border-slate-200 bg-white hover:border-slate-300"}`}>
+              <div className="flex items-start justify-between gap-2">
+                <span className="text-sm font-semibold leading-snug">{o.title}</span>
+                <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold ${o.tone}`}>{o.tag}</span>
+              </div>
+              <Ur className="block text-xs text-slate-500">{o.ur}</Ur>
+              <dl className="mt-2 space-y-0.5 text-[11px]">
+                {o.lines.map(([k, v]) => <div key={k} className="flex justify-between gap-2"><dt className="text-slate-500">{k}</dt><dd className="text-right font-medium text-slate-800">{v}</dd></div>)}
+              </dl>
+            </button>
+          );
+        })}
+      </div>
+      {!value && <p className="mt-1 text-xs text-amber-700">Ek option chunein · <Ur>ایک منتخب کریں</Ur></p>}
     </fieldset>
   );
 }

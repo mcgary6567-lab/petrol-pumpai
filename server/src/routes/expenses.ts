@@ -316,7 +316,8 @@ export function expenseStatement(t: number, raw: unknown, seeOther = true) {
   const whereOther = (a: string, b: string) => {
     const w = ["o.tenant_id=?", "o.kind='expense'", "o.voided=0", "COALESCE(o.to_party,0)=0", `${OE_DAY} >= ?`, `${OE_DAY} <= ?`];
     const args: (string | number)[] = [t, a, b];
-    if (f.pay === "cash") w.push("LOWER(COALESCE(o.method,'cash')) IN ('cash','')"); else if (f.pay === "bank") w.push("LOWER(COALESCE(o.method,'cash')) NOT IN ('cash','')");
+    // an on-account entry (the party's khata bore it) moved neither cash nor bank — it shows only under "Sab"
+    if (f.pay === "cash") w.push("LOWER(COALESCE(o.method,'cash')) IN ('cash','')"); else if (f.pay === "bank") w.push("LOWER(COALESCE(o.method,'cash')) NOT IN ('cash','', 'party khata')");
     return { sql: w.join(" AND "), args };
   };
   const W = where(from, to);
@@ -345,6 +346,7 @@ export function expenseStatement(t: number, raw: unknown, seeOther = true) {
   })() : null;
   const categories = [...expenseGroups, ...(otherGroup ? [otherGroup] : [])].map((g) => ({ ...g, pct: total ? Math.round((g.total / total) * 1000) / 10 : 0 }));
   const cash = round2(rows.filter((r) => isCashM(r.method)).reduce((a, r) => a + Number(r.amount), 0) + others.filter((r) => isCashM(r.method)).reduce((a, r) => a + Number(r.amount), 0));
+  const onAccount = round2(others.filter((r) => String(r.method).toLowerCase() === "party khata").reduce((a, r) => a + Number(r.amount), 0));
   const days = Math.round((Date.parse(to) - Date.parse(from)) / 86_400_000) + 1;
   // the same length of time just before, for "pichle itne din se zyada / kam"
   const pTo = addDays(from, -1), pFrom = addDays(from, -days);
@@ -355,7 +357,7 @@ export function expenseStatement(t: number, raw: unknown, seeOther = true) {
   const pending = wantExpenses ? get(`SELECT COUNT(*) n, COALESCE(SUM(e.amount),0) v FROM expenses e WHERE ${PD.sql}`, ...PD.args)! : { n: 0, v: 0 };
   return {
     from, to, days, filters: { categories: picked, station_id: f.station_id ?? null, pay: f.pay || "all" },
-    total, n: rows.length + others.length, per_day: round2(total / days), cash, bank: round2(total - cash),
+    total, n: rows.length + others.length, per_day: round2(total / days), cash, bank: round2(total - cash - onAccount), on_account: onAccount,
     // the two books side by side: the normal expenses and the CEO's other expenses
     parts: { expenses: { total: expenseTotal, n: rows.length }, other: { total: otherTotal, n: others.length, included: wantOther } },
     previous: { from: pFrom, to: pTo, total: prevTotal, change_pct: prevTotal ? Math.round(((total - prevTotal) / prevTotal) * 100) : null },
