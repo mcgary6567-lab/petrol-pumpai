@@ -26,6 +26,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: superfly/flyctl-actions/setup-flyctl@master
+        id: setup
+        continue-on-error: true   # its download host sometimes answers 503 — fall back below instead of skipping the deploy
+      - name: Install flyctl (fallback)
+        if: steps.setup.outcome == 'failure'
+        run: |
+          for i in 1 2 3 4 5; do
+            if curl -fsSL https://fly.io/install.sh | sh; then break; fi
+            echo "flyctl install failed, retry $i"; sleep $((i * 10))
+          done
+          echo "$HOME/.fly/bin" >> "$GITHUB_PATH"
       - name: Deploy
         run: |
           if [ -z "${FLY_API_TOKEN}" ]; then
