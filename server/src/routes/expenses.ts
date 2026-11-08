@@ -6,6 +6,7 @@ import { h, parse, tid, requirePerm, requireAny, can } from "../auth.js";
 import { bankAccountFor, accountIdField } from "./banks.js";
 import { AppError, createAlert, pkr, round2 } from "../services.js";
 import { linkPhotos } from "./capture.js";
+import { sendToPhone } from "../whatsapp/cloud.js";
 import { guardClosedDay, assertCashInHand } from "./backoffice.js";
 import { registerDecider, requestApproval, closeApproval } from "./approvals.js";
 
@@ -274,4 +275,93 @@ expenses.get("/expenses/breakdown", requirePerm("expenses.view"), h((req) => {
   const days = Math.max(1, Math.round((Date.parse(to) - Date.parse(from)) / 86_400_000) + 1);
   return { from, to, days, total, per_day: round2(total / days), pending: { n: pending.n, amount: round2(pending.s as number) },
     by_category: rows.map((r) => ({ ...r, pct: total ? Math.round(((r.total as number) / total) * 100) : 0 })) };
+}));
+
+/* ---------------- Statement (ERP / bank style) ----------------
+ * Every approved expense in a date range, grouped by category: each line with its voucher no, payee, method and a running
+ * total inside the category, the category's subtotal, and the grand total at the bottom. Filters: from / to (any range —
+ * today, 7 / 15 / 30 days, a month, custom), categories (comma list), station, cash / bank. Pending ones are counted aside. */
+const statementQuery = z.object({
+  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  categories: z.string().max(2000).optional(),
+  station_id: z.preprocess((v) => (v === "" || v == null ? undefined : v), z.coerce.number().int().positive().optional()),
+  pay: z.enum(["cash", "bank", "all"]).or(z.literal("")).optional(),
+});
+const isCashSql = "LOWER(COALESCE(e.method,'cash')) IN ('cash','')";
+const addDays = (day: string, n: number) => new Date(Date.parse(day + "T12:00:00Z") + n * 86_400_000).toISOString().slice(0, 10);
+
+export function expenseStatement(t: number, raw: unknown) {
+  const f = parse(statementQuery, raw);
+  const to = f.to ?? pkDate(), from = f.from ?? to;
+  if (from > to) throw new AppError(400, "'Se' ki tareekh 'tak' se pehle honi chahiye");
+  const cats = (f.categories ?? "").split(",").map((c) => c.trim()).filter(Boolean);
+  const where = (a: string, b: string, status = "approved") => {
+    const w = ["e.tenant_id=?", "e.status=?", "substr(e.expense_date,1,10) >= ?", "substr(e.expense_date,1,10) <= ?"];
+    const args: (string | number)[] = [t, status, a, b];
+    if (cats.length) { w.push(`e.category IN (${cats.map(() => "?").join(",")})`); args.push(...cats); }
+    if (f.station_id) { w.push("e.station_id=?"); args.push(f.station_id); }
+    if (f.pay === "cash") w.push(isCashSql); else if (f.pay === "bank") w.push(`NOT ${isCashSql}`);
+    return { sql: w.join(" AND "), args };
+  };
+  const W = where(from, to);
+  const rows = all(`SELECT e.id, substr(e.expense_date,1,10) day, e.category, e.amount, e.paid_to, e.method, e.note, e.receipt_ref, e.photo_id, e.shift_id,
+      e.created_by, e.approved_by, s.name station_name
+    FROM expenses e LEFT JOIN stations s ON s.id=e.station_id WHERE ${W.sql} ORDER BY e.category, day, e.id`, ...W.args);
+  const total = round2(rows.reduce((a, r) => a + Number(r.amount), 0));
+  const groups = new Map<string, { category: string; n: number; total: number; lines: any[] }>();
+  for (const r of rows) {
+    const g = groups.get(r.category as string) ?? { category: r.category as string, n: 0, total: 0, lines: [] };
+    g.n++; g.total = round2(g.total + Number(r.amount));
+    g.lines.push({ ...r, voucher: `EX-${String(r.id).padStart(5, "0")}`, cash: /^(cash)?$/i.test(String(r.method ?? "cash")), running: g.total,
+      from_shift: r.shift_id != null });
+    groups.set(r.category as string, g);
+  }
+  const categories = [...groups.values()].sort((a, b) => b.total - a.total).map((g) => ({ ...g, pct: total ? Math.round((g.total / total) * 1000) / 10 : 0 }));
+  const cash = round2(rows.filter((r) => /^(cash)?$/i.test(String(r.method ?? "cash"))).reduce((a, r) => a + Number(r.amount), 0));
+  const days = Math.round((Date.parse(to) - Date.parse(from)) / 86_400_000) + 1;
+  // the same length of time just before, for "pichle itne din se zyada / kam"
+  const pTo = addDays(from, -1), pFrom = addDays(from, -days);
+  const P = where(pFrom, pTo);
+  const prevTotal = round2(Number(get(`SELECT COALESCE(SUM(e.amount),0) v FROM expenses e WHERE ${P.sql}`, ...P.args)!.v));
+  const PD = where(from, to, "pending");
+  const pending = get(`SELECT COUNT(*) n, COALESCE(SUM(e.amount),0) v FROM expenses e WHERE ${PD.sql}`, ...PD.args)!;
+  return {
+    from, to, days, filters: { categories: cats, station_id: f.station_id ?? null, pay: f.pay || "all" },
+    total, n: rows.length, per_day: round2(total / days), cash, bank: round2(total - cash),
+    previous: { from: pFrom, to: pTo, total: prevTotal, change_pct: prevTotal ? Math.round(((total - prevTotal) / prevTotal) * 100) : null },
+    pending: { n: Number(pending.n), amount: round2(Number(pending.v)) },
+    categories,
+  };
+}
+
+expenses.get("/expenses/statement", requirePerm("expenses.view"), h((req) => expenseStatement(tid(req), req.query)));
+
+expenses.get("/expenses/statement.csv", requirePerm("expenses.view"), (req, res, next) => {
+  try {
+    const s = expenseStatement(tid(req), req.query);
+    const esc = (v: unknown) => `"${typeof v === "string" && /^[=+@-]/.test(v) ? "'" : ""}${String(v ?? "").replaceAll('"', '""')}"`;
+    const out: string[] = [[`Kharchon ki statement ${s.from} se ${s.to}`].map(esc).join(","), ""];
+    out.push(["Category", "Date", "Voucher", "Paid to", "Method", "Station", "Note", "Receipt", "Amount", "Running"].map(esc).join(","));
+    for (const g of s.categories) {
+      for (const l of g.lines) out.push([g.category, l.day, l.voucher, l.paid_to, l.method, l.station_name ?? "", l.note, l.receipt_ref, l.amount, l.running].map(esc).join(","));
+      out.push([`${g.category} — total`, "", "", "", "", "", "", `${g.n} entries`, g.total, ""].map(esc).join(","), "");
+    }
+    out.push(["KUL KHARCHA", "", "", "", "", "", "", `${s.n} entries`, s.total, ""].map(esc).join(","));
+    out.push(["Cash", "", "", "", "", "", "", "", s.cash, ""].map(esc).join(","), ["Bank / online", "", "", "", "", "", "", "", s.bank, ""].map(esc).join(","));
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="kharche-${s.from}-to-${s.to}.csv"`);
+    res.send("﻿" + out.join("\n"));
+  } catch (e) { next(e); }
+});
+
+/** The owner gets the range's totals per category on WhatsApp. */
+expenses.post("/expenses/statement/whatsapp", requirePerm("expenses.view"), h(async (req) => {
+  const t = tid(req);
+  const s = expenseStatement(t, req.body ?? {});
+  const owner = (getSetting(t, "owner_phone", "") || (get("SELECT owner_phone FROM tenants WHERE id=?", t)?.owner_phone as string | undefined)) as string | undefined;
+  if (!owner) throw new AppError(400, "Owner ka WhatsApp number set nahi (Settings → Owner phone)");
+  const lines = s.categories.map((g) => `• ${g.category}: ${pkr(g.total)} (${g.n})`);
+  const text = `🧾 Kharche ${s.from}${s.from !== s.to ? ` se ${s.to}` : ""}\n${lines.join("\n") || "Koi kharcha nahi"}\n────────\nKul: ${pkr(s.total)} · ${s.n} entries\nCash ${pkr(s.cash)} · Bank ${pkr(s.bank)}${s.previous.change_pct != null ? `\nPichle ${s.days} din se ${s.previous.change_pct >= 0 ? "+" : ""}${s.previous.change_pct}%` : ""}${s.pending.n ? `\nManzoori baqi: ${s.pending.n} (${pkr(s.pending.amount)})` : ""}`;
+  await sendToPhone(owner, text);
+  return { ok: true, sent_to: owner };
 }));

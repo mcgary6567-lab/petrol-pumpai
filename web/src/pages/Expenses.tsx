@@ -9,6 +9,8 @@ import { useAuth } from "../App";
 import { PhotoButton, PhotoThumb } from "../components/Capture";
 import { AccountPicker } from "../components/BankParts";
 import { VoucherSlip } from "./Cashier";
+import { ExpenseStatement } from "../components/ExpenseStatement";
+import { Ur } from "../components/VoiceShell";
 
 const METHODS = ["cash", "bank", "jazzcash", "easypaisa", "raast", "cheque", "card"];
 const thisMonth = () => new Date().toISOString().slice(0, 7);
@@ -32,6 +34,7 @@ export default function Expenses() {
   const [setup, setSetup] = useState(false);
   const [fixed, setFixed] = useState(false);
   const [slip, setSlip] = useState<any>(null);
+  const [view, setView] = useState<"list" | "report">(() => (new URLSearchParams(window.location.search).get("view") === "report" ? "report" : "list"));
   const paged = usePaged(data?.expenses ?? [], 10);
   if (!data || !cats.data) return <Loading />;
   const s = data.summary;
@@ -67,6 +70,13 @@ export default function Expenses() {
           <button className="btn-primary" onClick={() => setAdding(true)}><Plus size={16} /> Add expense</button>
         </>} />
 
+      <div role="tablist" aria-label="Expenses view" className="flex gap-1 border-b border-slate-200 print:hidden">
+        {([["list", "Kharche", "اخراجات"], ["report", "Report / Statement", "رپورٹ"]] as const).map(([k, l, u]) => (
+          <button key={k} role="tab" aria-selected={view === k} onClick={() => setView(k)} className={`whitespace-nowrap border-b-2 px-3 py-1.5 text-sm leading-tight ${view === k ? "border-brand-600 font-semibold text-brand-700" : "border-transparent text-slate-600"}`}>{l}<Ur className="block text-xs">{u}</Ur></button>
+        ))}
+      </div>
+
+      {view === "report" ? <ExpenseStatement categories={cats.data.categories} stations={stations.data ?? []} onVoucher={(l) => setSlip(voucherOf({ ...l, status: "approved", expense_date: l.day }))} /> : <>
       <div className="grid grid-cols-2 items-end gap-3 sm:flex sm:flex-wrap">
         <div className="col-span-2 sm:col-span-1"><Field label="Month"><input className="input" type="month" value={month} onChange={(e) => setMonth(e.target.value || thisMonth())} /></Field></div>
         <Field label="Category"><select className="input" value={category} onChange={(e) => setCategory(e.target.value)}><option value="">All</option>{cats.data.categories.map((c: any) => <option key={c.id}>{c.name}</option>)}</select></Field>
@@ -139,6 +149,7 @@ export default function Expenses() {
         </div>
       </div>
       <Pager {...paged} />
+      </>}
 
       {slip && <VoucherSlip r={slip} onClose={() => setSlip(null)} />}
       {adding && <ExpenseForm categories={cats.data.categories} stations={stations.data ?? []} limit={data.approval_limit} canApprove={can("expenses.approve")} onClose={() => setAdding(false)} onSaved={() => { setAdding(false); refresh(); }} />}
