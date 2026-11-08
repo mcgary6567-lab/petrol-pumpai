@@ -11,7 +11,7 @@ import { Router, type Request } from "express";
 import { unshiftClientFuel } from "./clientFuel.js";
 import { z } from "zod";
 import { all, get, run, tx, now, pkDate, pkStart, pkEnd, pkDayStart, type Row } from "../db.js";
-import { h, parse, tid, requirePerm, can } from "../auth.js";
+import { h, parse, tid, requirePerm, can, modulesOf } from "../auth.js";
 import { AppError, round2, pkr, createAlert, khataEntry, audit } from "../services.js";
 import { closeApproval } from "./approvals.js";
 import { gateBigPayment, registerPayExecutor } from "./payRequests.js";
@@ -91,6 +91,7 @@ function newCheque(req: Request, c: { direction: "in" | "out"; party_type: strin
 /* ---------------- parties ---------------- */
 function party(t: number, type: string, id: number | null | undefined) {
   if (type === "other") return null;
+  if (type === "khata" && !modulesOf(t).khata) throw new AppError(403, "Customers & khata module is pump ke liye band hai");
   if (!id) throw new AppError(400, "Choose who it is");
   const sql: Record<string, string> = {
     khata: "SELECT id, name, phone FROM customers WHERE id=? AND tenant_id=?",
@@ -112,7 +113,9 @@ export function partiesList(t: number, kindIn: string, qIn: string) {
   const q = `%${String(qIn ?? "").trim()}%`;
   const kind = String(kindIn ?? "");
   const out: Record<string, Row[]> = {};
-  if (!kind || kind === "khata") out.khata = all(`SELECT id, name, phone, balance, credit_limit FROM customers WHERE tenant_id=? AND (name LIKE ? OR COALESCE(phone,'') LIKE ?)
+  const mods = modulesOf(t); // a switched-off module's parties are not offered
+  if (!mods.khata && kind === "khata") return { khata: [] };
+  if ((!kind && mods.khata) || kind === "khata") out.khata = all(`SELECT id, name, phone, balance, credit_limit FROM customers WHERE tenant_id=? AND (name LIKE ? OR COALESCE(phone,'') LIKE ?)
     ORDER BY (balance > 0) DESC, balance DESC, name LIMIT 30`, t, q, q);
   if (!kind || kind === "wholesale") { const d = clientDueAll(t); out.wholesale = all("SELECT id, name, phone, business_name FROM wholesale_clients WHERE tenant_id=? AND active=1 AND (name LIKE ? OR COALESCE(business_name,'') LIKE ? OR COALESCE(phone,'') LIKE ?) ORDER BY name LIMIT 30", t, q, q, q)
     .map((c) => ({ ...c, balance: round2(d.get(c.id) ?? 0) })).sort((a, b) => b.balance - a.balance); }

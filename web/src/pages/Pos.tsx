@@ -445,7 +445,7 @@ export default function Pos() {
           {/* 3. payment */}
           <Step n={3} en="Payment" ur="ادائیگی">
             <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 xl:grid-cols-7">
-              {PAY.filter((p) => !OFF_PAY.includes(p.key) && (p.key !== "wholesale" || showWholesale)).map((p) => (
+              {PAY.filter((p) => !OFF_PAY.includes(p.key) && (p.key !== "wholesale" || showWholesale) && (!["khata", "wallet"].includes(p.key) || modules?.khata !== false)).map((p) => (
                 <button key={p.key} aria-pressed={pay === p.key} onClick={() => {
                   setPay(p.key);
                   if (p.key === "khata") setPickKhata(true); else setKhata(null);

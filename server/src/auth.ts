@@ -111,23 +111,38 @@ export const forgetRoleOverrides = (t: number) => overrides.delete(t);
  */
 const WHOLESALE_MODULE_PERMS = (p: string) => p.startsWith("wholesale.") || p.startsWith("carriage.");
 const INVESTOR_MODULE_PERMS = (p: string) => p.startsWith("investors.");
+/** "Customers & khata": customer accounts, udhaar (khata), coupons & wallets, orders, complaints, campaigns. ON by default. */
+const KHATA_MODULE_PERMS = (p: string) => p.startsWith("customers.") || p.startsWith("khata.") || p === "credit.set_limit"
+  || p === "orders.manage" || p === "complaints.manage" || p === "campaigns.manage";
 const moduleOn = new Map<string, boolean>(); // "<module>:<tenant>" → on
-function moduleFlag(key: "module_wholesale" | "module_investors", t: number) {
+type ModuleKey = "module_wholesale" | "module_investors" | "module_pos" | "module_khata";
+/** POS and Customers & khata are ON unless switched off; the paid add-ons (wholesale, investors) are OFF unless switched on. */
+const MODULE_DEFAULT: Record<ModuleKey, string> = { module_wholesale: "0", module_investors: "0", module_pos: "1", module_khata: "1" };
+function moduleFlag(key: ModuleKey, t: number) {
   const k = `${key}:${t}`;
   let v = moduleOn.get(k);
-  if (v === undefined) { v = getSetting(t, key, "0") === "1"; moduleOn.set(k, v); }
+  if (v === undefined) { v = getSetting(t, key, MODULE_DEFAULT[key]) === "1"; moduleOn.set(k, v); }
   return v;
 }
 const wholesaleModuleOn = (t: number) => moduleFlag("module_wholesale", t);
 /** "Investors" is a paid add-on too: off by default (most pumps run on the owner's money), on from the install wizard / Go-live. */
 const investorsModuleOn = (t: number) => moduleFlag("module_investors", t);
-export const forgetModules = (t: number) => { moduleOn.delete(`module_wholesale:${t}`); moduleOn.delete(`module_investors:${t}`); };
-export const modulesOf = (t: number) => ({ wholesale: wholesaleModuleOn(t), investors: investorsModuleOn(t) });
+const posModuleOn = (t: number) => moduleFlag("module_pos", t);
+const khataModuleOn = (t: number) => moduleFlag("module_khata", t);
+export const forgetModules = (t: number) => { for (const k of Object.keys(MODULE_DEFAULT)) moduleOn.delete(`${k}:${t}`); };
+export const modulesOf = (t: number) => ({ wholesale: wholesaleModuleOn(t), investors: investorsModuleOn(t), pos: posModuleOn(t), khata: khataModuleOn(t) });
+
+/** Route guard: the module must be on for this pump (POS counter, khata …). */
+export const requireModule = (m: "pos" | "khata" | "wholesale" | "investors") => (req: Request, _res: Response, next: NextFunction) => {
+  if (!req.user || modulesOf(req.user.tenant_id)[m]) return next();
+  next(new AppError(403, `${m === "pos" ? "POS" : m === "khata" ? "Customers & khata" : m} module is pump ke liye band hai`));
+};
 
 export function allowed(tenantId: number, role: Role, perm: Permission): boolean {
   // paid module gate: with "Wholesale & carriage" off, nobody at this pump — not even the owner — has these
   if (WHOLESALE_MODULE_PERMS(perm) && !wholesaleModuleOn(tenantId)) return false;
   if (INVESTOR_MODULE_PERMS(perm) && !investorsModuleOn(tenantId)) return false;
+  if (KHATA_MODULE_PERMS(perm) && !khataModuleOn(tenantId)) return false;
   if (role === "admin") return true;
   const o = tenantOverrides(tenantId).get(`${perm}|${role}`);
   return o ?? (PERMISSIONS[perm] as readonly Role[]).includes(role);

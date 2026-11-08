@@ -15,7 +15,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { all, get, run, tx, now, pkDate, pkStart, pkEnd } from "../db.js";
-import { h, parse, tid, requirePerm } from "../auth.js";
+import { h, parse, tid, requirePerm, modulesOf } from "../auth.js";
 import { AppError, round2, audit } from "../services.js";
 import { otherMoney, accountIdField } from "./banks.js";
 import { backdateAt } from "./backoffice.js";
@@ -34,6 +34,7 @@ function partyName(t: number, type: string, id: number | null | undefined, freeN
   }
   const table = PARTY_RECEIVABLE[type];
   if (!table) throw new AppError(400, "Choose a valid party");
+  if (type === "khata" && !modulesOf(t).khata) throw new AppError(403, "Customers & khata module is pump ke liye band hai");
   if (!id) throw new AppError(400, "Choose who it is");
   const p = get(`SELECT name FROM ${table} WHERE id=? AND tenant_id=?`, id, t);
   if (!p) throw new AppError(404, "Party not found");

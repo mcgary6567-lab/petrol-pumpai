@@ -6,7 +6,7 @@ import { askRating } from "./feedback.js";
 import { claimForDelivery } from "./claims.js";
 import { all, get, run, tx, now, getSetting, pkDate, pkDayStart, pkStart, pkEnd, METER, meterName, type Row, pkStamp } from "../db.js";
 import { meterSales } from "./reports.js";
-import { h, parse, tid, requirePerm, requireAny, scopedStation, can, modulesOf } from "../auth.js";
+import { h, parse, tid, requirePerm, requireAny, scopedStation, can, modulesOf, requireModule } from "../auth.js";
 import { resolveCategory } from "./expenses.js";
 import { AppError, recordSale, undoSale, audit, UNDO_SECONDS, currentPrices, createAlert, round2, pkr, rateFmt, correctTo15, priceOf, khataSpecialRate, type SaleInput } from "../services.js";
 import { productSchema } from "../products.js";
@@ -146,7 +146,7 @@ saleRoutes.get("/sales/shift-at", requirePerm("sales.create"), h((req) => {
   return { at, match, shifts };
 }));
 
-saleRoutes.post("/sales", requirePerm("sales.create"), h((req) => {
+saleRoutes.post("/sales", requirePerm("sales.create"), requireModule("pos"), h((req) => {
   const b = parse(z.object({
     station_id: z.number(), product, litres: z.number().positive().optional(), amount: z.number().positive().optional(),
     payment_method: z.string().max(40), // a money method (Settings → Lists) or khata / loyalty / coupon / wallet — checked below
@@ -185,6 +185,9 @@ saleRoutes.post("/sales", requirePerm("sales.create"), h((req) => {
     cheque_bank: z.string().max(80).nullable().optional(),
     cheque_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   }), req.body);
+  // modules: the POS counter and khata (udhaar to khata customers) can each be switched off for a pump
+  const mods = modulesOf(tid(req));
+  if (!b.wholesale_client_id && (b.customer_id || b.payment_method === "khata") && !mods.khata) throw new AppError(403, "Khata module is pump ke liye band hai · کھاتہ بند ہے");
   // when the fuel actually went out: an offline tablet's own clock, or (manager / CEO) a missed entry on its real past day /
   // minute — the sale is dated there, priced at THAT moment's board rate (or the client's rate card then), and lands on the
   // shift that was open then. Computed first so the wholesale-client branch below gets it too.

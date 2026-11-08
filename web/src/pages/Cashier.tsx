@@ -375,7 +375,9 @@ const isCash = (m: string) => m === "Cash";
 const DEPOT_PAY = "Paid to depot";
 
 function MoneyForm({ dir, preset, onDone }: { dir: "in" | "out"; preset: Record<string, string>; onDone: (r: any) => void }) {
-  const types = dir === "in" ? IN_TYPES : OUT_TYPES;
+  const { modules } = useAuth();
+  // a switched-off Customers & khata module takes the khata option away
+  const types = ((dir === "in" ? IN_TYPES : OUT_TYPES) as readonly (readonly [string, string, string])[]).filter(([k]) => k !== "khata" || modules.khata);
   const [type, setType] = useState<string>(types.some((t) => t[0] === preset.type) ? preset.type : types[0][0]);
   const [party, setParty] = useState<any>(null);
   const [f, setF] = useState({ amount: preset.amount ?? "", method: preset.method ?? "Cash", party_name: "", category: "", note: "", ref: "", bank: "", cheque_no: "", cheque_date: today(), notify: true, entry_date: "" });

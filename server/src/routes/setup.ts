@@ -109,7 +109,7 @@ export const setupBody = z.object({
   })).min(1, "Add at least one station").max(20),
   prices: z.record(product, z.number().positive().max(2000)),
   // paid add-on modules chosen at install — "Wholesale & carriage" is off unless the pump does wholesale supply
-  modules: z.object({ wholesale: z.boolean(), investors: z.boolean().optional() }).optional(),
+  modules: z.object({ wholesale: z.boolean(), investors: z.boolean().optional(), pos: z.boolean().optional(), khata: z.boolean().optional() }).optional(),
   // first-day defaults (all optional, the go-live checklist can change them later)
   defaults: z.object({ shift_hours: z.number().min(1).max(72).optional() }).optional(),
 });
@@ -163,6 +163,9 @@ export function provisionTenant(b: z.infer<typeof setupBody>, opts: { status: st
     setSetting(tenantId, "module_wholesale", b.modules?.wholesale ? "1" : "0");
     // Investors module: off by default too — on only when the pump runs on investors' money
     setSetting(tenantId, "module_investors", b.modules?.investors ? "1" : "0");
+    // POS counter and Customers & khata: on unless the owner said this pump does not use them
+    setSetting(tenantId, "module_pos", b.modules?.pos === false ? "0" : "1");
+    setSetting(tenantId, "module_khata", b.modules?.khata === false ? "0" : "1");
     setSetting(tenantId, "installed_at", ts);
     newPumpDefaults(tenantId, { shift_hours: b.defaults?.shift_hours });
     return { tenantId, adminId };

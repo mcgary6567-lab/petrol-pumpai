@@ -60,7 +60,9 @@ export default function Setup({ signup = false }: { signup?: boolean }) {
   const [step, setStep] = useState(0);
   const [doneUrl, setDoneUrl] = useState<string | null>(null); // SaaS: the pump's own sign-in link, shown once the pump is made
   const [wholesale, setWholesale] = useState(false); // "Wholesale & carriage" module — off unless this pump does wholesale supply
-  const [investors, setInvestors] = useState(false); // "Investors" module — off unless the pump runs on investors' money
+  const [investors, setInvestors] = useState(false);
+  const [pos, setPos] = useState(true); // POS (counter sale) — most pumps sell at the counter
+  const [khata, setKhata] = useState(true); // Customers & khata (udhaar) — most pumps give credit // "Investors" module — off unless the pump runs on investors' money
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [code, setCode] = useState("");
@@ -145,7 +147,7 @@ export default function Setup({ signup = false }: { signup?: boolean }) {
               nozzles: t.meters.map((m) => ({ meter_no: ++no, label: m.label.trim() || undefined, totalizer: Number(m.totalizer) || 0 })) })) };
         }),
         prices: Object.fromEntries(used.map((p) => [p, Number(prices[p])])),
-        modules: { wholesale, investors },
+        modules: { wholesale, investors, pos, khata },
       } });
       try { localStorage.removeItem(DRAFT_KEY); } catch { /* ignore */ }
       await login(r.token);
@@ -203,6 +205,17 @@ export default function Setup({ signup = false }: { signup?: boolean }) {
               <F label="City"><input className="input" value={biz.biz_city} onChange={(e) => setBiz({ ...biz, biz_city: e.target.value })} /></F>
               <F label="Oil company (OMC)"><select className="input" value={biz.omc} onChange={(e) => setBiz({ ...biz, omc: e.target.value })}>{OMCS.map((o) => <option key={o}>{o}</option>)}</select></F>
             </Grid>
+            <div className="mt-2 text-sm font-semibold">Kaun se module chahiye? · <span lang="ur" dir="rtl" className="font-urdu font-normal">کون سے ماڈیول</span></div>
+            <label className="mt-1 flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+              <input type="checkbox" className="mt-0.5 h-5 w-5 shrink-0" checked={pos} onChange={(e) => setPos(e.target.checked)} />
+              <span className="text-sm"><span className="font-semibold">POS — counter sale</span> — salesman har gaari ki sale (cash / card / online) counter par darj karta hai?
+                <span className="mt-0.5 block text-xs text-slate-500">Aam pump ise <b>on</b> rakhte hain. Sirf meter reading / shift se hisaab rakhna ho ya sirf wholesale ka karobar ho to band karein. · <span lang="ur" dir="rtl" className="font-urdu">کاؤنٹر سیل</span></span></span>
+            </label>
+            <label className="mt-1 flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+              <input type="checkbox" className="mt-0.5 h-5 w-5 shrink-0" checked={khata} onChange={(e) => setKhata(e.target.checked)} />
+              <span className="text-sm"><span className="font-semibold">Customers &amp; khata (udhaar)</span> — kya pump customers ko udhaar (khata) deta hai, coupons / wallets, orders aur complaints?
+                <span className="mt-0.5 block text-xs text-slate-500">Aam pump ise <b>on</b> rakhte hain. Sirf cash / card par bechna ho to band karein. · <span lang="ur" dir="rtl" className="font-urdu">گاہک اور کھاتہ</span></span></span>
+            </label>
             <label className="mt-1 flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
               <input type="checkbox" className="mt-0.5 h-5 w-5 shrink-0" checked={wholesale} onChange={(e) => setWholesale(e.target.checked)} />
               <span className="text-sm"><span className="font-semibold">Wholesale supply + carriage</span> — kya ye pump doosre pumps / dealers ko tanker se wholesale fuel supply ya kiraya (carriage) karta hai?

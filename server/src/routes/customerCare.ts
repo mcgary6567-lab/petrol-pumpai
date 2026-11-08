@@ -13,7 +13,7 @@ import { bankAccountFor } from "./banks.js";
 import jwt from "jsonwebtoken";
 import { pinLink } from "./pinPortal.js";
 import { all, get, run, tx, now, pkDate, getSetting } from "../db.js";
-import { h, parse, tid, requirePerm, scopedStation } from "../auth.js";
+import { h, parse, tid, requirePerm, scopedStation, requireModule } from "../auth.js";
 import { AppError, round2, pkr, khataEntry, paymentLink, upsertCustomerByPhone } from "../services.js";
 import { config } from "../config.js";
 import { sendWhatsApp } from "../whatsapp/cloud.js";
@@ -189,13 +189,13 @@ export function createBooking(t: number, o: { customer_id: number; station_id?: 
   return get("SELECT b.*, s.name station_name FROM bookings b JOIN stations s ON s.id=b.station_id WHERE b.id=?", id)!;
 }
 
-care.get("/bookings", requirePerm("sales.create"), h((req) => {
+care.get("/bookings", requirePerm("sales.create"), requireModule("pos"), h((req) => {
   const station = scopedStation(req, req.query.station_id ? Number(req.query.station_id) : null);
   const from = new Date(Date.now() - 12 * 3600_000).toISOString();
   return all(`SELECT b.*, c.name customer_name, c.phone, s.name station_name FROM bookings b JOIN customers c ON c.id=b.customer_id JOIN stations s ON s.id=b.station_id
     WHERE b.tenant_id=? ${station ? "AND b.station_id=" + Number(station) : ""} AND (b.at >= ? OR b.status='booked') ORDER BY b.at LIMIT 200`, tid(req), from);
 }));
-care.post("/bookings", requirePerm("sales.create"), h(async (req) => {
+care.post("/bookings", requirePerm("sales.create"), requireModule("pos"), h(async (req) => {
   const b = parse(z.object({ customer_id: z.number().optional(), phone: z.string().optional(), name: z.string().optional(), station_id: z.number().optional().nullable(),
     service: z.string().max(40), at: z.string().datetime({ offset: true }), vehicle_no: z.string().max(20).optional().nullable(), note: z.string().max(200).optional().nullable() }), req.body);
   const c = b.customer_id ? ownCustomer(tid(req), b.customer_id) : b.phone ? upsertCustomerByPhone(tid(req), b.phone, b.name) : null;
@@ -204,7 +204,7 @@ care.post("/bookings", requirePerm("sales.create"), h(async (req) => {
   await sendWhatsApp(tid(req), c, `✅ ${SERVICES(tid(req))[bk.service]} booked: ${new Date(bk.at).toLocaleString("en-PK", { timeZone: "Asia/Karachi", weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })} at ${bk.station_name}. Booking #${bk.id}.`, "system", { kind: "booking" });
   return bk;
 }));
-care.post("/bookings/:id/:status(done|cancelled|no_show)", requirePerm("sales.create"), h((req) => {
+care.post("/bookings/:id/:status(done|cancelled|no_show)", requirePerm("sales.create"), requireModule("pos"), h((req) => {
   const bk = get("SELECT * FROM bookings WHERE id=? AND tenant_id=?", Number(req.params.id), tid(req));
   if (!bk) throw new AppError(404, "Booking not found");
   run("UPDATE bookings SET status=?, done_at=? WHERE id=?", req.params.status, req.params.status === "done" ? now() : null, bk.id);

@@ -50,6 +50,9 @@ const NAV_UR: Record<string, string> = {
   "/automations": "آٹومیشن", "/staff": "عملہ کھاتہ", "/kiosk": "حاضری", "/roster": "ڈیوٹی روسٹر", "/team": "ریٹنگ و کمیشن", "/checklist": "روزانہ چیک", "/compliance": "لائسنس",
   "/machines": "مشینیں", "/my-account": "میرا حساب", "/help": "رہنمائی", "/users": "صارفین", "/audit": "آڈٹ لاگ", "/security": "سیکیورٹی اسکور", "/corrections": "درستگی", "/opening-balances": "پرانا حساب", "/go-live": "گو لائیو چیک لسٹ", "/lists": "لسٹیں", "/settings": "سیٹنگز",
 };
+/** Pages of the POS (counter sale) module — hidden when a pump has it switched off. */
+const POS_PAGES = ["/pos", "/bookings"];
+
 /** Manager / owner menu groups (other roles have short menus and see them flat). */
 const GROUPS: { key: string; label: string; ur: string; icon: any; items: string[] }[] = [
   { key: "sales", label: "Sales & shifts", ur: "سیل و شفٹ", icon: Fuel, items: ["/pos", "/shifts", "/bookings", "/card-pending"] },
@@ -285,7 +288,7 @@ function useRecords(query: string, on: boolean) {
 export default function Layout() {
   // sales saved on the tablet without internet upload from whichever page is open (not only the POS)
   useOfflineQueue();
-  const { user, tenant, logout, can } = useAuth();
+  const { user, tenant, logout, can, modules } = useAuth();
   const nav = useNavigate();
   const pageLoc = useLocation();
   const [open, setOpen] = useState(false);
@@ -296,7 +299,8 @@ export default function Layout() {
   const k = counts.data;
   const badgeVal: Record<string, number> = { unread: k?.unread ?? 0, orders: k?.pending_orders ?? 0, alerts: k?.open_alerts ?? 0 };
   const [q, setQ] = useState("");
-  const visible = NAV.filter((n) => (!n.perm || n.perm.split("|").some(can)) && (!("only" in n) || (n.only as string[]).includes(user?.role ?? "")));
+  const visible = NAV.filter((n) => (!n.perm || n.perm.split("|").some(can)) && (!("only" in n) || (n.only as string[]).includes(user?.role ?? ""))
+    && !(POS_PAGES.includes(n.to) && !modules.pos));
   // every page the role can see, its sub-items (e.g. Day book) and the boxes inside Settings — each with the words of what it holds
   const pages = useMemo(() => {
     const out: { to: string; label: string; ur: string; words: string; icon: NavItem["icon"] }[] = [];

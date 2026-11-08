@@ -1,3 +1,4 @@
+import { useAuth } from "../App";
 import { useEffect, useState } from "react";
 import { askCancel, pinHeader } from "../components/CancelEntry";
 import { api, useApi } from "../lib/api";
@@ -146,7 +147,8 @@ function EditOther({ e, meta, onClose, onDone }: { e: any; meta: { en: string };
 
 function EntryForm({ kind, meta, onSaved }: { kind: Kind; meta: { en: string; tone: string }; onSaved: () => void }) {
   const { busy, run } = useAction();
-  const [ptype, setPtype] = useState<PType>("khata");
+  const { modules } = useAuth();
+  const [ptype, setPtype] = useState<PType>(modules.khata ? "khata" : "wholesale");
   const [q, setQ] = useState("");
   const [party, setParty] = useState<{ id: number; name: string } | null>(null);
   const [otherName, setOtherName] = useState("");
@@ -163,7 +165,7 @@ function EntryForm({ kind, meta, onSaved }: { kind: Kind; meta: { en: string; to
   const cash = onAcc || isCashM(method);
 
   // discount can't use a free-text party
-  useEffect(() => { if (kind === "discount" && ptype === "other") setPtype("khata"); }, [kind, ptype]);
+  useEffect(() => { if (kind === "discount" && ptype === "other") setPtype(modules.khata ? "khata" : "wholesale"); }, [kind, ptype]);
   useEffect(() => { setParty(null); }, [ptype]);
   useEffect(() => { setAccount(null); }, [method]); // a new method needs its own account chosen
 
@@ -188,7 +190,7 @@ function EntryForm({ kind, meta, onSaved }: { kind: Kind; meta: { en: string; to
       <h2 className="font-semibold">Nayi entry · نئی اندراج</h2>
       <Field label="Kis party ka? · کس کی؟">
         <div className="flex flex-wrap gap-1.5">
-          {PTYPES.filter((p) => !(kind === "discount" && p.v === "other")).map((p) => (
+          {PTYPES.filter((p) => !(kind === "discount" && p.v === "other") && (p.v !== "khata" || modules.khata)).map((p) => (
             <button key={p.v} onClick={() => setPtype(p.v)} className={`rounded-full px-3 py-1 text-xs font-semibold ${ptype === p.v ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-600"}`}>{p.label}</button>
           ))}
         </div>

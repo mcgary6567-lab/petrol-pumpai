@@ -238,3 +238,38 @@ test("modules per pump: the super-admin turns Investors (and Wholesale) on/off; 
   assert.equal((await call(ceo, "GET", "/api/investors")).status, 403, "off again");
   assert.equal((await call(p, "POST", `/api/platform/tenants/${t}/module`, { module: "bogus", on: true })).status, 400, "unknown module");
 });
+
+test("POS and Customers & khata modules: ON for a new pump; the super-admin switches each off/on and the pump's API follows", async () => {
+  const p = ok(await call("", "POST", "/api/platform/login", { email: "owner@petrolpumpai.pk", password: "platform-pass-123" }), "platform login").token;
+  const a = ok(await call("", "POST", "/api/signup", signup("Pump K", "ceo-k@test.pk")), "signup K");
+  const t = a.user.tenant_id, ceo = a.token;
+  const row = async () => ok(await call(p, "GET", "/api/platform/tenants"), "tenants").tenants.find((x: any) => x.id === t);
+  const r0 = await row();
+  assert.equal(r0.module_pos, true, "POS on by default"); assert.equal(r0.module_khata, true, "khata on by default");
+  const me0 = ok(await call(ceo, "GET", "/api/me"), "me0");
+  assert.equal(me0.modules.pos, true); assert.equal(me0.modules.khata, true);
+  ok(await call(ceo, "GET", "/api/customers"), "customers while on");
+  ok(await call(ceo, "GET", "/api/bookings"), "bookings while on");
+
+  // khata off: customers / khata APIs closed even for the CEO, permissions gone, cashier offers no khata party
+  ok(await call(p, "POST", `/api/platform/tenants/${t}/module`, { module: "khata", on: false }), "khata off");
+  assert.equal((await row()).module_khata, false);
+  const me1 = ok(await call(ceo, "GET", "/api/me"), "me1");
+  assert.equal(me1.modules.khata, false);
+  assert.ok(!me1.permissions.includes("khata.manage") && !me1.permissions.includes("customers.edit"), "khata permissions gone");
+  assert.equal((await call(ceo, "GET", "/api/customers")).status, 403, "customers closed");
+  assert.deepEqual(ok(await call(ceo, "GET", "/api/cashier/parties?kind=khata"), "parties").khata, [], "no khata parties");
+  assert.equal((await call(ceo, "POST", "/api/cashier/receive", { party_type: "khata", party_id: 1, amount: 100, method: "Cash" })).status, 403, "no khata receipt");
+  assert.equal((await call(ceo, "POST", "/api/other-entries", { kind: "income", party_type: "khata", party_id: 1, reason: "test", amount: 100, method: "cash" })).status, 403, "no khata other entry");
+  ok(await call(p, "POST", `/api/platform/tenants/${t}/module`, { module: "khata", on: true }), "khata on");
+  ok(await call(ceo, "GET", "/api/customers"), "customers back");
+
+  // POS off: counter sales and bookings closed; the rest of the pump keeps working
+  ok(await call(p, "POST", `/api/platform/tenants/${t}/module`, { module: "pos", on: false }), "pos off");
+  assert.equal(ok(await call(ceo, "GET", "/api/me"), "me2").modules.pos, false);
+  assert.equal((await call(ceo, "POST", "/api/sales", { product: "HSD", amount: 1000, payment_method: "cash" })).status, 403, "no counter sale");
+  assert.equal((await call(ceo, "GET", "/api/bookings")).status, 403, "bookings closed");
+  ok(await call(ceo, "GET", "/api/customers"), "khata unaffected");
+  ok(await call(p, "POST", `/api/platform/tenants/${t}/module`, { module: "pos", on: true }), "pos on");
+  ok(await call(ceo, "GET", "/api/bookings"), "bookings back");
+});

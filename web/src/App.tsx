@@ -87,7 +87,7 @@ loadBranding().catch(() => {});
 
 type User = { id: number; name: string; email: string; role: "admin" | "manager" | "salesman" | "wholesale" | "cashier"; tenant_id: number; station_id: number | null; station_name: string | null };
 type Account = { saas: boolean; locked?: boolean; status?: string; days_left?: number };
-type Modules = { wholesale: boolean; investors: boolean };
+type Modules = { wholesale: boolean; investors: boolean; pos: boolean; khata: boolean };
 type Auth = {
   user: User | null; tenant: { id: number; name: string; color?: string | null; logo_url?: string | null } | null; permissions: string[]; account: Account; modules: Modules;
   can: (perm: string) => boolean; login: (token: string) => Promise<void>; logout: () => void; refresh: () => Promise<void>;
@@ -104,7 +104,7 @@ function brandFor(t: { name?: string; color?: string | null; slug?: string | nul
 }
 
 function AuthProvider({ children }: { children: ReactNode }) {
-  const empty = { user: null, tenant: null, permissions: [] as string[], account: { saas: false } as Account, modules: { wholesale: false, investors: false } as Modules, ready: true };
+  const empty = { user: null, tenant: null, permissions: [] as string[], account: { saas: false } as Account, modules: { wholesale: false, investors: false, pos: true, khata: true } as Modules, ready: true };
   const [state, setState] = useState<{ user: User | null; tenant: Auth["tenant"]; permissions: string[]; account: Account; modules: Modules; ready: boolean }>({ ...empty, ready: false });
   const load = async () => {
     if (!getToken()) return setState(empty);
@@ -114,7 +114,7 @@ function AuthProvider({ children }: { children: ReactNode }) {
       loadLookups().catch(() => {}); // admin-managed lists for every dropdown
       loadProducts().catch(() => {}); // admin-managed fuel products
       brandFor(me.tenant);
-      setState({ user: me.user, tenant: me.tenant, permissions: me.permissions, account: me.account ?? { saas: false }, modules: me.modules ?? { wholesale: false, investors: false }, ready: true });
+      setState({ user: me.user, tenant: me.tenant, permissions: me.permissions, account: me.account ?? { saas: false }, modules: { pos: true, khata: true, ...(me.modules ?? { wholesale: false, investors: false }) }, ready: true });
     } catch {
       setState(empty);
     }
@@ -122,7 +122,7 @@ function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => { load(); }, []);
   // rights can be changed by the admin at any time: pick them up when the app comes back to the screen
   useEffect(() => {
-    const again = () => { if (document.visibilityState === "visible" && getToken()) api("/me").then((me) => { setMediaToken(me.media_token); setState((s) => ({ ...s, user: me.user, tenant: me.tenant, permissions: me.permissions, modules: me.modules ?? s.modules })); }).catch(() => {}); };
+    const again = () => { if (document.visibilityState === "visible" && getToken()) api("/me").then((me) => { setMediaToken(me.media_token); setState((s) => ({ ...s, user: me.user, tenant: me.tenant, permissions: me.permissions, modules: me.modules ? { pos: true, khata: true, ...me.modules } : s.modules })); }).catch(() => {}); };
     document.addEventListener("visibilitychange", again);
     const t = setInterval(again, 5 * 60_000);
     return () => { document.removeEventListener("visibilitychange", again); clearInterval(t); };
@@ -147,8 +147,15 @@ function Protected({ children }: { children: ReactNode }) {
 }
 
 /** Route guard: shows a friendly "no access" page instead of the screen. */
-function Need({ perm, children }: { perm: string; children: ReactNode }) {
-  const { can, user } = useAuth();
+function Need({ perm, mod, children }: { perm: string; mod?: keyof Modules; children: ReactNode }) {
+  const { can, user, modules } = useAuth();
+  if (mod && !modules[mod]) return (
+    <div className="card mx-auto mt-10 max-w-md p-6 text-center">
+      <div className="text-4xl">🧩</div>
+      <h1 className="mt-2 text-lg font-semibold">Ye module band hai</h1>
+      <p className="mt-1 text-sm text-slate-600">{mod === "pos" ? "POS (counter sale)" : mod === "khata" ? "Customers & khata" : mod} is pump par on nahi. Zaroorat ho to support se on karwayein.</p>
+    </div>
+  );
   if (perm.split("|").some(can)) return <>{children}</>;
   return (
     <div className="card mx-auto mt-10 max-w-md p-6 text-center">
@@ -161,9 +168,9 @@ function Need({ perm, children }: { perm: string; children: ReactNode }) {
 
 /** Managers/admins land on the dashboard; other roles land on their main screen. */
 function Home() {
-  const { can } = useAuth();
+  const { can, modules } = useAuth();
   if (can("dashboard.view")) return <Dashboard />;
-  return <Navigate to={can("wholesale.view") ? "/wholesale" : can("cashier.desk") ? "/cashier" : "/pos"} replace />;
+  return <Navigate to={can("wholesale.view") ? "/wholesale" : can("cashier.desk") ? "/cashier" : modules.pos ? "/pos" : "/shifts"} replace />;
 }
 
 /* ERP tables: box the money columns (Debit / Credit / Balance / Baqaya / We owe) by header text — adds class "money" to
@@ -221,7 +228,7 @@ export default function App() {
               <Route path="orders" element={<Need perm="orders.manage"><Orders /></Need>} />
               <Route path="complaints" element={<Need perm="complaints.manage"><Complaints /></Need>} />
               <Route path="campaigns" element={<Need perm="campaigns.manage"><Campaigns /></Need>} />
-              <Route path="pos" element={<Need perm="sales.create"><Pos /></Need>} />
+              <Route path="pos" element={<Need perm="sales.create" mod="pos"><Pos /></Need>} />
               <Route path="shifts" element={<Need perm="shifts.manage"><Shifts /></Need>} />
               <Route path="stock" element={<Need perm="stock.manage"><Stock /></Need>} />
               <Route path="dip-charts" element={<Need perm="stock.manage"><DipCharts /></Need>} />
@@ -261,7 +268,7 @@ export default function App() {
               <Route path="checklist" element={<Need perm="sales.create"><ChecklistPage /></Need>} />
               <Route path="insights" element={<Need perm="reports.view"><Insights /></Need>} />
               <Route path="suggestions" element={<Need perm="dashboard.view|wholesale.view"><Suggestions /></Need>} />
-              <Route path="bookings" element={<Need perm="sales.create"><Bookings /></Need>} />
+              <Route path="bookings" element={<Need perm="sales.create" mod="pos"><Bookings /></Need>} />
               <Route path="register" element={<Need perm="stock.manage"><Register /></Need>} />
               <Route path="prepaid" element={<Need perm="khata.manage"><Prepaid /></Need>} />
               <Route path="card-pending" element={<Need perm="khata.clear_pending"><CardPending /></Need>} />
