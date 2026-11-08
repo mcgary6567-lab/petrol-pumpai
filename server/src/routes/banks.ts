@@ -141,6 +141,12 @@ function bankMovesNow(t: number, accountId?: number | null, showPrivate = true):
       FROM carriage_txns x JOIN thekedars k ON k.id=x.thekedar_id WHERE x.tenant_id=? AND x.type='payment' AND x.voided=0${acc}`, t, ...A),
     ...all(`SELECT x.account_id, x.txn_date at, -x.amount amount, 'payment' kind, 'Paid supplier — ' || s.name || ' (' || COALESCE(x.method,'') || COALESCE(' ' || x.ref, '') || ')' text, x.created_by who, 'stx:' || x.id ref
       FROM supplier_txns x JOIN suppliers s ON s.id=x.supplier_id WHERE x.tenant_id=? AND x.type='payment' AND COALESCE(x.method,'')<>'WHT'${acc}`, t, ...A),
+    // money back from a supplier (refund / cashier receipt / their cheque cleared) into a bank or wallet
+    ...all(`SELECT x.account_id, x.txn_date at, x.amount, 'receipt' kind, 'Received from supplier — ' || s.name || ' (' || COALESCE(x.method,'') || ')' text, x.created_by who, 'stx:' || x.id ref
+      FROM supplier_txns x JOIN suppliers s ON s.id=x.supplier_id WHERE x.tenant_id=? AND x.type='adjustment' AND COALESCE(x.ref,'')='refund:'${acc}`, t, ...A),
+    // a wholesale client's advance returned through a bank or wallet
+    ...all(`SELECT x.account_id, x.txn_date at, -x.amount amount, 'payment' kind, 'Advance wapas — ' || c.name || ' (' || COALESCE(x.method,'') || ')' text, x.created_by who, 'wtx:' || x.id ref
+      FROM wholesale_txns x JOIN wholesale_clients c ON c.id=x.client_id WHERE x.tenant_id=? AND x.type='adjustment' AND COALESCE(x.ref,'')='refund:' AND x.voided=0${acc}`, t, ...A),
     ...all(`SELECT x.account_id, x.txn_date at, -x.amount amount, 'payment' kind, 'Bypass supplier paid — ' || s.name || COALESCE(' ' || x.ref, '') text, x.created_by who, 'byppay:' || x.id ref
       FROM bypass_supplier_payments x JOIN suppliers s ON s.id=x.supplier_id WHERE x.tenant_id=? AND x.mode IN ('we_pay','through_us') AND x.voided=0${acc}`, t, ...A),
     ...all(`SELECT x.account_id, x.created_at at, -x.amount amount, 'expense' kind, 'Expense — ' || x.category || COALESCE(' · ' || x.paid_to, '') text, x.created_by who, 'expense:' || x.id ref

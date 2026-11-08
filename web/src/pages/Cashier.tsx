@@ -367,7 +367,7 @@ const Mini = ({ label, ur, n, v, tone = "", onClick }: { label: string; ur: stri
 );
 
 /* ================= receive / pay ================= */
-const IN_TYPES = [["khata", "Khata customer", "کھاتہ گاہک"], ["wholesale", "Wholesale client", "ہول سیل کلائنٹ"], ["other", "Other", "دیگر"]] as const;
+const IN_TYPES = [["khata", "Khata customer", "کھاتہ گاہک"], ["wholesale", "Wholesale client", "ہول سیل کلائنٹ"], ["supplier", "Supplier", "سپلائر"], ["other", "Other", "دیگر"]] as const;
 const OUT_TYPES = [["supplier", "Supplier", "سپلائر"], ["khata", "Khata customer", "کھاتہ گاہک"], ["wholesale", "Wholesale client", "ہول سیل کلائنٹ"], ["expense", "Expense", "خرچہ"], ["staff", "Staff advance", "ملازم ایڈوانس"], ["other", "Other", "دیگر"]] as const;
 const METHODS = [["Cash", "نقد"], ["Bank transfer", "بینک"], ["Raast", "راست"], ["JazzCash", "جاز کیش"], ["Easypaisa", "ایزی پیسہ"], ["Cheque", "چیک"]] as const;
 const isCash = (m: string) => m === "Cash";
@@ -395,7 +395,7 @@ function MoneyForm({ dir, preset, onDone }: { dir: "in" | "out"; preset: Record<
   const depotRow = depots.data?.supplier?.find((x: any) => x.id === depotId);
   const needsParty = type !== "other" && type !== "expense";
   const amount = Number(f.amount) || 0;
-  const after = party?.balance != null && amount ? (dir === "in" ? party.balance - amount : type === "staff" ? party.balance + amount : party.balance - amount) : null;
+  const after = party?.balance != null && amount ? (dir === "in" ? (type === "supplier" ? party.balance + amount : party.balance - amount) : type === "staff" ? party.balance + amount : party.balance - amount) : null;
   const methods = METHODS.filter(([m]) => !(type === "staff" && m === "Cheque"));
   const ourBank = dir === "out" && cheque && account ? picks.data?.accounts?.find((a: any) => a.id === account)?.bank : null;
 
@@ -430,6 +430,7 @@ function MoneyForm({ dir, preset, onDone }: { dir: "in" | "out"; preset: Record<
       </div>
 
       {needsParty && <PartyPicker kind={type} value={party} onChange={setParty} dir={dir} />}
+      {dir === "in" && type === "supplier" && <p className="rounded-lg bg-sky-50 px-3 py-2 text-xs text-sky-900">Supplier se paisa wapas aaya (zyada di hui payment / advance, claim ka cash): cash ya bank me aayega aur supplier ke khate me utna <b>humara dena barh jayega</b> (advance kam). Receipt voucher banega. · <Ur>سپلائر سے وصولی</Ur></p>}
       {type === "expense" && <div className="grid gap-3 sm:grid-cols-2">
         <Field label="Expense head · خرچے کی قسم *"><select className="input" required value={f.category} onChange={(e) => set("category", e.target.value)}>
           <option value="">— choose —</option>{(cats.data?.categories ?? []).map((c: any) => <option key={c.id}>{c.name}</option>)}</select></Field>
@@ -490,7 +491,7 @@ function MoneyForm({ dir, preset, onDone }: { dir: "in" | "out"; preset: Record<
       )}
 
       {party && <div className="flex flex-wrap gap-x-5 gap-y-1 rounded-xl bg-slate-50 px-3 py-2 text-sm">
-        <span>{dir === "in" ? "Owes now" : type === "staff" ? "Advance now" : "We owe"} · <Ur>ابھی</Ur>: <b>{pkr(party.balance)}</b></span>
+        <span>{dir === "in" ? (type === "supplier" ? "We owe now" : "Owes now") : type === "staff" ? "Advance now" : "We owe"} · <Ur>ابھی</Ur>: <b>{pkr(party.balance)}</b></span>
         {after != null && !cheque && <span>After · <Ur>بعد میں</Ur>: <b>{pkr(after)}</b></span>}
       </div>}
 
@@ -638,7 +639,7 @@ function VoucherBody({ r, copy }: { r: any; copy: string }) {
           {r.cheque && <><dt className="text-slate-500">Cheque</dt><dd>{r.cheque.bank} · {r.cheque.cheque_no} · dated {r.cheque.cheque_date}</dd></>}
           {v.ref && !r.cheque && <><dt className="text-slate-500">Ref</dt><dd>{v.ref}</dd></>}
           {v.note && <><dt className="text-slate-500">Note</dt><dd>{v.note}</dd></>}
-          {r.balance_after != null && <><dt className="text-slate-500">{r.party_type === "supplier" ? <>We still owe · <Ur>باقی دینا</Ur></> : r.party_type === "staff" ? <>Total advance · <Ur>کل ایڈوانس</Ur></> : <>Still owes · <Ur>باقی</Ur></>}</dt><dd className="font-semibold">{pkr(r.balance_after)}</dd></>}
+          {r.balance_after != null && <><dt className="text-slate-500">{r.party_type === "supplier" ? (r.balance_after < -0.5 ? <>Supplier still owes us · <Ur>سپلائر پر باقی</Ur></> : <>We still owe · <Ur>باقی دینا</Ur></>) : r.party_type === "staff" ? <>Total advance · <Ur>کل ایڈوانس</Ur></> : <>Still owes · <Ur>باقی</Ur></>}</dt><dd className="font-semibold">{pkr(r.party_type === "supplier" && r.balance_after < -0.5 ? -r.balance_after : r.balance_after)}</dd></>}
           <dt className="text-slate-500">By</dt><dd>{v.created_by}</dd>
         </dl>
         {r.message && <p className="rounded-lg bg-amber-50 px-3 py-2 text-amber-900 print:hidden">{r.message}</p>}

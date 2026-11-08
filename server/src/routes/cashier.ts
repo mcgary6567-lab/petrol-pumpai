@@ -153,9 +153,20 @@ function notesJson(method: string, notes: Record<string, number> | null | undefi
   return Object.keys(kept).length ? JSON.stringify(kept) : null;
 }
 
-export const receiveBody = moneyBody.extend({ party_type: z.enum(["khata", "wholesale", "other"]) });
+export const receiveBody = moneyBody.extend({ party_type: z.enum(["khata", "wholesale", "supplier", "other"]) });
 export const payBody = moneyBody.extend({ party_type: z.enum(["supplier", "expense", "staff", "khata", "wholesale", "other"]) });
 cashier.post("/cashier/receive", requirePerm("cash.receive"), h(async (req) => doReceive(req, parse(receiveBody, req.body))));
+
+/** WhatsApp to a supplier that their money reached us (best-effort, after the reply). */
+function supplierReceiptMsg(t: number, supplierId: number, amount: number, method: string, ref: string) {
+  const s = get("SELECT name, phone FROM suppliers WHERE id=? AND tenant_id=?", supplierId, t);
+  if (!s?.phone) return;
+  setImmediate(() => {
+    const owed = round2(supplierOwed(supplierId) + bypassOwed(supplierId));
+    sendDirect(t, { phone: s.phone, name: s.name }, "supplier_refund", ref,
+      `${s.name}\n✅ ${pkr(amount)} (${method}) hum ko mil gaye — shukriya.\n${owed > 0.5 ? `Ab humara aap par: ${pkr(owed)}` : owed < -0.5 ? `Ab aap par baqi: ${pkr(-owed)}` : "Hisaab barabar."}\n— ${get("SELECT name FROM tenants WHERE id=?", t)!.name}`).catch(() => undefined);
+  });
+}
 
 /** Post a receipt: the party's own ledger / bank row (src) + the voucher. Shared by the cashier's Receive and the CEO's voucher re-route. */
 export async function doReceive(req: Request, b: z.infer<typeof receiveBody>) {
@@ -206,6 +217,15 @@ export async function doReceive(req: Request, b: z.infer<typeof receiveBody>) {
   } else if (b.party_type === "wholesale") {
     const r = insertTxn(req, p!.id, { type: "payment", amount: b.amount, method: b.method, ref: b.ref, note: b.note, photo_ids: b.photo_ids, account_id: account });
     src = `wtx:${r.id}`;
+  } else if (b.party_type === "supplier") {
+    // money back from a supplier (overpayment / advance returned, a claim settled in cash): cash or bank comes IN and what we
+    // owe them moves back up — the same "refund:" adjustment the supplier page books, now with a receipt voucher
+    if (!isCash(b.method) && !account) throw new AppError(400, `${b.method}: bank / wallet account chunein`);
+    const id = run("INSERT INTO supplier_txns (tenant_id,supplier_id,type,amount,method,ref,note,created_by,txn_date,created_at,account_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+      t, p!.id, "adjustment", b.amount, b.method, "refund:", b.note || "Supplier se wasooli (cash counter)", req.user!.name, now(), now(), account).id;
+    linkPhotos(t, b.photo_ids, `stx:${id}`);
+    src = `stx:${id}`;
+    if (b.notify) supplierReceiptMsg(t, p!.id, b.amount, b.method, `stx:${id}`);
   } else if (account) {
     const { id } = run("INSERT INTO bank_txns (tenant_id,account_id,kind,amount,party,ref,note,txn_date,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
       t, account, "other_in", b.amount, name, b.ref ?? null, b.category || b.note || "Other money in", now(), req.user!.name, now());
@@ -488,13 +508,13 @@ cashier.post("/cashier/vouchers/:id/edit", requirePerm("entries.edit"), h(async 
       const old = get("SELECT * FROM wholesale_txns WHERE id=?", srcId);
       run("UPDATE wholesale_txns SET voided=1, void_reason=? WHERE id=? AND tenant_id=?", `${req.user!.name} (edit): ${b.reason}`, srcId, t);
       run("DELETE FROM supplier_txns WHERE tenant_id=? AND ref=?", t, `wtx:${srcId}`);
-      const r = insertTxn(req, v.party_id, { type: "payment", amount, method, ref: old?.ref ?? null, note: note ?? null, account_id: acc, txn_date: old?.txn_date ?? v.created_at, silent: true });
+      const r = insertTxn(req, v.party_id, { type: old?.type === "adjustment" ? "adjustment" : "payment", amount, method, ref: old?.ref ?? null, note: note ?? null, account_id: acc, txn_date: old?.txn_date ?? v.created_at, silent: true });
       newSrc = `wtx:${r.id}`;
     } else if (kind === "stx") {
       const old = get("SELECT * FROM supplier_txns WHERE id=?", srcId);
       run("DELETE FROM supplier_txns WHERE id=? AND tenant_id=?", srcId, t);
       const nid = run(`INSERT INTO supplier_txns (tenant_id,supplier_id,type,amount,method,ref,note,created_by,txn_date,created_at,account_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-        t, v.party_id, "payment", amount, method, old?.ref ?? null, note ?? null, v.created_by ?? req.user!.name, old?.txn_date ?? v.created_at, now(), acc).id;
+        t, v.party_id, old?.type ?? "payment", amount, method, old?.ref ?? null, note ?? null, v.created_by ?? req.user!.name, old?.txn_date ?? v.created_at, now(), acc).id;
       newSrc = `stx:${nid}`;
     } else if (kind === "byppay") {
       run("UPDATE bypass_supplier_payments SET amount=?, method=?, account_id=? WHERE id=? AND tenant_id=?", amount, method, acc, srcId, t);
@@ -603,6 +623,10 @@ cashier.post("/cashier/cheques/:id/:action", requirePerm("cheques.manage"), h(as
       if (q.direction === "in" && q.party_type === "khata" && q.party_id) {
         khataEntry(q.party_id, "credit", q.amount, "Cheque", note, acc);
         ref = `khata:${get("SELECT MAX(id) id FROM khata_ledger WHERE customer_id=?", q.party_id)!.id}`;
+      } else if (q.direction === "in" && q.party_type === "supplier" && q.party_id) {
+        // a supplier's cheque to us: money back — same "refund:" adjustment as cash, on the day the bank clears it
+        ref = `stx:${run("INSERT INTO supplier_txns (tenant_id,supplier_id,type,amount,method,ref,note,created_by,txn_date,created_at,account_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+          t, q.party_id, "adjustment", q.amount, "Cheque", "refund:", note, req.user!.name, stamp, stamp, acc).id}`;
       } else if (q.direction === "out" && q.party_type === "supplier" && q.party_id) {
         ref = `stx:${run("INSERT INTO supplier_txns (tenant_id,supplier_id,type,amount,method,ref,note,created_by,txn_date,created_at,account_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
           t, q.party_id, "payment", q.amount, "Cheque", `CHQ ${q.cheque_no}`, note, req.user!.name, stamp, stamp, acc).id}`;
