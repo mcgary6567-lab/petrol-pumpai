@@ -290,11 +290,20 @@ const statementQuery = z.object({
 const isCashSql = "LOWER(COALESCE(e.method,'cash')) IN ('cash','')";
 const addDays = (day: string, n: number) => new Date(Date.parse(day + "T12:00:00Z") + n * 86_400_000).toISOString().slice(0, 10);
 
-export function expenseStatement(t: number, raw: unknown) {
+/** The CEO's "Other entries" expenses (not the ones posted onto a party's khata) sit in the statement as their own group. */
+export const OTHER_GROUP = "__other__";
+const OTHER_LABEL = "Other kharche (CEO)";
+
+export function expenseStatement(t: number, raw: unknown, seeOther = true) {
   const f = parse(statementQuery, raw);
   const to = f.to ?? pkDate(), from = f.from ?? to;
   if (from > to) throw new AppError(400, "'Se' ki tareekh 'tak' se pehle honi chahiye");
-  const cats = (f.categories ?? "").split(",").map((c) => c.trim()).filter(Boolean);
+  const picked = (f.categories ?? "").split(",").map((c) => c.trim()).filter(Boolean);
+  const cats = picked.filter((c) => c !== OTHER_GROUP);
+  // no category picked = everything; otherwise the CEO's other expenses only when their chip is picked. They belong to
+  // no station, so a station filter leaves them out.
+  const wantExpenses = !picked.length || cats.length > 0;
+  const wantOther = seeOther && (!picked.length || picked.includes(OTHER_GROUP)) && !f.station_id;
   const where = (a: string, b: string, status = "approved") => {
     const w = ["e.tenant_id=?", "e.status=?", "substr(e.expense_date,1,10) >= ?", "substr(e.expense_date,1,10) <= ?"];
     const args: (string | number)[] = [t, status, a, b];
@@ -303,42 +312,65 @@ export function expenseStatement(t: number, raw: unknown) {
     if (f.pay === "cash") w.push(isCashSql); else if (f.pay === "bank") w.push(`NOT ${isCashSql}`);
     return { sql: w.join(" AND "), args };
   };
+  const OE_DAY = "substr(datetime(o.created_at,'+5 hours'),1,10)";
+  const whereOther = (a: string, b: string) => {
+    const w = ["o.tenant_id=?", "o.kind='expense'", "o.voided=0", "COALESCE(o.to_party,0)=0", `${OE_DAY} >= ?`, `${OE_DAY} <= ?`];
+    const args: (string | number)[] = [t, a, b];
+    if (f.pay === "cash") w.push("LOWER(COALESCE(o.method,'cash')) IN ('cash','')"); else if (f.pay === "bank") w.push("LOWER(COALESCE(o.method,'cash')) NOT IN ('cash','')");
+    return { sql: w.join(" AND "), args };
+  };
   const W = where(from, to);
-  const rows = all(`SELECT e.id, substr(e.expense_date,1,10) day, e.category, e.amount, e.paid_to, e.method, e.note, e.receipt_ref, e.photo_id, e.shift_id,
+  const rows = wantExpenses ? all(`SELECT e.id, substr(e.expense_date,1,10) day, e.category, e.amount, e.paid_to, e.method, e.note, e.receipt_ref, e.photo_id, e.shift_id,
       e.created_by, e.approved_by, s.name station_name
-    FROM expenses e LEFT JOIN stations s ON s.id=e.station_id WHERE ${W.sql} ORDER BY e.category, day, e.id`, ...W.args);
-  const total = round2(rows.reduce((a, r) => a + Number(r.amount), 0));
-  const groups = new Map<string, { category: string; n: number; total: number; lines: any[] }>();
+    FROM expenses e LEFT JOIN stations s ON s.id=e.station_id WHERE ${W.sql} ORDER BY e.category, day, e.id`, ...W.args) : [];
+  const O = whereOther(from, to);
+  const others = wantOther ? all(`SELECT o.id, ${OE_DAY} day, o.reason, o.amount, o.party_name paid_to, COALESCE(o.method,'cash') method, o.note, o.created_by
+    FROM other_entries o WHERE ${O.sql} ORDER BY day, o.id`, ...O.args) : [];
+  const sum = (xs: any[]) => round2(xs.reduce((a, r) => a + Number(r.amount), 0));
+  const isCashM = (m: unknown) => /^(cash)?$/i.test(String(m ?? "cash"));
+  const expenseTotal = sum(rows), otherTotal = sum(others), total = round2(expenseTotal + otherTotal);
+  const groups = new Map<string, { category: string; source: "expense" | "other"; n: number; total: number; lines: any[] }>();
   for (const r of rows) {
-    const g = groups.get(r.category as string) ?? { category: r.category as string, n: 0, total: 0, lines: [] };
+    const g = groups.get(r.category as string) ?? { category: r.category as string, source: "expense" as const, n: 0, total: 0, lines: [] };
     g.n++; g.total = round2(g.total + Number(r.amount));
-    g.lines.push({ ...r, voucher: `EX-${String(r.id).padStart(5, "0")}`, cash: /^(cash)?$/i.test(String(r.method ?? "cash")), running: g.total,
-      from_shift: r.shift_id != null });
+    g.lines.push({ ...r, source: "expense", voucher: `EX-${String(r.id).padStart(5, "0")}`, cash: isCashM(r.method), running: g.total, from_shift: r.shift_id != null });
     groups.set(r.category as string, g);
   }
-  const categories = [...groups.values()].sort((a, b) => b.total - a.total).map((g) => ({ ...g, pct: total ? Math.round((g.total / total) * 1000) / 10 : 0 }));
-  const cash = round2(rows.filter((r) => /^(cash)?$/i.test(String(r.method ?? "cash"))).reduce((a, r) => a + Number(r.amount), 0));
+  const expenseGroups = [...groups.values()].sort((a, b) => b.total - a.total);
+  const otherGroup = others.length ? (() => {
+    let run = 0;
+    return { category: OTHER_LABEL, source: "other" as const, n: others.length, total: otherTotal,
+      lines: others.map((r) => { run = round2(run + Number(r.amount)); return { ...r, category: OTHER_LABEL, source: "other", note: [r.reason, r.note].filter(Boolean).join(" · "),
+        voucher: `OE-${String(r.id).padStart(5, "0")}`, cash: isCashM(r.method), running: run, from_shift: false }; }) };
+  })() : null;
+  const categories = [...expenseGroups, ...(otherGroup ? [otherGroup] : [])].map((g) => ({ ...g, pct: total ? Math.round((g.total / total) * 1000) / 10 : 0 }));
+  const cash = round2(rows.filter((r) => isCashM(r.method)).reduce((a, r) => a + Number(r.amount), 0) + others.filter((r) => isCashM(r.method)).reduce((a, r) => a + Number(r.amount), 0));
   const days = Math.round((Date.parse(to) - Date.parse(from)) / 86_400_000) + 1;
   // the same length of time just before, for "pichle itne din se zyada / kam"
   const pTo = addDays(from, -1), pFrom = addDays(from, -days);
-  const P = where(pFrom, pTo);
-  const prevTotal = round2(Number(get(`SELECT COALESCE(SUM(e.amount),0) v FROM expenses e WHERE ${P.sql}`, ...P.args)!.v));
+  const P = where(pFrom, pTo), PO = whereOther(pFrom, pTo);
+  const prevTotal = round2((wantExpenses ? Number(get(`SELECT COALESCE(SUM(e.amount),0) v FROM expenses e WHERE ${P.sql}`, ...P.args)!.v) : 0)
+    + (wantOther ? Number(get(`SELECT COALESCE(SUM(o.amount),0) v FROM other_entries o WHERE ${PO.sql}`, ...PO.args)!.v) : 0));
   const PD = where(from, to, "pending");
-  const pending = get(`SELECT COUNT(*) n, COALESCE(SUM(e.amount),0) v FROM expenses e WHERE ${PD.sql}`, ...PD.args)!;
+  const pending = wantExpenses ? get(`SELECT COUNT(*) n, COALESCE(SUM(e.amount),0) v FROM expenses e WHERE ${PD.sql}`, ...PD.args)! : { n: 0, v: 0 };
   return {
-    from, to, days, filters: { categories: cats, station_id: f.station_id ?? null, pay: f.pay || "all" },
-    total, n: rows.length, per_day: round2(total / days), cash, bank: round2(total - cash),
+    from, to, days, filters: { categories: picked, station_id: f.station_id ?? null, pay: f.pay || "all" },
+    total, n: rows.length + others.length, per_day: round2(total / days), cash, bank: round2(total - cash),
+    // the two books side by side: the normal expenses and the CEO's other expenses
+    parts: { expenses: { total: expenseTotal, n: rows.length }, other: { total: otherTotal, n: others.length, included: wantOther } },
     previous: { from: pFrom, to: pTo, total: prevTotal, change_pct: prevTotal ? Math.round(((total - prevTotal) / prevTotal) * 100) : null },
     pending: { n: Number(pending.n), amount: round2(Number(pending.v)) },
     categories,
   };
 }
 
-expenses.get("/expenses/statement", requirePerm("expenses.view"), h((req) => expenseStatement(tid(req), req.query)));
+// the CEO's other expenses are CEO-only (like the Other entries page): a manager's statement shows the normal ones
+const seesOther = (req: Request) => can(req.user, "other_entries.manage");
+expenses.get("/expenses/statement", requirePerm("expenses.view"), h((req) => ({ ...expenseStatement(tid(req), req.query, seesOther(req)), can_see_other: seesOther(req) })));
 
 expenses.get("/expenses/statement.csv", requirePerm("expenses.view"), (req, res, next) => {
   try {
-    const s = expenseStatement(tid(req), req.query);
+    const s = expenseStatement(tid(req), req.query, seesOther(req));
     const esc = (v: unknown) => `"${typeof v === "string" && /^[=+@-]/.test(v) ? "'" : ""}${String(v ?? "").replaceAll('"', '""')}"`;
     const out: string[] = [[`Kharchon ki statement ${s.from} se ${s.to}`].map(esc).join(","), ""];
     out.push(["Category", "Date", "Voucher", "Paid to", "Method", "Station", "Note", "Receipt", "Amount", "Running"].map(esc).join(","));
@@ -346,6 +378,8 @@ expenses.get("/expenses/statement.csv", requirePerm("expenses.view"), (req, res,
       for (const l of g.lines) out.push([g.category, l.day, l.voucher, l.paid_to, l.method, l.station_name ?? "", l.note, l.receipt_ref, l.amount, l.running].map(esc).join(","));
       out.push([`${g.category} — total`, "", "", "", "", "", "", `${g.n} entries`, g.total, ""].map(esc).join(","), "");
     }
+    out.push(["Kharche (expenses)", "", "", "", "", "", "", `${s.parts.expenses.n} entries`, s.parts.expenses.total, ""].map(esc).join(","));
+    out.push(["Other kharche (CEO)", "", "", "", "", "", "", `${s.parts.other.n} entries`, s.parts.other.total, ""].map(esc).join(","));
     out.push(["KUL KHARCHA", "", "", "", "", "", "", `${s.n} entries`, s.total, ""].map(esc).join(","));
     out.push(["Cash", "", "", "", "", "", "", "", s.cash, ""].map(esc).join(","), ["Bank / online", "", "", "", "", "", "", "", s.bank, ""].map(esc).join(","));
     res.setHeader("Content-Type", "text/csv; charset=utf-8");
@@ -357,11 +391,11 @@ expenses.get("/expenses/statement.csv", requirePerm("expenses.view"), (req, res,
 /** The owner gets the range's totals per category on WhatsApp. */
 expenses.post("/expenses/statement/whatsapp", requirePerm("expenses.view"), h(async (req) => {
   const t = tid(req);
-  const s = expenseStatement(t, req.body ?? {});
+  const s = expenseStatement(t, req.body ?? {}, seesOther(req));
   const owner = (getSetting(t, "owner_phone", "") || (get("SELECT owner_phone FROM tenants WHERE id=?", t)?.owner_phone as string | undefined)) as string | undefined;
   if (!owner) throw new AppError(400, "Owner ka WhatsApp number set nahi (Settings → Owner phone)");
   const lines = s.categories.map((g) => `• ${g.category}: ${pkr(g.total)} (${g.n})`);
-  const text = `🧾 Kharche ${s.from}${s.from !== s.to ? ` se ${s.to}` : ""}\n${lines.join("\n") || "Koi kharcha nahi"}\n────────\nKul: ${pkr(s.total)} · ${s.n} entries\nCash ${pkr(s.cash)} · Bank ${pkr(s.bank)}${s.previous.change_pct != null ? `\nPichle ${s.days} din se ${s.previous.change_pct >= 0 ? "+" : ""}${s.previous.change_pct}%` : ""}${s.pending.n ? `\nManzoori baqi: ${s.pending.n} (${pkr(s.pending.amount)})` : ""}`;
+  const text = `🧾 Kharche ${s.from}${s.from !== s.to ? ` se ${s.to}` : ""}\n${lines.join("\n") || "Koi kharcha nahi"}\n────────\nKharche: ${pkr(s.parts.expenses.total)}${s.parts.other.n ? ` · Other (CEO): ${pkr(s.parts.other.total)}` : ""}\nKul: ${pkr(s.total)} · ${s.n} entries\nCash ${pkr(s.cash)} · Bank ${pkr(s.bank)}${s.previous.change_pct != null ? `\nPichle ${s.days} din se ${s.previous.change_pct >= 0 ? "+" : ""}${s.previous.change_pct}%` : ""}${s.pending.n ? `\nManzoori baqi: ${s.pending.n} (${pkr(s.pending.amount)})` : ""}`;
   await sendToPhone(owner, text);
   return { ok: true, sent_to: owner };
 }));
