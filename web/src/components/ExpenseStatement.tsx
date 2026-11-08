@@ -1,7 +1,7 @@
 /** Expenses statement (ERP / bank style): pick a range and categories, see every expense grouped by category with a running
  *  total, each category's subtotal and the grand total. Print / PDF, Excel and a WhatsApp summary to the owner. */
-import { Fragment, useMemo, useState } from "react";
-import { Download, Printer, Send } from "lucide-react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Check, ChevronDown, Download, Printer, Search, Send, X } from "lucide-react";
 import { api, linkToken, useApi } from "../lib/api";
 import { Empty, Field, Loading, Stat, useAction } from "./ui";
 import { d, pkr } from "../lib/format";
@@ -41,6 +41,9 @@ export function ExpenseStatement({ categories, stations, onVoucher }: { categori
   }, [from, to, cats, station, pay]);
   const qs = new URLSearchParams(params).toString();
   const { data, error } = useApi<any>(`/expenses/statement?${qs}`);
+  // remembered once known, so the "Other kharche" row does not vanish (and shift the list) while the next filter loads
+  const [seeOther, setSeeOther] = useState(false);
+  useEffect(() => { if (data?.can_see_other) setSeeOther(true); }, [data?.can_see_other]);
   const pick = (p: Preset) => { setPreset(p.k); setRange(p.range()); };
   const toggleCat = (name: string) => setCats((c) => (c.includes(name) ? c.filter((x) => x !== name) : [...c, name]));
   const rangeText = from === to ? d(from) : `${d(from)} se ${d(to)}`;
@@ -48,33 +51,36 @@ export function ExpenseStatement({ categories, stations, onVoucher }: { categori
   return (
     <div className="space-y-4">
       {/* ---- filters ---- */}
-      <div className="card space-y-3 p-4 print:hidden">
-        <div className="flex flex-wrap gap-1.5">
-          {PRESETS.map((p) => (
-            <button key={p.k} type="button" onClick={() => pick(p)} aria-pressed={preset === p.k}
-              className={`rounded-full px-3 py-1.5 text-xs font-semibold ${preset === p.k ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-700"}`}>{p.label} · <Ur>{p.ur}</Ur></button>
-          ))}
-          <button type="button" onClick={() => setPreset("custom")} aria-pressed={preset === "custom"}
-            className={`rounded-full px-3 py-1.5 text-xs font-semibold ${preset === "custom" ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-700"}`}>Apni tareekh · <Ur>اپنی تاریخ</Ur></button>
-        </div>
-        <div className="grid grid-cols-2 items-end gap-3 sm:flex sm:flex-wrap">
-          <Field label="Se · سے"><input className="input" type="date" value={from} max={to} onChange={(e) => { setPreset("custom"); setRange([e.target.value || from, to]); }} /></Field>
-          <Field label="Tak · تک"><input className="input" type="date" value={to} min={from} max={pkDay()} onChange={(e) => { setPreset("custom"); setRange([from, e.target.value || to]); }} /></Field>
-          {stations.length > 1 && <Field label="Station"><select className="input" value={station} onChange={(e) => setStation(e.target.value)}><option value="">Sab</option>{stations.map((s: any) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></Field>}
-          <Field label="Tareeqa · طریقہ"><select className="input" value={pay} onChange={(e) => setPay(e.target.value as any)}><option value="all">Sab</option><option value="cash">Sirf cash</option><option value="bank">Bank / online</option></select></Field>
-        </div>
-        {station && data?.can_see_other && <p className="text-xs text-violet-800">Other kharche (CEO) kisi station ke nahi hote — station chunne par wo is report me shamil nahi.</p>}
-        <div>
-          <div className="mb-1 text-xs text-slate-500">Category {cats.length ? `(${cats.length} chuni)` : "(sab)"} {cats.length > 0 && <button type="button" className="ml-2 underline" onClick={() => setCats([])}>sab dikhayen</button>}</div>
-          <div className="flex flex-wrap gap-1.5">
-            {categories.map((c) => (
-              <button key={c.id} type="button" onClick={() => toggleCat(c.name)} aria-pressed={cats.includes(c.name)}
-                className={`rounded-full px-2.5 py-1 text-xs ${cats.includes(c.name) ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-700"}`}>{c.name}</button>
+      <div className="card p-0 print:hidden">
+        {/* period: one segmented bar (scrolls sideways on a phone) */}
+        <div className="flex items-center gap-3 overflow-x-auto border-b border-slate-100 px-4 py-3">
+          <span className="shrink-0 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Muddat</span>
+          <div role="group" aria-label="Muddat" className="inline-flex shrink-0 rounded-lg bg-slate-100 p-0.5">
+            {[...PRESETS.map((p) => ({ k: p.k, label: p.label, go: () => pick(p) })), { k: "custom", label: "Apni tareekh", go: () => setPreset("custom") }].map((p) => (
+              <button key={p.k} type="button" onClick={p.go} aria-pressed={preset === p.k}
+                className={`whitespace-nowrap rounded-md px-3 py-1.5 text-xs font-medium transition ${preset === p.k ? "bg-white text-slate-900 shadow-sm ring-1 ring-slate-200" : "text-slate-600 hover:text-slate-900"}`}>{p.label}</button>
             ))}
-            {data?.can_see_other && <button type="button" onClick={() => toggleCat(OTHER)} aria-pressed={cats.includes(OTHER)}
-              className={`rounded-full px-2.5 py-1 text-xs ${cats.includes(OTHER) ? "bg-violet-700 text-white" : "bg-violet-50 text-violet-800 ring-1 ring-violet-200"}`}>Other kharche (CEO)</button>}
           </div>
         </div>
+        {/* the rest of the filters in one row */}
+        <div className="grid grid-cols-2 items-end gap-3 px-4 py-3 sm:grid-cols-[repeat(auto-fit,minmax(150px,1fr))]">
+          <Field label="Se · سے"><input className="input" type="date" value={from} max={to} onChange={(e) => { setPreset("custom"); setRange([e.target.value || from, to]); }} /></Field>
+          <Field label="Tak · تک"><input className="input" type="date" value={to} min={from} max={pkDay()} onChange={(e) => { setPreset("custom"); setRange([from, e.target.value || to]); }} /></Field>
+          {stations.length > 1 && <Field label="Station"><select className="input" value={station} onChange={(e) => setStation(e.target.value)}><option value="">Sab stations</option>{stations.map((s: any) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></Field>}
+          <Field label="Tareeqa · طریقہ"><select className="input" value={pay} onChange={(e) => setPay(e.target.value as any)}><option value="all">Cash + bank</option><option value="cash">Sirf cash</option><option value="bank">Bank / online</option></select></Field>
+          <div className="col-span-2 sm:col-span-1"><CategoryPicker categories={categories} withOther={seeOther} value={cats} onChange={setCats} /></div>
+        </div>
+        {(cats.length > 0 || (station && data?.can_see_other)) && (
+          <div className="flex flex-wrap items-center gap-1.5 border-t border-slate-100 px-4 py-2.5">
+            {cats.map((c) => (
+              <span key={c} className={`inline-flex items-center gap-1 rounded-md py-0.5 pl-2 pr-1 text-xs font-medium ring-1 ${c === OTHER ? "bg-violet-50 text-violet-800 ring-violet-200" : "bg-slate-50 text-slate-700 ring-slate-200"}`}>
+                {catLabel(c)}<button type="button" aria-label={`${catLabel(c)} hatayen`} onClick={() => toggleCat(c)} className="rounded p-0.5 text-slate-400 hover:bg-slate-200 hover:text-slate-700"><X size={12} /></button>
+              </span>
+            ))}
+            {cats.length > 0 && <button type="button" className="ml-1 text-xs font-medium text-brand-700 hover:underline" onClick={() => setCats([])}>Sab saaf karein</button>}
+            {station && data?.can_see_other && <span className="text-xs text-violet-800">Other kharche (CEO) kisi station ke nahi hote — station chunne par shamil nahi.</span>}
+          </div>
+        )}
       </div>
 
       {error ? <p className="text-sm text-rose-700">{String(error)}</p> : !data ? <Loading /> : (
@@ -187,6 +193,64 @@ export function ExpenseStatement({ categories, stations, onVoucher }: { categori
             </>
           )}
         </>
+      )}
+    </div>
+  );
+}
+
+/** Multi-select for categories: a field-sized button opening a searchable checklist (instead of a wall of chips). */
+function CategoryPicker({ categories, withOther, value, onChange }: { categories: { id: number; name: string }[]; withOther: boolean; value: string[]; onChange: (v: string[]) => void }) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const off = (e: MouseEvent) => { if (box.current && !box.current.contains(e.target as Node)) setOpen(false); };
+    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", off); document.addEventListener("keydown", esc);
+    return () => { document.removeEventListener("mousedown", off); document.removeEventListener("keydown", esc); };
+  }, [open]);
+  const all = useMemo(() => [...(withOther ? [OTHER] : []), ...categories.map((c) => c.name).sort((a, b) => a.localeCompare(b))], [categories, withOther]);
+  const shown = all.filter((c) => !q || catLabel(c).toLowerCase().includes(q.toLowerCase()));
+  const toggle = (c: string) => onChange(value.includes(c) ? value.filter((x) => x !== c) : [...value, c]);
+  const label = !value.length ? "Sab categories" : value.length === 1 ? catLabel(value[0]) : `${value.length} categories chuni`;
+  return (
+    <div ref={box} className="relative">
+      <span className="label">Category · <Ur>کیٹیگری</Ur></span>
+      <button type="button" className="input flex w-full items-center justify-between gap-2 text-left" aria-haspopup="listbox" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+        <span className={`truncate ${value.length ? "font-medium text-slate-900" : "text-slate-600"}`}>{label}</span>
+        <span className="flex shrink-0 items-center gap-1">{value.length > 0 && <span className="rounded bg-brand-600 px-1.5 text-[11px] font-semibold text-white">{value.length}</span>}<ChevronDown size={16} className={`text-slate-400 transition ${open ? "rotate-180" : ""}`} /></span>
+      </button>
+      {open && (
+        <div className="absolute right-0 z-30 mt-1 w-full min-w-[260px] overflow-hidden rounded-xl bg-white shadow-xl ring-1 ring-slate-200 sm:w-80">
+          <div className="border-b border-slate-100 p-2">
+            <div className="relative"><Search size={14} className="absolute left-2.5 top-2.5 text-slate-400" />
+              <input autoFocus className="input min-h-9 !py-1.5 pl-8 text-sm" placeholder="Category dhoondhein…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Category dhoondhein" /></div>
+          </div>
+          <div className="flex items-center justify-between px-3 py-1.5 text-xs">
+            <span className="text-slate-500">{value.length ? `${value.length} / ${all.length} chuni` : `${all.length} categories`}</span>
+            <span className="flex gap-3">
+              <button type="button" className="font-medium text-brand-700 hover:underline" onClick={() => onChange(Array.from(new Set([...value, ...shown])))}>Sab chunein</button>
+              <button type="button" className="font-medium text-slate-600 hover:underline" onClick={() => onChange([])}>Saaf</button>
+            </span>
+          </div>
+          <ul role="listbox" aria-multiselectable="true" className="max-h-72 overflow-y-auto border-t border-slate-100 py-1">
+            {shown.map((c) => {
+              const on = value.includes(c);
+              return (
+                <li key={c} role="option" aria-selected={on}>
+                  <button type="button" onClick={() => toggle(c)} className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm hover:bg-slate-50">
+                    <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${on ? "border-brand-600 bg-brand-600 text-white" : "border-slate-300 bg-white"}`}>{on && <Check size={12} strokeWidth={3} />}</span>
+                    <span className="min-w-0 flex-1 truncate">{catLabel(c)}</span>
+                    {c === OTHER && <span className="rounded bg-violet-50 px-1.5 py-0.5 text-[10px] font-semibold text-violet-700 ring-1 ring-violet-200">CEO</span>}
+                  </button>
+                </li>
+              );
+            })}
+            {!shown.length && <li className="px-3 py-4 text-center text-sm text-slate-500">Koi category nahi mili</li>}
+          </ul>
+          <div className="border-t border-slate-100 p-2 text-right"><button type="button" className="btn-primary min-h-9 !px-4 !py-1.5 text-sm" onClick={() => setOpen(false)}>Theek hai</button></div>
+        </div>
       )}
     </div>
   );
