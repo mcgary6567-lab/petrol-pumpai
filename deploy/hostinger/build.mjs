@@ -28,6 +28,7 @@ fs.writeFileSync(path.join(out, "package.json"), JSON.stringify({
   scripts: { start: "node app.js", build: "echo already built" },
   engines: { node: "22.x" },
   dependencies: server.dependencies,
+  overrides: rootPkg.overrides, // security pins (zod, uuid) — the host installs without our lockfile, so they must travel here
 }, null, 2) + "\n");
 fs.writeFileSync(path.join(out, ".gitignore"), "node_modules/\n.env\n");
 console.log(`Hostinger build ready in ${path.relative(root, out)}/`);

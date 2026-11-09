@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { askCancel, pinHeader } from "../components/CancelEntry";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell } from "recharts";
-import { Plus, Truck, Factory, Download, Printer, HandCoins, Ban, Pencil } from "lucide-react";
+import { Plus, Truck, Fuel, Factory, Download, Printer, HandCoins, Ban, Pencil } from "lucide-react";
 import { api, linkToken, useApi } from "../lib/api";
 import { Empty, ErrorBox, Field, ListTools, Loading, Modal, Pager, Stat, useAction, useListFilter, usePaged } from "../components/ui";
 import { PRODUCTS, activeProducts, dt, num, phone, pkr, pkrShort } from "../lib/format";
@@ -275,7 +275,7 @@ export function BypassDeliveryForm({ onClose, onDone, fromHeld = false, fromClie
   const [txnDate, setTxnDate] = useState(() => new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 10));
   const [fleets, setFleets] = useState<any[]>([{ tanker_id: preset?.vehicle_no ? "other" : "", driver_id: "", vehicle_no: preset?.vehicle_no ?? "" }]);
   // a preset tanker number: pick the registered tanker (and its driver) when there is one, else keep it typed
-  const fleetApi = useApi<any>(preset?.vehicle_no ? "/wholesale/fleet" : null);
+  const fleetApi = useApi<any>("/wholesale/fleet");
   useEffect(() => {
     const tk = (fleetApi.data?.tankers ?? []).find((x: any) => String(x.number).replace(/\s/g, "").toLowerCase() === String(preset?.vehicle_no ?? "").replace(/\s/g, "").toLowerCase());
     if (tk) setFleets((fs) => [{ ...fs[0], tanker_id: String(tk.id), vehicle_no: "", driver_id: tk.driver_id ? String(tk.driver_id) : fs[0].driver_id }, ...fs.slice(1)]);
@@ -293,6 +293,20 @@ export function BypassDeliveryForm({ onClose, onDone, fromHeld = false, fromClie
   const stTanks = useMemo(() => (stations.data ?? []).flatMap((s: any) => (s.tanks ?? []).map((tk: any) => ({ ...tk, station: s.name }))), [stations.data]);
   const [toTank, setToTank] = useState<any[]>([]);
   const [lotVoucher, setLotVoucher] = useState<number | null>(null); // BYP voucher opened from the balance-stock lot table
+  // a lot button in the balance-stock table: fill a drop / own-tank line with that lot's fuel + litres, and put its tanker
+  // on the trip (when none is chosen yet) so the server draws from THAT gaari's lot at its own rate
+  const pickLot = (l: any, mode: "client" | "tank") => {
+    const veh = l.vehicles?.[0] ?? l.vehicle_no ?? null;
+    if (veh) setFleets((fs) => {
+      if (fs[0].tanker_id && fs[0].tanker_id !== "other" || fs[0].vehicle_no) return fs;
+      const tk = (fleetApi.data?.tankers ?? []).find((x: any) => String(x.number).replace(/\s/g, "").toLowerCase() === String(veh).replace(/\s/g, "").toLowerCase());
+      return [tk ? { ...fs[0], tanker_id: String(tk.id), vehicle_no: "", driver_id: tk.driver_id ? String(tk.driver_id) : fs[0].driver_id } : { ...fs[0], tanker_id: "other", vehicle_no: String(veh) }, ...fs.slice(1)];
+    });
+    const litres = String(Math.round(Number(l.left) * 100) / 100);
+    if (mode === "client") setDrops((ds) => { const i = ds.findIndex((d) => !d.client_id && !Number(d.litres)); const row = { client_id: "", product: l.product, litres, amount: "", order_id: undefined, location: "" }; return i >= 0 ? ds.map((d, j) => j === i ? row : d) : [...ds, row]; });
+    else setToTank((ts) => [...ts, { product: l.product, litres, tank_id: "" }]);
+    setTimeout(() => document.getElementById(mode === "client" ? "byp-drops" : "byp-totank")?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
+  };
 
   const sumBy = (rows: { product: string; litres: string }[]) => rows.reduce((m, r) => { const p = r.product; m[p] = (m[p] ?? 0) + (Number(r.litres) || 0); return m; }, {} as Record<string, number>);
   const bought = useMemo(() => sumBy(buys), [buys]);
@@ -365,11 +379,15 @@ export function BypassDeliveryForm({ onClose, onDone, fromHeld = false, fromClie
               const totalL = rows.reduce((a, l) => a + l.left, 0), totalV = rows.reduce((a, l) => a + l.value_left, 0);
               return (
                 <div className="overflow-x-auto rounded-lg bg-white ring-1 ring-slate-200">
-                  <table className="w-full min-w-[640px] text-[11px] [&_.td]:!px-2 [&_.td]:!py-1.5 [&_.th]:!px-2 [&_.th]:!py-1.5">
-                    <thead><tr><th className="th">Fuel</th><th className="th">Gaari</th><th className="th">Supplier</th><th className="th">Tareekh</th><th className="th">Bill</th><th className="th text-right">Baqi</th><th className="th text-right">Rs/L</th><th className="th text-right">Value</th><th className="th text-right">Din</th></tr></thead>
+                  <table className="w-full min-w-[760px] text-[11px] [&_.td]:!px-2 [&_.td]:!py-1.5 [&_.th]:!px-2 [&_.th]:!py-1.5">
+                    <thead><tr>{can("wholesale.manage") && <th className="th">Karein</th>}<th className="th">Fuel</th><th className="th">Gaari</th><th className="th">Supplier</th><th className="th">Tareekh</th><th className="th">Bill</th><th className="th text-right">Baqi</th><th className="th text-right">Rs/L</th><th className="th text-right">Value</th><th className="th text-right">Din</th></tr></thead>
                     <tbody>
                       {rows.map((l) => (
                         <tr key={l.id}>
+                          {can("wholesale.manage") && <td className="td"><div className="flex flex-col gap-1">
+                            <button type="button" className="btn-primary min-h-9 whitespace-nowrap !px-2 !py-1 text-[11px]" title="Is lot ka maal client ko dein" onClick={() => pickLot(l, "client")}><Truck size={13} /> Client ko dein</button>
+                            <button type="button" className="btn-secondary min-h-9 whitespace-nowrap !px-2 !py-1 text-[11px]" title="Is lot ka maal apne pump ke tank mein" onClick={() => pickLot(l, "tank")}><Fuel size={13} /> Apne tank mein</button>
+                          </div></td>}
                           <td className="td font-semibold">{PRODUCTS[l.product] ?? l.product}</td>
                           <td className="td whitespace-nowrap">{l.vehicle_no ? <>🚛 <b>{l.vehicle_no}</b></> : <span className="text-slate-400">—</span>}{l.driver_name ? <span className="block text-[10px] text-slate-500">{l.driver_name}</span> : null}</td>
                           <td className="td">{l.supplier}</td>
@@ -381,9 +399,9 @@ export function BypassDeliveryForm({ onClose, onDone, fromHeld = false, fromClie
                           <td className="td text-right tabular-nums">{l.days}</td>
                         </tr>
                       ))}
-                      {!rows.length && <tr><td className="td text-slate-500" colSpan={9}>{lotsApi.data ? "Koi khula lot nahi" : "…"}</td></tr>}
+                      {!rows.length && <tr><td className="td text-slate-500" colSpan={can("wholesale.manage") ? 10 : 9}>{lotsApi.data ? "Koi khula lot nahi" : "…"}</td></tr>}
                     </tbody>
-                    {rows.length > 0 && <tfoot><tr><td className="td" colSpan={5}>Kul baqi · {rows.length} lot{fuels.filter((f) => f.balance > 0.01).map((f) => ` · ${PRODUCTS[f.product] ?? f.product} ${num(f.balance)} L`).join("")}</td><td className="td text-right tabular-nums">{num(totalL)} L</td><td className="td"></td><td className="td text-right tabular-nums">{pkr(totalV)}</td><td className="td"></td></tr></tfoot>}
+                    {rows.length > 0 && <tfoot><tr><td className="td" colSpan={can("wholesale.manage") ? 6 : 5}>Kul baqi · {rows.length} lot{fuels.filter((f) => f.balance > 0.01).map((f) => ` · ${PRODUCTS[f.product] ?? f.product} ${num(f.balance)} L`).join("")}</td><td className="td text-right tabular-nums">{num(totalL)} L</td><td className="td"></td><td className="td text-right tabular-nums">{pkr(totalV)}</td><td className="td"></td></tr></tfoot>}
                   </table>
                 </div>
               );
@@ -456,7 +474,7 @@ export function BypassDeliveryForm({ onClose, onDone, fromHeld = false, fromClie
         })()}
 
         {/* Client drops — client + litre + full amount client pays */}
-        <div className="rounded-xl bg-slate-50 p-3">
+        <div id="byp-drops" className="rounded-xl bg-slate-50 p-3">
           <div className="mb-2 text-sm font-semibold">Kahan drop kiya (client + litre) <span className="font-normal text-slate-400">— rate client ke apne card se, amount khud ban jaega</span> · <Ur>ڈراپ</Ur></div>
           <div className="space-y-2">
             {drops.map((d, i) => {
@@ -494,7 +512,7 @@ export function BypassDeliveryForm({ onClose, onDone, fromHeld = false, fromClie
         </div>
 
         {/* Unload part of the load into OUR own pump tank (not sold to a client) */}
-        <div className="rounded-xl bg-sky-50 p-3 ring-1 ring-sky-100">
+        <div id="byp-totank" className="rounded-xl bg-sky-50 p-3 ring-1 ring-sky-100">
           <div className="mb-1 text-sm font-semibold">Apne pump ke tank mein (optional) <span className="font-normal text-slate-400">— jo maal client ko nahi diya, apne tank mein khali kiya</span> · <Ur>اپنے ٹینک میں</Ur></div>
           <div className="space-y-2">
             {toTank.map((r, i) => { const tk = tankOf(r.tank_id); const bad = r.tank_id && tk && tk.product !== r.product; return (
