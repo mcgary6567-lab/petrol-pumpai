@@ -1,13 +1,13 @@
 /** "Baqi stock" — lot-wise bypass stock (which supplier bill the held fuel sits on), the per-fuel reconciliation and the
  *  outs; a lot stays here until it is delivered to a client or unloaded into our tank. */
 import { useState } from "react";
-import { BypassVoucher } from "../pages/Bypass";
+import { BypassDeliveryForm, BypassVoucher } from "../pages/Bypass";
 import { api, useApi } from "../lib/api";
-import { Empty, Loading, useAction } from "./ui";
+import { Empty, Field, Loading, Modal, useAction } from "./ui";
 import { useAuth } from "../App";
 import { Ur } from "./VoiceShell";
 import { PRODUCTS, dt, num, pkr } from "../lib/format";
-import { AlertTriangle, Layers } from "lucide-react";
+import { AlertTriangle, Fuel, Layers, Truck } from "lucide-react";
 
 /** Vouchers saved before same-voucher costing carry the old pooled-average cost: one click re-costs them all. */
 function RecostBanner({ onDone }: { onDone: () => void }) {
@@ -32,6 +32,10 @@ function RecostBanner({ onDone }: { onDone: () => void }) {
 export function BypassStockTab() {
   const { data, error, reload } = useApi<any>("/bypass/lots");
   const [voucher, setVoucher] = useState<number | null>(null); // BYP voucher opened from a lot / out row
+  const { can } = useAuth();
+  const manage = can("wholesale.manage");
+  const [deliver, setDeliver] = useState<any>(null); // a lot being delivered to a client
+  const [toTank, setToTank] = useState<any>(null);   // a lot being emptied into our tank
   if (error) return <div className="card p-4 text-sm text-red-700">{String(error)}</div>;
   if (!data) return <Loading />;
   const fuels: any[] = data.fuels ?? [];
@@ -64,11 +68,15 @@ export function BypassStockTab() {
           )}
           <div className="overflow-x-auto">
             <table className="w-full min-w-[820px] text-sm">
-              <thead><tr><th className="th">Tareekh</th><th className="th">Delivery</th><th className="th">Supplier (kis se liya)</th><th className="th">Gaari</th><th className="th text-right">Khareeda</th><th className="th text-right">Rate</th><th className="th text-right">Nikla</th><th className="th text-right">Baqi</th><th className="th text-right">Value (cost)</th><th className="th text-right">Din</th></tr></thead>
+              <thead><tr>{manage && <th className="th">Karein</th>}<th className="th">Tareekh</th><th className="th">Delivery</th><th className="th">Supplier (kis se liya)</th><th className="th">Gaari</th><th className="th text-right">Khareeda</th><th className="th text-right">Rate</th><th className="th text-right">Nikla</th><th className="th text-right">Baqi</th><th className="th text-right">Value (cost)</th><th className="th text-right">Din</th></tr></thead>
               <tbody className="tabular-nums">
-                {!f.lots.length && <tr><td className="td text-center text-slate-500" colSpan={10}>Is fuel ka koi lot baqi nahi{f.closed_lots ? ` · ${f.closed_lots} lot poore bik / unload ho chuke` : ""}.</td></tr>}
+                {!f.lots.length && <tr><td className="td text-center text-slate-500" colSpan={manage ? 11 : 10}>Is fuel ka koi lot baqi nahi{f.closed_lots ? ` · ${f.closed_lots} lot poore bik / unload ho chuke` : ""}.</td></tr>}
                 {f.lots.map((l: any) => (
                   <tr key={l.id} className="border-t">
+                    {manage && <td className="td"><div className="flex flex-col gap-1">
+                      <button type="button" className="btn-primary min-h-9 whitespace-nowrap !px-2.5 !py-1 text-xs" title="Is lot ka maal client ko dein" onClick={() => setDeliver({ ...l, product: f.product })}><Truck size={14} /> Client ko dein</button>
+                      <button type="button" className="btn-secondary min-h-9 whitespace-nowrap !px-2.5 !py-1 text-xs" title="Is lot ka maal apne pump ke tank mein" onClick={() => setToTank({ ...l, product: f.product })}><Fuel size={14} /> Apne tank mein</button>
+                    </div></td>}
                     <td className="td whitespace-nowrap">{dt(l.txn_date)}</td>
                     <td className="td">{l.delivery_id ? <button type="button" className="font-mono text-brand-700 underline" title="Bill / voucher kholein" onClick={() => setVoucher(l.delivery_id)}>BYP-{l.delivery_id}</button> : "—"}{l.ref ? <div className="text-xs text-slate-500">{l.ref}</div> : null}</td>
                     <td className="td font-medium">{l.supplier}</td>
@@ -82,7 +90,7 @@ export function BypassStockTab() {
                   </tr>
                 ))}
               </tbody>
-              {f.lots.length > 0 && <tfoot><tr className="border-t-2 bg-slate-50 font-semibold tabular-nums"><td className="td" colSpan={7}>Kul baqi · {PRODUCTS[f.product] ?? f.product}</td><td className="td text-right">{num(f.lots.reduce((a: number, l: any) => a + l.left, 0))} L</td><td className="td text-right">{pkr(f.value)}</td><td className="td"></td></tr></tfoot>}
+              {f.lots.length > 0 && <tfoot><tr className="border-t-2 bg-slate-50 font-semibold tabular-nums">{manage && <td className="td"></td>}<td className="td" colSpan={7}>Kul baqi · {PRODUCTS[f.product] ?? f.product}</td><td className="td text-right">{num(f.lots.reduce((a: number, l: any) => a + l.left, 0))} L</td><td className="td text-right">{pkr(f.value)}</td><td className="td"></td></tr></tfoot>}
             </table>
           </div>
           {f.outs?.length > 0 && (
@@ -100,6 +108,47 @@ export function BypassStockTab() {
         </section>
       ))}
       {voucher != null && <BypassVoucher id={voucher} onClose={() => setVoucher(null)} />}
+      {deliver && (
+        <Modal open wide onClose={() => setDeliver(null)} title={`Baqi stock client ko · ${PRODUCTS[deliver.product] ?? deliver.product} ${num(deliver.left)} L${deliver.vehicle_no ? ` · ${deliver.vehicle_no}` : ""}`}>
+          <p className="mb-3 rounded-lg bg-amber-50 p-2 text-xs text-amber-900">Is lot ka maal (BYP-{deliver.delivery_id ?? "—"}{deliver.vehicle_no ? `, gaari ${deliver.vehicle_no}` : ""}) client ko: client chunein, litre theek karein aur Save. Ye litre isi gaari ke lot se ghatenge — poora diya to ye line Baqi stock se hat jayegi. · <Ur>اس لاٹ کا مال کلائنٹ کو</Ur></p>
+          <BypassDeliveryForm fromHeld preset={{ product: deliver.product, litres: deliver.left, vehicle_no: deliver.vehicles?.[0] ?? deliver.vehicle_no ?? null }} onClose={() => setDeliver(null)} onDone={() => { setDeliver(null); reload(); }} />
+        </Modal>
+      )}
+      {toTank && <LotToTank lot={toTank} onClose={() => setToTank(null)} onDone={() => { setToTank(null); reload(); }} />}
     </div>
+  );
+}
+
+/** Empty one held lot into our own tank: that tanker's lot, at its own rate. */
+function LotToTank({ lot, onClose, onDone }: { lot: any; onClose: () => void; onDone: () => void }) {
+  const stations = useApi<any[]>("/stations");
+  const tanks = (stations.data ?? []).flatMap((s: any) => (s.tanks ?? []).map((t: any) => ({ ...t, station: s.name }))).filter((t: any) => t.product === lot.product);
+  const vehicle = lot.vehicles?.[0] ?? lot.vehicle_no ?? "";
+  const [f, setF] = useState({ litres: String(lot.left), tank_id: "", note: "", txn_date: new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 10) });
+  const litres = Number(f.litres) || 0;
+  const quote = useApi<any>(litres > 0 ? `/bypass/to-tank/quote?product=${lot.product}&litres=${litres}${vehicle ? `&tanker_no=${encodeURIComponent(vehicle)}` : ""}` : null);
+  const tankId = f.tank_id || String(tanks[0]?.id ?? "");
+  const { busy, run } = useAction();
+  return (
+    <Modal open onClose={onClose} title={`Apne tank mein · ${PRODUCTS[lot.product] ?? lot.product}${vehicle ? ` · ${vehicle}` : ""}`}>
+      <form className="space-y-3" onSubmit={async (e) => {
+        e.preventDefault();
+        const r = await run(() => api("/bypass/to-tank", { body: { product: lot.product, litres, tank_id: Number(tankId), note: f.note || null, txn_date: f.txn_date, tanker_no: vehicle || null } }),
+          (x: any) => `${num(x.litres)} L tank mein — Rs ${num(x.unit_cost, 2)}/L · ${pkr(x.cost)}`);
+        if (r) onDone();
+      }}>
+        <p className="rounded-lg bg-slate-50 p-2 text-xs text-slate-700">Lot BYP-{lot.delivery_id ?? "—"} · {lot.supplier} · baqi <b>{num(lot.left)} L</b> @ Rs {num(lot.cost_rate, 2)}. Poora daala to ye line Baqi stock se hat jayegi.</p>
+        <Field label="Litres · لیٹر"><input className="input py-3 text-2xl" type="number" inputMode="decimal" min={1} step="1" required value={f.litres} onChange={(e) => setF({ ...f, litres: e.target.value })} /></Field>
+        <Field label="Kis tank mein · کون سا ٹینک"><select className="input" required value={tankId} onChange={(e) => setF({ ...f, tank_id: e.target.value })}>
+          {!tanks.length && <option value="">— is fuel ka tank nahi —</option>}
+          {tanks.map((t: any) => <option key={t.id} value={t.id}>{t.name} · {t.station} · {num(t.current_l)} / {num(t.capacity_l)} L</option>)}</select></Field>
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="Date"><input className="input" type="date" value={f.txn_date} onChange={(e) => setF({ ...f, txn_date: e.target.value })} /></Field>
+          <Field label="Note (optional)"><input className="input" value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} /></Field>
+        </div>
+        {litres > 0 && quote.data && <div className="rounded-xl bg-emerald-50 p-3 text-sm"><div className="flex justify-between"><span>Pump stock</span><b>+{num(litres)} L</b></div><div className="flex justify-between"><span>Cost (lot ka asal rate)</span><span className="tabular-nums">{num(litres)} × {num(quote.data.unit, 2)} = <b>{pkr(quote.data.cost)}</b></span></div></div>}
+        <div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={onClose}>Cancel</button><button className="btn-primary" disabled={busy || !tankId || !(litres > 0)}>Tank mein daalein · <Ur>محفوظ</Ur></button></div>
+      </form>
+    </Modal>
   );
 }

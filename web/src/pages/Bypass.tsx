@@ -263,7 +263,8 @@ function MonthlyProfitChart({ data }: { data: any[] }) {
 }
 
 /** The bypass delivery form body (no Modal wrapper) — shown inside the "New trip" form's Depot-bypass mode. */
-export function BypassDeliveryForm({ onClose, onDone, fromHeld = false, fromClient = false }: { onClose: () => void; onDone: (r?: any) => void; fromHeld?: boolean; fromClient?: boolean }) {
+/** `preset`: deliver one held lot (Baqi stock → "Client ko dein"): its fuel, litres and tanker filled in. */
+export function BypassDeliveryForm({ onClose, onDone, fromHeld = false, fromClient = false, preset }: { onClose: () => void; onDone: (r?: any) => void; fromHeld?: boolean; fromClient?: boolean; preset?: { product: string; litres: number; vehicle_no?: string | null } }) {
   const { can } = useAuth();
   const suppliers = useApi<any[]>("/bypass/suppliers");
   const clients = useApi<any[]>("/wholesale/clients");
@@ -271,10 +272,16 @@ export function BypassDeliveryForm({ onClose, onDone, fromHeld = false, fromClie
   const orders = useApi<any>("/wholesale/orders");
   const [station, setStation] = useState("");
   const [txnDate, setTxnDate] = useState(() => new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 10));
-  const [fleets, setFleets] = useState<any[]>([{ tanker_id: "", driver_id: "", vehicle_no: "" }]);
+  const [fleets, setFleets] = useState<any[]>([{ tanker_id: preset?.vehicle_no ? "other" : "", driver_id: "", vehicle_no: preset?.vehicle_no ?? "" }]);
+  // a preset tanker number: pick the registered tanker (and its driver) when there is one, else keep it typed
+  const fleetApi = useApi<any>(preset?.vehicle_no ? "/wholesale/fleet" : null);
+  useEffect(() => {
+    const tk = (fleetApi.data?.tankers ?? []).find((x: any) => String(x.number).replace(/\s/g, "").toLowerCase() === String(preset?.vehicle_no ?? "").replace(/\s/g, "").toLowerCase());
+    if (tk) setFleets((fs) => [{ ...fs[0], tanker_id: String(tk.id), vehicle_no: "", driver_id: tk.driver_id ? String(tk.driver_id) : fs[0].driver_id }, ...fs.slice(1)]);
+  }, [fleetApi.data]); // eslint-disable-line react-hooks/exhaustive-deps
   const [note, setNote] = useState("");
   const [buys, setBuys] = useState([{ supplier_id: "", product: "HSD", litres: "", amount: "" }]);
-  const [drops, setDrops] = useState<any[]>([{ client_id: "", product: "HSD", litres: "", amount: "", order_id: undefined, location: "" }]);
+  const [drops, setDrops] = useState<any[]>([{ client_id: "", product: preset?.product ?? "HSD", litres: preset ? String(preset.litres) : "", amount: "", order_id: undefined, location: "" }]);
   const [photos, setPhotos] = useState<number[]>([]);
   const { busy, run } = useAction();
   const stock = useApi<any>("/bypass/stock");

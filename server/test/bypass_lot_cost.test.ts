@@ -68,4 +68,11 @@ test("unload from tanker 9550 takes that tanker's lot at its own rate; re-cost f
   const reg = db.get("SELECT purchase_rate FROM deliveries WHERE bypass_drop_id=?", fixed.id);
   near(reg.purchase_rate, 340, "the pump's stock register follows");
   await books();
+
+  // Baqi stock → "Client ko dein" on the LES-1 lot: a voucher with that tanker and no bill — it comes off LES-1's lot
+  ok(await call("admin", "POST", "/api/bypass/deliveries", { station_id: tank.station_id, vehicle_no: "LES-1", purchases: [], drops: [{ client_id: cli, product: "PMG", litres: 2000, rate: 380 }] }), "held drop");
+  const lots2 = ok(await call("admin", "GET", "/api/bypass/lots"), "lots2").fuels.find((f: any) => f.product === "PMG").lots;
+  near(lots2.find((l: any) => l.ref === "OLD")?.left ?? 0, 3000, "LES-1's lot: 5,000 − 2,000");
+  assert.equal(lots2.find((l: any) => l.ref === "NEW"), undefined, "9550's lot is finished");
+  await books();
 });

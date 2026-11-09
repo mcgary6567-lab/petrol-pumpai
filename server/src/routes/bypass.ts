@@ -410,9 +410,10 @@ export function bypassLotState(t: number, skipDrop?: number) {
     const vehicles = tk.length ? tk : b.vehicle_no ? [b.vehicle_no as string] : [];
     return { ...b, tankers: undefined, vehicle_no: vehicles.join(" + ") || null, vehicles };
   });
-  const outs = all(`SELECT x.id, x.delivery_id, x.product, x.litres, x.unit_cost, x.cost_amount, x.txn_date, x.created_by, x.tank_id, x.note, tk.name tank, c.name client, w.rate sale_rate, w.amount sale_amount, dl.tanker_no
+  const outs = all(`SELECT x.id, x.delivery_id, x.product, x.litres, x.unit_cost, x.cost_amount, x.txn_date, x.created_by, x.tank_id, x.note, tk.name tank, c.name client, w.rate sale_rate, w.amount sale_amount, dl.tanker_no,
+        bd.vehicle_no del_vehicle, bd.tankers del_tankers
       FROM bypass_drops x LEFT JOIN tanks tk ON tk.id=x.tank_id LEFT JOIN wholesale_clients c ON c.id=x.client_id LEFT JOIN wholesale_txns w ON w.id=x.wtx_id
-      LEFT JOIN deliveries dl ON dl.id=x.to_delivery_id
+      LEFT JOIN deliveries dl ON dl.id=x.to_delivery_id LEFT JOIN bypass_deliveries bd ON bd.id=x.delivery_id
       WHERE x.tenant_id=? AND x.voided=0 ORDER BY x.txn_date, x.id`, t).filter((o) => o.id !== skipDrop);
   const lots = buys.map((b) => ({ ...b, left: round2(b.litres), used: 0 }));
   const over: typeof outs = []; // outs that found no lot to come from (more out than bought)
@@ -423,9 +424,15 @@ export function bypassLotState(t: number, skipDrop?: number) {
   }
   return { buys, outs, lots, over };
 }
-/** Which tanker an own-tank unload was emptied from: the tanker typed on it, else a lot's tanker number found in its note ("9550"). */
+/** Which tanker an out comes from. A client drop: its voucher's tanker (when it has no bill of its own for that fuel, it
+ *  is fuel held on that tanker — e.g. "Baqi stock → deliver this lot"). An own-tank unload: the tanker typed on it, else a
+ *  lot's tanker number found in its note ("9550"). */
 function unloadVehicle(o: Row, lots: { vehicles: string[] }[]): string | null {
-  if (!o.tank_id) return null;
+  if (!o.tank_id) {
+    let tk: string[] = [];
+    try { tk = (JSON.parse((o.del_tankers as string) || "[]") as any[]).map((x) => x.vehicle_no).filter(Boolean); } catch { /* bad json */ }
+    return (tk[0] ?? o.del_vehicle ?? null) as string | null;
+  }
   if (o.tanker_no) return String(o.tanker_no);
   const note = String(o.note ?? "").toLowerCase();
   if (!note) return null;
