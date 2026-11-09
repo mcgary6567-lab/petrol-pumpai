@@ -283,8 +283,9 @@ function noteVehicle(t: number, note: string | null | undefined): string | null 
 /** What an unload would cost (preview in the form): the lots' own rate, that tanker first. */
 bypass.get("/bypass/to-tank/quote", h((req) => {
   const t = tid(req);
-  const q = parse(z.object({ product, litres: z.coerce.number().positive().max(200_000), tanker_no: z.string().max(30).optional() }), req.query);
-  return bypassLotCost(t, q.product, q.litres, { vehicle: q.tanker_no || null });
+  const q = parse(z.object({ product, litres: z.coerce.number().positive().max(200_000), tanker_no: z.string().max(30).optional(), skip: z.coerce.number().int().optional() }), req.query);
+  // skip: re-costing an existing unload — price it as if it were not taken yet (the same as the recost does)
+  return bypassLotCost(t, q.product, q.litres, { vehicle: q.tanker_no || null, skipDrop: q.skip });
 }));
 /** Transfers so far (newest first). */
 bypass.get("/bypass/to-tank", h((req) => all(`SELECT d.id, d.product, d.litres, d.unit_cost, d.cost_amount, d.voided, d.created_by, d.txn_date, d.note, d.delivery_id, tk.name tank, s.name station, dl.tanker_no
@@ -317,7 +318,14 @@ bypass.patch("/bypass/to-tank/:id", requirePerm("wholesale.manage"), h((req) => 
   return editToTank(req, Number(req.params.id), b);
 }));
 /** Re-cost an own-tank unload at the rate of the lots it really came from (fixes one booked at the drifted average). */
-bypass.post("/bypass/to-tank/:id/recost", requirePerm("wholesale.manage"), h((req) => editToTank(req, Number(req.params.id), { reason: "Rate theek kiya — lot ke asal rate par", recost: true })));
+bypass.post("/bypass/to-tank/:id/recost", requirePerm("wholesale.manage"), h((req) => {
+  // no figure → the lots' own rate; else the owner's own rate per litre or total amount (e.g. the real bill incl. freight)
+  const b = parse(z.object({ rate: z.number().positive().max(100_000).optional(), amount: z.number().positive().max(100_000_000).optional(), reason: z.string().trim().max(200).optional() }), req.body ?? {});
+  const d = get("SELECT litres FROM bypass_drops WHERE id=? AND tenant_id=? AND tank_id IS NOT NULL AND voided=0", Number(req.params.id), tid(req));
+  if (!d) throw new AppError(404, "Transfer not found");
+  const amount = b.amount ?? (b.rate != null ? round2(b.rate * (d.litres as number)) : undefined);
+  return editToTank(req, Number(req.params.id), { reason: b.reason || (amount != null ? `Rate theek kiya — apna rate (Rs ${round2(amount / (d.litres as number))}/L)` : "Rate theek kiya — lot ke asal rate par"), recost: true, ...(amount != null ? { amount } : {}) });
+}));
 /** Shared by edit and re-cost: reverse the old transfer, post it again with the new values. */
 function editToTank(req: Request, id: number, b: { reason: string; litres?: number; tank_id?: number; txn_date?: string; note?: string | null; amount?: number | null; tanker_no?: string | null; recost?: boolean }) {
   const t = tid(req);
@@ -566,6 +574,45 @@ bypass.get("/bypass/deliveries/:id", h((req) => {
 }));
 
 /** Monthly bypass munafa series for the last N months (oldest first) — for the panel chart. */
+/** Bypass P&L for a period (ERP statement): month by month, by fuel, by client, and — for one month — every drop with its
+ *  sale and cost. Sale = what the client was billed; cost = the bypass cost of the litres delivered (same figures as the
+ *  monthly chart and the books). Own-tank unloads are a stock transfer, not a sale, so they are not in it. */
+bypass.get("/bypass/pnl", h((req) => {
+  const t = tid(req);
+  const q = parse(z.object({ from: z.string().regex(/^\d{4}-\d{2}$/).optional(), to: z.string().regex(/^\d{4}-\d{2}$/).optional(), month: z.string().regex(/^\d{4}-\d{2}$/).optional() }), req.query);
+  const cur = pkDate().slice(0, 7);
+  const addM = (ym: string, n: number) => { const [y, m] = ym.split("-").map(Number); const d = new Date(Date.UTC(y, m - 1 + n, 1)); return d.toISOString().slice(0, 7); };
+  const to = q.to ?? cur, from = q.from ?? addM(to, -11);
+  if (from > to) throw new AppError(400, "Se ka mahina Tak se pehle hona chahiye");
+  const startOf = (ym: string) => new Date(`${ym}-01T00:00:00+05:00`).toISOString();
+  const rows = all(`SELECT bd.id, bd.delivery_id, bd.product, bd.litres, bd.unit_cost, bd.cost_amount, bd.txn_date, c.name client, c.id client_id, w.rate sale_rate, w.amount sale
+      FROM bypass_drops bd JOIN wholesale_txns w ON w.id=bd.wtx_id LEFT JOIN wholesale_clients c ON c.id=bd.client_id
+      WHERE bd.tenant_id=? AND bd.voided=0 AND w.voided=0 AND bd.tank_id IS NULL AND bd.txn_date >= ? AND bd.txn_date < ? ORDER BY bd.txn_date, bd.id`, t, startOf(from), startOf(addM(to, 1)))
+    .map((r) => ({ ...r, month: new Date(Date.parse(r.txn_date as string) + 5 * 3600_000).toISOString().slice(0, 7), profit: round2((r.sale as number) - (r.cost_amount as number)) }));
+  type Agg = { litres: number; sale: number; cost: number; profit: number; drops: number };
+  const add = (a: Agg, r: any) => { a.litres = round2(a.litres + r.litres); a.sale = round2(a.sale + r.sale); a.cost = round2(a.cost + r.cost_amount); a.profit = round2(a.profit + r.profit); a.drops++; return a; };
+  const blank = (): Agg => ({ litres: 0, sale: 0, cost: 0, profit: 0, drops: 0 });
+  const ratios = (a: Agg) => ({ ...a, margin_pct: a.sale ? Math.round((a.profit / a.sale) * 1000) / 10 : null, per_litre: a.litres ? round2(a.profit / a.litres) : null });
+  const months: string[] = []; for (let m = from; m <= to; m = addM(m, 1)) months.push(m);
+  const byMonth = new Map(months.map((m) => [m, blank()]));
+  const byFuel = new Map<string, Agg>(), byClient = new Map<string, Agg & { client: string }>();
+  const total = blank();
+  for (const r of rows) {
+    add(byMonth.get(r.month) ?? byMonth.set(r.month, blank()).get(r.month)!, r);
+    add(byFuel.get(r.product as string) ?? byFuel.set(r.product as string, blank()).get(r.product as string)!, r);
+    const ck = String(r.client_id ?? r.client);
+    add(byClient.get(ck) ?? byClient.set(ck, { ...blank(), client: (r.client as string) ?? "—" }).get(ck)!, r);
+    add(total, r);
+  }
+  return {
+    from, to, total: ratios(total),
+    months: [...byMonth.entries()].map(([month, a]) => ({ month, ...ratios(a) })),
+    by_fuel: [...byFuel.entries()].map(([product, a]) => ({ product, ...ratios(a) })).sort((a, b) => b.profit - a.profit),
+    by_client: [...byClient.values()].map((a) => ratios(a)).sort((a, b) => b.profit - a.profit),
+    lines: q.month ? rows.filter((r) => r.month === q.month) : [],
+  };
+}));
+
 bypass.get("/bypass/monthly", h((req) => {
   const t = tid(req);
   const months = Math.min(24, Math.max(1, Number(req.query.months) || 6));

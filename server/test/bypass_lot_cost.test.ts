@@ -76,3 +76,27 @@ test("unload from tanker 9550 takes that tanker's lot at its own rate; re-cost f
   assert.equal(lots2.find((l: any) => l.ref === "NEW"), undefined, "9550's lot is finished");
   await books();
 });
+
+test("Rate theek karein with the owner's own rate or amount; the munafa statement adds up month, fuel and client", async () => {
+  const tank = db.get("SELECT tk.* FROM tanks tk JOIN stations s ON s.id=tk.station_id WHERE s.tenant_id=1 AND tk.product='PMG' ORDER BY tk.id LIMIT 1");
+  const u = db.get("SELECT id, litres FROM bypass_drops WHERE tenant_id=1 AND tank_id IS NOT NULL AND voided=0 ORDER BY id DESC LIMIT 1");
+  const byRate = ok(await call("admin", "POST", `/api/bypass/to-tank/${u.id}/recost`, { rate: 345.5 }), "own rate");
+  near(byRate.unit_cost, 345.5);
+  const byAmt = ok(await call("admin", "POST", `/api/bypass/to-tank/${byRate.id}/recost`, { amount: u.litres * 350 }), "own amount");
+  near(byAmt.unit_cost, 350);
+  near(db.get("SELECT purchase_rate FROM deliveries WHERE bypass_drop_id=?", byAmt.id).purchase_rate, 350, "stock register follows");
+  void tank;
+  await books();
+
+  const ym = new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 7);
+  const pnl = ok(await call("admin", "GET", `/api/bypass/pnl?from=${ym}&to=${ym}&month=${ym}`), "pnl");
+  const sum = (xs: any[], k: string) => Math.round(xs.reduce((a, x) => a + x[k], 0));
+  assert.ok(pnl.total.drops >= 2, "both client drops are in");
+  assert.equal(sum(pnl.months, "profit"), Math.round(pnl.total.profit), "months add up");
+  assert.equal(sum(pnl.by_fuel, "profit"), Math.round(pnl.total.profit), "fuels add up");
+  assert.equal(sum(pnl.by_client, "sale"), Math.round(pnl.total.sale), "clients add up");
+  assert.equal(sum(pnl.lines, "profit"), Math.round(pnl.total.profit), "voucher lines add up");
+  assert.ok(pnl.lines.every((l: any) => Math.abs(l.sale - l.cost_amount - l.profit) < 0.05), "each line: sale − cost = munafa");
+  const old = ok(await call("admin", "GET", "/api/bypass/monthly?months=1"), "monthly")[0];
+  near(old.profit, pnl.months[0].profit, "same figure as the old chart");
+});

@@ -1,3 +1,4 @@
+import { BypassPnl } from "../components/BypassPnl";
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { askCancel, pinHeader } from "../components/CancelEntry";
@@ -99,7 +100,7 @@ export function BypassPanel({ section = "all" }: { section?: BypassSection }) {
         )}
       </div>}
 
-      {show("profit") && <MonthlyProfitChart data={monthly.data ?? []} />}
+      {show("profit") && (section === "profit" ? <BypassPnl /> : <MonthlyProfitChart data={monthly.data ?? []} />)}
 
       {show("suppliers") && <div className="card overflow-hidden">
         <h2 className="border-b p-4 font-semibold"><Factory size={15} className="mr-1 inline text-slate-500" /> Bypass suppliers · <Ur>سپلائر</Ur></h2>
@@ -239,7 +240,7 @@ export function BypassVoucher({ id, onClose }: { id: number; onClose: () => void
 }
 
 /** Monthly bypass munafa — a small bar chart (green = faida, red = nuqsan) over the last few months. */
-function MonthlyProfitChart({ data }: { data: any[] }) {
+export function MonthlyProfitChart({ data }: { data: any[] }) {
   if (!data.length || data.every((d) => !d.profit && !d.billed)) return null;
   const GRID = "#e5e7eb", AXIS = "#6b7280";
   const label = (ym: string) => { const [, m] = (ym ?? "").split("-"); return ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][Number(m)] ?? ym; };
@@ -716,6 +717,48 @@ function EditToTank({ r, tanks, onClose, onDone }: { r: any; tanks: any[]; onClo
   );
 }
 
+/** "Rate theek karein": the lot's own rate (one tap), or the owner's own rate per litre / total amount (e.g. the real bill). */
+function RecostToTank({ r, onClose, onDone }: { r: any; onClose: () => void; onDone: () => void }) {
+  const [mode, setMode] = useState<"lot" | "rate" | "amount">("lot");
+  const [val, setVal] = useState("");
+  const [reason, setReason] = useState("");
+  const quote = useApi<any>(`/bypass/to-tank/quote?product=${r.product}&litres=${r.litres}&skip=${r.id}${r.tanker_no ? `&tanker_no=${encodeURIComponent(r.tanker_no)}` : r.note ? `&tanker_no=${encodeURIComponent(r.note)}` : ""}`);
+  const v = Number(val) || 0;
+  const newAmt = mode === "lot" ? quote.data?.cost ?? null : mode === "rate" ? (v > 0 ? Math.round(v * r.litres * 100) / 100 : null) : (v > 0 ? v : null);
+  const newRate = newAmt != null && r.litres > 0 ? newAmt / r.litres : null;
+  const { busy, run } = useAction();
+  const save = async () => {
+    const body = mode === "lot" ? {} : mode === "rate" ? { rate: v } : { amount: v };
+    const x = await run(() => api(`/bypass/to-tank/${r.id}/recost`, { body: { ...body, ...(reason.trim() ? { reason: reason.trim() } : {}) } }),
+      (y: any) => `Rate theek: Rs ${num(r.unit_cost, 2)} → Rs ${num(y.unit_cost, 2)} · amount ${pkr(y.before_cost)} → ${pkr(y.cost)}`);
+    if (x) onDone();
+  };
+  return (
+    <Modal open onClose={onClose} title={`Rate theek karein · ${PRODUCTS[r.product] ?? r.product} ${num(r.litres)} L`}>
+      <div className="space-y-3">
+        <p className="rounded-lg bg-slate-50 p-2 text-sm">Abhi: <b>Rs {num(r.unit_cost, 2)}/L</b> · {pkr(r.cost_amount)} · {r.tank}{r.tanker_no || r.note ? ` · ${r.tanker_no ?? r.note}` : ""}</p>
+        <div role="radiogroup" className="space-y-2">
+          {([["lot", "Lot ka asal rate", quote.data ? `Rs ${num(quote.data.unit, 2)}/L · ${pkr(quote.data.cost)}` : "…"], ["rate", "Apna rate (Rs per litre)", "jaise 339.97"], ["amount", "Apni kul raqam (Rs)", "jaise asal bill + kiraya"]] as const).map(([k, l, hint]) => (
+            <label key={k} className={`flex cursor-pointer items-center gap-3 rounded-xl border p-3 ${mode === k ? "border-brand-500 bg-brand-50" : "border-slate-200"}`}>
+              <input type="radio" name="recost" checked={mode === k} onChange={() => { setMode(k); setVal(""); }} className="h-4 w-4" />
+              <span className="min-w-0 flex-1"><span className="block text-sm font-semibold">{l}</span><span className="block text-xs text-slate-500">{hint}</span></span>
+            </label>
+          ))}
+        </div>
+        {mode !== "lot" && <Field label={mode === "rate" ? "Rate (Rs/L)" : "Kul raqam (Rs)"}><input autoFocus className="input py-3 text-2xl" type="number" inputMode="decimal" min={0} step="0.01" value={val} onChange={(e) => setVal(e.target.value)} /></Field>}
+        <Field label="Wajah (optional)"><input className="input" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="jaise: depot bill ke mutabiq" /></Field>
+        {newAmt != null && <div className="rounded-xl bg-emerald-50 p-3 text-sm tabular-nums">
+          <div className="flex justify-between"><span>Naya rate</span><b>Rs {num(newRate ?? 0, 2)}/L</b></div>
+          <div className="flex justify-between"><span>Nayi raqam</span><b>{pkr(newAmt)}</b></div>
+          <div className="flex justify-between text-xs text-slate-600"><span>Farq</span><span>{pkr(newAmt - r.cost_amount)}</span></div>
+          <p className="mt-1 text-xs text-slate-500">Pump ka stock register, stock ki qeemat aur books isi ke mutabiq badlenge. Litre aur tank wahi rahenge.</p>
+        </div>}
+        <div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={onClose}>Cancel</button><button type="button" className="btn-primary" disabled={busy || newAmt == null || newAmt <= 0} onClick={save}>Theek karein · <Ur>محفوظ</Ur></button></div>
+      </div>
+    </Modal>
+  );
+}
+
 function LeftoverToTank({ stock, onChanged, always = false }: { stock: any[]; onChanged: () => void; always?: boolean }) {
   const { can } = useAuth();
   const stations = useApi<any[]>("/stations");
@@ -735,6 +778,7 @@ function LeftoverToTank({ stock, onChanged, always = false }: { stock: any[]; on
   const [lq, setLq] = useState("");
   const [showAll, setShowAll] = useState(false);
   const [editRow, setEditRow] = useState<any>(null);
+  const [recostRow, setRecostRow] = useState<any>(null);
   const [unloadVoucher, setUnloadVoucher] = useState<number | null>(null);
   const allRows = (list.data ?? []).filter((r: any) => !r.voided);
   const matched = useListFilter(allRows, { q: lq, text: (r: any) => [r.product, PRODUCTS[r.product], r.tank, r.station, r.note, r.created_by, r.litres].filter((v) => v != null && v !== "").join(" ") });
@@ -767,8 +811,7 @@ function LeftoverToTank({ stock, onChanged, always = false }: { stock: any[]; on
                   <td className="td text-xs text-slate-600">{r.created_by}</td>
                   <td className="td text-right">Rs {num(r.unit_cost, 2)}</td>
                   <td className="td text-right font-semibold">{pkr(r.cost_amount)}</td>
-                  {(can("wholesale.void") || can("wholesale.manage")) && <td className="td whitespace-nowrap text-right">{can("wholesale.manage") && <button className="btn-secondary mr-1 !px-2 !py-1 text-xs" title="Is maal ke lot ka asal rate dobara lagayein" disabled={busy}
-                    onClick={async () => { const x: any = await run(() => api(`/bypass/to-tank/${r.id}/recost`, { body: {} }), (y: any) => `Rate theek: Rs ${num(r.unit_cost, 2)} → Rs ${num(y.unit_cost, 2)} · amount ${pkr(y.before_cost)} → ${pkr(y.cost)}`); if (x) { list.reload(); onChanged(); } }}>Rate theek karein</button>}
+                  {(can("wholesale.void") || can("wholesale.manage")) && <td className="td whitespace-nowrap text-right">{can("wholesale.manage") && <button className="btn-secondary mr-1 !px-2 !py-1 text-xs" title="Rate theek karein: lot ka asal rate ya apna rate / raqam" onClick={() => setRecostRow(r)}>Rate theek karein</button>}
                   {can("wholesale.manage") && <button className="btn-secondary mr-1 !px-2 !py-1 text-xs" title="Edit" onClick={() => setEditRow(r)}><Pencil size={13} /> Edit</button>}{can("wholesale.void") && <button className="btn-secondary !px-2 !py-1 text-xs text-red-600" disabled={busy} onClick={async () => { const a = await askCancel({ title: "Apne tank wala maal wapas (undo)", what: <><b>{num(r.litres, 0)} L</b> · {r.tank}</>, hint: "Litre tank se nikal kar wapas bypass stock me chale jayenge." }); if (a) run(() => api(`/bypass/to-tank/${r.id}/void`, { body: { reason: a.reason }, headers: pinHeader(a) }), "Undone — bypass stock aur tank wapas").then(() => { list.reload(); onChanged(); }); }}><Ban size={13} /> Undo</button>}</td>}
                 </tr>
               ))}
@@ -777,6 +820,7 @@ function LeftoverToTank({ stock, onChanged, always = false }: { stock: any[]; on
           </table>
         </div>
       )}
+      {recostRow && <RecostToTank r={recostRow} onClose={() => setRecostRow(null)} onDone={() => { setRecostRow(null); list.reload(); onChanged(); }} />}
       {editRow && <EditToTank r={editRow} tanks={tanks} onClose={() => setEditRow(null)} onDone={() => { setEditRow(null); list.reload(); onChanged(); }} />}
       {unloadVoucher != null && <BypassVoucher id={unloadVoucher} onClose={() => setUnloadVoucher(null)} />}
       <Modal open={open} onClose={() => setOpen(false)} title="Bacha hua tel apne tank mein · بچا ہوا تیل">
