@@ -1,4 +1,4 @@
-import { AsaanToggle, useAsaan } from "./Asaan";
+import { AsaanToggle, SyncDot, useAsaan } from "./Asaan";
 import { Home as HomeIcon } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { PrintFooter, PrintHeader } from "./Letterhead";
@@ -482,6 +482,7 @@ export default function Layout() {
         <header className="sticky top-0 z-30 flex items-center gap-3 border-b border-slate-200 bg-white/90 px-4 py-3 backdrop-blur lg:hidden print:hidden">
           <button onClick={() => setOpen(!open)} aria-label="Menu">{open ? <X /> : <Menu />}</button>
           <span className="flex min-w-0 flex-1 items-center gap-2 font-semibold">{(tenant?.logo_url ?? brand?.logo_url) ? <img src={tenant?.logo_url ?? brand?.logo_url ?? ""} alt="" className="h-7 w-7 shrink-0 rounded-md bg-white object-contain" /> : <span>⛽</span>}<span className="truncate">{tenant?.name ?? "Petrol PumpAI"}</span></span>
+          {asaan && <SyncDot />}
           <button onClick={() => { setCmd(true); setCq(""); setCi(0); }} aria-label="Jump to…" className="text-slate-500"><Search size={20} /></button>
           <button onClick={toggleTheme} aria-label="Theme" className="text-slate-500">{dark ? <Sun size={20} /> : <Moon size={20} />}</button>
           <NotificationBell />
@@ -500,7 +501,10 @@ export default function Layout() {
 function PageGuideButton() {
   const loc = useLocation();
   const nav = useNavigate();
+  const [asaan] = useAsaan();
   if (loc.pathname.replace(/\/$/, "") === "/help") return null;
+  // the big-button screens explain themselves; the floating "?" would sit on their tiles
+  if (asaan && (loc.pathname === "/" || loc.pathname.startsWith("/tanks-level") || loc.pathname.startsWith("/shift-band"))) return null;
   const base = "/" + loc.pathname.split("/")[1];
   const id = ROUTE_GUIDE[base];
   const to = id ? `/help#${id}` : "/help";

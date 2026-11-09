@@ -74,6 +74,7 @@ import { useParams } from "react-router-dom";
 import { useAsaan } from "./components/Asaan";
 const AsaanHome = lazy(() => import("./components/Asaan").then((m) => ({ default: m.AsaanHome })));
 const TanksLevel = lazy(() => import("./components/Asaan").then((m) => ({ default: m.TanksLevel })));
+const AsaanCloseShift = lazy(() => import("./components/Asaan").then((m) => ({ default: m.AsaanCloseShift })));
 
 /** A pump's own sign-in link (/p/<slug>): remember the pump, then show its sign-in page. */
 function PumpLink() {
@@ -236,6 +237,7 @@ export default function App() {
               <Route path="campaigns" element={<Need perm="campaigns.manage"><Campaigns /></Need>} />
               <Route path="pos" element={<Need perm="sales.create" mod="pos"><Pos /></Need>} />
               <Route path="tanks-level" element={<Suspense fallback={null}><TanksLevel /></Suspense>} />
+              <Route path="shift-band/:id" element={<Need perm="shifts.manage"><Suspense fallback={null}><AsaanCloseShift /></Suspense></Need>} />
               <Route path="shifts" element={<Need perm="shifts.manage"><Shifts /></Need>} />
               <Route path="stock" element={<Need perm="stock.manage"><Stock /></Need>} />
               <Route path="dip-charts" element={<Need perm="stock.manage"><DipCharts /></Need>} />

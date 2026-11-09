@@ -68,3 +68,17 @@ export function useOfflineQueue(onSynced?: () => void) {
 /** Remember the last good copy of a screen's data so it still opens without internet. */
 export const cacheGet = <T,>(k: string): T | null => { try { return JSON.parse(localStorage.getItem(`pumpai_cache_${k}`) ?? "null"); } catch { return null; } };
 export const cacheSet = (k: string, v: unknown) => { try { localStorage.setItem(`pumpai_cache_${k}`, JSON.stringify(v)); } catch { /* storage full or blocked */ } };
+
+/** Read-only status for the header dot: how many sales wait on this device and whether the browser is online. Never uploads. */
+export function useQueueStatus() {
+  const get = () => ({ pending: read(QUEUE).length, failed: read(FAILED).length, online: navigator.onLine });
+  const [state, setState] = useState(get);
+  useEffect(() => {
+    const refresh = () => setState(get());
+    window.addEventListener(EVT, refresh); window.addEventListener("online", refresh); window.addEventListener("offline", refresh);
+    const id = setInterval(refresh, 10_000);
+    return () => { window.removeEventListener(EVT, refresh); window.removeEventListener("online", refresh); window.removeEventListener("offline", refresh); clearInterval(id); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return state;
+}

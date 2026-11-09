@@ -6,10 +6,12 @@
  * Building blocks: BigAction (home tile), MoneyCard (ledger card), NumPad (calculator keypad), TankGauge.
  * The mode is a per-device choice (localStorage), ON by default for salesman and cashier; everyone can switch it.
  */
-import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
-import { Link } from "react-router-dom";
-import { ArrowDownCircle, ArrowUpCircle, Delete, Fuel, HandCoins, LogIn, LogOut, Receipt, RefreshCw, ShoppingCart } from "lucide-react";
-import { useApi } from "../lib/api";
+import { useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import { ArrowDownCircle, ArrowUpCircle, CheckCircle2, ChevronLeft, Delete, Fuel, HandCoins, Home, LogIn, LogOut, MessageCircle, Minus, Plus, Receipt, RefreshCw, ShoppingCart, Wifi, WifiOff } from "lucide-react";
+import { api, useApi } from "../lib/api";
+import { useQueueStatus } from "../lib/offline";
+import { WhatsAppDocModal } from "./WhatsAppDoc";
 import { useAuth } from "../App";
 import { num, pkr, PRODUCTS, PRODUCT_UR } from "../lib/format";
 import { toWords } from "../lib/words";
@@ -82,21 +84,24 @@ export function MoneyCard({ en, ur, value, tone = "ink", sub }: { en: string; ur
 }
 
 /** Calculator keypad for amounts: 72 px keys, a 000 key, the amount big on top and in words under it. */
-export function NumPad({ value, onChange, max = 1_000_000_000, label = "Raqam", ur = "رقم" }: { value: string; onChange: (v: string) => void; max?: number; label?: string; ur?: string }) {
+export function NumPad({ value, onChange, max = 1_000_000_000, label = "Raqam", ur = "رقم", decimal = false, unit }: { value: string; onChange: (v: string) => void; max?: number; label?: string; ur?: string; decimal?: boolean; unit?: string }) {
   const n = Number(value) || 0;
   const press = (k: string) => {
     if (k === "back") return onChange(value.slice(0, -1));
     if (k === "clear") return onChange("");
+    if (k === ".") return value.includes(".") ? undefined : onChange((value || "0") + ".");
+    if (value.includes(".") && value.split(".")[1].length >= 2) return; // meters: 2 decimals
     const next = (value === "0" ? "" : value) + k;
     if (Number(next) > max || next.length > 12) return;
     onChange(next.replace(/^0+(?=\d)/, ""));
   };
-  const keys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "000", "0", "back"];
+  const keys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", decimal ? "." : "000", "0", "back"];
+  const [whole, frac] = value.split(".");
   return (
     <div className="rounded-3xl border-2 border-slate-300 bg-white p-3">
       <div className="flex items-baseline justify-between px-1"><span className="text-base font-bold text-ink">{label}</span><Urdu className="text-lg text-ink">{ur}</Urdu></div>
-      <output aria-live="polite" className="block px-1 text-right text-num-xl tabular-nums text-ink">{n ? `Rs ${num(n)}` : "Rs 0"}</output>
-      <p className="min-h-5 px-1 text-right text-sm font-semibold text-slate-700">{n > 0 ? toWords(n) : " "}</p>
+      <output aria-live="polite" className="block break-all px-1 text-right text-num-lg tabular-nums text-ink sm:text-num-xl">{unit != null ? <>{num(Number(whole) || 0)}{frac !== undefined ? `.${frac}` : ""} <span className="text-2xl">{unit}</span></> : n ? `Rs ${num(n)}` : "Rs 0"}</output>
+      <p className="min-h-5 px-1 text-right text-sm font-semibold text-slate-700">{unit == null && n > 0 ? toWords(n) : " "}</p>
       <div className="mt-2 grid grid-cols-3 gap-2">
         {keys.map((k) => (
           <button key={k} type="button" onClick={() => press(k)} aria-label={k === "back" ? "Mitao" : k}
@@ -161,6 +166,7 @@ export function AsaanHome() {
   const shift = data?.shift;
   return (
     <div className="mx-auto max-w-xl space-y-4 pb-28">
+      <SyncDot big />
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0"><h1 className="truncate text-2xl font-extrabold text-ink">Salam, {user?.name?.split(" ")[0]}</h1><Urdu className="text-lg text-ink">آج کیا کرنا ہے؟</Urdu></div>
         <button type="button" onClick={() => reload()} className="flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-ink" aria-label="Taaza karein"><RefreshCw size={26} /></button>
@@ -173,7 +179,7 @@ export function AsaanHome() {
         <BigAction to="/cashier?tab=pay" icon={ArrowUpCircle} tone="out" en="Paisa gaya" ur="رقم گئی — ادائیگی" sub="Kharcha, supplier, advance" />
         {can("shifts.handover") && <BigAction to="/cashier?tab=handover" icon={HandCoins} tone="ink" en="Salesman se cash" ur="سیلزمین سے کیش لیں" />}
       </> : <>
-        <BigAction to="/shifts" icon={shift ? LogOut : LogIn} tone={shift ? "out" : "in"}
+        <BigAction to={shift ? `/shift-band/${shift.id}` : "/shifts"} icon={shift ? LogOut : LogIn} tone={shift ? "out" : "in"}
           en={shift ? "Shift band karein" : "Shift shuru karein"} ur={shift ? "شفٹ ختم کریں" : "شفٹ شروع کریں"}
           sub={shift ? `Chal rahi hai · ${shift.station_name}` : "Abhi koi shift nahi"} />
         {modules.pos
@@ -208,3 +214,249 @@ export function TanksLevel() {
 
 /** Tiny hook for pages that want a NumPad instead of the phone keyboard in Asaan mode. */
 export function useNumPadOn() { const [on] = useAsaan(); const [touch] = useState(() => typeof window !== "undefined" && window.matchMedia?.("(pointer: coarse)").matches); return on && touch; }
+
+/* ------------------------------------------------------------------ phase 2 ------------------------------------------------------------------ */
+/** Internet / unsent-entries status: 🟢 online · 🟡 entries waiting on this device · 🔴 no internet (entries are kept). */
+export function SyncDot({ big = false }: { big?: boolean }) {
+  const q = useQueueStatus();
+  const state = !q.online ? "off" : q.pending > 0 ? "wait" : "ok";
+  const txt = state === "off" ? ["Net nahi — entry mehfooz hai", "انٹرنیٹ نہیں — اندراج محفوظ ہے"] : state === "wait" ? [`${q.pending} entry bhejni hain`, "اندراج بھیجے جا رہے ہیں"] : ["Online", "آن لائن"];
+  const tone = state === "off" ? "bg-out-bg text-out border-out-ring" : state === "wait" ? "bg-warn-bg text-warn border-warn-ring" : "bg-in-bg text-in border-in-ring";
+  if (!big) return (
+    <span role="status" title={`${txt[0]} · ${txt[1]}`} className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs font-bold ${tone}`}>
+      <span className={`h-2.5 w-2.5 rounded-full ${state === "off" ? "bg-out" : state === "wait" ? "bg-warn motion-safe:animate-pulse" : "bg-in"}`} />{state === "ok" ? "Online" : state === "wait" ? q.pending : "Net nahi"}
+    </span>
+  );
+  if (state === "ok") return null; // the home screen only speaks up when something is wrong
+  return (
+    <div role="status" className={`flex items-center gap-3 rounded-2xl border-2 px-4 py-3 ${tone}`}>
+      {state === "off" ? <WifiOff size={28} aria-hidden /> : <Wifi size={28} aria-hidden />}
+      <span className="text-lg font-extrabold leading-tight">{txt[0]}<Urdu className="block text-base font-normal">{txt[1]}</Urdu></span>
+    </div>
+  );
+}
+
+/** One tap: the shift report PDF to the owner on WhatsApp (falls back to the number picker when no owner number is saved). */
+export function OwnerWhatsApp({ shiftId }: { shiftId: number }) {
+  const [state, setState] = useState<"idle" | "busy" | "sent" | "pick">("idle");
+  const [err, setErr] = useState("");
+  const go = async () => {
+    setState("busy"); setErr("");
+    try {
+      const c = await api<any>(`/docs/shift/${shiftId}/contacts`);
+      const owner = (c.staff ?? []).find((s: any) => s.role === "owner" || s.role === "admin");
+      if (!owner?.phone) { setState("pick"); return; }
+      const r = await api<any>(`/docs/shift/${shiftId}/send`, { body: { phones: [owner.phone] } });
+      const link = r.results?.find((x: any) => x.ok && x.wa_link)?.wa_link;
+      if (link) window.open(link, "_blank", "noopener");
+      if (!r.results?.some((x: any) => x.ok)) throw new Error(r.results?.[0]?.error ?? "Nahi gaya");
+      setState("sent");
+    } catch (e: any) { setErr(e.message); setState("idle"); }
+  };
+  return (
+    <>
+      <button type="button" onClick={go} disabled={state === "busy"} className="flex min-h-tap w-full items-center justify-center gap-3 rounded-2xl bg-[#128C7E] px-4 text-act text-white shadow active:scale-[.98] disabled:opacity-70">
+        <MessageCircle size={28} aria-hidden /> {state === "sent" ? "Owner ko bhej diya ✅" : state === "busy" ? "Bhej raha hai…" : "Owner ko WhatsApp karein"}
+      </button>
+      <Urdu className="-mt-2 block text-center text-lg text-ink">{state === "sent" ? "مالک کو بھیج دیا" : "رپورٹ مالک کو واٹس ایپ کریں"}</Urdu>
+      {err && <p className="text-center text-base font-bold text-out">{err}</p>}
+      {state === "pick" && <WhatsAppDocModal kind="shift" id={shiftId} onClose={() => setState("idle")} />}
+    </>
+  );
+}
+
+/** After an entry: a big ✅, the gist, and the next steps. `undo` adds a "Wapas lo" button for the first 10 seconds. */
+export function DoneScreen({ title, ur, lines, children, undo }: { title: string; ur: string; lines?: ReactNode[]; children?: ReactNode; undo?: () => Promise<void> | void }) {
+  const [left, setLeft] = useState(undo ? 10 : 0);
+  useEffect(() => { if (left <= 0) return; const id = setTimeout(() => setLeft((x) => x - 1), 1000); return () => clearTimeout(id); }, [left]);
+  return (
+    <div className="space-y-4 text-center">
+      <CheckCircle2 size={96} className="mx-auto text-in motion-safe:animate-pop" aria-hidden />
+      <div><h2 className="text-3xl font-extrabold text-ink">{title}</h2><Urdu className="text-2xl text-ink">{ur}</Urdu></div>
+      {lines && <div className="space-y-1 text-xl font-bold text-ink">{lines.map((l, i) => <div key={i}>{l}</div>)}</div>}
+      {children}
+      {undo && left > 0 && <button type="button" onClick={() => { setLeft(0); void undo(); }} className="w-full rounded-2xl border-2 border-out-ring py-3 text-act text-out">↩ Wapas lo ({left}) · <Urdu>واپس لیں</Urdu></button>}
+      <Link to="/" className="flex min-h-tap items-center justify-center gap-3 rounded-2xl bg-ink text-act text-white"><Home size={26} aria-hidden /> Ghar · <Urdu>گھر</Urdu></Link>
+    </div>
+  );
+}
+
+const NOTE_VALUES = [5000, 1000, 500, 100, 50, 20, 10];
+/** Count the notes: one big row per note with − / + and the running total. */
+function NoteCounter({ notes, setNotes, loose, setLoose }: { notes: Record<number, number>; setNotes: (n: Record<number, number>) => void; loose: string; setLoose: (v: string) => void }) {
+  const total = NOTE_VALUES.reduce((a, d) => a + d * (notes[d] ?? 0), 0) + (Number(loose) || 0);
+  const bump = (d: number, by: number) => setNotes({ ...notes, [d]: Math.max(0, (notes[d] ?? 0) + by) });
+  return (
+    <div className="space-y-2">
+      {NOTE_VALUES.map((d) => (
+        <div key={d} className="flex items-center gap-2 rounded-2xl border-2 border-slate-200 bg-white p-2">
+          <span className="w-20 shrink-0 text-center text-xl font-black tabular-nums text-ink sm:text-2xl">{d}</span>
+          <button type="button" aria-label={`${d} ka note kam`} onClick={() => bump(d, -1)} className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-out-bg text-out active:scale-95"><Minus size={28} /></button>
+          <input aria-label={`${d} ke note`} inputMode="numeric" className="h-14 w-full min-w-0 rounded-xl border-2 border-slate-300 text-center text-2xl font-black tabular-nums text-ink" value={notes[d] ? String(notes[d]) : ""} placeholder="0"
+            onChange={(e) => setNotes({ ...notes, [d]: Math.max(0, Math.floor(Number(e.target.value.replace(/\D/g, "")) || 0)) })} />
+          <button type="button" aria-label={`${d} ka note zyada`} onClick={() => bump(d, 1)} className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-in-bg text-in active:scale-95"><Plus size={28} /></button>
+        </div>
+      ))}
+      <label className="flex items-center gap-2 rounded-2xl border-2 border-slate-200 bg-white p-2">
+        <span className="w-20 shrink-0 text-center text-base font-bold text-ink">Khula<Urdu className="block text-sm">کھلا</Urdu></span>
+        <input inputMode="numeric" className="h-14 w-full min-w-0 rounded-xl border-2 border-slate-300 px-3 text-right text-2xl font-black tabular-nums text-ink" value={loose} placeholder="Rs 0" onChange={(e) => setLoose(e.target.value.replace(/\D/g, ""))} />
+      </label>
+      <div className="rounded-2xl bg-ink p-3 text-center text-white"><span className="text-base font-bold">Kul gina hua · <Urdu>کل گنا ہوا</Urdu></span><div className="text-num-lg tabular-nums">{pkr(total)}</div></div>
+    </div>
+  );
+}
+
+const ONLINE_NAMES: Record<string, [string, string]> = { card: ["Card machine", "کارڈ مشین"], jazzcash: ["JazzCash", "جاز کیش"], easypaisa: ["Easypaisa", "ایزی پیسہ"], raast: ["Raast / QR", "راست"] };
+
+/**
+ * End a shift in big steps: one screen per meter (NumPad), the online money the POS already has, count the notes, then
+ * the answer in one line — Barabar / Kam / Zyada — and close. Hard cases (test litres, khata slips not entered, dips,
+ * meter reset) stay on the full form, linked from every step.
+ */
+function StepShell({ children, title, ur, back = true, step, total, onBack }: { children: ReactNode; title: string; ur: string; back?: boolean; step: number; total: number; onBack: () => void }) {
+  return (
+    <div className="mx-auto max-w-xl space-y-4 pb-24">
+      <div className="flex items-center gap-3">
+        {back && <button type="button" aria-label="Peeche" onClick={onBack} className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-slate-100 text-ink"><ChevronLeft size={32} /></button>}
+        <div className="min-w-0"><h1 className="text-2xl font-extrabold text-ink">{title}</h1><Urdu className="text-xl text-ink">{ur}</Urdu></div>
+      </div>
+      {total > 0 && <div className="flex gap-1.5" aria-label={`Qadam ${step + 1} / ${total}`}>{Array.from({ length: total }, (_, i) => <span key={i} className={`h-2.5 flex-1 rounded-full ${i <= step ? "bg-in" : "bg-slate-200"}`} />)}</div>}
+      {children}
+    </div>
+  );
+}
+function Next({ ok, label = "Aage", ur = "آگے", onClick }: { ok: boolean; label?: string; ur?: string; onClick: () => void }) {
+  return (
+    <button type="button" disabled={!ok} onClick={onClick} className="flex min-h-tap-xl w-full items-center justify-center gap-3 rounded-3xl bg-in text-2xl font-extrabold text-white shadow-lg active:scale-[.98] disabled:bg-slate-300 disabled:text-slate-600">
+      {label} · <Urdu>{ur}</Urdu> ▶
+    </button>
+  );
+}
+
+export function AsaanCloseShift() {
+  const id = Number(useParams().id);
+  const nav = useNavigate();
+  const { data, error } = useApi<any>(id ? `/shifts/${id}/live` : null);
+  const queue = useQueueStatus();
+  const [step, setStep] = useState(0);
+  const [readings, setReadings] = useState<Record<string, string>>({});
+  const [notes, setNotes] = useState<Record<number, number>>({});
+  const [loose, setLoose] = useState("");
+  const [preview, setPreview] = useState<any>(null);
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState<any>(null);
+
+  const nozzles: any[] = data?.readings ?? [];
+  const digital = useMemo(() => Object.fromEntries(Object.entries((data?.recorded?.online ?? {}) as Record<string, number>).filter(([, v]) => v > 0)), [data]);
+  const body = useMemo(() => ({ readings: Object.fromEntries(Object.entries(readings).map(([k, v]) => [k, Number(v)])), digital }), [readings, digital]);
+  const counted = NOTE_VALUES.reduce((a, d) => a + d * (notes[d] ?? 0), 0) + (Number(loose) || 0);
+  const N = nozzles.length, ONLINE_STEP = N, NOTES_STEP = N + 1, RESULT_STEP = N + 2;
+
+  // the server works the expected cash out (nothing saved) once every meter is in
+  useEffect(() => {
+    if (!N || step < ONLINE_STEP) return;
+    let live = true;
+    api<any>(`/shifts/${id}/preview`, { body }).then((r) => { if (live) { setPreview(r); setErr(""); } }).catch((e) => { if (live) setErr(e.message); });
+    return () => { live = false; };
+  }, [step >= ONLINE_STEP, JSON.stringify(body)]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const full = <Link to="/shifts" className="block text-center text-base font-bold text-slate-700 underline">Test litre, khata parchi ya meter kharab? Poora form · <Urdu>پورا فارم</Urdu></Link>;
+  // passed as plain props, so the step screen keeps its inputs mounted while typing
+  const sp = { step, total: N > 0 && !done ? N + 3 : 0, onBack: () => (step ? setStep(step - 1) : nav("/")) };
+  if (error) return <StepShell {...sp} title="Shift band karein" ur="شفٹ ختم کریں"><p className="text-xl font-bold text-out">{String(error)}</p>{full}</StepShell>;
+  if (!data) return <StepShell {...sp} title="Shift band karein" ur="شفٹ ختم کریں"><p className="text-xl font-bold text-ink">Load ho raha hai…</p></StepShell>;
+  if (data.shift?.status && data.shift.status !== "open" && !done) return <StepShell {...sp} title="Shift pehle hi band hai" ur="شفٹ بند ہو چکی ہے"><Link to="/" className="block rounded-2xl bg-ink py-4 text-center text-act text-white">Ghar · <Urdu>گھر</Urdu></Link></StepShell>;
+
+  if (done) return (
+    <div className="mx-auto max-w-xl pb-24">
+      <DoneScreen title="Shift band ho gayi" ur="شفٹ بند ہو گئی"
+        lines={[`Gina hua cash: ${pkr(counted)}`, done.diff === 0 ? "Hisaab barabar ✅" : done.diff < 0 ? `Kam: ${pkr(-done.diff)}` : `Zyada: ${pkr(done.diff)}`]}>
+        <OwnerWhatsApp shiftId={id} />
+      </DoneScreen>
+    </div>
+  );
+
+  // ---- one meter per screen ----
+  if (step < N) {
+    const r = nozzles[step];
+    const last = r.checkpoint ?? r.opening;
+    const v = readings[r.nozzle_id] ?? "";
+    const bad = v !== "" && Number(v) < last;
+    const sold = v !== "" && !bad ? Number(v) - r.opening : null;
+    return (
+      <StepShell {...sp} title={`Meter ${step + 1} / ${N}`} ur={`میٹر ${step + 1} / ${N}`}>
+        <div className="rounded-2xl border-2 border-slate-300 bg-white p-4">
+          <div className="flex flex-wrap items-baseline gap-x-2"><span className="text-act text-ink">{r.label}</span><span className="text-lg font-bold text-ink">{PRODUCTS[r.product] ?? r.product}</span><Urdu className="text-lg text-ink">{PRODUCT_UR[r.product] ?? ""}</Urdu></div>
+          <div className="mt-1 text-lg font-semibold text-slate-700">Shuru ki reading: <b className="tabular-nums text-ink">{num(last, 2)}</b></div>
+        </div>
+        <NumPad decimal unit="" value={v} onChange={(x) => setReadings({ ...readings, [r.nozzle_id]: x })} label="Ab meter kya keh raha hai?" ur="آخری میٹر ریڈنگ" max={9_999_999_999} />
+        {bad ? <p className="rounded-2xl bg-out-bg p-3 text-center text-xl font-extrabold text-out">Ye shuru se kam hai! Dobara dekhein · <Urdu>دوبارہ دیکھیں</Urdu></p>
+          : sold != null && <p className="rounded-2xl bg-in-bg p-3 text-center text-xl font-extrabold text-in">Is meter se: {num(sold, 2)} L · {pkr(sold * (data.prices?.[r.product] ?? 0))}</p>}
+        <Next ok={v !== "" && !bad} onClick={() => setStep(step + 1)} />
+        {full}
+      </StepShell>
+    );
+  }
+
+  // ---- online money the POS already recorded ----
+  if (step === ONLINE_STEP) {
+    const rows = Object.entries(digital);
+    return (
+      <StepShell {...sp} title="Online paisa" ur="آن لائن رقم">
+        {queue.pending > 0 && <p className="rounded-2xl bg-warn-bg p-3 text-lg font-extrabold text-warn">{queue.pending} sale abhi is phone se nahi gayi. Net aane ka intezar karein, phir band karein. · <Urdu>پہلے سیل بھیجیں</Urdu></p>}
+        {rows.length ? rows.map(([k, v]) => (
+          <div key={k} className="flex items-center justify-between rounded-2xl border-2 border-slate-200 bg-white p-4">
+            <span className="text-lg font-bold text-ink">{ONLINE_NAMES[k]?.[0] ?? k}<Urdu className="block text-base font-normal">{ONLINE_NAMES[k]?.[1] ?? ""}</Urdu></span>
+            <span className="text-num-lg tabular-nums text-ink">{pkr(v)}</span>
+          </div>
+        )) : <p className="rounded-2xl bg-slate-100 p-4 text-xl font-bold text-ink">Is shift mein koi online paisa nahi · <Urdu>کوئی آن لائن رقم نہیں</Urdu></p>}
+        <p className="text-base font-semibold text-slate-700">Ye POS mein darj card / JazzCash / Easypaisa hai. Ghalat ho to poora form kholein.</p>
+        <Next ok={queue.pending === 0} label="Sahi hai" ur="صحیح ہے" onClick={() => setStep(NOTES_STEP)} />
+        {full}
+      </StepShell>
+    );
+  }
+
+  // ---- count the notes ----
+  if (step === NOTES_STEP) return (
+    <StepShell {...sp} title="Note ginein" ur="نوٹ گنیں">
+      {preview && Number(preview.cash_expected ?? 0) <= 0 && <p className="rounded-2xl bg-sky-50 p-3 text-lg font-bold text-sky-900">Is shift mein cash nahi bana — 0 par band karein · <Urdu>صفر پر بند کریں</Urdu></p>}
+      <NoteCounter notes={notes} setNotes={setNotes} loose={loose} setLoose={setLoose} />
+      <Next ok onClick={() => setStep(RESULT_STEP)} />
+    </StepShell>
+  );
+
+  // ---- the answer, then close ----
+  const expected = preview ? Math.round(Number(preview.cash_expected ?? 0)) : null;
+  const diff = expected != null ? Math.round(counted - expected) : null;
+  const close = async () => {
+    // a short shift is real money: say the amount once more before it is booked against the salesman
+    if (diff != null && diff < 0 && !confirm(`Cash ${pkr(-diff)} kam hai. Isi ke saath shift band karein?\nکیش کم ہے — پھر بھی بند کریں؟`)) return;
+    setBusy(true); setErr("");
+    try {
+      await api(`/shifts/${id}/close`, { body: { ...body, cash_actual: counted, cash_notes: Object.fromEntries(Object.entries(notes).filter(([, n]) => n > 0).map(([k, n]) => [k, n])) } });
+      setDone({ diff });
+    } catch (e: any) { setErr(e.message); } finally { setBusy(false); }
+  };
+  const tone = diff == null ? "bg-slate-100 text-ink" : diff === 0 ? "bg-in text-white" : diff < 0 ? "bg-out text-white" : "bg-warn text-white";
+  return (
+    <StepShell {...sp} title="Hisaab" ur="حساب">
+      <MoneyCard en="Hona chahiye" ur="ہونا چاہیے" value={expected} tone="ink" sub="Meter ki sale − online − khata − kharche" />
+      <MoneyCard en="Aap ne gina" ur="آپ نے گنا" value={counted} tone="ink" />
+      <div className={`rounded-3xl p-5 text-center ${tone}`}>
+        {diff == null ? <span className="text-xl font-bold">Hisaab ho raha hai…</span>
+          : diff === 0 ? <><div className="text-num-lg">Barabar ✅</div><Urdu className="text-2xl">حساب برابر</Urdu></>
+          : diff < 0 ? <><div className="text-num-lg">Kam: {pkr(-diff)}</div><Urdu className="text-2xl">کم ہے</Urdu></>
+          : <><div className="text-num-lg">Zyada: {pkr(diff)}</div><Urdu className="text-2xl">زیادہ ہے</Urdu></>}
+      </div>
+      {diff != null && diff !== 0 && <p className="text-center text-lg font-bold text-ink">Dobara gin lein? <button type="button" className="underline" onClick={() => setStep(NOTES_STEP)}>Note dobara ginein</button></p>}
+      {err && <p className="rounded-2xl bg-out-bg p-3 text-lg font-bold text-out">{err}</p>}
+      <button type="button" disabled={busy || expected == null || queue.pending > 0} onClick={close}
+        className="flex min-h-tap-xl w-full items-center justify-center gap-3 rounded-3xl bg-out text-2xl font-extrabold text-white shadow-lg active:scale-[.98] disabled:bg-slate-300 disabled:text-slate-600">
+        <LogOut size={30} aria-hidden /> {busy ? "Band ho rahi hai…" : "Shift band karein"} · <Urdu>شفٹ ختم</Urdu>
+      </button>
+      {full}
+    </StepShell>
+  );
+}
