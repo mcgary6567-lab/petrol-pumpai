@@ -7,8 +7,11 @@
  * The mode is a per-device choice (localStorage), ON by default for salesman and cashier; everyone can switch it.
  */
 import { useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { ArrowDownCircle, ArrowUpCircle, CheckCircle2, ChevronLeft, Delete, Fuel, HandCoins, Home, LogIn, LogOut, MessageCircle, Minus, Plus, Receipt, RefreshCw, ShoppingCart, Wifi, WifiOff } from "lucide-react";
+import { Recognition } from "./Capture";
+import { speak } from "./VoiceShell";
+import { ArrowDownCircle, ArrowUpCircle, CheckCircle2, ChevronLeft, Delete, Fuel, HandCoins, Home, LogIn, LogOut, MessageCircle, Mic, MicOff, Volume2, Minus, Plus, Receipt, RefreshCw, ShoppingCart, Wifi, WifiOff } from "lucide-react";
 import { api, useApi } from "../lib/api";
 import { useQueueStatus } from "../lib/offline";
 import { WhatsAppDocModal } from "./WhatsAppDoc";
@@ -66,8 +69,13 @@ export function BigAction({ to, onClick, icon: Icon, en, ur, sub, tone = "brand"
       <span className="text-3xl font-black opacity-80" aria-hidden>›</span>
     </>
   );
-  const cls = `flex min-h-tap-xl w-full items-center gap-4 rounded-3xl px-5 py-4 text-left shadow-lg ring-4 ring-transparent transition active:scale-[.98] focus-visible:outline-none focus-visible:ring-offset-2 focus-visible:ring-ink ${TILE[tone]}`;
-  return to ? <Link to={to} className={cls}>{body}</Link> : <button type="button" onClick={onClick} className={cls}>{body}</button>;
+  const cls = `flex min-h-tap-xl w-full items-center gap-4 rounded-3xl py-4 pl-5 pr-16 text-left shadow-lg ring-4 ring-transparent transition active:scale-[.98] focus-visible:outline-none focus-visible:ring-offset-2 focus-visible:ring-ink ${TILE[tone]}`;
+  return (
+    <div className="relative">
+      {to ? <Link to={to} className={cls}>{body}</Link> : <button type="button" onClick={onClick} className={cls}>{body}</button>}
+      <SpeakButton text={ur} className="absolute right-2 top-2 text-white" />
+    </div>
+  );
 }
 
 /** A ledger card: label on top, the number biggest, a thick colour edge that says good (green) or owed (red). */
@@ -86,6 +94,7 @@ export function MoneyCard({ en, ur, value, tone = "ink", sub }: { en: string; ur
 /** Calculator keypad for amounts: 72 px keys, a 000 key, the amount big on top and in words under it. */
 export function NumPad({ value, onChange, max = 1_000_000_000, label = "Raqam", ur = "رقم", decimal = false, unit }: { value: string; onChange: (v: string) => void; max?: number; label?: string; ur?: string; decimal?: boolean; unit?: string }) {
   const n = Number(value) || 0;
+  const voice = useSpokenNumber((v) => { if (v <= max) onChange(String(v)); }, decimal);
   const press = (k: string) => {
     if (k === "back") return onChange(value.slice(0, -1));
     if (k === "clear") return onChange("");
@@ -99,7 +108,17 @@ export function NumPad({ value, onChange, max = 1_000_000_000, label = "Raqam", 
   const [whole, frac] = value.split(".");
   return (
     <div className="rounded-3xl border-2 border-slate-300 bg-white p-3">
-      <div className="flex items-baseline justify-between px-1"><span className="text-base font-bold text-ink">{label}</span><Urdu className="text-lg text-ink">{ur}</Urdu></div>
+      <div className="flex items-center justify-between gap-2 px-1">
+        <span className="text-base font-bold text-ink">{label}</span>
+        <span className="flex items-center gap-1"><Urdu className="text-lg text-ink">{ur}</Urdu><SpeakButton text={ur} className="text-ink" /></span>
+      </div>
+      {voice.supported && (
+        <button type="button" onClick={voice.listen} aria-label="Bol kar likhein" aria-pressed={voice.listening}
+          className={`mt-2 flex min-h-tap w-full items-center justify-center gap-3 rounded-2xl text-act ${voice.listening ? "bg-out text-white motion-safe:animate-pulse" : "bg-brand-700 text-white"}`}>
+          {voice.listening ? <MicOff size={28} aria-hidden /> : <Mic size={28} aria-hidden />} {voice.listening ? "Sun raha hai… bolein" : "Bol kar likhein"} · <Urdu>{voice.listening ? "بولیں" : "بول کر لکھیں"}</Urdu>
+        </button>
+      )}
+      {voice.heard && <p className={`mt-1 px-1 text-center text-base font-bold ${voice.failed ? "text-out" : "text-slate-700"}`}>“{voice.heard}”{voice.failed ? " — samajh nahi aaya, dobara bolein ya likhein" : ""}</p>}
       <output aria-live="polite" className="block break-all px-1 text-right text-num-lg tabular-nums text-ink sm:text-num-xl">{unit != null ? <>{num(Number(whole) || 0)}{frac !== undefined ? `.${frac}` : ""} <span className="text-2xl">{unit}</span></> : n ? `Rs ${num(n)}` : "Rs 0"}</output>
       <p className="min-h-5 px-1 text-right text-sm font-semibold text-slate-700">{unit == null && n > 0 ? toWords(n) : " "}</p>
       <div className="mt-2 grid grid-cols-3 gap-2">
@@ -161,6 +180,7 @@ function TankBanner({ tanks }: { tanks: any[] }) {
 /** Salesman / cashier home: three or four big tiles and the one number that matters. */
 export function AsaanHome() {
   const { user, can, modules } = useAuth();
+  const tour = useTour();
   const { data, reload } = useHome();
   const cashier = can("cashier.desk");
   const shift = data?.shift;
@@ -192,6 +212,8 @@ export function AsaanHome() {
       {shift && !cashier && <MoneyCard en="Is shift ki sale" ur="اس شفٹ کی فروخت" value={shift.sale_amount} tone="ink" sub={`${shift.sale_n} entries · ${num(shift.sale_litres)} L`} />}
 
       <p className="text-center text-sm font-semibold text-slate-700">Poora menu ☰ upar hai · <Urdu>باقی سب کچھ مینو میں</Urdu></p>
+      <button type="button" onClick={tour.show} className="mx-auto block text-base font-bold text-slate-700 underline">Kaise chalayein? Dobara dekhein · <Urdu>رہنمائی</Urdu></button>
+      {tour.open && <Tour onClose={tour.close} />}
     </div>
   );
 }
@@ -318,7 +340,8 @@ function StepShell({ children, title, ur, back = true, step, total, onBack }: { 
     <div className="mx-auto max-w-xl space-y-4 pb-24">
       <div className="flex items-center gap-3">
         {back && <button type="button" aria-label="Peeche" onClick={onBack} className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-slate-100 text-ink"><ChevronLeft size={32} /></button>}
-        <div className="min-w-0"><h1 className="text-2xl font-extrabold text-ink">{title}</h1><Urdu className="text-xl text-ink">{ur}</Urdu></div>
+        <div className="min-w-0 flex-1"><h1 className="text-2xl font-extrabold text-ink">{title}</h1><Urdu className="text-xl text-ink">{ur}</Urdu></div>
+        <SpeakButton text={ur} className="text-ink" />
       </div>
       {total > 0 && <div className="flex gap-1.5" aria-label={`Qadam ${step + 1} / ${total}`}>{Array.from({ length: total }, (_, i) => <span key={i} className={`h-2.5 flex-1 rounded-full ${i <= step ? "bg-in" : "bg-slate-200"}`} />)}</div>}
       {children}
@@ -505,6 +528,7 @@ export const SIMPLE_LABEL: Record<string, string> = {
 /** Owner / manager home in Asaan mode: four ledger cards in a fixed order, the tanks, today in one line. */
 export function AsaanOwnerHome() {
   const { user, modules } = useAuth();
+  const tour = useTour();
   const o = useApi<any>("/owner/overview", 120_000);
   const h = useHome();
   const d = o.data;
@@ -542,6 +566,7 @@ export function AsaanOwnerHome() {
           </div>
         </Link>
       )}
+      {tour.open && <Tour onClose={tour.close} />}
       <Link to="/dashboard" className="flex min-h-tap items-center justify-center gap-2 rounded-2xl bg-ink text-act text-white">Tafseeli dashboard › <Urdu className="text-lg font-normal">تفصیلی ڈیش بورڈ</Urdu></Link>
     </div>
   );
@@ -556,5 +581,81 @@ function TankChip({ t, station }: { t: any; station?: boolean }) {
       <div className={`mt-1 text-sm font-bold ${L.text}`}>{t.days_left != null ? `${daysText(t.days_left)}` : `${num(t.current_l)} L`}</div>
       {station && <div className="truncate text-xs font-semibold text-slate-700">{t.station_name}</div>}
     </div>
+  );
+}
+
+/* ------------------------------------------------------------------ phase 4: voice + first-time tour ------------------------------------------------------------------ */
+/** 🔊 Read a label aloud (Urdu voice when the phone has one). For people who cannot read the words. */
+export function SpeakButton({ text, className = "" }: { text: string; className?: string }) {
+  if (typeof window === "undefined" || !("speechSynthesis" in window)) return null;
+  return (
+    <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); speak(text); }} aria-label={`Sunein: ${text}`} title="Sunein · سنیں"
+      className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-black/10 hover:bg-black/20 ${className}`}>
+      <Volume2 size={22} aria-hidden />
+    </button>
+  );
+}
+
+/** 🎤 Say an amount ("pachees hazaar", "ڈیڑھ لاکھ") → the number, read by the server's voice-number reader. */
+export function useSpokenNumber(onValue: (v: number) => void, decimal = false) {
+  const [listening, setListening] = useState(false);
+  const [heard, setHeard] = useState("");
+  const [failed, setFailed] = useState(false);
+  const listen = () => {
+    if (!Recognition) return;
+    const r: any = new Recognition();
+    r.lang = "ur-PK"; r.interimResults = false; r.maxAlternatives = 3;
+    r.onresult = async (e: any) => {
+      const alts: string[] = Array.from(e.results[0] ?? []).map((x: any) => x.transcript);
+      setHeard(alts[0] ?? ""); setFailed(false);
+      for (const text of alts) {
+        try { const res = await api<any>("/asaan/amount", { body: { text, decimal } }); if (res.value != null) { onValue(res.value); speak(`${res.value}`); return; } } catch { /* try the next guess */ }
+      }
+      setFailed(true);
+    };
+    r.onerror = () => { setListening(false); };
+    r.onend = () => setListening(false);
+    setHeard(""); setFailed(false); setListening(true);
+    try { r.start(); } catch { setListening(false); }
+  };
+  return { supported: Boolean(Recognition), listening, heard, failed, listen };
+}
+
+/** First time in Asaan mode: three picture steps — big buttons, colours, voice and the menu. Shown once per user per device. */
+const TOUR = [
+  { icon: "👆", en: "Bara button dabayein", ur: "بڑا بٹن دبائیں — ہر کام ایک بٹن", body: "Ghar ki screen par har kaam ka ek bara button hai. Wahi dabayein jo karna hai." },
+  { icon: "🟢🔴🟡", en: "Rang ka matlab", ur: "ہرا = پیسہ آیا یا ٹھیک۔ لال = پیسہ گیا یا خطرہ۔ پیلا = دھیان دیں", body: "Hara = paisa aaya / theek hai. Laal = paisa gaya / khatra. Peela = dhyan dein." },
+  { icon: "🔊 🎤 ☰", en: "Sunein, bolein, menu", ur: "🔊 دبائیں تو سنیں، 🎤 دبائیں تو بولیں، ☰ میں باقی سب", body: "🔊 dabane se button ka naam sunein. 🎤 dabakar raqam bolein. Baqi sab kuch upar ☰ menu mein hai." },
+];
+export function useTour() {
+  const { user } = useAuth();
+  const key = `pumpai_tour_${user?.id ?? 0}`;
+  const seen = () => { try { return localStorage.getItem(key) === "1"; } catch { return true; } };
+  const [open, setOpen] = useState(() => !seen());
+  const close = () => { try { localStorage.setItem(key, "1"); } catch { /* shown again next time */ } setOpen(false); };
+  return { open, close, show: () => setOpen(true) };
+}
+export function Tour({ onClose }: { onClose: () => void }) {
+  const [i, setI] = useState(0);
+  const s = TOUR[i];
+  useEffect(() => { speak(s.ur); }, [i]); // eslint-disable-line react-hooks/exhaustive-deps
+  const last = i === TOUR.length - 1;
+  // portal: the page's enter animation (a transform) would otherwise trap a fixed overlay inside the page
+  return createPortal(
+    <div role="dialog" aria-modal="true" aria-label="Pehli dafa ki rehnumai" className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-3 sm:items-center">
+      <div className="w-full max-w-md space-y-4 rounded-3xl bg-white p-6 text-center shadow-2xl">
+        <div className="flex justify-center gap-2" aria-hidden>{TOUR.map((_, k) => <span key={k} className={`h-3 w-10 rounded-full ${k <= i ? "bg-in" : "bg-slate-200"}`} />)}</div>
+        <div className="text-6xl" aria-hidden>{s.icon}</div>
+        <h2 className="text-3xl font-extrabold text-ink">{s.en}</h2>
+        <Urdu className="block text-2xl leading-loose text-ink">{s.ur}</Urdu>
+        <p className="text-lg font-semibold text-slate-700">{s.body}</p>
+        <div className="flex justify-center"><SpeakButton text={s.ur} className="!h-14 !w-14 text-ink" /></div>
+        <button type="button" onClick={() => (last ? onClose() : setI(i + 1))} className="flex min-h-tap-xl w-full items-center justify-center gap-3 rounded-3xl bg-in text-2xl font-extrabold text-white">
+          {last ? "Shuru karein ✅" : "Aage ▶"} · <Urdu>{last ? "شروع کریں" : "آگے"}</Urdu>
+        </button>
+        {!last && <button type="button" onClick={onClose} className="text-base font-bold text-slate-700 underline">Chhor dein · <Urdu>چھوڑ دیں</Urdu></button>}
+      </div>
+    </div>,
+    document.body,
   );
 }

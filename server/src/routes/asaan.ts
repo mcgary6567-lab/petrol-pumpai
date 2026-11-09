@@ -11,6 +11,9 @@ import { all, get } from "../db.js";
 import { h, tid, can, scopedStation } from "../auth.js";
 import { round2 } from "../services.js";
 import { cashPosition } from "./backoffice.js";
+import { DIGITS, MAX_AMOUNT, quantities, splitUnits } from "../ai/parseWholesale.js";
+import { z } from "zod";
+import { parse } from "../auth.js";
 
 export const asaan = Router();
 
@@ -51,4 +54,18 @@ asaan.get("/asaan/home", h((req) => {
     cash_in_hand: cash,
     tanks: tankLevels(t, station ? Number(station) : null),
   };
+}));
+
+/** A spoken amount → a number, with the same reader the voice entries use: "pachees hazaar", "do lakh pachas hazar",
+ *  "ڈیڑھ لاکھ", "sawa do sau", "25,000". Picks the biggest money figure said (litres are skipped). */
+export function spokenAmount(heard: string, decimal = false): number | null {
+  const t = splitUnits(heard.replace(/[۰-۹٠-٩]/g, (d) => DIGITS[d]).replace(/(\d),(\d)/g, "$1$2").toLowerCase().replace(/[،,؟?!]/g, " ").replace(/rupees?|rupay|rupaye|rs\.?|روپے|روپیہ/g, " "));
+  const q = quantities(t).filter((x) => !x.litres && x.value > 0 && x.value <= MAX_AMOUNT);
+  if (!q.length) return null;
+  const v = q.reduce((a, b) => (b.value > a.value ? b : a)).value;
+  return decimal ? Math.round(v * 100) / 100 : Math.round(v);
+}
+asaan.post("/asaan/amount", h((req) => {
+  const b = parse(z.object({ text: z.string().trim().min(1).max(200), decimal: z.boolean().optional() }), req.body);
+  return { value: spokenAmount(b.text, b.decimal) };
 }));

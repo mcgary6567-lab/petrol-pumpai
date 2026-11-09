@@ -55,3 +55,16 @@ test("traffic light rule: red under 1.5 days, amber up to 3, green above; no his
   assert.equal(tankLight(1, 80), "red"); assert.equal(tankLight(2, 10), "amber"); assert.equal(tankLight(5, 10), "green");
   assert.equal(tankLight(null, 10), "red"); assert.equal(tankLight(null, 20), "amber"); assert.equal(tankLight(null, 60), "green");
 });
+
+test("spoken amount: Roman Urdu, Urdu script and digits become one number", async () => {
+  const say = async (text: string, decimal?: boolean) => ok(await call("salesman", "POST", "/api/asaan/amount", { text, decimal }), text).value;
+  assert.equal(await say("pachees hazaar"), 25000);
+  assert.equal(await say("do lakh pachas hazar"), 250000);
+  assert.equal(await say("ڈیڑھ لاکھ"), 150000);
+  assert.equal(await say("پچیس ہزار روپے"), 25000);
+  assert.equal(await say("25,000 rupees"), 25000);
+  assert.equal(await say("teen hazar paanch sau"), 3500);
+  assert.equal(await say("۱۲۰۰"), 1200);
+  assert.equal(await say("112345.5", true), 112345.5);
+  assert.equal(await say("kuch nahi"), null, "no number → null, never a guess");
+});
