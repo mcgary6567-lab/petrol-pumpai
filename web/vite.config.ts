@@ -18,13 +18,15 @@ export default defineConfig({
       closeBundle() { try { writeFileSync(resolve(ROOT, "dist/version.json"), JSON.stringify({ v: BUILD_ID })); } catch { /* ignore */ } },
     },
   ],
+  // every icon import ("lucide-react") renders Font Awesome — see src/lib/fa-icons.tsx
+  resolve: { alias: [{ find: /^lucide-react$/, replacement: resolve(ROOT, "src/lib/fa-icons.tsx") }] },
   define: { __BUILD_ID__: JSON.stringify(BUILD_ID) },
   build: {
     chunkSizeWarningLimit: 600,
     rollupOptions: { output: { manualChunks(id) {
       // charts only on the pages that draw them; framework + icons cached across releases; the rest splits per lazy page
       if (id.includes("node_modules/recharts") || id.includes("node_modules/d3-")) return "charts";
-      if (id.includes("node_modules/lucide-react")) return "icons";
+      if (id.includes("node_modules/@fortawesome") || id.includes("src/lib/fa-icons")) return "icons";
       if (/node_modules\/(react|react-dom|react-router|react-router-dom|scheduler)\//.test(id)) return "react";
     } } },
   },

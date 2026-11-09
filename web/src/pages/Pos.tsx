@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { askCancel, pinHeader } from "../components/CancelEntry";
 import { Link } from "react-router-dom";
-import { Fuel, Delete, Banknote, Smartphone, CreditCard, BookOpen, Check, Search, X, Zap, Undo2, WifiOff, CloudUpload, Gift, ShoppingBasket, Plus, Minus, ScanBarcode, Ticket, Wallet, Camera, Printer, Percent, Truck } from "lucide-react";
+import { Fuel, Delete, Banknote, Smartphone, CreditCard, BookOpen, Check, Search, X, Zap, Undo2, WifiOff, CloudUpload, Gift, ShoppingBasket, Plus, Minus, ScanBarcode, Ticket, Wallet, Camera, Printer, Percent, Truck, HandCoins, ClipboardCheck, UserCheck, GraduationCap, Power } from "lucide-react";
 import QRCode from "qrcode";
 import { api, useApi, linkToken } from "../lib/api";
 import { Loading, Modal, Pager, SearchBar, matchQuery, useAction, usePaged, useToast } from "../components/ui";
@@ -334,15 +334,15 @@ export default function Pos() {
         </div>
         <div className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-6">
           {[
-            { k: "scan", i: "📷", en: "Scan card", ur: "کارڈ سکین", go: () => { setTab("fuel"); setScan(true); } },
-            { k: "exp", i: "💸", en: "Expense", ur: "خرچہ", go: () => document.getElementById("pos-expenses")?.scrollIntoView({ behavior: "smooth", block: "center" }) },
-            { k: "checks", i: "✅", en: "Daily checks", ur: "روزانہ چیک", to: "/checklist" },
-            { k: "att", i: "🙋", en: "Attendance", ur: "حاضری", to: "/my-account" },
-            { k: "train", i: "🎓", en: training ? "Training ON" : "Training", ur: "مشق", go: toggleTraining, on: training },
-            { k: "end", i: "⏹️", en: "End shift", ur: "شفٹ ختم", to: "/shifts", warn: shiftOpen && d.shift.hours_open >= 12 },
+            { k: "scan", i: Camera, en: "Scan card", ur: "کارڈ سکین", go: () => { setTab("fuel"); setScan(true); } },
+            { k: "exp", i: HandCoins, en: "Expense", ur: "خرچہ", go: () => document.getElementById("pos-expenses")?.scrollIntoView({ behavior: "smooth", block: "center" }) },
+            { k: "checks", i: ClipboardCheck, en: "Daily checks", ur: "روزانہ چیک", to: "/checklist" },
+            { k: "att", i: UserCheck, en: "Attendance", ur: "حاضری", to: "/my-account" },
+            { k: "train", i: GraduationCap, en: training ? "Training ON" : "Training", ur: "مشق", go: toggleTraining, on: training },
+            { k: "end", i: Power, en: "End shift", ur: "شفٹ ختم", to: "/shifts", warn: shiftOpen && d.shift.hours_open >= 12 },
           ].map((b) => {
             const cls = `flex flex-col items-center justify-center gap-0.5 rounded-xl px-2 py-2 text-sm font-semibold active:scale-95 ${b.on ? "bg-amber-400 text-amber-950" : b.warn ? "bg-red-600 text-white" : "bg-white/10 text-white hover:bg-white/15"}`;
-            const body = <><span className="text-2xl leading-none">{b.i}</span><span className="whitespace-nowrap text-[13px] leading-tight sm:text-sm">{b.en}</span><Ur className="text-xs font-normal opacity-90">{b.ur}</Ur></>;
+            const body = <><b.i size={30} aria-hidden className="mb-1" /><span className="whitespace-nowrap text-[13px] leading-tight sm:text-sm">{b.en}</span><Ur className="text-xs font-normal opacity-90">{b.ur}</Ur></>;
             return b.to ? <Link key={b.k} to={b.to} className={cls}>{body}</Link> : <button key={b.k} type="button" onClick={b.go} className={cls}>{body}</button>;
           })}
         </div>

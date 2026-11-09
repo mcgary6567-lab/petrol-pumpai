@@ -10,6 +10,11 @@
     "typecheck": "tsc -p ."
   },
   "dependencies": {
+    "@fortawesome/fontawesome-svg-core": "^6.7.2",
+    "@fortawesome/free-brands-svg-icons": "^6.7.2",
+    "@fortawesome/free-regular-svg-icons": "^6.7.2",
+    "@fortawesome/free-solid-svg-icons": "^6.7.2",
+    "@fortawesome/react-fontawesome": "^0.2.6",
     "jsqr": "^1.4.0",
     "lucide-react": "^0.460.0",
     "qrcode": "^1.5.4",
