@@ -71,6 +71,9 @@ const Roster = lazy(() => import("./pages/Roster"));
 const Kiosk = lazy(() => import("./pages/Kiosk"));
 import { loadBranding, applyBrand, setPumpSlug, applyPumpManifest } from "./lib/brand";
 import { useParams } from "react-router-dom";
+import { useAsaan } from "./components/Asaan";
+const AsaanHome = lazy(() => import("./components/Asaan").then((m) => ({ default: m.AsaanHome })));
+const TanksLevel = lazy(() => import("./components/Asaan").then((m) => ({ default: m.TanksLevel })));
 
 /** A pump's own sign-in link (/p/<slug>): remember the pump, then show its sign-in page. */
 function PumpLink() {
@@ -169,7 +172,10 @@ function Need({ perm, mod, children }: { perm: string; mod?: keyof Modules; chil
 /** Managers/admins land on the dashboard; other roles land on their main screen. */
 function Home() {
   const { can, modules } = useAuth();
+  const [asaan] = useAsaan();
   if (can("dashboard.view")) return <Dashboard />;
+  // salesman / cashier in Asaan mode: the big-button home instead of jumping straight into a busy screen
+  if (asaan) return <Suspense fallback={null}><AsaanHome /></Suspense>;
   return <Navigate to={can("wholesale.view") ? "/wholesale" : can("cashier.desk") ? "/cashier" : modules.pos ? "/pos" : "/shifts"} replace />;
 }
 
@@ -229,6 +235,7 @@ export default function App() {
               <Route path="complaints" element={<Need perm="complaints.manage"><Complaints /></Need>} />
               <Route path="campaigns" element={<Need perm="campaigns.manage"><Campaigns /></Need>} />
               <Route path="pos" element={<Need perm="sales.create" mod="pos"><Pos /></Need>} />
+              <Route path="tanks-level" element={<Suspense fallback={null}><TanksLevel /></Suspense>} />
               <Route path="shifts" element={<Need perm="shifts.manage"><Shifts /></Need>} />
               <Route path="stock" element={<Need perm="stock.manage"><Stock /></Need>} />
               <Route path="dip-charts" element={<Need perm="stock.manage"><DipCharts /></Need>} />

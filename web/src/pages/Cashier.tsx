@@ -12,6 +12,7 @@ import { WhatsAppDoc } from "../components/WhatsAppDoc";
 import { PaymentApprovals } from "../components/PaymentApprovals";
 import { ago, dt, num, phone, pkr, pkrShort } from "../lib/format";
 import { toWords } from "../lib/words";
+import { NumPad, useNumPadOn } from "../components/Asaan";
 import { ProofPhotos, ProofThumbs } from "../components/Capture";
 import { AccountPicker, BankAccounts, BankLogo, BankNamePicker, BankSummary } from "../components/BankParts";
 import { Ur } from "../components/VoiceShell";
@@ -376,6 +377,7 @@ const DEPOT_PAY = "Paid to depot";
 
 function MoneyForm({ dir, preset, onDone }: { dir: "in" | "out"; preset: Record<string, string>; onDone: (r: any) => void }) {
   const { modules } = useAuth();
+  const padOn = useNumPadOn(); // Asaan mode on a touch screen: the big calculator keypad instead of the phone keyboard
   // a switched-off Customers & khata module takes the khata option away
   const types = ((dir === "in" ? IN_TYPES : OUT_TYPES) as readonly (readonly [string, string, string])[]).filter(([k]) => k !== "khata" || modules.khata);
   const [type, setType] = useState<string>(types.some((t) => t[0] === preset.type) ? preset.type : types[0][0]);
@@ -443,8 +445,11 @@ function MoneyForm({ dir, preset, onDone }: { dir: "in" | "out"; preset: Record<
         <Field label="For what · کس لیے"><input className="input" value={f.category} onChange={(e) => set("category", e.target.value)} placeholder={dir === "in" ? "e.g. Scrap sale, rent" : "e.g. Committee, donation"} /></Field>
       </div>}
 
-      <Field label="Amount (Rs) · رقم *"><input className="input py-3 text-2xl font-semibold" type="number" inputMode="decimal" min={1} step="any" required value={f.amount} onChange={(e) => set("amount", e.target.value)} /></Field>
-      {amount > 0 && <p className="-mt-2 text-xs text-slate-500">{toWords(amount)}</p>}
+      {padOn ? <NumPad value={f.amount} onChange={(v) => set("amount", v)} label={dir === "in" ? "Kitna paisa aaya" : "Kitna paisa diya"} ur={dir === "in" ? "کتنی رقم آئی" : "کتنی رقم دی"} />
+        : <>
+          <Field label="Amount (Rs) · رقم *"><input className="input py-3 text-2xl font-semibold" type="number" inputMode="decimal" min={1} step="any" required value={f.amount} onChange={(e) => set("amount", e.target.value)} /></Field>
+          {amount > 0 && <p className="-mt-2 text-xs text-slate-500">{toWords(amount)}</p>}
+        </>}
 
       <fieldset>
         <legend className="label">How · <Ur>کیسے</Ur></legend>

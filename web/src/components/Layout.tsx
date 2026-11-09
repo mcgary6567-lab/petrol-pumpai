@@ -1,3 +1,5 @@
+import { AsaanToggle, useAsaan } from "./Asaan";
+import { Home as HomeIcon } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { PrintFooter, PrintHeader } from "./Letterhead";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
@@ -289,6 +291,7 @@ export default function Layout() {
   // sales saved on the tablet without internet upload from whichever page is open (not only the POS)
   useOfflineQueue();
   const { user, tenant, logout, can, modules } = useAuth();
+  const [asaan] = useAsaan();
   const nav = useNavigate();
   const pageLoc = useLocation();
   const [open, setOpen] = useState(false);
@@ -409,13 +412,21 @@ export default function Layout() {
             </div>
           )) : <p className="px-3 py-4 text-center text-sm text-emerald-200/70">Kuch nahi mila · <span lang="ur" dir="rtl" className="font-urdu">کچھ نہیں ملا</span><span className="mt-1 block text-[11px]">Spelling badal kar ya chhota lafz likh kar dekhein</span></p>
         ) : (
-          <NavMenu items={visible} grouped={["admin", "manager"].includes(user?.role ?? "")} badges={badgeVal} onGo={() => setOpen(false)} />
+          <>
+            {asaan && !can("dashboard.view") && (
+              <NavLink to="/" end onClick={() => setOpen(false)} className={({ isActive }) => `mb-2 flex min-h-tap items-center gap-3 rounded-xl px-3 text-lg font-bold ${isActive ? "bg-white text-ink" : "bg-white/10 text-white hover:bg-white/15"}`}>
+                <HomeIcon size={24} /> Ghar <span lang="ur" dir="rtl" className="font-urdu ml-auto text-base font-normal">گھر</span>
+              </NavLink>
+            )}
+            <NavMenu items={visible} grouped={["admin", "manager"].includes(user?.role ?? "")} badges={badgeVal} onGo={() => setOpen(false)} />
+          </>
         )}
       </div>
       <div className="border-t border-white/10 p-4 text-sm">
         <div className="font-medium">{user?.name}</div>
         <div className="text-xs text-emerald-200/80">{ROLE_LABEL[user?.role ?? ""]}</div>
         {user?.station_name && <div className="mt-0.5 flex items-center gap-1 text-xs text-emerald-200/80"><MapPin size={11} />{user.station_name}</div>}
+        <div className="mt-3"><AsaanToggle /></div>
         <div className="mt-3"><InstallAppButton /></div>
         <button onClick={toggleTheme} className="mt-3 flex items-center gap-2 text-xs text-emerald-200 hover:text-white">
           {dark ? <Sun size={14} /> : <Moon size={14} />} {dark ? "Light mode · روشن" : "Dark mode · گہرا"}

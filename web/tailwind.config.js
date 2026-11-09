@@ -8,7 +8,19 @@ export default {
         // set from the pump's own brand colour at runtime (see src/lib/brand.ts)
         brand: Object.fromEntries([50, 100, 500, 600, 700, 900].map((k) => [k, `rgb(var(--brand-${k}) / <alpha-value>)`])),
         wa: { bg: "#efeae2", out: "#d9fdd3" },
+        // Asaan mode: one meaning per colour, dark enough for sunlight on white (WCAG AA+)
+        in: { DEFAULT: "#047857", bg: "#ECFDF5", ring: "#6EE7B7" },   // money in / OK
+        out: { DEFAULT: "#B91C1C", bg: "#FEF2F2", ring: "#FCA5A5" },  // money out / danger
+        warn: { DEFAULT: "#B45309", bg: "#FFFBEB", ring: "#FCD34D" }, // attention
+        ink: "#0F172A",                                               // every number and label
       },
+      fontSize: {
+        "num-xl": ["44px", { lineHeight: "1", fontWeight: "800" }],
+        "num-lg": ["32px", { lineHeight: "1.1", fontWeight: "800" }],
+        act: ["20px", { lineHeight: "1.2", fontWeight: "700" }],
+        "ur-act": ["20px", { lineHeight: "1.9" }],
+      },
+      minHeight: { tap: "64px", "tap-xl": "104px" },
       /* motion: transform/opacity only (GPU), 150-300 ms, all switched off under prefers-reduced-motion (index.css) */
       keyframes: {
         "fade-in": { from: { opacity: "0" }, to: { opacity: "1" } },
