@@ -236,12 +236,13 @@ export function integrationsValues() {
 }
 /** Apply + persist integration settings; skips unchanged masked secrets. Returns the keys that changed. */
 export function applyIntegrations(body: unknown): string[] {
-  const b = parse(z.record(z.enum(Object.keys(CFG) as [string, ...string[]]), z.string().max(400)), body);
+  const b = parse(z.partialRecord(z.enum(Object.keys(CFG) as [string, ...string[]]), z.string().max(400)), body);
   const token = b.wa_token !== undefined && !b.wa_token.startsWith("•") ? b.wa_token.trim() : config.wa.token;
   const secret = b.wa_app_secret !== undefined && !b.wa_app_secret.startsWith("•") ? b.wa_app_secret.trim() : config.wa.appSecret;
   if (token && !secret) throw new AppError(400, "Add the WhatsApp App Secret too (Meta app → Settings → Basic) — it proves messages really come from WhatsApp");
   const changed: string[] = [];
   for (const [k, v] of Object.entries(b)) {
+    if (v === undefined) continue;
     if (CFG[k].secret && v.startsWith("•")) continue; // unchanged masked value
     if (k === "public_url" && v && !/^https?:\/\/[^\s/]+/.test(v)) throw new AppError(400, "Public address must start with https://");
     setSetting(0, `cfg:${k}`, CFG[k].secret ? encryptSecret(v.trim()) : v.trim()); // secrets encrypted at rest

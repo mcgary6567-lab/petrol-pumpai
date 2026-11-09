@@ -201,9 +201,9 @@ export function checkOut(userId: number, photoId?: number | null, t?: number, po
  */
 const SELFIE_MAX_AGE_MS = 5 * 60_000;
 const proof = z.object({
-  photo_id: z.number({ required_error: "Take a live selfie first · پہلے سیلفی لیں", invalid_type_error: "Take a live selfie first · پہلے سیلفی لیں" }).int(),
-  lat: z.number({ required_error: "Turn on location · لوکیشن آن کریں", invalid_type_error: "Turn on location · لوکیشن آن کریں" }).min(-90).max(90),
-  lng: z.number({ required_error: "Turn on location · لوکیشن آن کریں", invalid_type_error: "Turn on location · لوکیشن آن کریں" }).min(-180).max(180),
+  photo_id: z.number({ error: "Take a live selfie first · پہلے سیلفی لیں" }).int(),
+  lat: z.number({ error: "Turn on location · لوکیشن آن کریں" }).min(-90).max(90),
+  lng: z.number({ error: "Turn on location · لوکیشن آن کریں" }).min(-180).max(180),
   accuracy: z.number().min(0).optional().nullable(),
 });
 function liveSelfie(t: number, userId: number, photoId: number) {

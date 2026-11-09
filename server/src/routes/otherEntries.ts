@@ -64,7 +64,7 @@ const body = z.object({
   account_id: accountIdField,                              // income/expense only: the bank/wallet account money went to / came from
   note: z.string().trim().max(200).optional().nullable(),
   /** cash note breakdown counted, only for a cash income/expense: { "5000": 2, "1000": 10, ... } */
-  notes: z.record(z.enum(["5000", "1000", "500", "100", "50", "20", "10"]), z.number().int().min(0).max(100_000)).optional().nullable(),
+  notes: z.partialRecord(z.enum(["5000", "1000", "500", "100", "50", "20", "10"]), z.number().int().min(0).max(100_000)).optional().nullable(),
   /** income/expense with a real party: ALSO post it on the party's own khata (expense → they owe us more, income → they
    *  paid us). The money then moves against the party's receivable, not the CEO's P&L — it is the party's udhaar/wasooli. */
   to_party: z.boolean().optional().nullable(),

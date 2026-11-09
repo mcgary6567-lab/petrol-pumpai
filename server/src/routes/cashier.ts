@@ -144,7 +144,7 @@ const moneyBody = z.object({
   photo_ids: proofPhotos, notify: z.boolean().default(true), cheque: chequeFields.optional().nullable(),
   supplier_id: z.number().int().optional().nullable(), // method "Paid to depot": the depot the client paid
   /** cash note breakdown counted at the counter: { "5000": 2, "1000": 10, ... } */
-  notes: z.record(z.enum(["5000", "1000", "500", "100", "50", "20", "10"]), z.number().int().min(0).max(100_000)).optional().nullable(),
+  notes: z.partialRecord(z.enum(["5000", "1000", "500", "100", "50", "20", "10"]), z.number().int().min(0).max(100_000)).optional().nullable(),
   /** a missed entry recorded a few days late on its real date (YYYY-MM-DD) — CEO/manager only, never a closed day */
   entry_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
 });

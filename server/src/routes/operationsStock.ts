@@ -77,8 +77,8 @@ stockRoutes.post("/stock/delivery", requirePerm("stock.manage"), h((req) => {
   const b = parse(z.object({
     tank_id: z.number(), invoice_l: z.number().positive(), received_l: z.number().positive(), tanker_no: z.string().optional(),
     // every tanker comes from a supplier at a price: that is what puts its cost in the books (bill, payable, ledger, profit)
-    supplier_id: z.number({ required_error: "Choose the supplier (depot) · سپلائر منتخب کریں", invalid_type_error: "Choose the supplier (depot) · سپلائر منتخب کریں" }),
-    purchase_rate: z.number({ required_error: "Enter the purchase rate per litre from the supplier invoice · ریٹ لکھیں", invalid_type_error: "Enter the purchase rate per litre from the supplier invoice · ریٹ لکھیں" }).positive("Enter the purchase rate per litre from the supplier invoice"),
+    supplier_id: z.number({ error: "Choose the supplier (depot) · سپلائر منتخب کریں" }),
+    purchase_rate: z.number({ error: "Enter the purchase rate per litre from the supplier invoice · ریٹ لکھیں" }).positive("Enter the purchase rate per litre from the supplier invoice"),
     photo_id: z.number().optional().nullable(),
     freight: z.number().min(0).optional().nullable(),
   }), req.body);
