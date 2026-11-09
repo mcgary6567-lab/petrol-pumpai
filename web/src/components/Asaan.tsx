@@ -460,3 +460,101 @@ export function AsaanCloseShift() {
     </StepShell>
   );
 }
+
+/* ------------------------------------------------------------------ phase 3 ------------------------------------------------------------------ */
+/** "Dhoop mode": white page, black bold text, thick borders, no shadows — readable in direct sunlight. Per device. */
+const SUN_KEY = "pumpai_sun";
+const sunSubs = new Set<() => void>();
+const readSun = () => { try { return localStorage.getItem(SUN_KEY) === "1"; } catch { return false; } };
+const applySun = (on: boolean) => { if (typeof document !== "undefined") document.documentElement.classList.toggle("sun", on); };
+applySun(readSun()); // before the first paint of any screen
+export function useSun(): [boolean, (on: boolean) => void] {
+  const on = useSyncExternalStore((cb) => { sunSubs.add(cb); return () => sunSubs.delete(cb); }, readSun, () => false);
+  const set = (x: boolean) => { try { localStorage.setItem(SUN_KEY, x ? "1" : "0"); } catch { /* this visit only */ } applySun(x); sunSubs.forEach((f) => f()); };
+  return [on, set];
+}
+export function SunToggle() {
+  const [on, set] = useSun();
+  return (
+    <button type="button" role="switch" aria-checked={on} onClick={() => set(!on)}
+      className="flex w-full items-center gap-3 rounded-xl bg-white/10 px-3 py-2.5 text-left text-sm font-semibold text-white hover:bg-white/15">
+      <span className={`relative h-6 w-11 shrink-0 rounded-full transition ${on ? "bg-amber-400" : "bg-white/30"}`}>
+        <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${on ? "left-[22px]" : "left-0.5"}`} />
+      </span>
+      <span className="min-w-0 flex-1 leading-tight">☀️ Dhoop mode<span lang="ur" dir="rtl" className="font-urdu block text-xs font-normal opacity-80">دھوپ میں صاف نظر آئے</span></span>
+    </button>
+  );
+}
+
+/** Plain words for the menu in Asaan mode — no accounting English. */
+export const SIMPLE_LABEL: Record<string, string> = {
+  "/": "Ghar", "/reports": "Report", "/sales-history": "Purani sale", "/insights": "Malik ki report", "/owner-report": "Nafa nuqsan ka hisaab",
+  "/discounts-report": "Riyayat ki report", "/other-entries": "Doosri aamdani / kharcha", "/investors": "Sarmaya kaar", "/margins": "Nafa aur target",
+  "/profit": "Munafa kaise bana", "/suggestions": "Mashwaray", "/inbox": "WhatsApp", "/pos": "Sale darj karein", "/shifts": "Shift",
+  "/customers": "Gahak", "/khata": "Khata / udhaar", "/prepaid": "Coupon aur wallet", "/card-pending": "Card baad mein",
+  "/wholesale": "Wholesale", "/carriage": "Kiraya (carriage)", "/cashier": "Cashier", "/expenses": "Kharche", "/cash": "Galla aur bank",
+  "/accounts": "Hisaab kitaab aur tax", "/suppliers": "Supplier (jin ko dena hai)", "/property": "Kiraye ki jaidad", "/orders": "Order",
+  "/bookings": "Booking", "/complaints": "Shikayat", "/campaigns": "Paighaam (campaign)", "/stock": "Tank aur tail", "/dip-charts": "Dip chart",
+  "/register": "Stock register", "/shop": "Dukaan aur mobil oil", "/prices": "Rate", "/alerts": "Khabardar", "/automations": "Khud-kaar kaam",
+  "/staff": "Mulazim ka hisaab", "/kiosk": "Haazri", "/roster": "Duty", "/team": "Rating aur commission", "/checklist": "Roz ki jaanch",
+  "/compliance": "License aur jaanch", "/machines": "Machine", "/my-account": "Mera hisaab", "/help": "Madad", "/users": "Users aur ikhtiyar",
+  "/audit": "Kis ne kya badla", "/security": "Hifazat", "/corrections": "Ghalti theek karein", "/go-live": "Shuru karne ki list",
+  "/opening-balances": "Purana hisaab", "/lists": "Fehristein", "/settings": "Settings",
+};
+
+/** Owner / manager home in Asaan mode: four ledger cards in a fixed order, the tanks, today in one line. */
+export function AsaanOwnerHome() {
+  const { user, modules } = useAuth();
+  const o = useApi<any>("/owner/overview", 120_000);
+  const h = useHome();
+  const d = o.data;
+  const tanks: any[] = h.data?.tanks ?? [];
+  const t = d?.today;
+  return (
+    <div className="mx-auto max-w-3xl space-y-4 pb-28">
+      <SyncDot big />
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0"><h1 className="truncate text-2xl font-extrabold text-ink">Salam, {user?.name?.split(" ")[0]}</h1><Urdu className="text-lg text-ink">آج کا حساب ایک نظر میں</Urdu></div>
+        <button type="button" onClick={() => { o.reload(); h.reload(); }} className="flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-ink" aria-label="Taaza karein"><RefreshCw size={26} /></button>
+      </div>
+      {tanks.length > 0 && <TankBanner tanks={tanks} />}
+      {o.error ? <p className="text-lg font-bold text-out">{String(o.error)}</p> : !d ? <p className="text-lg font-semibold text-slate-700">Load ho raha hai…</p> : <>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <MoneyCard en="Galla + Bank" ur="ہاتھ میں اور بینک میں" value={d.money.total} tone="in"
+            sub={`Galla ${pkr(d.money.office_cash)} · Salesman ke paas ${pkr(d.money.with_salesmen)} · Bank ${pkr(d.money.banks)}`} />
+          <MoneyCard en="Aaj ka munafa" ur="آج کا منافع" value={t?.profit_estimate ?? null} tone={(t?.profit_estimate ?? 0) >= 0 ? "in" : "out"}
+            sub={t ? `Aaj ki sale ${pkr(t.sale)} · ${num((t.retail_litres ?? 0) + (t.wholesale_litres ?? 0))} L` : undefined} />
+          <MoneyCard en="Udhaar baqi (lena hai)" ur="ادھار باقی — لینا ہے" value={d.owed_to_us.total} tone="out"
+            sub={[modules.khata !== false ? `Khata ${pkr(d.owed_to_us.khata)}` : null, modules.wholesale ? `Wholesale ${pkr(d.owed_to_us.wholesale)}` : null].filter(Boolean).join(" · ") || undefined} />
+          <MoneyCard en="Humne dena hai" ur="ہم نے دینا ہے" value={d.we_owe.total} tone="out"
+            sub={`Supplier ${pkr(round0(d.we_owe.suppliers + d.we_owe.bypass_suppliers))}${d.we_owe.pending_expenses > 0 ? ` · Kharche ${pkr(d.we_owe.pending_expenses)}` : ""}`} />
+        </div>
+        {d.month && <div className="flex flex-wrap items-baseline justify-between gap-2 rounded-2xl border-2 border-slate-300 bg-white px-4 py-3">
+          <span className="text-lg font-bold text-ink">Is mahine ka asal munafa<Urdu className="block text-base font-normal">اس مہینے کا اصل منافع</Urdu></span>
+          <span className={`text-num-lg tabular-nums ${d.month.net_profit >= 0 ? "text-in" : "text-out"}`}>{pkr(d.month.net_profit)}</span>
+        </div>}
+      </>}
+      {tanks.length > 0 && (
+        <Link to="/tanks-level" className="block rounded-2xl border-2 border-slate-300 bg-white p-3">
+          <div className="mb-2 flex items-baseline justify-between"><span className="text-lg font-bold text-ink">Tank · <Urdu>ٹینک</Urdu></span><span className="text-sm font-bold text-slate-700">Sab dekhein ›</span></div>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            {tanks.slice(0, 6).map((k) => <TankChip key={k.id} t={k} station={new Set(tanks.map((x) => x.station_name)).size > 1} />)}
+          </div>
+        </Link>
+      )}
+      <Link to="/dashboard" className="flex min-h-tap items-center justify-center gap-2 rounded-2xl bg-ink text-act text-white">Tafseeli dashboard › <Urdu className="text-lg font-normal">تفصیلی ڈیش بورڈ</Urdu></Link>
+    </div>
+  );
+}
+const round0 = (n: number) => Math.round(n);
+function TankChip({ t, station }: { t: any; station?: boolean }) {
+  const L = LIGHT[t.light as keyof typeof LIGHT] ?? LIGHT.green;
+  return (
+    <div className={`rounded-xl border-2 p-2 ${L.bg}`}>
+      <div className="flex items-baseline justify-between gap-1"><span className="truncate text-base font-extrabold text-ink">{PRODUCTS[t.product] ?? t.product}</span><span className={`text-sm font-black ${L.text}`}>{t.pct}%</span></div>
+      <div className="mt-1 h-3 overflow-hidden rounded-full bg-white ring-1 ring-slate-300"><div className={`h-full ${L.bar}`} style={{ width: `${Math.max(3, t.pct)}%` }} /></div>
+      <div className={`mt-1 text-sm font-bold ${L.text}`}>{t.days_left != null ? `${daysText(t.days_left)}` : `${num(t.current_l)} L`}</div>
+      {station && <div className="truncate text-xs font-semibold text-slate-700">{t.station_name}</div>}
+    </div>
+  );
+}

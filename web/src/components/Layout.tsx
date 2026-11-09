@@ -1,4 +1,4 @@
-import { AsaanToggle, SyncDot, useAsaan } from "./Asaan";
+import { AsaanToggle, SIMPLE_LABEL, SunToggle, SyncDot, useAsaan } from "./Asaan";
 import { Home as HomeIcon } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { PrintFooter, PrintHeader } from "./Letterhead";
@@ -303,7 +303,9 @@ export default function Layout() {
   const badgeVal: Record<string, number> = { unread: k?.unread ?? 0, orders: k?.pending_orders ?? 0, alerts: k?.open_alerts ?? 0 };
   const [q, setQ] = useState("");
   const visible = NAV.filter((n) => (!n.perm || n.perm.split("|").some(can)) && (!("only" in n) || (n.only as string[]).includes(user?.role ?? ""))
-    && !(POS_PAGES.includes(n.to) && !modules.pos));
+    && !(POS_PAGES.includes(n.to) && !modules.pos))
+    // Asaan mode: plain words instead of accounting English
+    .map((n) => (asaan && SIMPLE_LABEL[n.to] ? { ...n, label: SIMPLE_LABEL[n.to] } : n));
   // every page the role can see, its sub-items (e.g. Day book) and the boxes inside Settings — each with the words of what it holds
   const pages = useMemo(() => {
     const out: { to: string; label: string; ur: string; words: string; icon: NavItem["icon"] }[] = [];
@@ -426,7 +428,7 @@ export default function Layout() {
         <div className="font-medium">{user?.name}</div>
         <div className="text-xs text-emerald-200/80">{ROLE_LABEL[user?.role ?? ""]}</div>
         {user?.station_name && <div className="mt-0.5 flex items-center gap-1 text-xs text-emerald-200/80"><MapPin size={11} />{user.station_name}</div>}
-        <div className="mt-3"><AsaanToggle /></div>
+        <div className="mt-3 space-y-2"><AsaanToggle /><SunToggle /></div>
         <div className="mt-3"><InstallAppButton /></div>
         <button onClick={toggleTheme} className="mt-3 flex items-center gap-2 text-xs text-emerald-200 hover:text-white">
           {dark ? <Sun size={14} /> : <Moon size={14} />} {dark ? "Light mode · روشن" : "Dark mode · گہرا"}

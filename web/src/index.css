@@ -159,3 +159,14 @@ body, .card, aside { transition: background-color .2s ease, border-color .2s eas
 /* the box a search result jumped to blinks once so the eye finds it */
 .search-flash{animation:search-flash 2.2s ease-out}
 @keyframes search-flash{0%,30%{background-color:rgb(253 230 138);box-shadow:0 0 0 6px rgb(253 230 138)}100%{background-color:transparent;box-shadow:0 0 0 6px transparent}}
+
+/* ---- Dhoop mode (sunlight): pure white page, near-black bold text, thick borders, no soft shadows or faint greys ---- */
+html.sun:not(.dark) body { background: #fff; color: #0f172a; font-weight: 500; }
+html.sun:not(.dark) main .text-slate-300, html.sun:not(.dark) main .text-slate-400, html.sun:not(.dark) main .text-slate-500,
+html.sun:not(.dark) main .text-slate-600, html.sun:not(.dark) main .text-gray-400, html.sun:not(.dark) main .text-gray-500 { color: #0f172a !important; }
+html.sun:not(.dark) main .card, html.sun:not(.dark) main .input { border: 2px solid #334155 !important; box-shadow: none !important; }
+html.sun:not(.dark) main .shadow, html.sun:not(.dark) main .shadow-sm, html.sun:not(.dark) main .shadow-md, html.sun:not(.dark) main .shadow-lg { box-shadow: none !important; }
+html.sun:not(.dark) main .bg-slate-50 { background-color: #fff !important; }
+html.sun:not(.dark) main .bg-slate-100 { background-color: #e2e8f0 !important; }
+html.sun:not(.dark) main ::placeholder { color: #475569; }
+html.sun:not(.dark) main .tabular-nums { font-weight: 700; }
