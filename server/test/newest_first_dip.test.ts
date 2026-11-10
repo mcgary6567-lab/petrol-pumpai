@@ -37,12 +37,12 @@ test("Dip charts: a Diesel tank on the Petrol chart is flagged, and one tap puts
   const hsd = list0.tanks.find((t: any) => t.product === "HSD"), pmg = list0.tanks.find((t: any) => t.product === "PMG");
   assert.ok(hsd && pmg, "demo has petrol and diesel tanks");
   // the mistake: the petrol chart on both tanks
-  const petrol = ok(await call("admin", "POST", "/api/dip-charts", { template_key: "ug-1700-petrol", assign_tank_ids: [pmg.id, hsd.id] }), "petrol chart");
+  const petrol = ok(await call("admin", "POST", "/api/dip-charts", { template_key: "ug-14370-pmg", assign_tank_ids: [pmg.id, hsd.id] }), "petrol chart");
   const list1 = ok(await call("admin", "GET", "/api/dip-charts"), "list 1");
   const t1 = list1.tanks.find((t: any) => t.id === hsd.id);
   assert.equal(t1.chart_product, "PMG", "diesel tank shows it is on a petrol chart");
   // a petrol template cannot be put on a diesel tank
-  assert.equal((await call("admin", "POST", `/api/tanks/${hsd.id}/dip-chart/template`, { template_key: "ug-1700-petrol" })).status, 400);
+  assert.equal((await call("admin", "POST", `/api/tanks/${hsd.id}/dip-chart/template`, { template_key: "ug-14370-pmg" })).status, 400);
   const fixed = ok(await call("admin", "POST", `/api/tanks/${hsd.id}/dip-chart/template`, { template_key: "ug-1700-hsd" }), "fix");
   assert.equal(fixed.product, "HSD");
   assert.equal(fixed.rows, 171, "0 + 169 sheet rows + 1700 mm");

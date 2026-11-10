@@ -33,22 +33,24 @@ after(() => { server?.close(); fs.rmSync(dir, { recursive: true, force: true });
 
 let chartId = 0, tankId = 0;
 
-test("templates are listed and the HSD 14,370 L sheet is complete", async () => {
+test("templates are listed: the 14,370 L sheet is the Petrol tank, the Zain Oil Ø1700 sheet the Diesel tank", async () => {
   const d = ok(await call("manager", "GET", "/api/dip-charts"), "list");
   assert.ok(d.templates.length >= 2);
-  const pet = d.templates.find((x: any) => x.key === "ug-1700-petrol");
-  assert.equal(pet.rows, 171); assert.equal(pet.max_mm, 1700);
-  const t = d.templates.find((x: any) => x.key === "ug-14370-hsd");
+  const dsl = d.templates.find((x: any) => x.key === "ug-1700-hsd");
+  assert.equal(dsl.rows, 171); assert.equal(dsl.max_mm, 1700); assert.equal(dsl.product, "HSD");
+  assert.ok(!d.templates.some((x: any) => x.key === "ug-1700-petrol"), "the Ø1700 sheet is not offered as petrol any more");
+  const t = d.templates.find((x: any) => x.key === "ug-14370-pmg");
+  assert.equal(t.product, "PMG");
   assert.equal(t.rows, 443); // 0 mm + 442 steps of 5 mm
-  const full = ok(await call("manager", "GET", "/api/dip-charts/templates/ug-14370-hsd"), "template");
+  const full = ok(await call("manager", "GET", "/api/dip-charts/templates/ug-14370-pmg"), "template");
   assert.equal(full.rows[full.rows.length - 1].depth_mm, 2210);
   assert.equal(full.rows[full.rows.length - 1].litres, 14370);
   assert.equal(full.rows.find((r: any) => r.depth_mm === 1000).litres, 6326);
-  tankId = d.tanks.find((x: any) => x.product === "HSD")?.id ?? d.tanks[0].id;
+  tankId = d.tanks.find((x: any) => x.product === "PMG")?.id ?? d.tanks[0].id;
 });
 
 test("create from template and assign to a tank; cm dip is converted through it", async () => {
-  const c = ok(await call("manager", "POST", "/api/dip-charts", { template_key: "ug-14370-hsd", assign_tank_ids: [tankId] }), "create");
+  const c = ok(await call("manager", "POST", "/api/dip-charts", { template_key: "ug-14370-pmg", assign_tank_ids: [tankId] }), "create");
   chartId = c.id;
   assert.equal(c.rows, 443);
   assert.equal(c.tanks.length, 1);

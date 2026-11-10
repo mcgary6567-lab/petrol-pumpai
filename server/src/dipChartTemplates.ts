@@ -5,7 +5,7 @@
  */
 export type DipChartTemplate = { key: string; name: string; product: string; capacity_l: number; length_mm?: number; diameter_mm?: number; source: string; notes?: string; rows: [number, number][] };
 
-/** 3161–14370 L horizontal U/G tank, internal 12'3" (3734 mm) × 7'3" (2210 mm). Petrol 13,651 L safe fill, HSD 14,370 L. */
+/** Petrol tank: 3161–14370 L horizontal U/G tank, internal 12'3" (3734 mm) × 7'3" (2210 mm). Petrol 13,651 L safe fill. */
 const UG_14370: number[] = [
   // 5 … 370 mm
   4, 9, 14, 21, 32, 40, 49, 59, 74, 85, 98, 113, 126, 138, 151, 172, 180, 200, 215, 237, 253, 260, 285, 309, 326, 343, 361, 387, 405, 424, 452, 470, 490, 509, 539, 559, 579, 599, 630, 651, 672, 694, 726, 748, 770, 792, 826, 849, 872, 906, 930, 953, 977, 1013, 1037, 1061, 1085, 1122, 1147, 1172, 1197, 1236, 1261, 1287, 1313, 1357, 1378, 1404, 1444, 1471, 1498, 1524, 1580, 1592,
@@ -21,8 +21,8 @@ const UG_14370: number[] = [
   12872, 12899, 12926, 12966, 12992, 13019, 13057, 13083, 13109, 13134, 13173, 13198, 13223, 13248, 13285, 13300, 13333, 13357, 13393, 13417, 13440, 13464, 13498, 13521, 13544, 13578, 13600, 13622, 13644, 13676, 13698, 13719, 13740, 13771, 13791, 13811, 13831, 13861, 13880, 13900, 13918, 13946, 13965, 13983, 14009, 14027, 14044, 14061, 14085, 14101, 14117, 14133, 14155, 14170, 14184, 14198, 14219, 14232, 14244, 14257, 14272, 14285, 14296, 14311, 14321, 14330, 14338, 14349, 14356, 14361, 14366, 14370,
 ];
 
-/** Petrol U/G tank, dia ≈ 1700 mm, 6,906 L at 1690 mm (Zain Oil, Kotla Jam sheet). Every 10 mm. */
-const PETROL_1700: [number, number][] = [
+/** Diesel U/G tank, dia ≈ 1700 mm, 6,906 L at 1690 mm (Zain Oil, Kotla Jam diesel sheet). Every 10 mm. */
+const DIESEL_1700: [number, number][] = [
   [10, 5.28], [20, 14.92], [30, 27.36], [40, 42.05], [50, 58.66], [60, 76.97], [70, 96.82], [80, 118.07], [90, 140.64], [100, 164.41],
   [110, 189.33], [120, 215.33], [130, 242.35], [140, 270.34], [150, 299.26], [160, 329.06], [170, 359.7], [180, 391.16], [190, 423.4], [200, 456.39],
   [210, 490.11], [220, 524.52], [230, 559.6], [240, 595.33], [250, 631.69], [260, 668.66], [270, 706.21], [280, 744.34], [290, 783.01], [300, 822.22],
@@ -44,30 +44,21 @@ const PETROL_1700: [number, number][] = [
 
 export const DIP_CHART_TEMPLATES: DipChartTemplate[] = [
   {
-    key: "ug-1700-petrol",
-    name: "Petrol dip chart — U/G tank Ø1700 mm, 6,910 L",
-    product: "PMG",
-    capacity_l: 6911.6, diameter_mm: 1700,
-    source: "Petrol tank calibration sheet (Zain Oil, Kotla Jam) — dip every 10 mm, 10 to 1690 mm",
-    notes: "The printed sheet skipped 730, 980 and 1230 mm (first line of a column); those are filled by straight line. 1700 mm (full) is worked out from the top of the curve: 6,911.6 L. Check against your own sheet.",
-    rows: [[0, 0], ...PETROL_1700],
-  },
-  {
     key: "ug-1700-hsd",
     name: "Diesel dip chart — U/G tank Ø1700 mm, 6,906 L (Zain Oil, Kotla Jam)",
     product: "HSD",
     capacity_l: 6911.6, diameter_mm: 1700,
     source: "Diesel dip chart (Zain Oil, Kotla Jam, Iftikhar Hussain) — dip every 10 mm, 10 to 1690 mm",
-    notes: "Same tank size as the Petrol Ø1700 sheet. The printed sheet skipped 730, 980 and 1230 mm (first line of a column); those are filled by straight line. 1700 mm (full) is worked out from the top of the curve. Check against your own sheet.",
-    rows: [[0, 0], ...PETROL_1700],
+    notes: "The pump's DIESEL tank sheet. The printed sheet skipped 730, 980 and 1230 mm (first line of a column); those are filled by straight line. 1700 mm (full) is worked out from the top of the curve. Check against your own sheet.",
+    rows: [[0, 0], ...DIESEL_1700],
   },
   {
-    key: "ug-14370-hsd",
-    name: "Diesel dip chart — U/G tank 12'3\" × 7'3\", HSD 14,370 L",
-    product: "HSD",
+    key: "ug-14370-pmg",
+    name: "Petrol dip chart — U/G tank 12'3\" × 7'3\", 14,370 L (petrol safe fill 13,651 L)",
+    product: "PMG",
     capacity_l: 14370, length_mm: 3734, diameter_mm: 2210,
     source: "Mathematical calibration of 3161 to 14370 litres U/G tank (internal length 3734 mm, dia 2210 mm)",
-    notes: "Every 5 mm from 5 to 2210 mm. Three smudged prints were read by the neighbouring steps: 1840 mm = 12806, 1880 mm = 13019 (check against your sheet).",
+    notes: "The pump's PETROL tank sheet. Every 5 mm from 5 to 2210 mm. The print has a stray line near 90 mm and skips one value near 1725 mm (11,996 then 12,056) with 1850 mm left blank, so a few lines are one step off the printed labels (at most ~30 L); smudged 1840 / 1880 mm read from the neighbouring steps. Check against your sheet.",
     rows: [[0, 0], ...UG_14370.map((l, i): [number, number] => [(i + 1) * 5, l])],
   },
 ];
