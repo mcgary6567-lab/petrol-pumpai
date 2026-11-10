@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Camera, Check, Copy, Download, FileSpreadsheet, Plus, Printer, Ruler, Search, Trash2, Upload, WandSparkles, X } from "lucide-react";
+import { Camera, Check, ChevronDown, Copy, Download, FileSpreadsheet, Fuel, Pencil, Plus, Printer, Ruler, Search, Trash2, Upload, WandSparkles, X } from "lucide-react";
 import { api, linkToken, useApi } from "../lib/api";
 import { Badge, Empty, Field, Loading, Modal, PageHeader, useAction, useToast } from "../components/ui";
 import { resizeImage } from "../components/Capture";
 import { Ur } from "../components/VoiceShell";
-import { PRODUCTS, num } from "../lib/format";
+import { PRODUCTS, PRODUCT_COLORS, PRODUCT_UR, num } from "../lib/format";
 
 type Row = { depth_mm: number; litres: number };
 type Chart = { id: number; name: string; product: string | null; capacity_l: number | null; length_mm: number | null; diameter_mm: number | null; source: string | null; notes: string | null; template_key: string | null; rows: number; min_mm: number; max_mm: number; max_l: number; updated_at: string; updated_by: string | null; tanks: { id: number; name: string; product: string; station: string }[] };
@@ -54,20 +54,21 @@ export default function DipCharts() {
           </li>); })}</ul>
       </div>}
       {legacy.length > 0 && <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">
-        {legacy.map((t) => t.name).join(", ")}: still on the old per-tank cm table — works, but assign a chart here to edit it in the grid and share it between tanks.
+        {legacy.map((t) => t.name).join(", ")}: abhi purani cm wali table par hain — kaam karti hai, lekin yahan chart laga dein to table dekhna, theek karna aur doosre tank par lagana aasaan ho jayega.
       </div>}
       <div className="grid gap-4 lg:grid-cols-[300px_1fr]">
         <div className="space-y-2">
           {charts.length === 0 && <div className="card p-4 text-sm text-slate-500">No chart yet. Start from the built-in template, a photo of your printed sheet, or paste the rows.</div>}
           {charts.map((c) => (
-            <button key={c.id} onClick={() => select(c.id)} className={`card w-full p-3 text-left ${c.id === sel ? "ring-2 ring-brand-500" : "hover:bg-slate-50"}`}>
-              <div className="flex items-center gap-2"><Ruler size={16} className="text-brand-600" /><span className="font-semibold">{c.name}</span></div>
-              <div className="mt-1 text-xs text-slate-500">{c.product ?? "—"} · {num(c.rows)} rows · up to {num(c.max_mm)} mm = {num(c.max_l)} L</div>
-              <div className="mt-1 flex flex-wrap gap-1">{c.tanks.length ? c.tanks.map((t) => <Badge key={t.id} tone="green">{t.name}</Badge>) : <Badge tone="amber">no tank yet</Badge>}</div>
+            <button key={c.id} onClick={() => select(c.id)} className={`card w-full overflow-hidden p-3 text-left ${c.id === sel ? "ring-2 ring-brand-500" : "hover:bg-slate-50"}`} style={{ borderLeft: `5px solid ${c.product ? PRODUCT_COLORS[c.product] ?? "#64748b" : "#64748b"}` }}>
+              <div className="text-[11px] font-bold uppercase tracking-wide" style={{ color: c.product ? PRODUCT_COLORS[c.product] ?? "#64748b" : "#64748b" }}>{c.product ? PRODUCTS[c.product] ?? c.product : "Koi bhi fuel"}</div>
+              <div className="font-semibold leading-snug">{c.name}</div>
+              <div className="mt-1 text-xs text-slate-500 tabular-nums">Poora: <b className="text-slate-700">{num(c.max_l)} L</b> @ {num(c.max_mm)} mm · {num(c.rows)} lines</div>
+              <div className="mt-1.5 flex flex-wrap gap-1">{c.tanks.length ? c.tanks.map((t) => <Badge key={t.id} tone={c.product && t.product !== c.product ? "red" : "green"}>{t.name}{c.product && t.product !== c.product ? " ⚠" : ""}</Badge>) : <Badge tone="amber">kisi tank par nahi</Badge>}</div>
             </button>
           ))}
         </div>
-        {current ? <Editor key={current.id} id={current.id} tanks={list.data.tanks} onChanged={() => list.reload()} onDeleted={() => { select(null); list.reload(); }} /> : <div className="card p-8 text-center text-sm text-slate-500">Select a chart on the left, or make a new one.</div>}
+        {current ? <Editor key={current.id} id={current.id} tanks={list.data.tanks} onChanged={() => list.reload()} onDeleted={() => { select(null); list.reload(); }} /> : <div className="card p-8 text-center text-sm text-slate-500">Baayen taraf se chart chunein, ya "New chart" se naya banayein · <Ur>چارٹ چنیں</Ur></div>}
       </div>
       {creating && <NewChart mode={creating} setMode={setCreating} templates={list.data.templates} tanks={list.data.tanks} ai={list.data.ai} presetTank={tankParam}
         onClose={() => { setCreating(false); if (tankParam) setParams({}); }} onDone={(c) => { setCreating(false); list.reload(); select(c.id); }} />}
@@ -89,6 +90,7 @@ function Editor({ id, tanks, onChanged, onDeleted }: { id: number; tanks: any[];
   const [lookR, setLookR] = useState<any>(null);
   const [addRange, setAddRange] = useState<{ from: string; to: string; step: string } | null>(null);
   const [assign, setAssign] = useState(false);
+  const [showTable, setShowTable] = useState(false); // 400+ lines: closed until asked for
   const load = () => api(`/dip-charts/${id}`).then((d) => { setC(d); setMeta({ name: d.name, product: d.product ?? "", capacity_l: d.capacity_l ?? "", length_mm: d.length_mm ?? "", diameter_mm: d.diameter_mm ?? "", source: d.source ?? "", notes: d.notes ?? "" }); setRows(d.rows); setDirty(false); setCheck(null); });
   useEffect(() => { load(); }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
   // live validation while editing (debounced): duplicates, falling litres, gaps, suspicious jumps
@@ -151,47 +153,110 @@ function Editor({ id, tanks, onChanged, onDeleted }: { id: number; tanks: any[];
   const cols = [filtered.slice(0, third), filtered.slice(third, 2 * third), filtered.slice(2 * third)];
   const unit = (v: number) => Number.isFinite(v) ? String(v) : "";
 
+  const fuelName = (p?: string | null) => (p ? PRODUCTS[p] ?? p : "Koi bhi fuel");
+  const fuelColor = (p?: string | null) => (p ? PRODUCT_COLORS[p] ?? "#64748b" : "#64748b");
+  const good = rows.filter((r) => Number.isFinite(r.depth_mm) && Number.isFinite(r.litres));
+  const fullL = good.length ? good[good.length - 1].litres : 0, fullMm = good.length ? good[good.length - 1].depth_mm : 0;
+  const step = good.length > 2 ? Math.round((good[2].depth_mm - good[1].depth_mm) * 10) / 10 : null;
+  const capN = Number(meta.capacity_l) || 0;
+  const capOff = capN > 0 && fullL > 0 && Math.abs(capN - fullL) / fullL > 0.03; // capacity typed ≠ what the chart says when full
+  const wrongTanks = c.tanks.filter((t) => c.product && t.product !== c.product);
+  const setM = (k: string, v: string) => { setMeta({ ...meta, [k]: v }); setDirty(true); };
+  // % full against the chart's own full mark, so "% bhara" and "khali jagah" always agree
+  const pct = lookR?.litres != null && fullL > 0 ? Math.max(0, Math.min(100, Math.round((lookR.litres / fullL) * 1000) / 10)) : null;
+
   return (
-    <div className="space-y-4">
-      <div className="card p-4">
-        <div className="flex flex-wrap items-start justify-between gap-2">
-          <div><h2 className="text-lg font-semibold">{c.name}</h2><p className="text-xs text-slate-500">{c.source || "—"}{c.updated_by ? ` · last edit ${c.updated_by}` : ""}</p></div>
+    <div className="space-y-4 pb-20">
+      {/* ---- 1. what this chart is, in one look ---- */}
+      <div className="card overflow-hidden">
+        <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 p-4" style={{ borderLeft: `6px solid ${fuelColor(meta.product)}` }}>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="rounded-full px-2.5 py-0.5 text-xs font-bold text-white" style={{ background: fuelColor(meta.product) }}>{fuelName(meta.product)} · {meta.product ? <span className="font-urdu">{PRODUCT_UR[meta.product] ?? ""}</span> : ""}</span>
+              {c.template_key && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600">Tayyar chart (template)</span>}
+            </div>
+            <h2 className="mt-1 text-xl font-bold leading-tight">{c.name}</h2>
+            <p className="mt-0.5 text-xs text-slate-500">{c.source || "—"}{c.updated_by ? ` · aakhri edit: ${c.updated_by}` : ""}</p>
+          </div>
           <div className="flex flex-wrap gap-2 print:hidden">
-            <button className="btn-secondary" onClick={() => setAssign(true)}>Tanks ({c.tanks.length})</button>
-            <a className="btn-secondary" href={`/api/dip-charts/${id}/export.csv?token=${linkToken()}`}><Download size={15} /> CSV</a>
-            <button className="btn-secondary" onClick={() => window.print()}><Printer size={15} /> Print</button>
-            <button className="btn-secondary" onClick={copy} disabled={busy}><Copy size={15} /> Copy</button>
-            <button className="btn-secondary text-red-600" onClick={remove} disabled={busy}><Trash2 size={15} /></button>
+            <button className="btn-primary min-h-11" onClick={() => setAssign(true)}><Fuel size={16} /> Tank chunein ({c.tanks.length})</button>
+            <a className="btn-secondary min-h-11" href={`/api/dip-charts/${id}/export.csv?token=${linkToken()}`} title="Excel / CSV"><Download size={16} /> Excel</a>
+            <button className="btn-secondary min-h-11" onClick={() => window.print()} title="Print"><Printer size={16} /> Print</button>
+            <button className="btn-secondary min-h-11" onClick={copy} disabled={busy} title="Is chart ki copy banayein"><Copy size={16} /> Copy</button>
+            <button className="btn-secondary min-h-11 text-red-600" onClick={remove} disabled={busy} title="Chart delete karein" aria-label="Delete chart"><Trash2 size={16} /></button>
           </div>
         </div>
-        <div className="mt-3 grid gap-3 md:grid-cols-3 print:hidden">
-          <Field label="Chart name"><input className="input" value={meta.name} onChange={(e) => { setMeta({ ...meta, name: e.target.value }); setDirty(true); }} /></Field>
-          <Field label="Product"><select className="input" value={meta.product} onChange={(e) => { setMeta({ ...meta, product: e.target.value }); setDirty(true); }}><option value="">Any</option>{Object.entries(PRODUCTS).map(([k, v]) => <option key={k} value={k}>{k} — {v}</option>)}</select></Field>
-          <Field label="Capacity (L)"><input className="input" type="number" inputMode="decimal" value={meta.capacity_l} onChange={(e) => { setMeta({ ...meta, capacity_l: e.target.value }); setDirty(true); }} /></Field>
-          <Field label="Internal length (mm)"><input className="input" type="number" inputMode="decimal" value={meta.length_mm} onChange={(e) => { setMeta({ ...meta, length_mm: e.target.value }); setDirty(true); }} /></Field>
-          <Field label="Internal diameter (mm)"><input className="input" type="number" inputMode="decimal" value={meta.diameter_mm} onChange={(e) => { setMeta({ ...meta, diameter_mm: e.target.value }); setDirty(true); }} /></Field>
-          <Field label="Source (OMC sheet, date)"><input className="input" value={meta.source} onChange={(e) => { setMeta({ ...meta, source: e.target.value }); setDirty(true); }} /></Field>
-          <div className="md:col-span-3"><Field label="Notes"><input className="input" value={meta.notes} onChange={(e) => { setMeta({ ...meta, notes: e.target.value }); setDirty(true); }} /></Field></div>
+        <div className="grid grid-cols-2 divide-x divide-y divide-slate-100 sm:grid-cols-4 sm:divide-y-0">
+          <div className="p-4">
+            <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Kin tankon par · <Ur>ٹینک</Ur></div>
+            <div className="mt-1.5 flex flex-wrap gap-1.5">{c.tanks.length ? c.tanks.map((t) => (
+              <span key={t.id} className={`rounded-lg px-2 py-1 text-sm font-semibold ${c.product && t.product !== c.product ? "bg-rose-100 text-rose-800 ring-1 ring-rose-300" : "bg-emerald-50 text-emerald-800"}`} title={c.product && t.product !== c.product ? `${t.name} ${fuelName(t.product)} ka tank hai — ye chart ${fuelName(c.product)} ka hai` : undefined}>{t.name}{c.product && t.product !== c.product ? " ⚠" : ""}</span>
+            )) : <span className="text-sm font-semibold text-amber-700">Abhi kisi tank par nahi</span>}</div>
+          </div>
+          <div className="p-4">
+            <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Poora bhara · <Ur>مکمل</Ur></div>
+            <div className="mt-1 text-2xl font-bold tabular-nums">{num(fullL)} L</div>
+            <div className="text-xs text-slate-500">{num(fullMm)} mm dip par</div>
+          </div>
+          <div className="p-4">
+            <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Chart ki lines · <Ur>لائنیں</Ur></div>
+            <div className="mt-1 text-2xl font-bold tabular-nums">{num(rows.length)}</div>
+            <div className="text-xs text-slate-500">{step ? `har ${step} mm par ek line` : "—"}</div>
+          </div>
+          <div className="p-4">
+            <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Tank size · <Ur>سائز</Ur></div>
+            <div className="mt-1 text-2xl font-bold tabular-nums">{capN ? `${num(capN)} L` : "—"}</div>
+            <div className="text-xs text-slate-500">{[meta.length_mm && `lambai ${num(Number(meta.length_mm))} mm`, meta.diameter_mm && `golai ${num(Number(meta.diameter_mm))} mm`].filter(Boolean).join(" · ") || "lambai / golai nahi likhi"}</div>
+          </div>
+        </div>
+        {(wrongTanks.length > 0 || capOff) && <div className="space-y-1 border-t border-rose-100 bg-rose-50 px-4 py-2.5 text-sm text-rose-900 print:hidden">
+          {wrongTanks.length > 0 && <div>⚠ <b>{wrongTanks.map((t) => t.name).join(", ")}</b> {fuelName(wrongTanks[0].product)} ka tank hai, lekin ye chart <b>{fuelName(c.product)}</b> ka hai. "Tank chunein" se hata kar sahi chart lagayein.</div>}
+          {capOff && <div>⚠ Tank size <b>{num(capN)} L</b> likha hai, lekin chart poora bhar kar <b>{num(fullL)} L</b> deta hai. Agar aap ka tank {num(capN)} L ka hai to ye chart us tank ka nahi — sahi sheet lagayein. <button type="button" className="font-semibold underline" onClick={() => setM("capacity_l", String(Math.round(fullL)))}>Size {num(Math.round(fullL))} L kar dein</button></div>}
+        </div>}
+      </div>
+
+      {/* ---- 2. the everyday use: dip → litres ---- */}
+      <div className="card p-4 print:hidden">
+        <div className="mb-2 flex items-center gap-2 font-semibold"><Ruler size={18} className="text-brand-600" /> Dip se litre nikalein · <Ur>ڈپ لکھیں، لیٹر دیکھیں</Ur></div>
+        <div className="grid items-center gap-4 sm:grid-cols-[auto_1fr]">
+          <label className="relative block">
+            <input className="input h-16 w-full py-3 pr-14 text-3xl font-bold tabular-nums sm:w-56" type="number" inputMode="decimal" placeholder="0" value={look} onChange={(e) => setLook(e.target.value)} aria-label="Dip in mm" />
+            <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-lg font-semibold text-slate-400">mm</span>
+          </label>
+          <div className="min-w-0">
+            {!look && <p className="text-sm text-slate-500">Dip ki lakdi par jo mm aaye wo likhein — litre foran aa jayenge. (cm ho to ×10 karein: 45 cm = 450 mm)</p>}
+            {lookR?.error && <p className="text-sm font-medium text-red-600">{lookR.error}</p>}
+            {lookR?.litres != null && <>
+              <div className="flex flex-wrap items-baseline gap-x-3"><span className="text-4xl font-bold tabular-nums text-slate-900">{num(lookR.litres)} L</span>{pct != null && <span className="text-lg font-semibold text-slate-500">{pct}% bhara</span>}</div>
+              {pct != null && <div className="mt-2 h-4 overflow-hidden rounded-full bg-slate-100 ring-1 ring-slate-200"><div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: fuelColor(meta.product) }} /></div>}
+              <div className="mt-1 text-xs text-slate-500">{lookR.step_mm} mm kam = {lookR.down != null ? `${num(lookR.down)} L` : "—"} · {lookR.step_mm} mm zyada = {lookR.up != null ? `${num(lookR.up)} L` : "—"}{fullL ? ` · khali jagah ${num(Math.max(0, fullL - lookR.litres))} L` : ""}</div>
+            </>}
+          </div>
         </div>
       </div>
 
-      {/* lookup: what does a dip of X mm mean */}
-      <div className="card flex flex-wrap items-center gap-3 p-4 print:hidden">
-        <Search size={18} className="text-slate-400" />
-        <input className="input w-36 py-3 text-xl" type="number" inputMode="decimal" placeholder="dip mm" value={look} onChange={(e) => setLook(e.target.value)} />
-        {lookR?.error && <span className="text-sm text-red-600">{lookR.error}</span>}
-        {lookR?.litres != null && <div className="text-sm">
-          <b className="text-2xl tabular-nums">{num(lookR.litres)} L</b>{lookR.pct_full != null && <span className="ml-2 text-slate-500">({lookR.pct_full}% full)</span>}
-          <div className="text-xs text-slate-500">±{lookR.step_mm} mm = {lookR.down != null ? num(lookR.down) : "—"} / {lookR.up != null ? num(lookR.up) : "—"} L · <Ur>ڈپ کا فرق</Ur></div>
-        </div>}
-        {!look && <span className="text-sm text-slate-500">Type a dip to see the litres (between rows it is worked out by straight line) · <Ur>ڈپ لکھیں، لیٹر دیکھیں</Ur></span>}
-      </div>
+      {/* ---- 3. details: only when they need changing ---- */}
+      <details className="card group print:hidden">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-2 p-4 font-semibold">
+          <span className="flex items-center gap-2"><Pencil size={16} className="text-slate-500" /> Chart ki tafseel badlein · <Ur>تفصیل</Ur> <span className="text-sm font-normal text-slate-500">naam, fuel, size, sheet</span></span>
+          <ChevronDown size={18} className="text-slate-400 transition-transform group-open:rotate-180" />
+        </summary>
+        <div className="grid gap-3 border-t border-slate-100 p-4 md:grid-cols-3">
+          <div className="md:col-span-2"><Field label="Chart ka naam"><input className="input" value={meta.name} onChange={(e) => setM("name", e.target.value)} /></Field></div>
+          <Field label="Kis fuel ka"><select className="input" value={meta.product} onChange={(e) => setM("product", e.target.value)}><option value="">Koi bhi</option>{Object.entries(PRODUCTS).map(([k, v]) => <option key={k} value={k}>{v} ({k})</option>)}</select></Field>
+          <Field label="Tank size (litre)"><input className="input" type="number" inputMode="decimal" value={meta.capacity_l} onChange={(e) => setM("capacity_l", e.target.value)} /></Field>
+          <Field label="Andar ki lambai (mm)"><input className="input" type="number" inputMode="decimal" value={meta.length_mm} onChange={(e) => setM("length_mm", e.target.value)} /></Field>
+          <Field label="Andar ki golai / diameter (mm)"><input className="input" type="number" inputMode="decimal" value={meta.diameter_mm} onChange={(e) => setM("diameter_mm", e.target.value)} /></Field>
+          <div className="md:col-span-3"><Field label="Sheet kahan se (company, tareekh)"><input className="input" value={meta.source} onChange={(e) => setM("source", e.target.value)} /></Field></div>
+          <div className="md:col-span-3"><Field label="Note"><textarea className="input min-h-[64px]" value={meta.notes} onChange={(e) => setM("notes", e.target.value)} /></Field></div>
+        </div>
+      </details>
 
       {/* grid */}
       <div className="card p-4">
         <div className="flex flex-wrap items-center gap-2 print:hidden">
-          <h3 className="mr-auto font-semibold">Rows <span className="text-sm font-normal text-slate-500">({num(rows.length)}) · depth mm → litres</span></h3>
-          <input className="input w-32" placeholder="find…" value={q} onChange={(e) => setQ(e.target.value)} />
+          <h3 className="mr-auto font-semibold">Poori table · <Ur>ٹیبل</Ur> <span className="text-sm font-normal text-slate-500">({num(rows.length)} lines) · dip mm → litre — sheet se mila kar check karein</span></h3>
+          <input className="input w-32" placeholder="mm dhoondein…" value={q} onChange={(e) => setQ(e.target.value)} />
           <button className="btn-secondary" onClick={() => setAddRange({ from: String((rows[rows.length - 1]?.depth_mm ?? 0) + (check?.step_mm ?? 5)), to: "", step: String(check?.step_mm ?? 5) })}><Plus size={15} /> Add rows</button>
           <button className="btn-secondary" onClick={fill} disabled={busy}><WandSparkles size={15} /> Fill steps</button>
           {dirty && <button className="btn-secondary" onClick={load}>Discard</button>}
@@ -209,8 +274,9 @@ function Editor({ id, tanks, onChanged, onDeleted }: { id: number; tanks: any[];
           {check.gaps.length > 0 && <div>⚠ Missing steps ({check.step_mm} mm): {check.gaps.slice(0, 12).join(", ")}{check.gaps.length > 12 ? " …" : ""}</div>}
           {check.jumps.slice(0, 5).map((j: any) => <div key={`j${j.depth_mm}`}>⚠ {j.depth_mm} mm: jump of {num(j.delta)} L where nearby steps are about {num(j.typical)} L — check the digits</div>)}
         </div>}
-        {rows.length === 0 ? <Empty>No rows — add some.</Empty> : (
-          <div className="mt-3 grid gap-x-6 md:grid-cols-3">
+        {rows.length > 0 && !showTable && !q && <button type="button" className="mt-3 w-full rounded-xl border-2 border-dashed border-slate-300 py-4 text-sm font-semibold text-slate-600 hover:border-brand-400 hover:text-brand-700 print:hidden" onClick={() => setShowTable(true)}><ChevronDown size={16} className="mr-1 inline" /> Poori table kholein ({num(rows.length)} lines) — dekhne ya number theek karne ke liye</button>}
+        {rows.length === 0 ? <Empty>Koi line nahi — "Add rows" se daalein.</Empty> : (
+          <div className={`mt-3 gap-x-6 md:grid-cols-3 ${showTable || q ? "grid" : "hidden print:grid"}`}>
             {cols.map((col, ci) => (
               <table key={ci} className="w-full text-sm">
                 <thead><tr className="text-left text-xs uppercase text-slate-500"><th className="py-1">mm</th><th className="py-1">Litres</th><th className="w-8 print:hidden" /></tr></thead>
@@ -232,6 +298,12 @@ function Editor({ id, tanks, onChanged, onDeleted }: { id: number; tanks: any[];
         )}
         <Curve rows={rows.filter((r) => Number.isFinite(r.depth_mm) && Number.isFinite(r.litres))} capacity={Number(meta.capacity_l) || null} />
       </div>
+      {dirty && <div className="fixed inset-x-0 bottom-0 z-30 border-t border-amber-200 bg-amber-50/95 px-4 py-3 shadow-lg backdrop-blur print:hidden">
+        <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-2">
+          <span className="text-sm font-semibold text-amber-900">Tabdeeli save nahi hui · <Ur>محفوظ نہیں ہوا</Ur></span>
+          <div className="flex gap-2"><button className="btn-secondary min-h-11" onClick={load} disabled={busy}>Wapas lo</button><button className="btn-primary min-h-11" onClick={save} disabled={busy}><Check size={16} /> Save karein</button></div>
+        </div>
+      </div>}
       {assign && <AssignModal chart={c} tanks={tanks} onClose={() => setAssign(false)} onDone={() => { setAssign(false); load(); onChanged(); }} />}
     </div>
   );
@@ -255,7 +327,7 @@ function AssignModal({ chart, tanks, onClose, onDone }: { chart: Chart; tanks: a
   const [ids, setIds] = useState<number[]>(chart.tanks.map((t) => t.id));
   const save = () => run(() => api(`/dip-charts/${chart.id}/tanks`, { method: "PUT", body: { tank_ids: ids } }), "Tanks updated").then((r) => r && onDone());
   return (
-    <Modal open onClose={onClose} title={`Which tanks use "${chart.name}"?`}>
+    <Modal open onClose={onClose} title={`Ye chart kin tankon par lagega? · ${chart.name}`}>
       <div className="space-y-2">
         {tanks.map((t) => {
           const other = t.dip_chart_id && t.dip_chart_id !== chart.id;
