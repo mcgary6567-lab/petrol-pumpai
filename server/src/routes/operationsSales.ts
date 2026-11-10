@@ -34,7 +34,7 @@ saleRoutes.get("/sales", requirePerm("sales.view"), h((req) => {
   const own = scopedStation(req);
   return all(
     `SELECT s.*, c.name customer_name, st.name station_name FROM sales s JOIN stations st ON st.id=s.station_id
-     LEFT JOIN customers c ON c.id=s.customer_id WHERE st.tenant_id=? ${own ? "AND s.station_id=" + Number(own) : ""} ORDER BY s.id DESC LIMIT ?`, tid(req), limit);
+     LEFT JOIN customers c ON c.id=s.customer_id WHERE st.tenant_id=? ${own ? "AND s.station_id=" + Number(own) : ""} ORDER BY s.created_at DESC, s.id DESC LIMIT ?`, tid(req), limit);
 }));
 
 /**

@@ -337,7 +337,7 @@ function Statement({ acc, manage, onEdit, onClose, onChanged }: { acc: any; mana
             subtitle={[acc.title, acc.account_no && `A/C ${acc.account_no}`, `${d(range.from)} → ${d(range.to)}`].filter(Boolean).join(" · ")}
             label="Report / Print"
             note={`Opening ${pkr(data.opening)} · Money in ${pkr(data.money_in)} · Money out ${pkr(data.money_out)} · Closing ${pkr(data.closing)} · ${data.lines.length} entries`}
-            rows={[{ __open: true, at: range.from, balance: data.opening } as any, ...[...data.lines].reverse()]}
+            rows={[...data.lines, { __open: true, at: range.from, balance: data.opening } as any]} /* newest first, opening at the bottom */
             columns={[
               { label: "Date", v: (l: any) => (l.__open ? d(range.from) : new Date(l.at).toLocaleString("en-PK", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })) },
               { label: "Details", v: (l: any) => (l.__open ? "Opening balance" : [KIND_TAG[l.kind] ?? l.kind, l.text, l.who].filter(Boolean).join(" · ")), total: () => `${data.lines.length} entries` },

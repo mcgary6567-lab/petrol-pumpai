@@ -10,7 +10,7 @@ import { api, linkToken, useApi } from "../lib/api";
 import { Badge, Empty, ErrorBox, Field, ListTools, Loading, Modal, PageHeader, useAction, useListFilter, useNewRows } from "../components/ui";
 import { WhatsAppDoc } from "../components/WhatsAppDoc";
 import { PaymentApprovals } from "../components/PaymentApprovals";
-import { ago, dt, num, phone, pkr, pkrShort } from "../lib/format";
+import { ago, newestFirst, dt, num, phone, pkr, pkrShort } from "../lib/format";
 import { toWords } from "../lib/words";
 import { NumPad, useNumPadOn } from "../components/Asaan";
 import { ProofPhotos, ProofThumbs } from "../components/Capture";
@@ -959,7 +959,7 @@ function DayBook() {
   const { data, error } = useApi<any>(range ? `/cashier/daybook?from=${date}&to=${to}` : `/cashier/daybook?date=${date}`);
   useEffect(() => setShown(60), [date, to, filter, q]);
   const rows = useMemo(() => {
-    const all: any[] = data?.rows ?? [];
+    const all: any[] = newestFirst(data?.rows); // latest entry first
     const term = q.trim().toLowerCase();
     return all.filter((r) => {
       if (filter === "cash_in" && !(r.dir === "in" && r.cash)) return false;

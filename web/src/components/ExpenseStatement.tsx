@@ -4,7 +4,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronDown, Download, Printer, Search, Send, X } from "lucide-react";
 import { api, linkToken, useApi } from "../lib/api";
 import { Empty, Field, Loading, Stat, useAction } from "./ui";
-import { d, pkr } from "../lib/format";
+import { d, newestFirst, pkr } from "../lib/format";
 import { PhotoThumb } from "./Capture";
 import { Ur } from "./VoiceShell";
 
@@ -149,7 +149,7 @@ export function ExpenseStatement({ categories, stations, onVoucher }: { categori
                     </div>
                     {/* phone: one card per entry */}
                     <ul className="divide-y divide-slate-100 sm:hidden print:hidden">
-                      {g.lines.map((l: any) => (
+                      {newestFirst(g.lines).map((l: any) => (
                         <li key={l.id} className="flex items-start justify-between gap-3 px-4 py-2">
                           <div className="min-w-0 text-sm">
                             <div className="font-medium">{l.paid_to || g.category}</div>
@@ -163,7 +163,7 @@ export function ExpenseStatement({ categories, stations, onVoucher }: { categori
                     <table className="hidden w-full table-fixed text-sm sm:table print:table">
                       <thead><tr><th className="th w-[11%]">Tareekh</th><th className="th w-[12%]">Voucher</th><th className="th w-[22%]">Kis ko diya</th><th className="th w-[11%]">Tareeqa</th><th className="th">Note</th><th className="th w-[13%] text-right">Raqam</th><th className="th w-[13%] text-right">Running</th></tr></thead>
                       <tbody>
-                        {g.lines.map((l: any) => (
+                        {newestFirst(g.lines).map((l: any) => (
                           <tr key={l.id}>
                             <td className="td whitespace-nowrap">{d(l.day)}</td>
                             <td className="td whitespace-nowrap">{l.source === "other" ? <span className="font-mono text-xs text-violet-800" title="Other entries (CEO)">{l.voucher}</span> : <button type="button" className="font-mono text-xs text-brand-700 underline print:text-slate-900 print:no-underline" onClick={() => onVoucher(l)}>{l.voucher}</button>}</td>

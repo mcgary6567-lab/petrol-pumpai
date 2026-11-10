@@ -292,7 +292,7 @@ function SupplierDetail({ id, onClose, onChanged, depots, onDepots }: { id: numb
       {!s ? <Loading /> : (
         <div className="space-y-4">
           {(s.owed ?? 0) < -0.5 && (s.bypass_owed ?? 0) > 0.5 && <ReclassBanner rows={[s]} onDone={() => { reload(); onChanged(); }} />}
-          {/* on paper: the supplier's account, oldest entry first, like a bank statement */}
+          {/* on paper: the supplier's account, newest entry first (same as the screen), opening balance at the bottom */}
           <div className="own-title hidden print:block">
             <div className="flex items-end justify-between border-b border-slate-300 pb-2">
               <div><div className="text-lg font-bold">{label(s)}</div><div className="text-xs text-slate-600">{[s.depot_name ? `Depot: ${s.depot_name}${s.depot_address ? `, ${s.depot_address}` : ""}` : "", s.phone ? phone(s.phone) : "", "Supplier account statement"].filter(Boolean).join(" · ")}</div></div>
@@ -301,8 +301,7 @@ function SupplierDetail({ id, onClose, onChanged, depots, onDepots }: { id: numb
             <table className="mt-2 w-full">
               <thead><tr><th className="th">Date</th><th className="th">Entry</th><th className="th">Gaari</th><th className="th">Fuel</th><th className="th text-right">Litres</th><th className="th text-right">Rate</th><th className="th">Tafseel</th><th className="th text-right">Purchased</th><th className="th text-right">Paid</th><th className="th text-right">We owe</th></tr></thead>
               <tbody>
-                <tr><td className="td" colSpan={9}>Opening balance</td><td className="td whitespace-nowrap text-right tabular-nums">{pkr(s.opening_balance ?? 0)}</td></tr>
-                {[...s.lines].reverse().map((t: any) => (
+                {s.lines.map((t: any) => ( /* newest first, like the screen */
                   <tr key={t.id}>
                     <td className="td whitespace-nowrap">{d(t.txn_date)}</td><td className="td capitalize">{t.type}{t.source === "bypass" ? " (bypass)" : ""}</td>
                     <td className="td whitespace-nowrap">{t.vehicle_no ?? ""}{t.driver_name ? <span className="block text-[10px] text-slate-500">{t.driver_name}</span> : null}</td>
@@ -314,6 +313,7 @@ function SupplierDetail({ id, onClose, onChanged, depots, onDepots }: { id: numb
                     <td className="td whitespace-nowrap text-right tabular-nums text-emerald-700">{t.credit ? pkr(t.credit) : ""}</td>
                     <td className="td whitespace-nowrap text-right tabular-nums">{pkr(t.balance)}</td>
                   </tr>))}
+                <tr><td className="td" colSpan={9}>Opening balance</td><td className="td whitespace-nowrap text-right tabular-nums">{pkr(s.opening_balance ?? 0)}</td></tr>
                 <tr className="font-bold"><td className="td border-t-2 border-slate-800" colSpan={4}>Closing balance (we owe)</td>
                 <td className="td border-t-2 border-slate-800 whitespace-nowrap text-right tabular-nums">{num(s.lines.reduce((a: number, t: any) => a + (t.type === "purchase" ? t.litres ?? 0 : 0), 0))} L</td>
                 <td className="td border-t-2 border-slate-800" colSpan={2} />

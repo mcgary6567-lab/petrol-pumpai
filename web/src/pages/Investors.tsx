@@ -312,7 +312,6 @@ function InvestorDetail({ id, onBack, onEdit, form, setForm }: { id: number; onB
           <table className="w-full min-w-[860px] text-sm">
             <thead><tr><th className="th">Tareekh</th><th className="th">Kism</th><th className="th">Kaise</th><th className="th">Tafseel</th><th className="th text-right">Debit</th><th className="th text-right">Credit</th><th className="th text-right">Balance</th><th className="th"></th></tr></thead>
             <tbody>
-              <tr className="bg-slate-50 text-xs"><td className="td" colSpan={6}>Opening balance</td><td className="td text-right font-semibold tabular-nums">{pkr(data.opening)}</td><td className="td"></td></tr>
               {paged.slice.map((x: any) => (
                 <tr key={x.id} className={`border-t ${x.voided ? "text-slate-400 line-through" : ""}`}>
                   <td className="td whitespace-nowrap text-xs">{dt(x.created_at)}</td>
@@ -325,6 +324,7 @@ function InvestorDetail({ id, onBack, onEdit, form, setForm }: { id: number; onB
                   <td className="td text-right">{!x.voided && (x.type === "capital_in" || x.type === "payout" || x.method === "Opening" || x.method === "Manual") && <button className="text-slate-400 hover:text-rose-600" onClick={() => voidTxn(x)} aria-label="Mansookh"><Ban size={15} /></button>}</td>
                 </tr>
               ))}
+              <tr className="bg-slate-50 text-xs"><td className="td" colSpan={6}>Opening balance</td><td className="td text-right font-semibold tabular-nums">{pkr(data.opening)}</td><td className="td"></td></tr>
             </tbody>
             <tfoot><tr className="border-t-2 border-slate-300 bg-slate-50 font-semibold tabular-nums">
               <td className="td" colSpan={4}>Kul · closing balance</td>

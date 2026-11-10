@@ -10,7 +10,7 @@ import { PartyAdmin } from "../components/PartyAdmin";
 import { api, linkToken, useApi } from "../lib/api";
 import { Badge, Empty, ErrorBox, Field, ListTools, Loading, Modal, PageHeader, Pager, PhoneInput, useAction, useListFilter, usePaged } from "../components/ui";
 import { WhatsAppDoc } from "../components/WhatsAppDoc";
-import { PRODUCTS, ago, d, dt, num, phone, pkr, pkrShort, dueLabel, nowLocal } from "../lib/format";
+import { newestFirst, PRODUCTS, ago, d, dt, num, phone, pkr, pkrShort, dueLabel, nowLocal } from "../lib/format";
 import { useAuth } from "../App";
 import { OpeningBalanceField, type AdvanceReceipt } from "../components/OpeningBalanceField";
 import { WholesaleDashboard } from "../components/WholesaleDashboard";
@@ -486,11 +486,11 @@ function ClientDetail({ id }: { id: string }) {
         <h2 className="hidden px-4 pt-4 font-semibold print:block">Account statement {range.from && `from ${range.from}`} {range.to && `to ${range.to}`}</h2>
         {stmt.data ? (
           <>
-            <div className="flex justify-between bg-slate-50 px-4 py-2 text-sm"><span>Opening balance{stmt.data.opening_balance < -0.5 ? " (advance)" : ""}</span><span className="font-medium tabular-nums">{pkr(Math.abs(stmt.data.opening_balance))}</span></div>
+            <div className="flex justify-between bg-slate-50 px-4 py-2 text-sm font-semibold"><span>{stmt.data.closing_balance < -0.5 ? "Closing — advance with us" : "Closing balance (due)"}</span><span className="tabular-nums">{pkr(Math.abs(stmt.data.closing_balance))}</span></div>
             {editRow && <FullEditEntry kind="wholesale" id={editRow.id} onClose={() => setEditRow(null)} onDone={refresh} />}
             {posEdit && <EditPosSupply x={posEdit} onClose={() => setPosEdit(null)} onDone={() => { setPosEdit(null); refresh(); }} />}
             {viewRow && <WholesaleEntryView clientId={Number(id)} txnId={viewRow.id} onClose={() => setViewRow(null)} />}
-            <LedgerTable rows={stmt.data.lines} running tools movable={movable} onShifted={refresh} onView={(row) => setViewRow(row)} onEdit={can("entries.edit") || can("wholesale.manage") ? (row) => { if (row.sale_id && row.type === "supply") setPosEdit(row); else if (can("entries.edit")) setEditRow(row); else alert("Wholesale officer sirf POS se aayi supply (POS-…) edit kar sakta hai — baqi entries CEO badalta hai"); } : undefined} onVoid={(can("wholesale.void") || can("wholesale.manage")) ? async (row) => {
+            <LedgerTable rows={newestFirst(stmt.data.lines)} running tools movable={movable} onShifted={refresh} onView={(row) => setViewRow(row)} onEdit={can("entries.edit") || can("wholesale.manage") ? (row) => { if (row.sale_id && row.type === "supply") setPosEdit(row); else if (can("entries.edit")) setEditRow(row); else alert("Wholesale officer sirf POS se aayi supply (POS-…) edit kar sakta hai — baqi entries CEO badalta hai"); } : undefined} onVoid={(can("wholesale.void") || can("wholesale.manage")) ? async (row) => {
               if (row.type === "fuel_note") {
                 if (confirm(`Void this fuel payment of ${pkr(row.amount)}? Any bank movement will be reversed.`)) { await api(`/carriage/fuel-payments/${String(row.id).replace("bfp", "")}/void`, { body: {} }).catch((e) => alert(e.message)); refresh(); }
                 return;
@@ -499,7 +499,7 @@ function ClientDetail({ id }: { id: string }) {
                 what: <><b>{pkr(row.amount)}</b> · {row.type}{row.product ? ` · ${num(row.litres, 2)} L` : ""}{row.method ? ` · ${row.method}` : ""}<div className="text-xs">{dt(row.txn_date)}{row.ref ? ` · ${row.ref}` : ""}{row.note ? ` · ${row.note}` : ""}</div></> });
               if (a) { await api(`/wholesale/txns/${row.id}/void`, { body: { reason: a.reason }, headers: pinHeader(a) }).catch((e) => alert(e.message)); refresh(); }
             } : undefined} />
-            <div className="flex justify-between bg-slate-50 px-4 py-2 text-sm font-semibold"><span>{stmt.data.closing_balance < -0.5 ? "Closing — advance with us" : "Closing balance (due)"}</span><span className="tabular-nums">{pkr(Math.abs(stmt.data.closing_balance))}</span></div>
+            <div className="flex justify-between bg-slate-50 px-4 py-2 text-sm"><span>Opening balance{stmt.data.opening_balance < -0.5 ? " (advance)" : ""}</span><span className="font-medium tabular-nums">{pkr(Math.abs(stmt.data.opening_balance))}</span></div>
           </>
         ) : <Loading />}
       </div>

@@ -53,6 +53,15 @@ export const DIP_CHART_TEMPLATES: DipChartTemplate[] = [
     rows: [[0, 0], ...PETROL_1700],
   },
   {
+    key: "ug-1700-hsd",
+    name: "Diesel dip chart — U/G tank Ø1700 mm, 6,906 L (Zain Oil, Kotla Jam)",
+    product: "HSD",
+    capacity_l: 6911.6, diameter_mm: 1700,
+    source: "Diesel dip chart (Zain Oil, Kotla Jam, Iftikhar Hussain) — dip every 10 mm, 10 to 1690 mm",
+    notes: "Same tank size as the Petrol Ø1700 sheet. The printed sheet skipped 730, 980 and 1230 mm (first line of a column); those are filled by straight line. 1700 mm (full) is worked out from the top of the curve. Check against your own sheet.",
+    rows: [[0, 0], ...PETROL_1700],
+  },
+  {
     key: "ug-14370-hsd",
     name: "Diesel dip chart — U/G tank 12'3\" × 7'3\", HSD 14,370 L",
     product: "HSD",

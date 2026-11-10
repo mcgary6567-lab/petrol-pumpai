@@ -54,7 +54,7 @@ export function PartyLedger() {
   const [showVoid, setShowVoid] = useState(false);
   useEffect(() => { const t = setTimeout(() => { setDq(q.trim()); setPage(1); }, 300); return () => clearTimeout(t); }, [q]);
   useEffect(() => { setPage(1); }, [clientId, from, to, showVoid]);
-  const qs = new URLSearchParams(Object.entries({ from, to, page: String(page), size: "10", q: dq, voided: showVoid ? "true" : "" }).filter(([, v]) => v)).toString();
+  const qs = new URLSearchParams(Object.entries({ from, to, page: String(page), size: "10", newest: "1", q: dq, voided: showVoid ? "true" : "" }).filter(([, v]) => v)).toString();
   // one page of lines + running balances + period totals + months, computed server-side (a 5-year client never ships 20k rows)
   const stmt = useApi<any>(clientId ? `/wholesale/clients/${clientId}/statement?${qs}` : null);
   const [open, setOpen] = useState<any>(null);
@@ -152,7 +152,6 @@ export function PartyLedger() {
                 <th className={`${TH} text-right`}>Debit</th><th className={`${TH} text-right`}>Credit</th><th className={`${TH} text-right`}>Balance</th>
               </tr></thead>
               <tbody>
-                {paged.page === 1 && !needle && <tr className="border-b border-slate-100 bg-slate-50 font-semibold text-slate-700"><td className={TD}>{from ? dayLabel(from + "T00:00:00+05:00") : "—"}</td><td /><td className={TD}>Opening balance b/f</td>{showFleet && <><td /><td /><td /></>}<td /><td /><td className={`${TD} text-right`}><Bal n={s.opening_balance} /></td></tr>}
                 {(paged.slice as any[]).map((l) => {
                   const note = l.type === "fuel_note";
                   return (
@@ -169,6 +168,7 @@ export function PartyLedger() {
                     </tr>
                   );
                 })}
+                {paged.page === paged.pages && !needle && <tr className="border-b border-slate-100 bg-slate-50 font-semibold text-slate-700"><td className={TD}>{from ? dayLabel(from + "T00:00:00+05:00") : "—"}</td><td /><td className={TD}>Opening balance b/f</td>{showFleet && <><td /><td /><td /></>}<td /><td /><td className={`${TD} text-right`}><Bal n={s.opening_balance} /></td></tr>}
                 {!lines.length && <tr><td colSpan={cols} className="px-3 py-8 text-center text-slate-500">{needle ? "Kuch nahi mila · کچھ نہیں ملا" : "Is muddat mein koi entry nahi"}</td></tr>}
                 {stmt.loading && lines.length > 0 && <tr><td colSpan={cols} className="px-3 py-1 text-center text-xs text-slate-400">…</td></tr>}
                 {!needle && <tr className="bg-slate-50 font-bold text-slate-800">{/* period totals on every page — they are the period's, not the page's */}

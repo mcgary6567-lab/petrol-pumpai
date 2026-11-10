@@ -9,7 +9,7 @@ import { PartyAdmin } from "../components/PartyAdmin";
 import { api, linkToken, useApi } from "../lib/api";
 import { Badge, CnicInput, Empty, ErrorBox, Field, FilterChips, ListTools, Loading, Modal, PageHeader, Pager, PhoneInput, useAction, useListFilter, usePaged } from "../components/ui";
 import { WhatsAppDoc } from "../components/WhatsAppDoc";
-import { PRODUCTS, activeProducts, dt, num, pkr, pkrShort } from "../lib/format";
+import { PRODUCTS, activeProducts, newestFirst, dt, num, pkr, pkrShort } from "../lib/format";
 import { useAuth } from "../App";
 import { ProofPhotos, ProofThumbs } from "../components/Capture";
 import { AccountPicker } from "../components/BankParts";
@@ -186,7 +186,7 @@ function Statement({ data, canVoid, canEdit, onChanged }: { data: any; canVoid: 
   const [edit, setEdit] = useState<any>(null);
   const [q, setQ] = useState("");
   const [type, setType] = useState("");
-  const allLines: any[] = data.lines ?? [];
+  const allLines: any[] = newestFirst(data.lines); // newest first, opening at the bottom
   const TYPE_LABEL: Record<string, string> = { carriage: "Kiraya", payment: "Payment", adjustment: "Adjustment" };
   const typeChips = [{ k: "", label: "All", n: allLines.length }, ...["carriage", "payment", "adjustment"].map((k) => ({ k, label: TYPE_LABEL[k], n: allLines.filter((r) => r.type === k).length })).filter((c) => c.n > 0)];
   const lines = useListFilter(allLines, { q, keep: (r) => !type || r.type === type,
@@ -206,7 +206,7 @@ function Statement({ data, canVoid, canEdit, onChanged }: { data: any; canVoid: 
     <>
     {tools}
     <ul className="divide-y divide-slate-100">
-      <li className="flex justify-between px-4 py-2 text-sm text-slate-500"><span>Opening</span><b className="tabular-nums">{pkr(data.opening_balance)}</b></li>
+      <li className="flex justify-between border-b-2 px-4 py-2 font-bold"><span>Closing (baqaya)</span><b className="tabular-nums">{pkr(data.closing_balance)}</b></li>
       {lines.map((r) => (
         <li key={`${r.type}-${r.id}`} className={`flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 text-sm ${r.voided ? "opacity-40 line-through print:hidden" : ""} ${r.type === "fuel_note" ? "bg-slate-50/60" : ""}`}>
           <div className="min-w-0 flex-1">
@@ -221,7 +221,7 @@ function Statement({ data, canVoid, canEdit, onChanged }: { data: any; canVoid: 
           {canVoid && !r.voided && <button className="text-xs text-rose-600 hover:underline disabled:opacity-40" disabled={busy} onClick={() => voidIt(r)} title="Void"><Ban size={14} /></button>}
         </li>
       ))}
-      <li className="flex justify-between border-t-2 px-4 py-2 font-bold"><span>Closing (baqaya)</span><b className="tabular-nums">{pkr(data.closing_balance)}</b></li>
+      <li className="flex justify-between border-t px-4 py-2 text-sm text-slate-500"><span>Opening</span><b className="tabular-nums">{pkr(data.opening_balance)}</b></li>
       {edit && <FullEditEntry kind="carriage" id={edit.id} onClose={() => setEdit(null)} onDone={onChanged} />}
     </ul>
     </>

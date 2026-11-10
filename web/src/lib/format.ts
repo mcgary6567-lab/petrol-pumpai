@@ -54,3 +54,7 @@ export const phone = (p: string) => (p?.startsWith("92") ? `+92 ${p.slice(2, 5)}
 export const nowLocal = () => { const d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 16); };
 /** "YYYY-MM-DDTHH:MM" → "DD-Mon, hh:mm am" for labels; a bare day stays a day. */
 export const dtLocal = (v: string) => (v.length > 10 ? new Date(v).toLocaleString("en-PK", { day: "2-digit", month: "short", hour: "numeric", minute: "2-digit" }) : v);
+
+/** Statements are built oldest → newest (that is how the running balance adds up); screens show them newest first.
+ *  Reversing keeps every row's own balance, so reading down goes back in time to the opening balance. */
+export const newestFirst = <T,>(rows: readonly T[] | null | undefined): T[] => (rows ? [...rows].reverse() : []);

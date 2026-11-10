@@ -667,7 +667,7 @@ export function statement(tenantId: number, clientId: number, from?: string, to?
  *  only `size` lines travel, with the period totals, the month summary and a text search applied before paging. */
 wholesale.get("/wholesale/clients/:id/statement", h((req) => {
   const q = parse(z.object({ from: dateStr, to: dateStr, page: z.coerce.number().int().min(1).optional(), size: z.coerce.number().int().min(5).max(100).default(10),
-    q: z.string().trim().max(80).optional(), voided: z.coerce.boolean().optional() }), req.query);
+    q: z.string().trim().max(80).optional(), voided: z.coerce.boolean().optional(), newest: z.coerce.boolean().optional() }), req.query);
   const s = statement(tid(req), Number(req.params.id), q.from, q.to);
   if (!q.page) return s;
   const live = s.lines.filter((l) => l.type !== "fuel_note" && !l.voided);
@@ -685,8 +685,10 @@ wholesale.get("/wholesale/clients/:id/statement", h((req) => {
   const no = (l: Row) => l.voucher_no ?? `${l.type === "supply" ? "WS" : l.type === "payment" ? "RV" : l.type === "return" ? "CN" : "JV"}-${l.id}`;
   const rows = s.lines.filter((l) => (q.voided || !l.voided) && (!needle ||
     [no(l), l.id, l.type, l.product && PRODUCTS[l.product], l.vehicle_no, l.driver_name, l.ref, l.note, l.method, l.location, l.litres, l.rate, l.amount, l.txn_date?.slice(0, 10), l.created_by].some((v) => String(v ?? "").toLowerCase().includes(needle))));
+  if (q.newest) rows.reverse(); // ?newest=1: page 1 = the latest entries (each line keeps its own running balance)
   const pages = Math.max(1, Math.ceil(rows.length / q.size)), page = Math.min(q.page, pages);
-  return { ...s, lines: rows.slice((page - 1) * q.size, page * q.size), page, pages, size: q.size, total: rows.length, period, months: [...months.values()] };
+  const monthList = [...months.values()];
+  return { ...s, lines: rows.slice((page - 1) * q.size, page * q.size), page, pages, size: q.size, total: rows.length, period, months: q.newest ? monthList.reverse() : monthList, newest: !!q.newest };
 }));
 
 /** One wholesale entry with every input filled in — for the "View" panel on the client page. A supply that came off a

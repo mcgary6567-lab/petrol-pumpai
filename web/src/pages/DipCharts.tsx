@@ -16,6 +16,7 @@ type Chart = { id: number; name: string; product: string | null; capacity_l: num
  */
 export default function DipCharts() {
   const list = useApi<{ charts: Chart[]; tanks: any[]; templates: any[]; ai: boolean }>("/dip-charts");
+  const { busy, run } = useAction();
   const [params, setParams] = useSearchParams();
   const sel = Number(params.get("chart")) || null;
   const tankParam = Number(params.get("tank")) || null;
@@ -33,12 +34,24 @@ export default function DipCharts() {
   const current = charts.find((c) => c.id === sel) ?? null;
   const unassigned = list.data.tanks.filter((t) => !t.dip_chart_id && !t.legacy_rows);
   const legacy = list.data.tanks.filter((t) => !t.dip_chart_id && t.legacy_rows);
+  // a tank on another fuel's chart (e.g. Diesel tank on the Petrol chart) reads the wrong litres
+  const wrong = list.data.tanks.filter((t) => t.dip_chart_id && t.chart_product && t.chart_product !== t.product);
+  const tplFor = (p: string) => list.data!.templates.find((x) => x.product === p);
+  const fixTank = (tk: any) => { const tp = tplFor(tk.product); if (tp) run(() => api(`/tanks/${tk.id}/dip-chart/template`, { body: { template_key: tp.key } }), `${tk.name}: ${tp.name}`).then((r: any) => { if (r) { list.reload(); select(r.id); } }); };
   return (
     <div className="space-y-4">
       <PageHeader title="Dip charts · ڈپ چارٹ" subtitle="Oil company's calibration table per tank: dip (mm) → litres. One chart can serve every tank of the same size."
         actions={<button className="btn-primary" onClick={() => setCreating("pick")}><Plus size={16} /> New chart</button>} />
       {unassigned.length > 0 && <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
         <b>{unassigned.length} tank{unassigned.length > 1 ? "s" : ""} without a chart:</b> {unassigned.map((t) => `${t.name} (${t.product})`).join(", ")}. Dip in cm/mm cannot be turned into litres for them until a chart is assigned · <Ur>ان ٹینکوں پر چارٹ لگائیں</Ur>
+      </div>}
+      {wrong.length > 0 && <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-900">
+        <div className="font-semibold">Ghalat chart · <Ur>غلط چارٹ</Ur> — in tanks par doosre fuel ka dip chart laga hai, litre ghalat banenge:</div>
+        <ul className="mt-2 space-y-2">{wrong.map((t) => { const tp = tplFor(t.product); return (
+          <li key={t.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-white/70 p-2">
+            <span><b>{t.name}</b> ({PRODUCTS[t.product] ?? t.product} tank) · abhi: {t.chart_name} ({PRODUCTS[t.chart_product] ?? t.chart_product})</span>
+            {tp ? <button className="btn-primary min-h-10 text-sm" disabled={busy} onClick={() => fixTank(t)}>{PRODUCTS[t.product] ?? t.product} ka chart lagayein</button> : <span className="text-xs">"New chart" se {PRODUCTS[t.product] ?? t.product} ka chart banayein</span>}
+          </li>); })}</ul>
       </div>}
       {legacy.length > 0 && <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">
         {legacy.map((t) => t.name).join(", ")}: still on the old per-tank cm table — works, but assign a chart here to edit it in the grid and share it between tanks.

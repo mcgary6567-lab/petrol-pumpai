@@ -78,7 +78,7 @@ dipCharts.get("/dip-charts", requirePerm("stock.manage"), h((req) => {
   const t = tid(req);
   return {
     charts: all("SELECT * FROM dip_charts WHERE tenant_id=? ORDER BY name", t).map((c) => summary(t, c)),
-    tanks: all("SELECT t.id, t.name, t.product, t.capacity_l, t.dip_chart_id, s.name station, (SELECT COUNT(*) FROM tank_charts WHERE tank_id=t.id) legacy_rows FROM tanks t JOIN stations s ON s.id=t.station_id WHERE s.tenant_id=? AND t.active=1 ORDER BY s.name, t.name", t),
+    tanks: all("SELECT t.id, t.name, t.product, t.capacity_l, t.dip_chart_id, s.name station, (SELECT COUNT(*) FROM tank_charts WHERE tank_id=t.id) legacy_rows, (SELECT product FROM dip_charts WHERE id=t.dip_chart_id) chart_product, (SELECT name FROM dip_charts WHERE id=t.dip_chart_id) chart_name FROM tanks t JOIN stations s ON s.id=t.station_id WHERE s.tenant_id=? AND t.active=1 ORDER BY s.name, t.name", t),
     templates: DIP_CHART_TEMPLATES.map((x) => ({ key: x.key, name: x.name, product: x.product, capacity_l: x.capacity_l, length_mm: x.length_mm, diameter_mm: x.diameter_mm, source: x.source, rows: x.rows.length, max_mm: x.rows[x.rows.length - 1][0] })),
     ai: aiEnabled(),
   };
@@ -240,6 +240,31 @@ dipCharts.put("/dip-charts/:id/tanks", requirePerm("stock.manage"), h((req) => {
   });
   audit(t, req.user!, "dip_chart_assign", `dip_chart:${c.id}`, { tank_ids: b.tank_ids });
   return summary(t, c);
+}));
+
+/** One tap fix for a tank on the wrong fuel's chart (e.g. a Diesel tank on the Petrol chart): put it on a built-in template's
+ *  chart — the pump's own copy of that template when it already has one, else a new copy. Only this tank moves. */
+dipCharts.post("/tanks/:id/dip-chart/template", requirePerm("stock.manage"), h((req) => {
+  const t = tid(req);
+  const b = parse(z.object({ template_key: z.string().min(1).max(60) }), req.body);
+  const tank = get("SELECT t.id, t.name, t.product FROM tanks t JOIN stations s ON s.id=t.station_id WHERE t.id=? AND s.tenant_id=?", Number(req.params.id), t);
+  if (!tank) throw new AppError(404, "Tank not found");
+  const tpl = DIP_CHART_TEMPLATES.find((x) => x.key === b.template_key);
+  if (!tpl) throw new AppError(404, "Template not found");
+  if (tpl.product && tpl.product !== tank.product) throw new AppError(400, `${tank.name} is a ${tank.product} tank — this chart is for ${tpl.product}`);
+  const id = tx(() => {
+    let c = get("SELECT id FROM dip_charts WHERE tenant_id=? AND template_key=? ORDER BY id LIMIT 1", t, tpl.key);
+    if (!c) {
+      const r = run("INSERT INTO dip_charts (tenant_id,name,product,capacity_l,length_mm,diameter_mm,source,notes,template_key,photo_id,created_by,created_at,updated_by,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        t, tpl.name, tpl.product, tpl.capacity_l, tpl.length_mm ?? null, tpl.diameter_mm ?? null, tpl.source, tpl.notes ?? null, tpl.key, null, who(req), now(), who(req), now());
+      for (const [depth_mm, litres] of tpl.rows) run("INSERT INTO dip_chart_rows (chart_id,depth_mm,litres) VALUES (?,?,?)", r.id, depth_mm, litres);
+      c = { id: r.id };
+    }
+    run("UPDATE tanks SET dip_chart_id=? WHERE id=?", c.id, tank.id);
+    return c.id;
+  });
+  audit(t, req.user!, "dip_chart_assign", `dip_chart:${id}`, { tank_ids: [tank.id], template: tpl.key });
+  return summary(t, own(t, id));
 }));
 
 /** One tank → one chart (or none); used from the Tanks & Stock page. */

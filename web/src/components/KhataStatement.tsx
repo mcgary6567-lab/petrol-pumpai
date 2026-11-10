@@ -5,7 +5,7 @@ import { ProofThumbs } from "./Capture";
 import { PortalCard } from "./PortalCard";
 import { Field, ListTools, Loading, Modal, useAction, useListFilter, useNewRows } from "./ui";
 import { WhatsAppDoc } from "./WhatsAppDoc";
-import { PRODUCTS, num, phone, pkr } from "../lib/format";
+import { PRODUCTS, newestFirst, num, phone, pkr } from "../lib/format";
 
 const pkToday = () => new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 10);
 const monthStart = () => pkToday().slice(0, 8) + "01";
@@ -24,7 +24,7 @@ export default function KhataStatement({ customerId, onClose }: { customerId: nu
   const [lq, setLq] = useState("");
   const vehicles: string[] = [...new Set<string>(((s?.lines ?? []) as any[]).map((l) => l.vehicle_no).filter(Boolean))].sort();
   const fresh = useNewRows<any>(s?.lines, (l) => l.id);
-  const lines = useListFilter<any>(s?.lines, { q: lq, keep: (l) => (!veh || l.vehicle_no === veh) && (!billOnly || (l.type === "debit" && !/^(refund:|xfer:|open:)/i.test(String(l.ref ?? "")))),
+  const lines = useListFilter<any>(newestFirst(s?.lines), { // newest first q: lq, keep: (l) => (!veh || l.vehicle_no === veh) && (!billOnly || (l.type === "debit" && !/^(refund:|xfer:|open:)/i.test(String(l.ref ?? "")))),
     text: (l) => [l.product ? PRODUCTS[l.product] : "", l.product, l.type === "credit" ? "payment" : "", l.note, l.ref, l.slip_no, l.vehicle_no, l.amount, l.litres].filter((v) => v != null && v !== "").join(" ") });
   const narrowed = Boolean(veh || lq.trim());
   // vehicle / slip columns only when some line has one, so the paper is not half dashes

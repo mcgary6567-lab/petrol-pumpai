@@ -74,7 +74,7 @@ corrections.get("/corrections/sales", requirePerm("corrections.manage"), h((req)
        LEFT JOIN customers c ON c.id=s.customer_id
        LEFT JOIN users u ON u.id=s.created_by
      WHERE st.tenant_id=?${f.where}
-     ORDER BY s.id DESC LIMIT ?`, t, ...f.params, f.limit);
+     ORDER BY s.created_at DESC, s.id DESC LIMIT ?`, t, ...f.params, f.limit);
   return { sales: rows };
 }));
 
@@ -207,7 +207,7 @@ corrections.get("/corrections/khata", requirePerm("corrections.manage"), h((req)
   const rows = all(
     `SELECT k.id, k.type, k.amount, k.ref, k.note, k.created_at,
             EXISTS(SELECT 1 FROM cashier_vouchers v WHERE v.tenant_id=? AND v.src='khata:'||k.id) via_cashier
-     FROM khata_ledger k WHERE k.customer_id=?${f.where} ORDER BY k.id DESC LIMIT ?`, t, c.id, ...f.params, f.limit)
+     FROM khata_ledger k WHERE k.customer_id=?${f.where} ORDER BY k.created_at DESC, k.id DESC LIMIT ?`, t, c.id, ...f.params, f.limit)
     .map((k) => {
       // what owns this row decides where it must be undone
       const ref = String(k.ref ?? "");
@@ -274,7 +274,7 @@ corrections.get("/corrections/deliveries", requirePerm("corrections.manage"), h(
             tk.name tank, tk.product,
             (SELECT status FROM shortage_claims c WHERE c.delivery_id=d.id) claim_status
      FROM deliveries d JOIN tanks tk ON tk.id=d.tank_id JOIN stations st ON st.id=tk.station_id
-     WHERE st.tenant_id=?${f.where} ORDER BY d.id DESC LIMIT ?`, t, ...f.params, f.limit)
+     WHERE st.tenant_id=?${f.where} ORDER BY d.created_at DESC, d.id DESC LIMIT ?`, t, ...f.params, f.limit)
     .map((d) => ({ ...d, amount: round2((d.invoice_l ?? 0) * (d.purchase_rate ?? 0)),
       // a delivery whose shortage claim is already being chased / recovered can't be voided here
       voidable: !d.claim_status || d.claim_status === "open" }));

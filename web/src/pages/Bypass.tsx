@@ -6,7 +6,7 @@ import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Toolti
 import { Plus, Truck, Fuel, Factory, Download, Printer, HandCoins, Ban, Pencil } from "lucide-react";
 import { api, linkToken, useApi } from "../lib/api";
 import { Empty, ErrorBox, Field, ListTools, Loading, Modal, Pager, Stat, useAction, useListFilter, usePaged } from "../components/ui";
-import { PRODUCTS, activeProducts, dt, num, phone, pkr, pkrShort } from "../lib/format";
+import { PRODUCTS, activeProducts, newestFirst, dt, num, phone, pkr, pkrShort } from "../lib/format";
 import { useAuth } from "../App";
 import { ProofPhotos, ProofThumbs } from "../components/Capture";
 import { AccountPicker } from "../components/BankParts";
@@ -592,7 +592,7 @@ function SupplierStatement({ id, onClose, onChanged }: { id: number; onClose: ()
   const refresh = () => { reload(); onChanged(); };
   const csvUrl = `/api/bypass/suppliers/${id}/statement.csv?${qs ? qs + "&" : ""}token=${linkToken()}`;
   const s = data?.supplier;
-  const allLines: any[] = data?.lines ?? [];
+  const allLines: any[] = newestFirst(data?.lines); // newest first, opening balance at the bottom
   const KIND_LABEL: Record<string, string> = { purchase: "Fuel bought", payment: "Payment", adjustment: "Adjustment" };
   const kindChips = [{ k: "", label: "All", n: allLines.length }, ...Array.from(new Set(allLines.map((l) => String(l.kind)))).map((k) => ({ k, label: KIND_LABEL[k] ?? k, n: allLines.filter((l) => l.kind === k).length }))];
   const lines = useListFilter(allLines, { q, keep: (l) => !kind || l.kind === kind,
@@ -621,7 +621,7 @@ function SupplierStatement({ id, onClose, onChanged }: { id: number; onClose: ()
             <table className="w-full text-sm">
               <thead><tr className="border-b text-left text-xs text-slate-500"><th className="py-2">Date</th><th>Entry</th><th className="text-right">We owe</th><th className="text-right">Paid</th><th className="text-right">Balance</th>{can("wholesale.void") && <th></th>}</tr></thead>
               <tbody>
-                <tr className="border-b bg-slate-50"><td className="py-2" colSpan={4}>Opening</td><td className="text-right tabular-nums">{pkr(data.opening_balance)}</td>{can("wholesale.void") && <td></td>}</tr>
+                <tr className="border-b-2 font-bold"><td className="py-2" colSpan={4}>Closing (we owe)</td><td className="text-right tabular-nums">{pkr(data.closing_balance)}</td>{can("wholesale.void") && <td></td>}</tr>
                 {allLines.length > 0 && !lines.length && <tr><td colSpan={5} className="py-4 text-center text-slate-500">Kuch nahi mila · کچھ نہیں ملا</td></tr>}
                 {lines.map((l: any) => (
                   <tr key={`${l.kind}-${l.id}`} className="border-b">
@@ -636,7 +636,7 @@ function SupplierStatement({ id, onClose, onChanged }: { id: number; onClose: ()
                     </td>}
                   </tr>
                 ))}
-                <tr className="border-t-2 font-bold"><td className="py-2" colSpan={4}>Closing (we owe)</td><td className="text-right tabular-nums">{pkr(data.closing_balance)}</td>{can("wholesale.void") && <td></td>}</tr>
+                <tr className="border-t bg-slate-50"><td className="py-2" colSpan={4}>Opening</td><td className="text-right tabular-nums">{pkr(data.opening_balance)}</td>{can("wholesale.void") && <td></td>}</tr>
               </tbody>
             </table>
           </div>
