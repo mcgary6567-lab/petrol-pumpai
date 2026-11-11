@@ -138,7 +138,8 @@ test.describe("Supply voucher → ledger → invoice → board", () => {
     expect(await count("Unpaid") + await count("Partly paid") + await count("Overdue") + await count("Paid") + await count("Void")).toBe(all);
     expect(await inv.list.getByRole("listitem").count()).toBeLessThanOrEqual(10);
     await inv.tab("Paid").click();
-    for (const li of await inv.list.getByRole("listitem").all()) await expect(li).toContainText("Paid");
+    // retrying: a snapshot taken right after the click could still be the "All" list ("Partly paid" has no capital P)
+    await expect(inv.list.getByRole("listitem").filter({ hasNotText: /Paid/ })).toHaveCount(0);
     await inv.print.click({ trial: true }); // reachable, not fired (would open the OS dialog)
   });
 

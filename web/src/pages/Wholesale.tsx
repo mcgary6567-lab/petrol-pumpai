@@ -521,9 +521,9 @@ function ClientDetail({ id }: { id: string }) {
 
 /** The bill handed to the client, on paper only — the QuickBooks "balance detail" layout the pump's clients know:
  *  Date · Num · Memo · Debit · Credit · Balance, the client's opening line on top and one total line at the bottom.
- *  Oldest first like a ledger card; voided entries and record-only fuel notes are left off. */
+ *  Newest entry first (same as the screen), the opening balance at the bottom; voided entries and record-only fuel notes are left off. */
 function ClientBillPrint({ client, s, from, to }: { client: any; s: any; from?: string; to?: string }) {
-  const lines = (s.lines as any[]).filter((l) => !l.voided && l.type !== "fuel_note");
+  const lines = newestFirst((s.lines as any[]).filter((l) => !l.voided && l.type !== "fuel_note"));
   const day = (iso: string) => new Date(iso).toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "Asia/Karachi" });
   const money = (n: number) => (n ? n.toLocaleString("en-PK", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "");
   const bal = (n: number) => `${Math.abs(n).toLocaleString("en-PK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}${n < -0.005 ? " Adv" : ""}`;
@@ -545,7 +545,7 @@ function ClientBillPrint({ client, s, from, to }: { client: any; s: any; from?: 
       <table className="w-full">
         <thead><tr><th className={`${TH} w-[78px]`}>Date</th><th className={`${TH} w-[64px]`}>Num</th><th className={TH}>Memo</th><th className={`${TH} w-[92px] text-right`}>Debit</th><th className={`${TH} w-[92px] text-right`}>Credit</th><th className={`${TH} w-[100px] text-right`}>Balance</th></tr></thead>
         <tbody>
-          <tr className="font-semibold"><td colSpan={5} className="grp">{client.name}{from ? " · Opening balance" : ""}</td><td className="grp text-right tabular-nums">{bal(s.opening_balance)}</td></tr>
+          <tr className="font-semibold"><td colSpan={6} className="grp">{client.name}</td></tr>
           {lines.map((l) => (
             <tr key={`${l.type}-${l.id}`}>
               <td className="whitespace-nowrap tabular-nums">{day(l.txn_date)}</td>
@@ -557,6 +557,7 @@ function ClientBillPrint({ client, s, from, to }: { client: any; s: any; from?: 
             </tr>
           ))}
           {!lines.length && <tr><td colSpan={6} className="text-center text-slate-500">Is muddat mein koi entry nahi</td></tr>}
+          <tr className="font-semibold"><td className="whitespace-nowrap tabular-nums">{from ? day(from + "T12:00:00+05:00") : ""}</td><td colSpan={4}>Opening balance</td><td className="text-right tabular-nums">{bal(s.opening_balance)}</td></tr>
           <tr className="font-semibold"><td colSpan={3} className="tot">Total {client.name}</td><td className="tot text-right tabular-nums">{money(dr) || "0.00"}</td><td className="tot text-right tabular-nums">{money(cr) || "0.00"}</td><td className="tot text-right tabular-nums">{bal(s.closing_balance)}</td></tr>
           <tr className="font-bold"><td colSpan={3}>{s.closing_balance < -0.5 ? "Advance with us" : "Balance due"}</td><td colSpan={3} className="due text-right tabular-nums">Rs {bal(s.closing_balance)}</td></tr>
         </tbody>
