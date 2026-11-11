@@ -29,6 +29,7 @@ import { SupplyVoucher } from "../components/WholesaleVoucher";
 import { SupplyInvoices } from "../components/WholesaleInvoices";
 import { OrderToCash } from "../components/WholesalePipeline";
 import { Client360, ClientVehicles } from "../components/WholesaleClient360";
+import { voucherNo } from "../components/WholesaleLedger";
 import { LateBadge } from "../components/LateBadge";
 const Ur = ({ children, className = "" }: { children: React.ReactNode; className?: string }) => <span lang="ur" dir="rtl" className={`font-urdu ${className}`}>{children}</span>;
 
@@ -416,7 +417,7 @@ function ClientDetail({ id }: { id: string }) {
         </div>} />
 
       <KhataLink clientId={c.id} onChange={refresh} />
-      <Client360 c={c} refreshKey={deskKey} onAction={setAction} onTab={(t) => setTab(t as typeof tab)} />
+      <div className="print:hidden"><Client360 c={c} refreshKey={deskKey} onAction={setAction} onTab={(t) => setTab(t as typeof tab)} /></div>
 
       {(can("wholesale.manage") || can("wholesale.view")) && <div className="print:hidden"><WholesaleVoice compact clientId={c.id} onDone={refresh} /></div>}
 
@@ -483,9 +484,10 @@ function ClientDetail({ id }: { id: string }) {
           <WhatsAppDoc kind="wholesale" id={Number(id)} from={range.from || undefined} to={range.to || undefined} />
           <button className="btn-secondary" onClick={() => window.print()}><Printer size={15} /> Print</button>
         </div>
-        <h2 className="hidden px-4 pt-4 font-semibold print:block">Account statement {range.from && `from ${range.from}`} {range.to && `to ${range.to}`}</h2>
+        
+        {stmt.data && <ClientBillPrint client={c} s={stmt.data} from={range.from} to={range.to} />}
         {stmt.data ? (
-          <>
+          <div className="print:hidden">
             <div className="flex justify-between bg-slate-50 px-4 py-2 text-sm font-semibold"><span>{stmt.data.closing_balance < -0.5 ? "Closing — advance with us" : "Closing balance (due)"}</span><span className="tabular-nums">{pkr(Math.abs(stmt.data.closing_balance))}</span></div>
             {editRow && <FullEditEntry kind="wholesale" id={editRow.id} onClose={() => setEditRow(null)} onDone={refresh} />}
             {posEdit && <EditPosSupply x={posEdit} onClose={() => setPosEdit(null)} onDone={() => { setPosEdit(null); refresh(); }} />}
@@ -500,7 +502,7 @@ function ClientDetail({ id }: { id: string }) {
               if (a) { await api(`/wholesale/txns/${row.id}/void`, { body: { reason: a.reason }, headers: pinHeader(a) }).catch((e) => alert(e.message)); refresh(); }
             } : undefined} />
             <div className="flex justify-between bg-slate-50 px-4 py-2 text-sm"><span>Opening balance{stmt.data.opening_balance < -0.5 ? " (advance)" : ""}</span><span className="font-medium tabular-nums">{pkr(Math.abs(stmt.data.opening_balance))}</span></div>
-          </>
+          </div>
         ) : <Loading />}
       </div>
 
@@ -513,6 +515,52 @@ function ClientDetail({ id }: { id: string }) {
       {action === "adjustment" && <AdjustmentEntry client={c} onClose={() => setAction(null)} onDone={() => { setAction(null); refresh(); }} />}
       {action === "rates" && <RatesEditor client={c} onClose={() => setAction(null)} onDone={() => { setAction(null); refresh(); }} />}
       {action === "edit" && <ClientForm initial={c} onClose={() => setAction(null)} onSaved={() => { setAction(null); refresh(); }} />}
+    </div>
+  );
+}
+
+/** The bill handed to the client, on paper only — the QuickBooks "balance detail" layout the pump's clients know:
+ *  Date · Num · Memo · Debit · Credit · Balance, the client's opening line on top and one total line at the bottom.
+ *  Oldest first like a ledger card; voided entries and record-only fuel notes are left off. */
+function ClientBillPrint({ client, s, from, to }: { client: any; s: any; from?: string; to?: string }) {
+  const lines = (s.lines as any[]).filter((l) => !l.voided && l.type !== "fuel_note");
+  const day = (iso: string) => new Date(iso).toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "Asia/Karachi" });
+  const money = (n: number) => (n ? n.toLocaleString("en-PK", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "");
+  const bal = (n: number) => `${Math.abs(n).toLocaleString("en-PK", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}${n < -0.005 ? " Adv" : ""}`;
+  const memo = (l: any) => {
+    const fuel = l.product ? PRODUCTS[l.product] ?? l.product : "";
+    const qty = l.litres ? `${num(l.litres, l.litres % 1 ? 2 : 0)} L ${fuel}${l.rate ? ` @ ${num(l.rate, 2)}` : ""}` : fuel;
+    const head = l.type === "supply" ? qty : l.type === "return" ? `Return ${qty}` : l.type === "payment" ? (l.method ?? "Payment") : l.type === "carriage" ? `Kiraya${l.litres ? ` ${num(l.litres, 0)} L` : ""}` : l.type === "adjustment" ? "Adjustment" : l.type;
+    return [head, l.vehicle_no, l.location, l.ref && l.ref !== l.vehicle_no ? l.ref : null, l.note].filter(Boolean).join(" · ");
+  };
+  const dr = lines.reduce((a, l) => a + (l.debit || 0), 0), cr = lines.reduce((a, l) => a + (l.credit || 0), 0);
+  const asOf = to || new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 10);
+  const TH = "text-left";
+  return (
+    <div className="client-bill hidden print:block">
+      <div className="mb-2 text-center">
+        <div className="text-base font-bold">Customer Balance Detail</div>
+        <div className="text-xs">{from ? `From ${day(from + "T12:00:00+05:00")} to ${day(asOf + "T12:00:00+05:00")}` : `As of ${day(asOf + "T12:00:00+05:00")}`}</div>
+      </div>
+      <table className="w-full">
+        <thead><tr><th className={`${TH} w-[78px]`}>Date</th><th className={`${TH} w-[64px]`}>Num</th><th className={TH}>Memo</th><th className={`${TH} w-[92px] text-right`}>Debit</th><th className={`${TH} w-[92px] text-right`}>Credit</th><th className={`${TH} w-[100px] text-right`}>Balance</th></tr></thead>
+        <tbody>
+          <tr className="font-semibold"><td colSpan={5} className="grp">{client.name}{from ? " · Opening balance" : ""}</td><td className="grp text-right tabular-nums">{bal(s.opening_balance)}</td></tr>
+          {lines.map((l) => (
+            <tr key={`${l.type}-${l.id}`}>
+              <td className="whitespace-nowrap tabular-nums">{day(l.txn_date)}</td>
+              <td className="whitespace-nowrap">{voucherNo(l)}</td>
+              <td>{memo(l)}</td>
+              <td className="text-right tabular-nums">{money(l.debit)}</td>
+              <td className="text-right tabular-nums">{money(l.credit)}</td>
+              <td className="text-right tabular-nums">{bal(l.balance)}</td>
+            </tr>
+          ))}
+          {!lines.length && <tr><td colSpan={6} className="text-center text-slate-500">Is muddat mein koi entry nahi</td></tr>}
+          <tr className="font-semibold"><td colSpan={3} className="tot">Total {client.name}</td><td className="tot text-right tabular-nums">{money(dr) || "0.00"}</td><td className="tot text-right tabular-nums">{money(cr) || "0.00"}</td><td className="tot text-right tabular-nums">{bal(s.closing_balance)}</td></tr>
+          <tr className="font-bold"><td colSpan={3}>{s.closing_balance < -0.5 ? "Advance with us" : "Balance due"}</td><td colSpan={3} className="due text-right tabular-nums">Rs {bal(s.closing_balance)}</td></tr>
+        </tbody>
+      </table>
     </div>
   );
 }

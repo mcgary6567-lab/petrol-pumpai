@@ -106,6 +106,13 @@ input, select, textarea { min-width: 0; max-width: 100%; }
   /* money, litres and dates never break letter by letter: "anywhere" let the browser squeeze those columns to one
      character (Rs 6,11,000 printed as a vertical stack); break-word keeps whole words and still wraps long text */
   td.text-right, th.text-right, td [class*="rounded"] { white-space: nowrap !important; overflow-wrap: normal !important; }
+  /* the client's bill: a plain QuickBooks-style balance detail — no grid, no dark header, lines and totals only */
+  .client-bill table { font-size: 11px !important; }
+  .client-bill th, .client-bill thead th { background: none !important; color: #0f172a !important; border: 0 !important; border-bottom: 2px solid #0f172a !important; padding: 4px 6px !important; font-weight: 700; }
+  .client-bill td, .client-bill tbody tr > td { border: 0 !important; background: none !important; padding: 3px 6px !important; font-size: 11px !important; }
+  .client-bill td.grp { background: #f1f5f9 !important; font-weight: 700; }
+  .client-bill td.tot { border-top: 1.5px solid #0f172a !important; font-weight: 700; }
+  .client-bill td.due { border-bottom: 3px double #0f172a !important; font-size: 13px !important; font-weight: 800; }
   /* the page itself is as tall as what it prints (a 100vh shell left a blank last page) */
   html, body, #root, .min-h-screen, .h-screen { height: auto !important; min-height: 0 !important; }
   table { table-layout: auto !important; }
