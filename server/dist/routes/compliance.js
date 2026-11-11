@@ -1,0 +1,668 @@
+/**
+ * Running the pump by the rules, without registers:
+ *  - Licences & certificates (explosives, OGRA, fire NOC, nap-tol/calibration…) with expiry reminders
+ *  - Daily / weekly checklist with photos and readings (water in tank, density, 5-litre measure test…)
+ *  - Attendance: check-in/out with selfie and location, lateness, weekly off and leave
+ */
+import { Router } from "express";
+import { z } from "zod";
+import { randomBytes, randomInt } from "node:crypto";
+import { all, get, run, now, pkDate } from "../db.js";
+import { h, parse, tid, requirePerm, requireAny, can, scopedStation } from "../auth.js";
+import { AppError, round2, createAlert, audit } from "../services.js";
+import { faceMatch } from "../ai/vision.js";
+import { notify, staff } from "../notifications.js";
+import { linkPhotos } from "./capture.js";
+import { sendDirect } from "../whatsapp/cloud.js";
+import { getSetting, setSetting } from "../db.js";
+import { config } from "../config.js";
+export const compliance = Router();
+const DAY = 86_400_000;
+// Selfie + location attendance applies only to on-the-ground staff: salesmen and non-login workers
+// (helper, cleaner, driver, guard — role 'staff'). The owner (admin), manager, cashier and wholesale
+// officer are exempt — they are not clocked in this way. The manager marks everyone else's attendance.
+const ATTENDANCE_ROLES = "('salesman','staff')";
+const daysLeft = (d) => Math.ceil((Date.parse(`${d}T00:00:00+05:00`) - Date.parse(`${pkDate()}T00:00:00+05:00`)) / DAY);
+const dateStr = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+/* ================= Licences ================= */
+compliance.get("/licences", requirePerm("alerts.view"), h((req) => all("SELECT l.*, s.name station_name FROM licences l LEFT JOIN stations s ON s.id=l.station_id WHERE l.tenant_id=? ORDER BY l.expires_on", tid(req))
+    .map((l) => ({ ...l, days_left: daysLeft(l.expires_on) }))));
+const licBody = z.object({ name: z.string().min(2).max(80), number: z.string().max(60).optional().nullable(), authority: z.string().max(80).optional().nullable(),
+    station_id: z.number().optional().nullable(), issued_on: dateStr.optional().nullable(), expires_on: dateStr, photo_id: z.number().optional().nullable(), note: z.string().max(200).optional().nullable() });
+compliance.post("/licences", requirePerm("alerts.view"), h((req) => {
+    const b = parse(licBody, req.body);
+    const { id } = run("INSERT INTO licences (tenant_id,station_id,name,number,authority,issued_on,expires_on,photo_id,note,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)", tid(req), b.station_id ?? null, b.name, b.number ?? null, b.authority ?? null, b.issued_on ?? null, b.expires_on, null, b.note ?? null, now());
+    if (b.photo_id && linkPhotos(tid(req), [b.photo_id], `licence:${id}`))
+        run("UPDATE licences SET photo_id=? WHERE id=?", b.photo_id, id);
+    return get("SELECT * FROM licences WHERE id=?", id);
+}));
+/** Renewed: new expiry date (and a photo of the new certificate). */
+compliance.patch("/licences/:id", requirePerm("alerts.view"), h((req) => {
+    const l = get("SELECT * FROM licences WHERE id=? AND tenant_id=?", Number(req.params.id), tid(req));
+    if (!l)
+        throw new AppError(404, "Licence not found");
+    const b = parse(licBody.partial(), req.body);
+    const m = { ...l, ...b };
+    run("UPDATE licences SET name=?, number=?, authority=?, station_id=?, issued_on=?, expires_on=?, note=? WHERE id=?", m.name, m.number ?? null, m.authority ?? null, m.station_id ?? null, m.issued_on ?? null, m.expires_on, m.note ?? null, l.id);
+    if (b.photo_id && linkPhotos(tid(req), [b.photo_id], `licence:${l.id}:${Date.now()}`))
+        run("UPDATE licences SET photo_id=? WHERE id=?", b.photo_id, l.id);
+    return get("SELECT * FROM licences WHERE id=?", l.id);
+}));
+compliance.delete("/licences/:id", requirePerm("settings.manage"), h((req) => {
+    if (!run("DELETE FROM licences WHERE id=? AND tenant_id=?", Number(req.params.id), tid(req)).changes)
+        throw new AppError(404, "Not found");
+    return { ok: true };
+}));
+/** Daily: reminders 30, 7 and 1 day before expiry, on the day, and weekly once expired. */
+export async function licenceWatch(t) {
+    const owner = getSetting(t, "owner_phone") || get("SELECT owner_phone FROM tenants WHERE id=?", t)?.owner_phone;
+    let n = 0;
+    for (const l of all("SELECT l.*, s.name station_name FROM licences l LEFT JOIN stations s ON s.id=l.station_id WHERE l.tenant_id=?", t)) {
+        const d = daysLeft(l.expires_on);
+        const due = [30, 7, 1, 0].includes(d) || (d < 0 && -d % 7 === 0);
+        if (!due)
+            continue;
+        const title = d < 0 ? `⛔ ${l.name} expired ${-d} days ago` : d === 0 ? `⛔ ${l.name} expires TODAY` : `⏰ ${l.name} expires in ${d} day${d === 1 ? "" : "s"}`;
+        const a = createAlert(t, { station_id: l.station_id, type: "licence_expiry", severity: d <= 7 ? "critical" : "warning", title,
+            body: `${l.station_name ? `${l.station_name} · ` : ""}${l.number ? `No. ${l.number} · ` : ""}${l.authority ?? ""} — expiry ${l.expires_on}. Renew it and update the date.`, dedupe_key: `lic-${l.id}-${d}` });
+        if (!a)
+            continue;
+        n++;
+        await notify(t, staff(t, ["admin", "manager"]), { type: "licence_expiry", title, body: a.body ?? "" });
+        if (owner)
+            await sendDirect(t, { phone: owner, name: "Owner" }, "licence_expiry", `lic:${l.id}:${d}`, `${title}\n${a.body}`);
+    }
+    return n;
+}
+/* ================= Checklist ================= */
+compliance.get("/checklist/items", requirePerm("sales.create"), h((req) => all("SELECT * FROM checklist_items WHERE tenant_id=? ORDER BY active DESC, frequency, sort, id", tid(req))));
+const itemBody = z.object({ title: z.string().min(3).max(100), urdu: z.string().max(100).optional().nullable(), frequency: z.enum(["daily", "weekly"]).default("daily"),
+    kind: z.enum(["check", "number"]).default("check"), unit: z.string().max(12).optional().nullable(), min_ok: z.number().optional().nullable(), max_ok: z.number().optional().nullable(),
+    needs_photo: z.boolean().default(false), active: z.boolean().optional() });
+compliance.post("/checklist/items", requirePerm("alerts.view"), h((req) => {
+    const b = parse(itemBody, req.body);
+    const { id } = run("INSERT INTO checklist_items (tenant_id,title,urdu,frequency,kind,unit,min_ok,max_ok,needs_photo,sort) VALUES (?,?,?,?,?,?,?,?,?,?)", tid(req), b.title, b.urdu ?? null, b.frequency, b.kind, b.unit ?? null, b.min_ok ?? null, b.max_ok ?? null, b.needs_photo ? 1 : 0, 99);
+    return get("SELECT * FROM checklist_items WHERE id=?", id);
+}));
+compliance.patch("/checklist/items/:id", requirePerm("alerts.view"), h((req) => {
+    const i = get("SELECT * FROM checklist_items WHERE id=? AND tenant_id=?", Number(req.params.id), tid(req));
+    if (!i)
+        throw new AppError(404, "Item not found");
+    const b = parse(itemBody.partial(), req.body);
+    const m = { ...i, ...b };
+    run("UPDATE checklist_items SET title=?, urdu=?, frequency=?, kind=?, unit=?, min_ok=?, max_ok=?, needs_photo=?, active=? WHERE id=?", m.title, m.urdu ?? null, m.frequency, m.kind, m.unit ?? null, m.min_ok ?? null, m.max_ok ?? null, m.needs_photo ? 1 : 0, b.active === undefined ? i.active : b.active ? 1 : 0, i.id);
+    return get("SELECT * FROM checklist_items WHERE id=?", i.id);
+}));
+/** Today's checklist for a station: each item with whether it is done (weekly items: done in the last 7 days). */
+export function checklistToday(t, stationId, day = pkDate()) {
+    const weekAgo = pkDate(Date.parse(`${day}T12:00:00+05:00`) - 6 * DAY);
+    return all("SELECT * FROM checklist_items WHERE tenant_id=? AND active=1 ORDER BY frequency, sort, id", t).map((i) => {
+        const e = get(`SELECT * FROM checklist_entries WHERE station_id=? AND item_id=? AND day ${i.frequency === "weekly" ? ">= ? AND day <= ?" : "= ?"} ORDER BY id DESC LIMIT 1`, stationId, i.id, ...(i.frequency === "weekly" ? [weekAgo, day] : [day]));
+        return { ...i, entry: e ?? null, done: Boolean(e) };
+    });
+}
+compliance.get("/checklist", requirePerm("sales.create"), h((req) => {
+    const station = scopedStation(req, req.query.station_id ? Number(req.query.station_id) : null) ?? get("SELECT id FROM stations WHERE tenant_id=? ORDER BY id LIMIT 1", tid(req)).id;
+    const day = req.query.day ? String(req.query.day) : pkDate();
+    const items = checklistToday(tid(req), station, day);
+    return { station_id: station, day, items, done: items.filter((i) => i.done).length, total: items.length };
+}));
+compliance.post("/checklist/:itemId", requirePerm("sales.create"), h(async (req) => {
+    const t = tid(req);
+    const i = get("SELECT * FROM checklist_items WHERE id=? AND tenant_id=? AND active=1", Number(req.params.itemId), t);
+    if (!i)
+        throw new AppError(404, "Checklist item not found");
+    const b = parse(z.object({ station_id: z.number().optional(), ok: z.boolean().optional(), value: z.number().optional().nullable(), note: z.string().max(200).optional().nullable(), photo_id: z.number().optional().nullable() }), req.body);
+    const station = scopedStation(req, b.station_id ?? null) ?? get("SELECT id FROM stations WHERE tenant_id=? ORDER BY id LIMIT 1", t).id;
+    if (i.needs_photo && !b.photo_id)
+        throw new AppError(400, "Take a photo for this check");
+    if (i.kind === "number" && (b.value == null || isNaN(b.value)))
+        throw new AppError(400, `Enter the reading${i.unit ? ` (${i.unit})` : ""}`);
+    // a reading outside the allowed range is a failed check
+    const inRange = i.kind !== "number" || ((i.min_ok == null || b.value >= i.min_ok) && (i.max_ok == null || b.value <= i.max_ok));
+    const ok = (b.ok ?? true) && inRange;
+    const { id } = run("INSERT INTO checklist_entries (tenant_id,station_id,item_id,day,ok,value,note,photo_id,done_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)", t, station, i.id, pkDate(), ok ? 1 : 0, b.value ?? null, b.note ?? null, null, req.user.name, now());
+    if (b.photo_id && linkPhotos(t, [b.photo_id], `check:${id}`))
+        run("UPDATE checklist_entries SET photo_id=? WHERE id=?", b.photo_id, id);
+    if (!ok) {
+        const a = createAlert(t, { station_id: station, type: "checklist_fail", severity: "warning",
+            title: `Check failed: ${i.title}`, body: `${b.value != null ? `Reading ${b.value}${i.unit ? ` ${i.unit}` : ""}${i.min_ok != null || i.max_ok != null ? ` (allowed ${i.min_ok ?? "…"} to ${i.max_ok ?? "…"})` : ""}. ` : ""}${b.note ?? ""} — by ${req.user.name}` });
+        if (a)
+            await notify(t, staff(t, ["manager", "admin"]), { type: "checklist_fail", title: a.title, body: a.body ?? "" });
+    }
+    return { entry: get("SELECT * FROM checklist_entries WHERE id=?", id), ok };
+}));
+/** Midday and evening: any daily check not done yet is reported to the managers. */
+export async function checklistWatch(t) {
+    let n = 0;
+    for (const st of all("SELECT id, name FROM stations WHERE tenant_id=?", t)) {
+        const missing = checklistToday(t, st.id).filter((i) => !i.done && i.frequency === "daily");
+        if (!missing.length)
+            continue;
+        const a = createAlert(t, { station_id: st.id, type: "checklist_missing", severity: "warning", title: `${st.name}: ${missing.length} daily check${missing.length === 1 ? "" : "s"} not done`,
+            body: missing.map((m) => m.title).join(", "), dedupe_key: `chk-${st.id}-${pkDate()}-${new Date().getUTCHours() < 10 ? "am" : "pm"}` });
+        if (a) {
+            n++;
+            await notify(t, staff(t, ["manager", "admin"]), { type: "checklist_missing", title: a.title, body: a.body ?? "" });
+        }
+    }
+    return n;
+}
+/* ================= Attendance & leave ================= */
+const metres = (a, b) => {
+    const R = 6371000, r = Math.PI / 180, dLat = (b.lat - a.lat) * r, dLng = (b.lng - a.lng) * r;
+    return Math.round(2 * R * Math.asin(Math.sqrt(Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin(dLng / 2) ** 2)));
+};
+/** Minutes late against the duty start time (Pakistan time). */
+const lateBy = (dutyStart, at) => {
+    if (!dutyStart)
+        return 0;
+    const start = Date.parse(`${pkDate(at)}T${dutyStart}:00+05:00`);
+    return Math.max(0, Math.round((at - start) / 60_000));
+};
+export function checkIn(t, user, o) {
+    const day = pkDate();
+    const existing = get("SELECT * FROM attendance WHERE user_id=? AND day=?", user.id, day);
+    if (existing)
+        return existing;
+    const u = get("SELECT * FROM users WHERE id=?", user.id);
+    const st = get("SELECT * FROM stations WHERE id=?", o.station_id ?? u.station_id ?? 0);
+    const away = st?.lat != null && o.lat != null && o.lng != null ? metres({ lat: st.lat, lng: st.lng }, { lat: o.lat, lng: o.lng }) : null;
+    // geofence: owner can set a hard max distance (metres). 0 = off. A QR self check-in beyond it is rejected;
+    // app/kiosk check-ins (done under a login) are flagged, not blocked. The alert fires at the fence, else 300 m.
+    const maxM = Number(getSetting(t, "attend_max_m", "0")) || 0;
+    if (maxM > 0 && away != null && away > maxM && o.source === "qr") {
+        audit(t, { id: user.id, name: user.name }, "security:Attendance geofence reject", "attend-qr", { away_m: Math.round(away), max_m: maxM });
+        throw new AppError(400, `Aap pump se ${away.toLocaleString()} m door hain (hadd ${maxM.toLocaleString()} m) — pump par aa kar attendance lagayein.`);
+    }
+    const late = lateBy(u.duty_start, Date.now());
+    const { id } = run("INSERT INTO attendance (tenant_id,user_id,station_id,day,check_in,in_lat,in_lng,in_acc,away_m,late_minutes,source) VALUES (?,?,?,?,?,?,?,?,?,?,?)", t, user.id, st?.id ?? null, day, now(), o.lat ?? null, o.lng ?? null, o.accuracy ?? null, away, late, o.source);
+    if (o.photo_id && linkPhotos(t, [o.photo_id], `attend-in:${id}`))
+        run("UPDATE attendance SET in_photo_id=? WHERE id=?", o.photo_id, id);
+    // opt-in, flag-only face check: never blocks the check-in, just alerts the owner if the selfie looks like someone else
+    if (o.photo_id && getSetting(t, "attend_face_match", "0") === "1")
+        void faceCheckAttendance(t, { id: user.id, name: user.name }, o.photo_id);
+    if (away != null && away > (maxM > 0 ? maxM : 300))
+        createAlert(t, { station_id: st?.id, type: "attendance_away", severity: "warning", title: `${user.name} checked in ${away.toLocaleString()} m away from ${st.name}`, dedupe_key: `away-${id}` });
+    return get("SELECT * FROM attendance WHERE id=?", id);
+}
+export function checkOut(userId, photoId, t, pos) {
+    const a = get("SELECT * FROM attendance WHERE user_id=? AND check_out IS NULL ORDER BY id DESC LIMIT 1", userId);
+    if (!a)
+        return null;
+    const st = a.station_id ? get("SELECT * FROM stations WHERE id=?", a.station_id) : null;
+    const away = st?.lat != null && pos?.lat != null && pos?.lng != null ? metres({ lat: st.lat, lng: st.lng }, { lat: pos.lat, lng: pos.lng }) : null;
+    run("UPDATE attendance SET check_out=?, out_lat=?, out_lng=?, out_away_m=? WHERE id=?", now(), pos?.lat ?? null, pos?.lng ?? null, away, a.id);
+    if (photoId && t && linkPhotos(t, [photoId], `attend-out:${a.id}`))
+        run("UPDATE attendance SET out_photo_id=? WHERE id=?", photoId, a.id);
+    return get("SELECT * FROM attendance WHERE id=?", a.id);
+}
+/**
+ * Check-in / out from the app needs BOTH a live selfie and the phone's live location:
+ * the selfie must be taken by this person in the last few minutes (camera, not an old photo)
+ * and not already used, and the location must come with the request.
+ */
+const SELFIE_MAX_AGE_MS = 5 * 60_000;
+const proof = z.object({
+    photo_id: z.number({ error: "Take a live selfie first · پہلے سیلفی لیں" }).int(),
+    lat: z.number({ error: "Turn on location · لوکیشن آن کریں" }).min(-90).max(90),
+    lng: z.number({ error: "Turn on location · لوکیشن آن کریں" }).min(-180).max(180),
+    accuracy: z.number().min(0).optional().nullable(),
+});
+function liveSelfie(t, userId, photoId) {
+    const p = get("SELECT * FROM photos WHERE id=? AND tenant_id=?", photoId, t);
+    if (!p || p.kind !== "selfie" || p.created_by !== userId)
+        throw new AppError(400, "Take a live selfie from your own phone · اپنی سیلفی لیں");
+    if (p.ref)
+        throw new AppError(400, "This selfie was already used — take a new one · نئی سیلفی لیں");
+    if (Date.now() - Date.parse(p.created_at) > SELFIE_MAX_AGE_MS)
+        throw new AppError(400, "Selfie is too old — take a new one · نئی سیلفی لیں");
+}
+compliance.post("/attendance/check-in", h((req) => {
+    // self check-in is only for on-the-ground staff; the manager, cashier and wholesale officer are exempt
+    if (!["salesman", "staff"].includes(req.user.role))
+        throw new AppError(403, "Attendance check-in is for salesmen and staff only");
+    const b = parse(proof, req.body);
+    liveSelfie(tid(req), req.user.id, b.photo_id);
+    return checkIn(tid(req), req.user, { ...b, station_id: req.user.station_id, source: "app" });
+}));
+compliance.post("/attendance/check-out", h((req) => {
+    const b = parse(proof, req.body);
+    liveSelfie(tid(req), req.user.id, b.photo_id);
+    const r = checkOut(req.user.id, b.photo_id, tid(req), b);
+    if (!r)
+        throw new AppError(400, "You have not checked in");
+    return r;
+}));
+/**
+ * Attendance kiosk: on the shared pump tablet, whoever is signed in (salesman or manager) marks
+ * attendance for ANY person at the pump — helper, cleaner, driver, guard, or a salesman — with a
+ * live selfie + location, check-in and check-out both. The selfie is taken on this device now
+ * (so it is the operator's upload), aimed at the person, and kept on the record for review.
+ */
+function liveSelfieBy(t, operatorId, photoId) {
+    const p = get("SELECT * FROM photos WHERE id=? AND tenant_id=?", photoId, t);
+    if (!p || p.kind !== "selfie" || p.created_by !== operatorId)
+        throw new AppError(400, "Take a live selfie on this device · اسی ڈیوائس سے سیلفی لیں");
+    if (p.ref)
+        throw new AppError(400, "This selfie was already used — take a new one · نئی سیلفی لیں");
+    if (Date.now() - Date.parse(p.created_at) > SELFIE_MAX_AGE_MS)
+        throw new AppError(400, "Selfie is too old — take a new one · نئی سیلفی لیں");
+}
+compliance.get("/attendance/kiosk", requireAny("staff.manage", "sales.create"), h((req) => {
+    const t = tid(req), today = pkDate();
+    const people = all(`SELECT id, name, role, job_title, duty_start, station_id FROM users WHERE tenant_id=? AND active=1 AND role IN ${ATTENDANCE_ROLES} ORDER BY CASE role WHEN 'salesman' THEN 0 ELSE 1 END, name`, t);
+    return people.map((u) => {
+        const a = get("SELECT check_in, check_out FROM attendance WHERE user_id=? AND day=?", u.id, today);
+        return { id: u.id, name: u.name, role: u.role, job_title: u.job_title, duty_start: u.duty_start,
+            checked_in: Boolean(a?.check_in), checked_out: Boolean(a?.check_out), check_in: a?.check_in ?? null, check_out: a?.check_out ?? null };
+    });
+}));
+const kioskProof = proof.extend({ user_id: z.number().int() });
+function kioskTarget(t, userId) {
+    const u = get(`SELECT id, name, role, station_id FROM users WHERE id=? AND tenant_id=? AND active=1 AND role IN ${ATTENDANCE_ROLES}`, userId, t);
+    if (!u)
+        throw new AppError(400, "Attendance is only marked for salesmen and other staff (not the manager, cashier or wholesale officer)");
+    return u;
+}
+compliance.post("/attendance/kiosk/check-in", requireAny("staff.manage", "sales.create"), h((req) => {
+    const b = parse(kioskProof, req.body);
+    const t = tid(req);
+    liveSelfieBy(t, req.user.id, b.photo_id);
+    const u = kioskTarget(t, b.user_id);
+    return checkIn(t, u, { station_id: u.station_id, photo_id: b.photo_id, lat: b.lat, lng: b.lng, accuracy: b.accuracy, source: "kiosk" });
+}));
+compliance.post("/attendance/kiosk/check-out", requireAny("staff.manage", "sales.create"), h((req) => {
+    const b = parse(kioskProof, req.body);
+    const t = tid(req);
+    liveSelfieBy(t, req.user.id, b.photo_id);
+    const u = kioskTarget(t, b.user_id);
+    const r = checkOut(u.id, b.photo_id, t, b);
+    if (!r)
+        throw new AppError(400, `${u.name} ne abhi check-in nahi kiya`);
+    return r;
+}));
+/* ===== Self check-in by QR + 4-digit code (non-login workers, no app sign-in) =====
+ * One QR per pump, printed and put up in the office. A worker scans it, types their own 4-digit code,
+ * takes a live selfie and their phone's location is captured — the same safeguards as the kiosk, minus
+ * the signed-in operator. The QR link carries an unguessable per-pump token; the code names the worker. */
+function ensureAttendToken(t) {
+    let tok = getSetting(t, "attend_token", "");
+    if (!tok) {
+        tok = randomBytes(12).toString("hex");
+        setSetting(t, "attend_token", tok);
+    }
+    return tok;
+}
+// brute-force guard for the public QR: too many wrong codes on one pump's QR → short cooldown + one alert to the owner.
+const attendFails = new Map();
+function attendGuard(token) {
+    const f = attendFails.get(token);
+    if (f && f.until > Date.now())
+        throw new AppError(429, "Bohat ghalat koshishein — thori der baad dobara. Manager se apna sahi code lein.");
+}
+function attendBad(t, token) {
+    const f = attendFails.get(token) ?? { n: 0, until: 0 };
+    f.n++;
+    if (f.n >= 5) {
+        f.until = Date.now() + 10 * 60_000;
+        f.n = 0;
+        createAlert(t, { type: "attend_bruteforce", severity: "warning", title: "Attendance QR par baar-baar ghalat code", body: "Kisi ne kai dafa ghalat code daala — QR rotate karna behtar ho sakta hai.", dedupe_key: `attbf-${pkDate()}` });
+        audit(t, null, "security:Attendance QR brute-force (locked 10 min)", "attend-qr", { token: token.slice(0, 6) + "…" });
+    }
+    attendFails.set(token, f);
+}
+function attendOk(token) { attendFails.delete(token); }
+const attendWorker = (t, id) => get(`SELECT id, name, role, job_title, duty_start, station_id, attend_code, face_ref_photo_id FROM users WHERE id=? AND tenant_id=? AND active=1 AND role IN ${ATTENDANCE_ROLES}`, id, t);
+/** Compare an attendance selfie to the worker's enrolled reference face (opt-in). Flag-only: alerts, never blocks. */
+async function faceCheckAttendance(t, user, selfieId) {
+    try {
+        const u = get("SELECT face_ref_photo_id FROM users WHERE id=?", user.id);
+        if (!u?.face_ref_photo_id)
+            return; // no reference enrolled → nothing to compare
+        const ref = get("SELECT data, mime FROM photos WHERE id=?", u.face_ref_photo_id);
+        const self = get("SELECT data, mime FROM photos WHERE id=?", selfieId);
+        if (!ref?.data || !self?.data)
+            return;
+        const r = await faceMatch(Buffer.from(ref.data).toString("base64"), ref.mime, Buffer.from(self.data).toString("base64"), self.mime);
+        if (r && (!r.same_person || r.confidence < 55)) {
+            createAlert(t, { type: "attend_face_mismatch", severity: "warning", title: `Attendance selfie chehra match nahi — ${user.name}`,
+                body: `AI ko shak hai ke selfie ${user.name} ki nahi (confidence ${r.confidence}%). Khud dekh kar tasdeeq karein.`, dedupe_key: `face-${user.id}-${pkDate()}` });
+            audit(t, { id: user.id, name: user.name }, "security:Attendance face mismatch", "attend", { confidence: r.confidence, same_person: r.same_person });
+        }
+    }
+    catch { /* flag-only — a face-check failure must never affect attendance */ }
+}
+// Admin: the printable QR link for this pump, and the workers with their codes.
+compliance.get("/attendance/qr", requirePerm("staff.manage"), h((req) => {
+    const t = tid(req), tok = ensureAttendToken(t), today = pkDate();
+    const workers = all(`SELECT id, name, role, job_title, attend_code, face_ref_photo_id FROM users WHERE tenant_id=? AND active=1 AND role IN ${ATTENDANCE_ROLES} ORDER BY CASE role WHEN 'salesman' THEN 0 ELSE 1 END, name`, t)
+        .map((u) => { const a = get("SELECT check_in, check_out FROM attendance WHERE user_id=? AND day=?", u.id, today); return { ...u, checked_in: Boolean(a?.check_in), checked_out: Boolean(a?.check_out) }; });
+    return { url: `${config.publicUrl}/a/${tok}`, pump: get("SELECT name FROM tenants WHERE id=?", t)?.name ?? "", workers };
+}));
+// rotate the QR: a new unguessable token; the old printed QR stops working at once (leak / staff left)
+compliance.post("/attendance/qr/rotate", requirePerm("staff.manage"), h((req) => {
+    const t = tid(req), tok = randomBytes(12).toString("hex");
+    setSetting(t, "attend_token", tok);
+    return { url: `${config.publicUrl}/a/${tok}` };
+}));
+// Admin: set (or auto-generate) a worker's attendance code (6 digits auto; 4–6 if set by hand); unique within the pump.
+compliance.post("/attendance/workers/:id/code", requirePerm("staff.manage"), h((req) => {
+    const t = tid(req), id = Number(req.params.id);
+    if (!attendWorker(t, id))
+        throw new AppError(400, "Only salesmen and non-login staff get an attendance code");
+    const b = parse(z.object({ code: z.string().regex(/^\d{4,6}$/).optional() }), req.body);
+    const taken = (c) => Boolean(get("SELECT id FROM users WHERE tenant_id=? AND attend_code=? AND id<>?", t, c, id));
+    let code = b.code;
+    if (code) {
+        if (taken(code))
+            throw new AppError(400, "Yeh code pehle se kisi aur ka hai — doosra chunein");
+    }
+    else {
+        do {
+            code = String(randomInt(100000, 1000000));
+        } while (taken(code));
+    }
+    run("UPDATE users SET attend_code=? WHERE id=? AND tenant_id=?", code, id, t);
+    return { id, code };
+}));
+// Admin: enroll (or clear) a worker's reference face for the opt-in attendance selfie match.
+compliance.post("/attendance/workers/:id/face", requirePerm("staff.manage"), h((req) => {
+    const t = tid(req), id = Number(req.params.id);
+    if (!attendWorker(t, id))
+        throw new AppError(400, "Only salesmen and non-login staff get a face reference");
+    const b = parse(z.object({ photo_id: z.number().int().nullable() }), req.body);
+    if (b.photo_id === null) {
+        run("UPDATE users SET face_ref_photo_id=NULL WHERE id=? AND tenant_id=?", id, t);
+        return { id, face: null };
+    }
+    const p = get("SELECT id FROM photos WHERE id=? AND tenant_id=?", b.photo_id, t);
+    if (!p)
+        throw new AppError(404, "Photo not found");
+    linkPhotos(t, [b.photo_id], `face-ref:${id}`);
+    run("UPDATE users SET face_ref_photo_id=? WHERE id=? AND tenant_id=?", b.photo_id, id, t);
+    return { id, face: b.photo_id };
+}));
+const attendTenant = (token) => get("SELECT tenant_id FROM settings WHERE key='attend_token' AND value=?", token)?.tenant_id;
+const attendByCode = (t, code) => get(`SELECT id, name, role, duty_start, station_id FROM users WHERE tenant_id=? AND active=1 AND attend_code=? AND role IN ${ATTENDANCE_ROLES}`, t, code);
+// Public (no login): the worker's phone resolves their name from the code, then marks in/out with a selfie + location.
+export const attendPublic = Router();
+attendPublic.post("/attend/:token/resolve", h((req) => {
+    const t = attendTenant(req.params.token);
+    if (!t)
+        throw new AppError(404, "Galat QR — manager se naya QR lein");
+    attendGuard(req.params.token);
+    const b = parse(z.object({ code: z.string().regex(/^\d{4,6}$/, "Apna code daalein") }), req.body);
+    const u = attendByCode(t, b.code);
+    if (!u) {
+        attendBad(t, req.params.token);
+        throw new AppError(404, "Yeh code kisi ka nahi — manager se apna code lein");
+    }
+    attendOk(req.params.token);
+    const a = get("SELECT check_in, check_out FROM attendance WHERE user_id=? AND day=?", u.id, pkDate());
+    const biz = get("SELECT name FROM tenants WHERE id=?", t);
+    return { name: u.name, pump: biz?.name ?? "", checked_in: Boolean(a?.check_in), checked_out: Boolean(a?.check_out) };
+}));
+attendPublic.post("/attend/:token/mark", h((req) => {
+    const t = attendTenant(req.params.token);
+    if (!t)
+        throw new AppError(404, "Galat QR — manager se naya QR lein");
+    attendGuard(req.params.token);
+    const b = parse(z.object({
+        code: z.string().regex(/^\d{4,6}$/),
+        direction: z.enum(["in", "out"]),
+        image: z.string().regex(/^data:image\/(jpeg|png|webp);base64,/, "Selfie laazmi hai · سیلفی لازمی"),
+        lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180), accuracy: z.number().min(0).optional().nullable(),
+    }), req.body);
+    const u = attendByCode(t, b.code);
+    if (!u) {
+        attendBad(t, req.params.token);
+        throw new AppError(404, "Yeh code kisi ka nahi — manager se apna code lein");
+    }
+    attendOk(req.params.token);
+    const [, mime, data] = b.image.match(/^data:(image\/[a-z]+);base64,(.*)$/s);
+    const bytes = Buffer.from(data, "base64");
+    if (bytes.length > 4_000_000)
+        throw new AppError(400, "Selfie bohat bari hai");
+    const { id: photoId } = run("INSERT INTO photos (tenant_id,kind,mime,data,created_by,created_at) VALUES (?,?,?,?,?,?)", t, "selfie", mime, bytes, u.id, now());
+    if (b.direction === "in") {
+        const a = checkIn(t, u, { station_id: u.station_id, photo_id: photoId, lat: b.lat, lng: b.lng, accuracy: b.accuracy, source: "qr" });
+        return { name: u.name, direction: "in", at: a.check_in, already: Boolean(a && a.source !== "qr" && a.check_in && Date.parse(a.check_in) < Date.now() - 5000), away_m: a.away_m, late_minutes: a.late_minutes };
+    }
+    const a = checkOut(u.id, photoId, t, { lat: b.lat, lng: b.lng, accuracy: b.accuracy });
+    if (!a)
+        throw new AppError(400, `${u.name}: pehle check-in karein`);
+    return { name: u.name, direction: "out", at: a.check_out };
+}));
+/** Month summary for one person: present, late, leave, weekly off and unpaid absent days so far. */
+export function attendanceMonth(t, userId, month = pkDate().slice(0, 7)) {
+    const u = get("SELECT id, name, duty_start, weekly_off, duty_hours, salary, leave_quota, created_at FROM users WHERE id=? AND tenant_id=?", userId, t);
+    const rows = all("SELECT * FROM attendance WHERE user_id=? AND day LIKE ? ORDER BY day", userId, `${month}-%`);
+    const leaves = all("SELECT * FROM leaves WHERE user_id=? AND status='approved' AND from_day <= ? AND to_day >= ?", userId, `${month}-31`, `${month}-01`);
+    const today = pkDate();
+    const last = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).getUTCDate();
+    // count from the month start, or from when the person joined (or their first check-in, if earlier)
+    const joined = [u.created_at.slice(0, 10), rows[0]?.day].filter(Boolean).sort()[0];
+    const start = joined > `${month}-01` ? joined : `${month}-01`;
+    // 24h duty = alternate-day (24h on / 24h off): a missing day next to a worked day is his OFF, not an absence.
+    // worked days, widened one day past the month on each side so month-boundary off-days are judged right.
+    const alternate = u.duty_hours === 24;
+    const shift1 = (day, n) => new Date(Date.parse(`${day}T12:00:00+05:00`) + n * DAY).toISOString().slice(0, 10);
+    const worked = new Set(alternate
+        ? all("SELECT day FROM attendance WHERE user_id=? AND check_in IS NOT NULL AND day BETWEEN ? AND ?", userId, shift1(`${month}-01`, -1), shift1(`${month}-${String(last).padStart(2, "0")}`, 1)).map((r) => r.day)
+        : []);
+    const days = [];
+    // attendance is only counted for staff with a duty time set
+    for (let d = 1; d <= last && u.duty_start; d++) {
+        const day = `${month}-${String(d).padStart(2, "0")}`;
+        if (day > today || day < start)
+            continue;
+        const a = rows.find((r) => r.day === day);
+        const lv = leaves.find((l) => l.from_day <= day && l.to_day >= day);
+        const dow = new Date(`${day}T12:00:00+05:00`).getUTCDay();
+        // on a 24h-duty roster, an unmarked day flanked by a worked day is the off day of the 24-on/24-off cycle (no cut)
+        const altOff = alternate && !a && !lv && u.weekly_off !== dow && (worked.has(shift1(day, -1)) || worked.has(shift1(day, 1)));
+        const status = a ? (a.late_minutes > 15 ? "late" : "present") : lv ? `leave_${lv.type}` : (u.weekly_off === dow || altOff) ? "off" : day === today ? "not_yet" : "absent";
+        days.push({ day, status, late: a?.late_minutes ?? 0 });
+    }
+    const count = (s) => days.filter((d) => d.status === s).length;
+    const unpaid = count("absent") + count("leave_unpaid");
+    // overtime: hours worked beyond the daily threshold (default 12h), summed for the month
+    const otAfter = Number(getSetting(t, "overtime_after_hours", "12"));
+    let overtime = 0;
+    for (const a of rows)
+        if (a.check_in && a.check_out) {
+            const hrs = (Date.parse(a.check_out) - Date.parse(a.check_in)) / 3_600_000;
+            if (hrs > otAfter)
+                overtime += hrs - otAfter;
+        }
+    // paid-leave balance for the year: quota (per-person, else tenant default) − approved paid/sick leave days taken
+    const year = month.slice(0, 4), yStart = `${year}-01-01`, yEnd = `${year}-12-31`;
+    const quota = u.leave_quota ?? Number(getSetting(t, "leave_quota_days", "14"));
+    let taken = 0;
+    for (const l of all("SELECT from_day, to_day FROM leaves WHERE user_id=? AND status='approved' AND type IN ('paid','sick') AND to_day >= ? AND from_day <= ?", userId, yStart, yEnd)) {
+        const f = l.from_day < yStart ? yStart : l.from_day, to = l.to_day > yEnd ? yEnd : l.to_day;
+        taken += Math.floor((Date.parse(to) - Date.parse(f)) / DAY) + 1;
+    }
+    return {
+        user: { id: u.id, name: u.name, duty_start: u.duty_start, weekly_off: u.weekly_off, duty_hours: u.duty_hours ?? 12 }, month, days, tracked: Boolean(u.duty_start),
+        present: count("present") + count("late"), late: count("late"), absent: count("absent"), off: count("off"),
+        paid_leave: count("leave_paid") + count("leave_sick"), unpaid_leave: count("leave_unpaid"),
+        unpaid_days: unpaid, salary_cut: u.salary ? round2((u.salary / 30) * unpaid) : 0,
+        overtime_hours: round2(overtime),
+        leave_balance: { quota, taken, left: Math.max(0, quota - taken) },
+    };
+}
+compliance.get("/attendance/me", h((req) => ({
+    today: get("SELECT * FROM attendance WHERE user_id=? AND day=?", req.user.id, pkDate()) ?? null,
+    month: attendanceMonth(tid(req), req.user.id),
+    leaves: all("SELECT * FROM leaves WHERE user_id=? ORDER BY id DESC LIMIT 10", req.user.id),
+})));
+/** A manager marks a staff member's attendance by hand (for staff who do not carry a phone — night guard, cleaner…). */
+compliance.post("/attendance/mark", requirePerm("staff.manage"), h((req) => {
+    const b = parse(z.object({ user_id: z.number(), day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), present: z.boolean().default(true) }), req.body);
+    const t = tid(req);
+    const u = get(`SELECT id, station_id, duty_start FROM users WHERE id=? AND tenant_id=? AND role IN ${ATTENDANCE_ROLES}`, b.user_id, t);
+    if (!u)
+        throw new AppError(404, "Attendance is only marked for salesmen and other staff (not the manager, cashier or wholesale officer)");
+    const day = b.day ?? pkDate();
+    const existing = get("SELECT id FROM attendance WHERE user_id=? AND day=?", u.id, day);
+    if (!b.present) {
+        if (existing)
+            run("DELETE FROM attendance WHERE id=?", existing.id);
+        return { day, present: false };
+    }
+    if (!existing)
+        run("INSERT INTO attendance (tenant_id,user_id,station_id,day,check_in,late_minutes,source) VALUES (?,?,?,?,?,0,'manual')", t, u.id, u.station_id ?? null, day, now());
+    return { day, present: true };
+}));
+compliance.get("/attendance", requirePerm("staff.manage"), h((req) => {
+    const month = String(req.query.month ?? pkDate().slice(0, 7));
+    return {
+        month, today: pkDate(),
+        staff: all(`SELECT id FROM users WHERE tenant_id=? AND active=1 AND role IN ${ATTENDANCE_ROLES} ORDER BY name`, tid(req)).map((u) => attendanceMonth(tid(req), u.id, month)),
+        present_today: all(`SELECT a.*, u.name FROM attendance a JOIN users u ON u.id=a.user_id WHERE a.tenant_id=? AND a.day=? ORDER BY a.check_in`, tid(req), pkDate()),
+        leaves: all("SELECT l.*, u.name FROM leaves l JOIN users u ON u.id=l.user_id WHERE l.tenant_id=? ORDER BY CASE l.status WHEN 'pending' THEN 0 ELSE 1 END, l.id DESC LIMIT 40", tid(req)),
+    };
+}));
+/** Full month grid for hand-marked staff (night guard, cleaner, non-login staff): one cell per day, tap to mark present/absent. */
+compliance.get("/attendance/calendar", requirePerm("staff.manage"), h((req) => {
+    const t = tid(req);
+    const month = String(req.query.month ?? pkDate().slice(0, 7));
+    const today = pkDate();
+    const last = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).getUTCDate();
+    const dayList = Array.from({ length: last }, (_, i) => `${month}-${String(i + 1).padStart(2, "0")}`);
+    const onlyNonLogin = String(req.query.all ?? "") !== "1"; // default: only the hand-marked, non-login staff
+    const staff = all(`SELECT id, name, job_title, role, weekly_off, salary, created_at FROM users WHERE tenant_id=? AND active=1 AND role IN ${ATTENDANCE_ROLES}${onlyNonLogin ? " AND role='staff'" : ""} ORDER BY name`, t).map((u) => {
+        const rows = all("SELECT day, late_minutes FROM attendance WHERE user_id=? AND day LIKE ?", u.id, `${month}-%`);
+        const leaves = all("SELECT from_day, to_day, type FROM leaves WHERE user_id=? AND status='approved' AND from_day <= ? AND to_day >= ?", u.id, `${month}-31`, `${month}-01`);
+        const joined = u.created_at.slice(0, 10);
+        const marks = {};
+        for (const day of dayList) {
+            const a = rows.find((r) => r.day === day);
+            const lv = leaves.find((l) => l.from_day <= day && l.to_day >= day);
+            const dow = new Date(`${day}T12:00:00+05:00`).getUTCDay();
+            // a hand-entered present/leave always shows, even if backfilled before the row was created
+            marks[day] = a ? (a.late_minutes > 15 ? "late" : "present") : lv ? `leave_${lv.type}` : day > today ? "future" : day < joined ? "before" : u.weekly_off === dow ? "off" : "absent";
+        }
+        const count = (s) => Object.values(marks).filter((x) => x === s).length;
+        const unpaid = count("absent") + count("leave_unpaid");
+        return {
+            id: u.id, name: u.name, job_title: u.job_title ?? null, role: u.role, weekly_off: u.weekly_off,
+            present: count("present") + count("late"), late: count("late"), absent: count("absent"), off: count("off"),
+            paid_leave: count("leave_paid") + count("leave_sick"), unpaid_leave: count("leave_unpaid"),
+            salary_cut: u.salary ? round2((u.salary / 30) * unpaid) : 0, marks,
+        };
+    });
+    return { month, today, days: dayList, staff };
+}));
+compliance.patch("/staff/:id/duty", requirePerm("staff.manage"), h((req) => {
+    const b = parse(z.object({ duty_start: z.string().regex(/^\d{2}:\d{2}$/).nullable().optional(), weekly_off: z.number().int().min(0).max(6).nullable().optional(), duty_hours: z.union([z.literal(12), z.literal(24)]).nullable().optional(), leave_quota: z.number().int().min(0).max(60).nullable().optional() }), req.body);
+    const u = get("SELECT id FROM users WHERE id=? AND tenant_id=?", Number(req.params.id), tid(req));
+    if (!u)
+        throw new AppError(404, "Staff member not found");
+    if (b.duty_start !== undefined)
+        run("UPDATE users SET duty_start=? WHERE id=?", b.duty_start, u.id);
+    if (b.weekly_off !== undefined)
+        run("UPDATE users SET weekly_off=? WHERE id=?", b.weekly_off, u.id);
+    if (b.duty_hours !== undefined)
+        run("UPDATE users SET duty_hours=? WHERE id=?", b.duty_hours, u.id);
+    if (b.leave_quota !== undefined)
+        run("UPDATE users SET leave_quota=? WHERE id=?", b.leave_quota, u.id);
+    return attendanceMonth(tid(req), u.id);
+}));
+/* ---------------- Weekly duty roster ---------------- */
+const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+compliance.get("/roster", requirePerm("staff.manage"), h((req) => {
+    const t = tid(req);
+    const staff = all(`SELECT id, name, role, job_title FROM users WHERE tenant_id=? AND active=1 AND role IN ${ATTENDANCE_ROLES} ORDER BY CASE role WHEN 'salesman' THEN 0 ELSE 1 END, name`, t);
+    const stations = all("SELECT id, name FROM stations WHERE tenant_id=? ORDER BY id", t);
+    const rows = all("SELECT * FROM roster WHERE tenant_id=?", t);
+    return { weekdays: WEEKDAYS, staff, stations, roster: rows };
+}));
+compliance.put("/roster", requirePerm("staff.manage"), h((req) => {
+    const b = parse(z.object({ user_id: z.number().int(), weekday: z.number().int().min(0).max(6), station_id: z.number().int().nullable().optional(), slot: z.string().max(40).nullable().optional() }), req.body);
+    const t = tid(req);
+    if (!get(`SELECT id FROM users WHERE id=? AND tenant_id=? AND role IN ${ATTENDANCE_ROLES}`, b.user_id, t))
+        throw new AppError(404, "Staff member not found");
+    run(`INSERT INTO roster (tenant_id,user_id,weekday,station_id,slot,updated_at) VALUES (?,?,?,?,?,?)
+    ON CONFLICT(tenant_id,user_id,weekday) DO UPDATE SET station_id=excluded.station_id, slot=excluded.slot, updated_at=excluded.updated_at`, t, b.user_id, b.weekday, b.station_id ?? null, b.slot ?? null, now());
+    return { ok: true };
+}));
+compliance.delete("/roster/:userId/:weekday", requirePerm("staff.manage"), h((req) => {
+    run("DELETE FROM roster WHERE tenant_id=? AND user_id=? AND weekday=?", tid(req), Number(req.params.userId), Number(req.params.weekday));
+    return { ok: true };
+}));
+/** Who is rostered for today and whether they have checked in. */
+compliance.get("/roster/today", requirePerm("staff.manage"), h((req) => {
+    const t = tid(req), today = pkDate(), dow = new Date(`${today}T12:00:00+05:00`).getUTCDay();
+    const rows = all(`SELECT r.*, u.name, u.role, s.name station_name FROM roster r JOIN users u ON u.id=r.user_id LEFT JOIN stations s ON s.id=r.station_id
+    WHERE r.tenant_id=? AND r.weekday=? AND u.active=1 ORDER BY u.name`, t, dow);
+    return { weekday: WEEKDAYS[dow], rostered: rows.map((r) => ({ ...r, present: Boolean(get("SELECT id FROM attendance WHERE user_id=? AND day=?", r.user_id, today)) })) };
+}));
+compliance.post("/leaves", h(async (req) => {
+    const b = parse(z.object({ user_id: z.number().optional(), from_day: dateStr, to_day: dateStr, type: z.enum(["paid", "unpaid", "sick"]).default("paid"), reason: z.string().max(200).optional().nullable() }), req.body);
+    const forOther = b.user_id && b.user_id !== req.user.id;
+    if (forOther && !can(req.user, "staff.manage"))
+        throw new AppError(403, "You can only ask leave for yourself");
+    if (b.to_day < b.from_day)
+        throw new AppError(400, "'To' must be on or after 'From'");
+    const userId = b.user_id ?? req.user.id;
+    if (!get("SELECT id FROM users WHERE id=? AND tenant_id=?", userId, tid(req)))
+        throw new AppError(404, "Staff member not found");
+    const status = forOther ? "approved" : "pending"; // a manager entering leave for someone approves it
+    const { id } = run("INSERT INTO leaves (tenant_id,user_id,from_day,to_day,type,reason,status,decided_by,created_at) VALUES (?,?,?,?,?,?,?,?,?)", tid(req), userId, b.from_day, b.to_day, b.type, b.reason ?? null, status, forOther ? req.user.name : null, now());
+    if (status === "pending")
+        await notify(tid(req), staff(tid(req), ["manager", "admin"], req.user.id), { type: "leave_request", title: `Leave request: ${req.user.name}`, body: `${b.from_day} to ${b.to_day} (${b.type})${b.reason ? ` — ${b.reason}` : ""}` });
+    return get("SELECT * FROM leaves WHERE id=?", id);
+}));
+compliance.post("/leaves/:id/:decision(approve|reject)", requirePerm("staff.manage"), h(async (req) => {
+    const l = get("SELECT * FROM leaves WHERE id=? AND tenant_id=?", Number(req.params.id), tid(req));
+    if (!l)
+        throw new AppError(404, "Leave not found");
+    const status = req.params.decision === "approve" ? "approved" : "rejected";
+    run("UPDATE leaves SET status=?, decided_by=? WHERE id=?", status, req.user.name, l.id);
+    const u = get("SELECT id, phone FROM users WHERE id=?", l.user_id);
+    if (u)
+        await notify(tid(req), [u], { type: "leave_decision", title: `Leave ${status}`, body: `${l.from_day} to ${l.to_day}` });
+    return get("SELECT * FROM leaves WHERE id=?", l.id);
+}));
+/** Day starts: who has not checked in by an hour after duty start. */
+export async function attendanceWatch(t) {
+    const nowMs = Date.now();
+    const today = pkDate(), dow = new Date(nowMs + 5 * 3600_000).getUTCDay();
+    const notYet = (id) => !get("SELECT id FROM attendance WHERE user_id=? AND day=?", id, today)
+        && !get("SELECT id FROM leaves WHERE user_id=? AND status='approved' AND from_day <= ? AND to_day >= ?", id, today, today);
+    const byDuty = all(`SELECT id, name, duty_start, weekly_off FROM users WHERE tenant_id=? AND active=1 AND duty_start IS NOT NULL AND role IN ${ATTENDANCE_ROLES}`, t)
+        .filter((u) => lateBy(u.duty_start, nowMs) >= 60 && u.weekly_off !== dow && notYet(u.id));
+    // anyone rostered for today who has not come in (even if they have no fixed duty_start)
+    const byRoster = all(`SELECT u.id, u.name FROM roster r JOIN users u ON u.id=r.user_id WHERE r.tenant_id=? AND r.weekday=? AND u.active=1 AND u.role IN ${ATTENDANCE_ROLES}`, t, dow)
+        .filter((u) => notYet(u.id));
+    const seen = new Set();
+    const missing = [...byDuty, ...byRoster].filter((u) => !seen.has(u.id) && seen.add(u.id));
+    if (!missing.length)
+        return 0;
+    const a = createAlert(t, { type: "attendance_missing", severity: "warning", title: `Not checked in: ${missing.map((u) => u.name).join(", ")}`, dedupe_key: `att-${pkDate()}-${missing.map((u) => u.id).join(",")}` });
+    if (a)
+        await notify(t, staff(t, ["manager"]), { type: "attendance_missing", title: a.title, body: "More than an hour after duty start." });
+    return missing.length;
+}
+/** The standard daily / weekly checks every new pump starts with (can be changed later). */
+const DEFAULT_CHECKLIST = [
+    // title, urdu, frequency, kind, unit, min_ok, max_ok, needs_photo
+    ["Forecourt and canopy clean", "فورکورٹ صاف", "daily", "check", null, null, null, 1],
+    ["Water in tanks (water-finding paste)", "ٹینک میں پانی", "daily", "number", "mm", 0, 10, 1],
+    ["Petrol density at 15°C", "پیٹرول ڈینسٹی", "daily", "number", "kg/m³", 720, 775, 0],
+    ["Diesel density at 15°C", "ڈیزل ڈینسٹی", "daily", "number", "kg/m³", 815, 870, 0],
+    ["5-litre measure test (difference)", "5 لیٹر ناپ", "daily", "number", "ml", -25, 25, 0],
+    ["Fire extinguishers & sand buckets in place", "آگ بجھانے کا سامان", "daily", "check", null, null, null, 0],
+    ["Washrooms clean", "واش روم صاف", "daily", "check", null, null, null, 1],
+    ["Air & water machine working", "ہوا اور پانی", "daily", "check", null, null, null, 0],
+    ["Generator oil & fuel check", "جنریٹر", "weekly", "check", null, null, null, 0],
+    ["Emergency shut-off & earthing check", "ایمرجنسی بند", "weekly", "check", null, null, null, 0],
+];
+export function addDefaultChecklist(tenantId) {
+    if (get("SELECT id FROM checklist_items WHERE tenant_id=? LIMIT 1", tenantId))
+        return;
+    DEFAULT_CHECKLIST.forEach(([title, urdu, freq, kind, unit, min, max, photo], i) => run("INSERT INTO checklist_items (tenant_id,title,urdu,frequency,kind,unit,min_ok,max_ok,needs_photo,sort) VALUES (?,?,?,?,?,?,?,?,?,?)", tenantId, title, urdu, freq, kind, unit, min, max, photo, i));
+}

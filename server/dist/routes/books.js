@@ -1,0 +1,166 @@
+/**
+ * Live whole-system reconciliation ("Hisaab check") for the owner. Runs the SAME ties the audit test
+ * enforces — the journal balances, nothing sits in Suspense, and every party / cash / bank / coupon /
+ * wallet / staff balance equals its ledger account — but against live data and WITHOUT throwing, so the
+ * CEO can press one button (especially after fixing a wrong entry) and see "all tallied, 0 rupee
+ * difference" or exactly where a difference is. Mirrors test/helpers/tally.ts.
+ */
+import { Router } from "express";
+import { all, get, run, tx, now } from "../db.js";
+import { h, tid, requirePerm } from "../auth.js";
+import { round2, pkr, AppError, audit } from "../services.js";
+import { journal, INVESTORS } from "./ledger.js";
+import { investorsOwed } from "./investors.js";
+import { clientDueAll } from "./wholesale.js";
+import { thekedarDueAll } from "./carriage.js";
+import { bypassOwed, bypassStockValue } from "./bypass.js";
+import { supplierOwedAll } from "./suppliers.js";
+import { bankAccounts, unlinkedMoney } from "./banks.js";
+import { cashPosition } from "./backoffice.js";
+import { cashWithSalesmen } from "./cashier.js";
+import { staffBalance } from "./staff.js";
+export const books = Router();
+export function reconcileBooks(t) {
+    const J = journal(t, "2000-01-01", new Date(Date.now() + 29 * 3600_000).toISOString().slice(0, 10));
+    const tb = (a) => J.trial_balance.find((x) => x.account === a)?.balance ?? 0;
+    const rows = [];
+    const TOL = 1; // one rupee of rounding across the whole business
+    const push = (label, book, ledger, note) => rows.push({ label, book: round2(book), ledger: round2(ledger), diff: round2(book - ledger), ok: Math.abs(book - ledger) <= TOL, note });
+    // like push, but carries a drill-down (which bank / customer / supplier) and a plain hint — shown only when there IS a difference
+    const pushD = (label, book, ledger, detail, hint, note) => {
+        const off = Math.abs(book - ledger) > TOL;
+        rows.push({ label, book: round2(book), ledger: round2(ledger), diff: round2(book - ledger), ok: !off, note, detail: off ? detail : undefined, hint: off ? hint : undefined });
+    };
+    const safe = (label, fn) => { try {
+        fn();
+    }
+    catch (e) {
+        rows.push({ label, book: 0, ledger: 0, diff: 0, ok: false, note: `check failed: ${e.message}` });
+    } };
+    // 1. the journal itself balances, and nothing fell into Suspense
+    rows.push({ label: "General ledger balanced (debit = credit)", book: round2(J.totals.debit), ledger: round2(J.totals.credit), diff: round2(J.totals.debit - J.totals.credit), ok: Math.abs(J.totals.debit - J.totals.credit) <= 0.05 });
+    const suspense = J.trial_balance.find((x) => x.account === "Suspense");
+    rows.push({ label: "Nothing stuck in Suspense", book: round2(suspense?.balance ?? 0), ledger: 0, diff: round2(suspense?.balance ?? 0), ok: !suspense });
+    // 2. every balance ties to its ledger account
+    safe("Cash in hand (office + with salesmen)", () => {
+        const office = cashPosition(t).cash_in_hand, ws = cashWithSalesmen(t);
+        pushD("Cash in hand (office + with salesmen)", office + ws.total, tb("Cash in hand"), [{ label: "Office drawer", value: round2(office) }, { label: "Salesmen ke paas", value: round2(ws.total), sub: `${ws.open_shifts} open shift${ws.not_handed ? ` · ${pkr(ws.not_handed)} not handed` : ""}` }], "Office cash ya salesmen ke paas cash ledger se match nahi — Cash & bank page par cash count karein, aur handover check karein.");
+    });
+    safe("Bank accounts", () => {
+        const accts = bankAccounts(t).accounts;
+        const book = accts.reduce((a, x) => a + x.balance - x.opening_balance, 0);
+        const unl = unlinkedMoney(t); // non-cash money in the last 30 days not tied to any bank — the usual cause of a bank gap
+        const detail = [];
+        if (unl.received > 0.5)
+            detail.push({ label: "Aaya paisa — kisi bank se link nahi", value: round2(unl.received), sub: "Accounts page → is raqam ko sahi bank se jodein", bad: true });
+        if (unl.paid > 0.5)
+            detail.push({ label: "Gaya paisa — kisi bank se link nahi", value: round2(unl.paid), sub: "Accounts page → is raqam ko sahi bank se jodein", bad: true });
+        for (const x of accts)
+            detail.push({ label: x.name, value: round2(x.balance), sub: `opening ${pkr(x.opening_balance)} · is mahine harkat ${pkr((x.balance) - (x.opening_balance))}` });
+        const hint = (unl.received > 0.5 || unl.paid > 0.5)
+            ? "Aam wajah: online paisa (JazzCash/Easypaisa/Raast/cheque) kisi bank se link nahi kiya gaya — niche laal line(on) dekhein aur Accounts page se bank chunein."
+            : "Kisi bank ka opening balance ya koi bank entry ledger se match nahi — har account ka balance niche dekhein.";
+        pushD("Bank accounts", book, tb("Bank"), detail, hint);
+    });
+    safe("Khata receivable (customers)", () => {
+        let khata = 0;
+        const bad = [];
+        for (const c of all("SELECT id, name, balance FROM customers WHERE tenant_id=?", t)) {
+            const k = get("SELECT COALESCE(SUM(CASE WHEN type='debit' THEN amount ELSE -amount END),0) v FROM khata_ledger WHERE customer_id=?", c.id).v;
+            if (Math.abs(c.balance - k) > TOL)
+                bad.push({ label: c.name, value: round2(c.balance - k), sub: `account ${pkr(c.balance)} vs khata ledger ${pkr(k)}`, bad: true });
+            khata += k;
+        }
+        pushD("Khata receivable (customers)", khata, tb("Khata receivable"), bad, bad.length ? `${bad.length} customer ka balance uske apne khata ledger se match nahi — niche naam dekhein.` : "Khata ka total ledger se match nahi.");
+    });
+    safe("Wholesale receivable", () => { const d = clientDueAll(t); return push("Wholesale receivable", all("SELECT id, opening_balance FROM wholesale_clients WHERE tenant_id=?", t).reduce((a, c) => a + (d.get(c.id) ?? 0) - c.opening_balance, 0), tb("Wholesale receivable")); });
+    safe("Carriage receivable (thekedars)", () => { const d = thekedarDueAll(t); return push("Carriage receivable (thekedars)", all("SELECT id, opening_balance FROM thekedars WHERE tenant_id=?", t).reduce((a, k) => a + (d.get(k.id) ?? 0) - k.opening_balance, 0), tb("Carriage receivable")); });
+    safe("Suppliers payable", () => {
+        const d = supplierOwedAll(t);
+        let book = 0, ledger = 0;
+        const bad = [];
+        for (const s of all("SELECT id, name, opening_balance FROM suppliers WHERE tenant_id=?", t)) {
+            const bi = (d.get(s.id) ?? 0) - s.opening_balance, li = -tb(`Payable — ${s.name}`);
+            book += bi;
+            ledger += li;
+            if (Math.abs(bi - li) > TOL)
+                bad.push({ label: s.name, value: round2(bi - li), sub: `owed ${pkr(d.get(s.id) ?? 0)} vs ledger ${pkr(li)}`, bad: true });
+        }
+        pushD("Suppliers payable", book, ledger, bad, bad.length ? `${bad.length} supplier ka hisaab ledger se match nahi — niche naam dekhein.` : undefined);
+    });
+    safe("Shop stock (items × avg cost)", () => {
+        const book = get("SELECT COALESCE(SUM(stock * cost),0) v FROM shop_items WHERE tenant_id=? AND active=1", t).v;
+        const ledger = tb("Shop stock");
+        const tol = Math.max(TOL, Math.abs(book) * 0.02); // avg cost moves with every purchase, so 2% is the honest tolerance here
+        // advisory: stock that was on the shelves before stock-in carried a money leg was never booked, so an old pump sees a gap here until it is counted in
+        rows.push({ label: "Shop stock (items × avg cost) — advisory", book: round2(book), ledger: round2(ledger), diff: round2(book - ledger), ok: Math.abs(book - ledger) <= tol, advisory: true,
+            note: Math.abs(book - ledger) > tol ? "purana shop stock bina money entry ke tha, ya count ka farq — neeche 'Purana shop stock book karein' ek click me book kar deta hai" : undefined });
+    });
+    safe("Withholding tax payable (undeposited)", () => push("Withholding tax payable", get("SELECT COALESCE(SUM(amount),0) v FROM tax_withholdings WHERE tenant_id=? AND cpr_no IS NULL", t).v, -tb("Withholding tax payable")));
+    safe("Fuel coupons (unused)", () => push("Fuel coupons (unused)", get("SELECT COALESCE(SUM(value),0) v FROM fuel_coupons WHERE tenant_id=? AND status='active' AND sold_at IS NOT NULL", t).v, -tb("Fuel coupons (unused)")));
+    safe("Customer wallets", () => push("Customer wallets", get("SELECT COALESCE(SUM(CASE WHEN type IN ('deposit','bonus','adjustment') THEN amount ELSE -amount END),0) v FROM wallet_ledger WHERE tenant_id=?", t).v, -tb("Customer wallets")));
+    safe("Staff advances", () => push("Staff advances", all("SELECT DISTINCT user_id FROM staff_ledger WHERE tenant_id=?", t).reduce((a, u) => a + staffBalance(u.user_id), 0), tb("Staff advances")));
+    safe("Bypass stock", () => push("Bypass stock", bypassStockValue(t), tb("Bypass stock")));
+    // go-live fuel value: Σ active opening rows (litres × rate) must equal what the ledger carries on "Fuel stock (go-live)"
+    safe("Fuel stock (go-live value)", () => push("Fuel stock (go-live value)", get("SELECT COALESCE(SUM(amount),0) v FROM fuel_opening_values WHERE tenant_id=? AND voided=0", t).v, tb("Fuel stock (go-live)")));
+    safe("Bypass suppliers payable", () => push("Bypass suppliers payable", all("SELECT supplier_id FROM bypass_purchases WHERE tenant_id=? UNION SELECT supplier_id FROM bypass_supplier_payments WHERE tenant_id=?", t, t).reduce((a, s) => a + bypassOwed(s.supplier_id), 0), -tb("Bypass suppliers payable")));
+    safe("Investors payable", () => push("Investors payable", investorsOwed(t), -tb(INVESTORS)));
+    const failed = rows.filter((r) => !r.ok && !r.advisory); // advisory rows inform, they never fail the check
+    const maxDiff = rows.filter((r) => !r.advisory).reduce((m, r) => Math.max(m, Math.abs(r.diff)), 0);
+    return { ok: failed.length === 0, checked_at: new Date().toISOString(), max_diff: round2(maxDiff), checks: rows, failed: failed.map((r) => r.label) };
+}
+books.get("/books/check", requirePerm("audit.view"), h((req) => reconcileBooks(tid(req))));
+/** Shelf value of the shop (Σ stock × avg cost) vs what the ledger carries on "Shop stock" — the go-live gap of an old pump. */
+export function shopStockGap(t) {
+    const J = journal(t, "2000-01-01", new Date(Date.now() + 29 * 3600_000).toISOString().slice(0, 10));
+    const ledger = J.trial_balance.find((x) => x.account === "Shop stock")?.balance ?? 0;
+    const book = get("SELECT COALESCE(SUM(stock * cost),0) v FROM shop_items WHERE tenant_id=? AND active=1", t).v;
+    return { book: round2(book), ledger: round2(ledger), gap: round2(book - ledger) };
+}
+/**
+ * One click: book the whole shop-stock gap against "Opening balances (go-live)" — nothing in P&L, no cash moves.
+ * Itemised: each active item gets a `book` move (qty 0, amount = its own unbooked value, computed from its moves at cost);
+ * the rounding remainder lands on the biggest item so the total equals the ledger gap to the rupee. Pressing it again books nothing.
+ */
+books.post("/books/shop-stock/book", requirePerm("opening.manage"), h((req) => {
+    const t = tid(req);
+    const before = shopStockGap(t);
+    if (Math.abs(before.gap) <= 1)
+        return { booked: 0, items: [], before, after: before };
+    const items = all("SELECT id, name, stock, cost FROM shop_items WHERE tenant_id=? AND active=1", t).map((i) => {
+        // what this item's own moves have already put on the ledger: goods in at cost (any money leg), earlier bookings, minus what sold / was lost, plus count gains
+        const m = get(`SELECT
+        COALESCE(SUM(CASE WHEN type='purchase' THEN COALESCE(amount, qty*COALESCE(cost,0)) ELSE 0 END),0) p,
+        COALESCE(SUM(CASE WHEN type='book' THEN COALESCE(amount,0) ELSE 0 END),0) b,
+        COALESCE(SUM(CASE WHEN type IN ('sale','undo','adjust') THEN qty*COALESCE(cost,0) ELSE 0 END),0) s
+      FROM shop_moves WHERE item_id=?`, i.id);
+        const booked = m.p + m.b + m.s;
+        return { id: i.id, name: i.name, shelf: round2(i.stock * i.cost), gap: round2(i.stock * i.cost - booked) };
+    });
+    // scale the itemised gaps onto the real ledger gap (they agree except for sale-edit / rounding noise), remainder on the biggest line
+    let rows = items.filter((x) => Math.abs(x.gap) > 0.5);
+    const sum = rows.reduce((a, x) => a + x.gap, 0);
+    if (!rows.length || Math.abs(sum) < 0.5)
+        rows = [{ ...(items.sort((a, b) => b.shelf - a.shelf)[0] ?? { id: 0, name: "Shop", shelf: 0, gap: 0 }), gap: before.gap }];
+    else if (Math.abs(sum - before.gap) > 0.5) {
+        const k = before.gap / sum;
+        rows = rows.map((x) => ({ ...x, gap: round2(x.gap * k) }));
+    }
+    const drift = round2(before.gap - rows.reduce((a, x) => a + x.gap, 0));
+    if (drift) {
+        const big = rows.reduce((a, x) => (Math.abs(x.gap) > Math.abs(a.gap) ? x : a));
+        big.gap = round2(big.gap + drift);
+    }
+    if (!rows[0].id)
+        throw new AppError(400, "Shop me koi item nahi — pehle items banayein");
+    const note = String(req.body?.note ?? "").trim() || "Purana shop stock book kiya (one click)";
+    const ts = now();
+    tx(() => {
+        for (const r of rows)
+            if (r.gap)
+                run("INSERT INTO shop_moves (item_id,type,qty,cost,note,created_by,created_at,paid_by,amount) VALUES (?,?,?,?,?,?,?,?,?)", r.id, "book", 0, null, note, req.user.name, ts, "none", r.gap);
+    });
+    const after = shopStockGap(t);
+    audit(t, req.user, "shop_stock_booked", `shopstock:${ts}`, { gap: before.gap, items: rows.filter((r) => r.gap).map((r) => ({ id: r.id, name: r.name, amount: r.gap })), after_gap: after.gap });
+    return { booked: round2(before.gap), items: rows.filter((r) => r.gap).map((r) => ({ id: r.id, name: r.name, amount: r.gap })), before, after };
+}));

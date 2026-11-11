@@ -1,0 +1,5 @@
+{
+  "name": "pumpai-server",
+  "private": true,
+  "type": "module"
+}

@@ -1,0 +1,1326 @@
+/**
+ * Wholesale supply: bulk fuel to dealers/businesses, each with their own per-litre rate card.
+ * Every movement is a ledger entry (supply / return / payment / adjustment) so the client's
+ * account — fuel out, fuel back, billed, received and due — is always reproducible from the ledger.
+ */
+import { Router } from "express";
+import { fuelCostPerL } from "../fuelCost.js";
+import { z } from "zod";
+import { all, get, run, tx, now, pkDayStart, pkDate, pkStart, pkEnd, pkStamp } from "../db.js";
+import { h, parse, tid, requirePerm, requireAny, can } from "../auth.js";
+import { AppError, assertNoDuplicateParty, createAlert, normalizePhone, round2, pkr, currentPrices, audit, partyBalance, partyBalanceAll } from "../services.js";
+import { productSchema } from "../products.js";
+import { PRODUCTS } from "../config.js";
+import { announce } from "../notifications.js";
+import { linkPhotos, proofPhotos, proofCol, requireProof, isCheque } from "./capture.js";
+import { bankAccountFor, accountIdField, DEPOT_PAY } from "./banks.js";
+import { wholesaleReceipt, wholesaleBillMessage, wholesaleRateMessage, sendWholesaleStatement, billLink, prevMonth, receiptUrl } from "../billing.js";
+import { recordPurchase } from "./suppliers.js";
+import { createExpense } from "./expenses.js";
+import { claimForTrip } from "./claims.js";
+import { guardClosedDay } from "./backoffice.js";
+import { profile } from "./setup.js";
+import { SOCIALS } from "../brandPrint.js";
+import { deliverOrder, deskSuggestions, openOrders, promises, cheques } from "./wholesaleDesk.js";
+import { unshiftClientFuel } from "./clientFuel.js";
+export const wholesale = Router();
+wholesale.use("/wholesale", requirePerm("wholesale.view"));
+const product = productSchema();
+// a date that really exists on the calendar (the shape alone lets 2026-13-45 through and SQLite then throws a 500)
+const realDay = (v) => { const d = v.slice(0, 10); return !Number.isNaN(Date.parse(d + "T00:00:00Z")) && new Date(d + "T00:00:00Z").toISOString().slice(0, 10) === d; };
+// an empty string (a cleared date box: `?from=&to=`) means "no filter", same as leaving the param out
+const dateStr = z.preprocess((v) => (v === "" ? undefined : v), z.string().regex(/^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})?)?$/).refine(realDay, "Invalid date").refine((v) => !Number.isNaN(Date.parse(pkStamp(v))), "Invalid date / time").optional()); // a day, a day+minute (PK), or an ISO stamp
+function ownClient(tenantId, id) {
+    const c = get("SELECT * FROM wholesale_clients WHERE id=? AND tenant_id=?", id, tenantId);
+    if (!c)
+        throw new AppError(404, "Wholesale client not found");
+    return c;
+}
+export function clientDue(clientId, before) {
+    return partyBalance("client", clientId, before);
+}
+/** Due for every client of a tenant in ONE grouped query (list / summary screens — avoids clientDue per row). */
+export function clientDueAll(tenantId) {
+    return partyBalanceAll("client", tenantId);
+}
+/** Carriage / kiraya income from bypass-on-our-ID supplies in a period (whole amount is profit — no fuel cost on our books). */
+export function carriageIncome(tenantId, fromIso, toIso) {
+    const r = get(`SELECT COALESCE(SUM(amount),0) v FROM wholesale_txns WHERE tenant_id=? AND voided=0 AND type='carriage' AND txn_date >= ?${toIso ? " AND txn_date < ?" : ""}`, ...(toIso ? [tenantId, fromIso, toIso] : [tenantId, fromIso]));
+    return round2(r.v);
+}
+/** Rate input: a plain number (fixed rate) or { mode: "fixed", rate } or { mode: "discount", discount } (Rs/L below the pump price). */
+export const rateInput = z.union([
+    z.number().positive(),
+    z.object({ mode: z.literal("fixed"), rate: z.number().positive() }),
+    z.object({ mode: z.literal("discount"), discount: z.number().min(-200).max(200) }),
+]);
+const norm = (r) => typeof r === "number" ? { mode: "fixed", rate: r, discount: null } : r.mode === "fixed" ? { ...r, discount: null } : { ...r, rate: null };
+const rd = (n) => `Rs ${Math.abs(n).toFixed(2)}`;
+export const rateLabel = (mode, discount) => mode === "discount" ? (discount >= 0 ? `pump − ${rd(discount)}` : `pump + ${rd(discount)}`) : "fixed";
+/** What a litre cost us (go-live opening value + purchases, weighted — fuelCost.ts), for the margin on the rate card and the profit figures. */
+function lastCost(tenantId, product) {
+    return fuelCostPerL(tenantId, product);
+}
+/** Supplies that are really bypass drops (depot → client, never in our tanks): their profit is bypassProfit's, costed from the bypass purchase. */
+const NOT_BYPASS = "AND NOT EXISTS (SELECT 1 FROM bypass_drops bd WHERE bd.wtx_id = wholesale_txns.id)";
+/** Wholesale supply profit in a window (from our own tanks only): each supply's (rate − our cost per litre) × litres. */
+export function wholesaleProfit(tenantId, fromIso, toIso) {
+    const cost = Object.fromEntries(Object.keys(PRODUCTS).map((p) => [p, lastCost(tenantId, p)]));
+    let p = 0;
+    for (const x of all(`SELECT product, litres, rate FROM wholesale_txns WHERE tenant_id=? AND voided=0 AND type='supply' ${NOT_BYPASS} AND txn_date >= ?${toIso ? " AND txn_date < ?" : ""}`, ...(toIso ? [tenantId, fromIso, toIso] : [tenantId, fromIso])))
+        if (cost[x.product] != null)
+            p += x.litres * (x.rate - cost[x.product]);
+    return round2(p);
+}
+/** Build one product's rate-card entry from its wholesale_rates row + the tenant's pump price and fuel cost (all pre-fetched). */
+function cardRow(r, pumpRate, cost) {
+    const rate = r.mode === "discount" ? (pumpRate == null ? null : round2(pumpRate - r.discount)) : r.rate;
+    return {
+        mode: r.mode, discount: r.mode === "discount" ? r.discount : null, fixed: r.mode === "fixed" ? r.rate : null,
+        rate, pump: pumpRate, vs_pump: rate != null && pumpRate != null ? round2(pumpRate - rate) : null,
+        cost, margin: rate != null && cost != null ? round2(rate - cost) : null,
+        label: rateLabel(r.mode, r.discount), updated_at: r.updated_at, updated_by: r.updated_by,
+    };
+}
+export function rateCard(clientId) {
+    const tenant = get("SELECT tenant_id FROM wholesale_clients WHERE id=?", clientId).tenant_id;
+    const pump = currentPrices(tenant);
+    const costMemo = new Map();
+    const costOf = (p) => { if (!costMemo.has(p))
+        costMemo.set(p, lastCost(tenant, p)); return costMemo.get(p); };
+    return Object.fromEntries(all("SELECT * FROM wholesale_rates WHERE client_id=?", clientId).map((r) => [r.product, cardRow(r, pump[r.product]?.price ?? null, costOf(r.product))]));
+}
+/** Every client's rate card for a tenant in one query, with pump prices and fuel costs computed once (list screens — no per-client queries). */
+export function rateCardsFor(tenantId) {
+    const pump = currentPrices(tenantId);
+    const costMemo = new Map();
+    const costOf = (p) => { if (!costMemo.has(p))
+        costMemo.set(p, lastCost(tenantId, p)); return costMemo.get(p); };
+    const m = new Map();
+    for (const r of all("SELECT r.* FROM wholesale_rates r JOIN wholesale_clients c ON c.id=r.client_id WHERE c.tenant_id=?", tenantId)) {
+        const card = m.get(r.client_id) ?? {};
+        card[r.product] = cardRow(r, pump[r.product]?.price ?? null, costOf(r.product));
+        m.set(r.client_id, card);
+    }
+    return m;
+}
+const ratesFromCard = (card) => Object.fromEntries(Object.entries(card).filter(([, r]) => r.rate != null).map(([p, r]) => [p, r.rate]));
+/** Effective rate per product today (pump-linked rates follow the current pump price). */
+function rates(clientId) {
+    return ratesFromCard(rateCard(clientId));
+}
+/** The client's rate card as it stood at `at` (a back-dated supply is billed at THAT day's rate): a fixed rate comes from
+ *  wholesale_rate_history (the last change on or before `at`, else the old value of the first change after it, else today's);
+ *  a discount-mode rate is that moment's pump price minus the discount. */
+export function ratesAt(clientId, at) {
+    if (!at || Date.parse(at) >= Date.now() - 60_000)
+        return rates(clientId);
+    const tenant = get("SELECT tenant_id FROM wholesale_clients WHERE id=?", clientId).tenant_id;
+    const pump = currentPrices(tenant, at);
+    const out = {};
+    for (const r of all("SELECT * FROM wholesale_rates WHERE client_id=?", clientId)) {
+        const before = get("SELECT new_rate FROM wholesale_rate_history WHERE client_id=? AND product=? AND created_at <= ? ORDER BY created_at DESC, id DESC LIMIT 1", clientId, r.product, at);
+        const after = before ? null : get("SELECT old_rate FROM wholesale_rate_history WHERE client_id=? AND product=? AND created_at > ? ORDER BY created_at ASC, id ASC LIMIT 1", clientId, r.product, at);
+        // the history rows store the effective rate for discount clients too; only with no history at all fall back to that
+        // moment's pump price minus today's discount (fixed-mode: today's rate)
+        const fallback = r.mode === "discount" ? (pump[r.product]?.price != null ? round2(pump[r.product].price - (r.discount ?? 0)) : null) : r.rate;
+        const v = before?.new_rate ?? after?.old_rate ?? fallback;
+        if (v != null && v > 0)
+            out[r.product] = round2(v);
+    }
+    return out;
+}
+function summary(clientId, from, to) {
+    const where = `client_id=? AND voided=0 ${from ? "AND txn_date >= ?" : ""} ${to ? "AND txn_date < ?" : ""}`;
+    const args = [clientId, ...(from ? [pkStart(from)] : []), ...(to ? [pkEnd(to)] : [])];
+    const byProduct = all(`SELECT product,
+       ROUND(SUM(CASE WHEN type='supply' THEN litres ELSE 0 END),2) supplied_l,
+       ROUND(SUM(CASE WHEN type='return' THEN litres ELSE 0 END),2) returned_l,
+       ROUND(SUM(CASE WHEN type='supply' THEN amount WHEN type='return' THEN -amount ELSE 0 END),2) net_amount
+     FROM wholesale_txns WHERE ${where} AND product IS NOT NULL GROUP BY product`, ...args);
+    const t = get(`SELECT COALESCE(SUM(CASE WHEN type='supply' THEN amount END),0) billed,
+       COALESCE(SUM(CASE WHEN type='return' THEN amount END),0) returned,
+       COALESCE(SUM(CASE WHEN type='payment' THEN amount END),0) received,
+       COALESCE(SUM(CASE WHEN type='adjustment' THEN amount END),0) adjustments,
+       COUNT(CASE WHEN type='supply' THEN 1 END) supplies,
+       MAX(CASE WHEN type='payment' THEN txn_date END) last_payment,
+       MAX(CASE WHEN type='supply' THEN txn_date END) last_supply
+     FROM wholesale_txns WHERE ${where}`, ...args);
+    return { by_product: byProduct, ...t, due: clientDue(clientId) };
+}
+/* ---------------- Overview ---------------- */
+/** Dashboard "recent entries" feed for a day range (PK days, inclusive). `group` = supply (supply / return / carriage) or
+ *  account (payment / adjustment); default is the last 7 days. Capped so a busy pump cannot pull a year in one go. */
+wholesale.get("/wholesale/recent", h((req) => {
+    const t = tid(req);
+    const q = parse(z.object({
+        from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+        group: z.enum(["supply", "account"]).optional(), limit: z.coerce.number().int().min(1).max(2000).default(1000),
+    }), req.query);
+    const to = q.to ?? pkDate();
+    const from = q.from ?? pkDate(Date.parse(pkStart(to)) - 6 * 86_400_000);
+    const types = q.group === "supply" ? ["supply", "return", "carriage"] : q.group === "account" ? ["payment", "adjustment"] : null;
+    const rows = all(`SELECT x.*, ${proofCol("'wtx:'||x.id")}, c.name client_name FROM wholesale_txns x JOIN wholesale_clients c ON c.id=x.client_id
+       WHERE x.tenant_id=? AND x.txn_date >= ? AND x.txn_date < ? ${types ? `AND x.type IN (${types.map(() => "?").join(",")})` : ""}
+       ORDER BY x.txn_date DESC, x.id DESC LIMIT ?`, t, pkStart(from), pkEnd(to), ...(types ?? []), q.limit + 1);
+    const counts = get(`SELECT SUM(CASE WHEN type IN ('supply','return','carriage') THEN 1 ELSE 0 END) supply, SUM(CASE WHEN type IN ('payment','adjustment') THEN 1 ELSE 0 END) account
+       FROM wholesale_txns WHERE tenant_id=? AND txn_date >= ? AND txn_date < ?`, t, pkStart(from), pkEnd(to));
+    return { from, to, rows: rows.slice(0, q.limit), truncated: rows.length > q.limit, counts: { supply: Number(counts.supply ?? 0), account: Number(counts.account ?? 0) } };
+}));
+wholesale.get("/wholesale/summary", h((req) => {
+    const t = tid(req);
+    const month = new Date(pkDate().slice(0, 7) + "-01T00:00:00+05:00").toISOString();
+    const today = pkDayStart();
+    const dueMap = clientDueAll(t);
+    return {
+        total_due: round2([...dueMap.values()].reduce((a, b) => a + b, 0)),
+        clients: dueMap.size,
+        month: get(`SELECT COALESCE(SUM(CASE WHEN type='supply' THEN litres END),0) supplied_l, COALESCE(SUM(CASE WHEN type='supply' THEN amount END),0) billed,
+         COALESCE(SUM(CASE WHEN type='payment' THEN amount END),0) received, COALESCE(SUM(CASE WHEN type='return' THEN litres END),0) returned_l
+       FROM wholesale_txns WHERE tenant_id=? AND voided=0 AND txn_date >= ?`, t, month),
+        today: get(`SELECT COALESCE(SUM(CASE WHEN type='supply' THEN litres END),0) supplied_l, COALESCE(SUM(CASE WHEN type='payment' THEN amount END),0) received
+       FROM wholesale_txns WHERE tenant_id=? AND voided=0 AND txn_date >= ?`, t, today),
+        by_product_month: all(`SELECT product, ROUND(SUM(litres)) litres, ROUND(SUM(amount)) amount FROM wholesale_txns
+       WHERE tenant_id=? AND voided=0 AND type='supply' AND txn_date >= ? GROUP BY product`, t, month),
+        recent: all(`SELECT x.*, ${proofCol("'wtx:'||x.id")}, c.name client_name FROM wholesale_txns x JOIN wholesale_clients c ON c.id=x.client_id
+       WHERE x.tenant_id=? ORDER BY x.txn_date DESC, x.id DESC LIMIT 40`, t),
+    };
+}));
+/* ---------------- Dashboard: KPIs, trends, ageing and suggestions ---------------- */
+const DAYMS = 86_400_000;
+/** How old the unpaid amount is: the due is matched to the newest supplies first (oldest bills count as paid first). */
+function ageing(clientId, due, nowMs) {
+    const buckets = { d0_15: 0, d16_30: 0, d31_60: 0, d60: 0 };
+    let left = due, oldest = 0;
+    if (left <= 0)
+        return { buckets, oldest_days: 0 };
+    for (const s of all("SELECT amount, txn_date FROM wholesale_txns WHERE client_id=? AND type='supply' AND voided=0 ORDER BY txn_date DESC, id DESC", clientId)) {
+        const part = Math.min(left, s.amount), days = Math.floor((nowMs - Date.parse(s.txn_date)) / DAYMS);
+        buckets[days <= 15 ? "d0_15" : days <= 30 ? "d16_30" : days <= 60 ? "d31_60" : "d60"] += part;
+        oldest = days;
+        left -= part;
+        if (left <= 0.01)
+            break;
+    }
+    if (left > 0.01) {
+        buckets.d60 += left;
+        oldest = Math.max(oldest, 61);
+    } // opening balance / older than any supply
+    return { buckets, oldest_days: oldest };
+}
+/** The bills that make up a client's unpaid balance, newest first (same matching as ageing: older bills count as paid first). */
+export function unpaidBills(clientId, due, nowMs = Date.now()) {
+    const out = [];
+    let left = due;
+    if (left <= 0.01)
+        return { bills: out, older: 0 };
+    for (const s of all("SELECT id, txn_date, type, product, litres, rate, vehicle_no, ref, amount FROM wholesale_txns WHERE client_id=? AND type IN ('supply','carriage','adjustment') AND amount > 0 AND voided=0 AND COALESCE(ref,'') <> 'refund:' ORDER BY txn_date DESC, id DESC", clientId)) {
+        const part = round2(Math.min(left, s.amount));
+        out.push({ ...s, unpaid: part, days: Math.floor((nowMs - Date.parse(s.txn_date)) / DAYMS) });
+        left = round2(left - part);
+        if (left <= 0.01)
+            break;
+    }
+    return { bills: out, older: left > 0.01 ? left : 0 }; // older = opening balance / older than any bill
+}
+/** Supplied vs collected per month for the last `n` months (oldest first) — the dashboard's main chart. */
+function monthlyFlow(t, n = 6) {
+    const today = pkDate();
+    let y = Number(today.slice(0, 4)), m = Number(today.slice(5, 7));
+    for (let i = 1; i < n; i++) {
+        if (m === 1) {
+            y -= 1;
+            m = 12;
+        }
+        else
+            m -= 1;
+    }
+    const from = `${y}-${String(m).padStart(2, "0")}-01T00:00:00+05:00`;
+    const rows = all(`SELECT strftime('%Y-%m', txn_date, '+5 hours') ym, COALESCE(SUM(CASE WHEN type='supply' THEN amount END),0) supplied,
+      COALESCE(SUM(CASE WHEN type='supply' THEN litres END),0) litres, COALESCE(SUM(CASE WHEN type='payment' THEN amount END),0) collected
+    FROM wholesale_txns WHERE tenant_id=? AND voided=0 AND txn_date >= ? GROUP BY ym`, t, new Date(from).toISOString());
+    const out = [];
+    for (let i = 0; i < n; i++) {
+        const ym = `${y}-${String(m).padStart(2, "0")}`, r = rows.find((x) => x.ym === ym);
+        out.push({ month: ym, supplied: Math.round(r?.supplied ?? 0), collected: Math.round(r?.collected ?? 0), litres: Math.round(r?.litres ?? 0) });
+        if (m === 12) {
+            y += 1;
+            m = 1;
+        }
+        else
+            m += 1;
+    }
+    return out;
+}
+wholesale.get("/wholesale/dashboard", h((req) => {
+    const t = tid(req), nowMs = Date.now(), today = pkDate();
+    const monthStart = new Date(today.slice(0, 7) + "-01T00:00:00+05:00");
+    const dayOfMonth = Number(today.slice(8, 10));
+    const lastMonthStart = new Date(Date.UTC(monthStart.getUTCFullYear(), monthStart.getUTCMonth() - 1, 1) - 5 * 3600_000);
+    const lastMonthSameDay = new Date(lastMonthStart.getTime() + dayOfMonth * DAYMS);
+    const period = (from, to) => get(`SELECT COALESCE(SUM(CASE WHEN type='supply' THEN litres END),0) litres, COALESCE(SUM(CASE WHEN type='supply' THEN amount END),0) billed,
+      COALESCE(SUM(CASE WHEN type='payment' THEN amount END),0) received, COUNT(CASE WHEN type='supply' THEN 1 END) supplies
+    FROM wholesale_txns WHERE tenant_id=? AND voided=0 AND txn_date >= ? AND txn_date < ?`, t, from.toISOString(), to.toISOString());
+    const mtd = period(monthStart, new Date(nowMs + 1000)), lastMtd = period(lastMonthStart, lastMonthSameDay);
+    const pct = (a, b) => (b > 0 ? Math.round(((a - b) / b) * 100) : null);
+    const cost = Object.fromEntries(Object.keys(PRODUCTS).map((p) => [p, lastCost(t, p)]));
+    const monthSupplies = all(`SELECT client_id, product, litres, rate, amount FROM wholesale_txns WHERE tenant_id=? AND voided=0 AND type='supply' ${NOT_BYPASS} AND txn_date >= ?`, t, monthStart.toISOString());
+    const withCost = monthSupplies.filter((x) => cost[x.product] != null);
+    const profit = withCost.reduce((a, x) => a + x.litres * (x.rate - cost[x.product]), 0);
+    const costedL = withCost.reduce((a, x) => a + x.litres, 0);
+    const profitFor = (from, to) => wholesaleProfit(t, from.toISOString(), to.toISOString());
+    const lastMtdProfit = profitFor(lastMonthStart, lastMonthSameDay);
+    // clients: due, limit, ageing, ordering rhythm, margin
+    const clients = all("SELECT * FROM wholesale_clients WHERE tenant_id=? AND active=1 ORDER BY name", t).map((c) => {
+        const due = clientDue(c.id);
+        const ag = ageing(c.id, due, nowMs);
+        const sup = all("SELECT txn_date FROM wholesale_txns WHERE client_id=? AND type='supply' AND voided=0 AND txn_date >= ? ORDER BY txn_date", c.id, new Date(nowMs - 60 * DAYMS).toISOString()).map((x) => Date.parse(x.txn_date));
+        const gaps = sup.slice(1).map((x, i) => (x - sup[i]) / DAYMS);
+        const usual = gaps.length >= 2 ? Math.round((gaps.reduce((a, b) => a + b, 0) / gaps.length) * 10) / 10 : null;
+        const last = get("SELECT MAX(CASE WHEN type='supply' THEN txn_date END) ls, MAX(CASE WHEN type='payment' THEN txn_date END) lp FROM wholesale_txns WHERE client_id=? AND voided=0", c.id);
+        const mine = monthSupplies.filter((x) => x.client_id === c.id);
+        const card = rateCard(c.id);
+        const margins = Object.entries(card).filter(([, r]) => r.margin != null).map(([p, r]) => ({ product: p, margin: r.margin, rate: r.rate }));
+        const days = (iso) => (iso ? Math.floor((nowMs - Date.parse(iso)) / DAYMS) : null);
+        const limitPct = c.credit_limit > 0 ? Math.round((due / c.credit_limit) * 100) : null;
+        const health = (limitPct ?? 0) >= 90 || ag.oldest_days > 60 ? "red" : (limitPct ?? 0) >= 75 || ag.oldest_days > 30 ? "amber" : "green";
+        return {
+            id: c.id, name: c.name, city: c.city, phone: c.phone, credit_limit: c.credit_limit, due: round2(due), limit_pct: limitPct, ageing: ag.buckets, oldest_days: ag.oldest_days,
+            month_l: Math.round(mine.reduce((a, x) => a + x.litres, 0)), month_billed: Math.round(mine.reduce((a, x) => a + x.amount, 0)),
+            last_supply_days: days(last.ls), last_payment_days: days(last.lp), usual_gap_days: usual, margins, health,
+        };
+    });
+    const ageTotals = clients.reduce((a, c) => { for (const k of Object.keys(a))
+        a[k] += c.ageing[k]; return a; }, { d0_15: 0, d16_30: 0, d31_60: 0, d60: 0 });
+    // trends: daily litres by product (30 days) and weekly billed vs received (8 weeks)
+    const from30 = new Date(Date.parse(today + "T00:00:00+05:00") - 29 * DAYMS);
+    const dayRows = all(`SELECT strftime('%Y-%m-%d', txn_date, '+5 hours') d, product, SUM(litres) l FROM wholesale_txns WHERE tenant_id=? AND voided=0 AND type='supply' AND txn_date >= ? GROUP BY d, product`, t, from30.toISOString());
+    const daily = Array.from({ length: 30 }, (_, i) => {
+        const d = new Date(from30.getTime() + i * DAYMS + 5 * 3600_000).toISOString().slice(0, 10);
+        return { day: d, ...Object.fromEntries(Object.keys(PRODUCTS).map((p) => [p, Math.round(dayRows.find((r) => r.d === d && r.product === p)?.l ?? 0)])) };
+    });
+    const weekStart = (ms) => { const dd = new Date(ms + 5 * 3600_000); const back = (dd.getUTCDay() + 6) % 7; return Date.parse(dd.toISOString().slice(0, 10) + "T00:00:00+05:00") - back * DAYMS; };
+    const w0 = weekStart(nowMs) - 7 * 7 * DAYMS;
+    const wkRows = all(`SELECT txn_date, type, amount FROM wholesale_txns WHERE tenant_id=? AND voided=0 AND type IN ('supply','payment') AND txn_date >= ?`, t, new Date(w0).toISOString());
+    const weekly = Array.from({ length: 8 }, (_, i) => {
+        const a = w0 + i * 7 * DAYMS, b = a + 7 * DAYMS;
+        const rows = wkRows.filter((r) => { const x = Date.parse(r.txn_date); return x >= a && x < b; });
+        return { week: new Date(a + 5 * 3600_000).toISOString().slice(5, 10), billed: Math.round(rows.filter((r) => r.type === "supply").reduce((s, r) => s + r.amount, 0)), received: Math.round(rows.filter((r) => r.type === "payment").reduce((s, r) => s + r.amount, 0)) };
+    });
+    // monthly profit for the last 6 months (supply rate − our last purchase cost), oldest first — for the munafa chart
+    const monthlyProfit = (() => {
+        let y = Number(today.slice(0, 4)), m = Number(today.slice(5, 7)); // this month (1-12), in Pakistan time
+        const out = [];
+        for (let i = 0; i < 6; i++) {
+            const start = new Date(`${y}-${String(m).padStart(2, "0")}-01T00:00:00+05:00`);
+            const [ny, nm] = m === 12 ? [y + 1, 1] : [y, m + 1];
+            const end = new Date(`${ny}-${String(nm).padStart(2, "0")}-01T00:00:00+05:00`);
+            out.unshift({ month: `${y}-${String(m).padStart(2, "0")}`, profit: profitFor(start, end) });
+            if (m === 1) {
+                y -= 1;
+                m = 12;
+            }
+            else
+                m -= 1;
+        }
+        return out;
+    })();
+    const sug = [];
+    for (const c of clients) {
+        if (c.limit_pct != null && c.limit_pct >= 80)
+            sug.push({ level: c.limit_pct >= 95 ? "critical" : "warning", title: `${c.name}: ${c.limit_pct}% of credit limit used`, ur: `${c.name} کی ادھار حد ${c.limit_pct}% بھر گئی — اگلی سپلائی سے پہلے رقم لیں`, detail: `Due ${pkr(c.due)} of ${pkr(c.credit_limit)}. Collect a payment before the next supply.`, action: { kind: "payment", client_id: c.id, label: "Receive payment" } });
+        if (c.oldest_days > 30 && c.due > 0)
+            sug.push({ level: c.oldest_days > 60 ? "critical" : "warning", title: `${c.name}: bills unpaid for ${c.oldest_days} days`, ur: `${c.name} کے بل ${c.oldest_days} دن سے باقی ہیں — حساب بھیجیں اور فون کریں`, detail: `${pkr(c.ageing.d31_60 + c.ageing.d60)} is older than 30 days. Send the statement and call.`, action: { kind: "statement", client_id: c.id, label: "WhatsApp statement" } });
+        else if (c.due > 50_000 && (c.last_payment_days == null || c.last_payment_days >= 15))
+            sug.push({ level: "warning", title: `${c.name}: no payment for ${c.last_payment_days ?? "many"} days`, ur: `${c.name} نے ${c.last_payment_days ?? "کئی"} دن سے ادائیگی نہیں کی`, detail: `Due ${pkr(c.due)}. A reminder now keeps it from getting old.`, action: { kind: "statement", client_id: c.id, label: "WhatsApp statement" } });
+        if (c.usual_gap_days && c.last_supply_days != null && c.last_supply_days > Math.max(3, c.usual_gap_days * 2))
+            sug.push({ level: "info", title: `${c.name} has not ordered for ${c.last_supply_days} days`, ur: `${c.name} نے ${c.last_supply_days} دن سے آرڈر نہیں دیا — فون کر کے پوچھیں`, detail: `Usually orders every ${c.usual_gap_days} days. Call — they may be buying elsewhere.`, action: { kind: "open", client_id: c.id, label: "Open client" } });
+        for (const m of c.margins)
+            if (m.margin < 1)
+                sug.push({ level: m.margin < 0 ? "critical" : "warning", title: `${c.name}: ${PRODUCTS[m.product]} margin only Rs ${m.margin.toFixed(2)}/L`, ur: `${c.name}: منافع صرف ${m.margin.toFixed(2)} روپے فی لیٹر — ریٹ دیکھیں`, detail: `Their rate Rs ${m.rate} vs our last purchase cost. Review the rate.`, action: { kind: "rates", client_id: c.id, label: "Review rate" } });
+    }
+    // Note: the CEO/admin sets each wholesale client's rate separately, so we don't
+    // nudge switching fixed rates to pump-linked ones here.
+    const top = [...clients].sort((a, b) => b.month_l - a.month_l)[0];
+    if (top?.month_l)
+        sug.push({ level: "good", title: `Top client this month: ${top.name}`, ur: `اس مہینے سب سے بڑا کلائنٹ: ${top.name}`, detail: `${top.month_l.toLocaleString()} L so far. Keep them happy — a thank-you call or a small discount on big loads.`, action: { kind: "open", client_id: top.id, label: "Open client" } });
+    // bypass stock already bought but not yet delivered — deliver this held fuel first
+    for (const p of Object.keys(PRODUCTS)) {
+        const held = round2(get("SELECT COALESCE(SUM(litres),0) l FROM bypass_purchases WHERE tenant_id=? AND voided=0 AND product=?", t, p).l
+            - get("SELECT COALESCE(SUM(litres),0) l FROM bypass_drops WHERE tenant_id=? AND voided=0 AND product=?", t, p).l);
+        if (held > 0.01)
+            sug.push({ level: "info", title: `Bypass stock already with us: ${Math.round(held).toLocaleString()} L ${PRODUCTS[p]}`, ur: `بائی پاس کا ${Math.round(held).toLocaleString()} لیٹر ${PRODUCTS[p]} پہلے سے ہمارے پاس ہے — پہلے یہ ڈیلیور کریں`, detail: `${Math.round(held).toLocaleString()} L of ${PRODUCTS[p]} was lifted from a depot but not yet delivered. Deliver this first — in a new Depot-direct trip, leave the purchase blank and just add the client drop.`, action: { kind: "trip", label: "Deliver it" } });
+    }
+    // stock for the next 3 days of wholesale
+    for (const p of Object.keys(PRODUCTS)) {
+        const avg = get("SELECT COALESCE(SUM(litres),0) l FROM wholesale_txns WHERE tenant_id=? AND voided=0 AND type='supply' AND product=? AND txn_date >= ?", t, p, new Date(nowMs - 14 * DAYMS).toISOString()).l / 14;
+        const stock = get("SELECT COALESCE(SUM(t.current_l),0) l FROM tanks t JOIN stations s ON s.id=t.station_id WHERE s.tenant_id=? AND t.product=?", t, p).l;
+        if (avg > 0 && stock < avg * 3)
+            sug.push({ level: "warning", title: `${PRODUCTS[p]} stock covers only ${Math.max(0, Math.floor(stock / avg))} days of wholesale`, ur: `${PRODUCTS[p]} کا اسٹاک صرف ${Math.max(0, Math.floor(stock / avg))} دن کا ہے — ٹینکر منگوائیں`, detail: `${Math.round(stock).toLocaleString()} L in tanks; wholesale takes about ${Math.round(avg).toLocaleString()} L a day (plus pump sales). Order a tanker.` });
+    }
+    // fleet
+    for (const d of all("SELECT name, licence_expiry FROM drivers WHERE tenant_id=? AND active=1 AND licence_expiry IS NOT NULL AND licence_expiry <= ?", t, new Date(nowMs + 30 * DAYMS).toISOString().slice(0, 10)))
+        sug.push({ level: d.licence_expiry < today ? "critical" : "warning", title: `Driver ${d.name}: licence ${d.licence_expiry < today ? "expired" : "expires"} ${d.licence_expiry}`, ur: `ڈرائیور ${d.name} کا لائسنس ${d.licence_expiry < today ? "ختم ہو گیا" : "ختم ہونے والا ہے"}`, detail: "Do not send this driver on a trip until the licence is renewed.", action: { kind: "fleet", label: "Drivers" } });
+    const fill = get(`SELECT AVG(tr.litres / tk.capacity_l) f, COUNT(*) n FROM wholesale_trips tr JOIN tankers tk ON tk.id=tr.tanker_id
+    WHERE tr.tenant_id=? AND tk.capacity_l > 0 AND tr.trip_date >= ?`, t, new Date(nowMs - 30 * DAYMS).toISOString());
+    if (fill.n >= 3 && fill.f < 0.6)
+        sug.push({ level: "info", title: `Tankers leave only ${Math.round(fill.f * 100)}% full on average`, ur: `ٹینکر صرف ${Math.round(fill.f * 100)}% بھر کر جاتے ہیں — قریب کے کلائنٹس ایک ٹرپ میں ملائیں`, detail: "Combine nearby clients into one tanker trip to save diesel and driver time.", action: { kind: "trip", label: "Plan a trip" } });
+    sug.push(...deskSuggestions(t, clients));
+    const order = { critical: 0, warning: 1, info: 2, good: 3 };
+    sug.sort((a, b) => order[a.level] - order[b.level]);
+    const totalDue = round2(clients.reduce((a, c) => a + c.due, 0));
+    return {
+        kpi: {
+            total_due: totalDue, overdue_30: Math.round(ageTotals.d31_60 + ageTotals.d60),
+            month_litres: Math.round(mtd.litres), month_litres_change: pct(mtd.litres, lastMtd.litres),
+            month_billed: Math.round(mtd.billed), month_received: Math.round(mtd.received), month_received_change: pct(mtd.received, lastMtd.received),
+            collection_pct: mtd.billed > 0 ? Math.round((mtd.received / mtd.billed) * 100) : null,
+            profit_estimate: costedL ? Math.round(profit) : null, margin_per_l: costedL ? round2(profit / costedL) : null,
+            last_month_profit: Math.round(lastMtdProfit), month_profit_change: pct(profit, lastMtdProfit),
+            today: get(`SELECT COALESCE(SUM(CASE WHEN type='supply' THEN litres END),0) litres, COALESCE(SUM(CASE WHEN type='payment' THEN amount END),0) received FROM wholesale_txns WHERE tenant_id=? AND voided=0 AND txn_date >= ?`, t, pkDayStart()),
+            trips_month: get("SELECT COUNT(*) n FROM wholesale_trips WHERE tenant_id=? AND trip_date >= ?", t, monthStart.toISOString()).n,
+            ...(() => {
+                const o = openOrders(t), p = promises(t), q = cheques(t);
+                return {
+                    open_orders: o.length, open_orders_l: Math.round(o.reduce((a, x) => a + x.litres, 0)), orders_today: o.filter((x) => x.needed_on <= today).length,
+                    promised_today: round2(p.filter((x) => x.state === "today").reduce((a, x) => a + x.amount - x.paid, 0)),
+                    broken_promises: p.filter((x) => x.state === "broken").length,
+                    cheques_in_hand: round2(q.filter((x) => x.status === "in_hand" || x.status === "deposited").reduce((a, x) => a + x.amount, 0)),
+                };
+            })(),
+        },
+        ageing: Object.fromEntries(Object.entries(ageTotals).map(([k, v]) => [k, Math.round(v)])),
+        daily, weekly, monthly_profit: monthlyProfit, monthly: monthlyFlow(t), clients, suggestions: sug.slice(0, 20),
+    };
+}));
+/* ---------------- Clients ---------------- */
+wholesale.get("/wholesale/clients", h((req) => {
+    const t = tid(req);
+    const q = `%${String(req.query.q ?? "").trim()}%`;
+    const month = new Date(pkDate().slice(0, 7) + "-01T00:00:00+05:00").toISOString();
+    const dueMap = clientDueAll(t);
+    const cardMap = rateCardsFor(t);
+    // one grouped query for this-month litres / last payment / last supply, instead of one per client
+    const meta = new Map();
+    for (const r of all(`SELECT x.client_id, COALESCE(SUM(CASE WHEN type='supply' AND txn_date >= ? THEN litres END),0) month_l,
+        MAX(CASE WHEN type='payment' THEN txn_date END) last_payment, MAX(CASE WHEN type='supply' THEN txn_date END) last_supply
+      FROM wholesale_txns x JOIN wholesale_clients c ON c.id=x.client_id WHERE c.tenant_id=? AND x.voided=0 GROUP BY x.client_id`, month, t))
+        meta.set(r.client_id, { month_l: Number(r.month_l), last_payment: r.last_payment ?? null, last_supply: r.last_supply ?? null });
+    return all("SELECT * FROM wholesale_clients WHERE tenant_id=? AND (name LIKE ? OR business_name LIKE ? OR phone LIKE ?) ORDER BY active DESC, name", t, q, q, q)
+        .map((c) => {
+        const m = meta.get(c.id) ?? { month_l: 0, last_payment: null, last_supply: null };
+        const card = cardMap.get(c.id) ?? {};
+        return { ...c, rates: ratesFromCard(card), rate_card: card, due: dueMap.get(c.id) ?? round2(c.opening_balance), month_l: m.month_l, last_payment: m.last_payment, last_supply: m.last_supply };
+    });
+}));
+const clientBody = z.object({
+    name: z.string().min(2), business_name: z.string().optional().nullable(), phone: z.string().optional().nullable(),
+    city: z.string().optional().nullable(), address: z.string().optional().nullable(), notes: z.string().optional().nullable(),
+    credit_limit: z.number().min(0).optional(), opening_balance: z.number().optional(), opening_kind: z.enum(["due", "advance"]).optional(), active: z.boolean().optional(),
+    opening_method: z.string().max(40).optional().nullable(), opening_account_id: accountIdField, // an advance received today: how it came
+    rates: z.record(product, rateInput).optional(),
+});
+function guardFinancials(req, b) {
+    if ((b.credit_limit !== undefined || b.opening_balance !== undefined || b.rates !== undefined) && !can(req.user, "wholesale.rates"))
+        throw new AppError(403, "Only the admin can set rates, credit limits and opening balances");
+}
+export function saveRates(clientId, newRates, by) {
+    const tenant = get("SELECT tenant_id FROM wholesale_clients WHERE id=?", clientId).tenant_id;
+    const pump = currentPrices(tenant);
+    const old = rateCard(clientId);
+    for (const [p, input] of Object.entries(newRates)) {
+        const r = norm(input);
+        const o = old[p];
+        if (o && o.mode === r.mode && (r.mode === "fixed" ? o.fixed === r.rate : o.discount === r.discount))
+            continue;
+        if (r.mode === "discount" && !pump[p])
+            throw new AppError(400, `No pump price set for ${PRODUCTS[p]} yet, so a rate below the pump price cannot be worked out`);
+        const effective = r.mode === "discount" ? round2(pump[p].price - r.discount) : r.rate;
+        if (effective <= 0)
+            throw new AppError(400, `${PRODUCTS[p]} rate would be Rs ${effective}`);
+        run(`INSERT INTO wholesale_rates (client_id,product,rate,mode,discount,updated_at,updated_by) VALUES (?,?,?,?,?,?,?)
+         ON CONFLICT(client_id,product) DO UPDATE SET rate=excluded.rate, mode=excluded.mode, discount=excluded.discount, updated_at=excluded.updated_at, updated_by=excluded.updated_by`, clientId, p, effective, r.mode, r.discount, now(), by);
+        run("INSERT INTO wholesale_rate_history (client_id,product,old_rate,new_rate,changed_by,note,created_at) VALUES (?,?,?,?,?,?,?)", clientId, p, o?.rate ?? null, effective, by, r.mode === "discount" ? `Set to ${rateLabel("discount", r.discount)}` : "Fixed rate", now());
+    }
+}
+/**
+ * Pump price changed: clients on "pump − Rs X" now pay the new pump price minus their discount.
+ * Records the change in each client's rate history and returns lines for the wholesale team.
+ */
+export function followPumpPrice(tenantId, changes) {
+    const moved = [], fixed = [];
+    const perClient = {};
+    for (const ch of changes) {
+        for (const r of all(`SELECT r.*, c.name FROM wholesale_rates r JOIN wholesale_clients c ON c.id=r.client_id
+        WHERE c.tenant_id=? AND c.active=1 AND r.product=? ORDER BY c.name`, tenantId, ch.product)) {
+            if (r.mode !== "discount") {
+                fixed.push(`${r.name} ${PRODUCTS[ch.product]} Rs ${r.rate} (fixed)`);
+                continue;
+            }
+            const nr = round2(ch.new - r.discount);
+            const or = ch.old == null ? r.rate : round2(ch.old - r.discount);
+            run("UPDATE wholesale_rates SET rate=? WHERE client_id=? AND product=?", nr, r.client_id, r.product);
+            run("INSERT INTO wholesale_rate_history (client_id,product,old_rate,new_rate,changed_by,note,created_at) VALUES (?,?,?,?,?,?,?)", r.client_id, r.product, or, nr, "Pump price change", rateLabel("discount", r.discount), now());
+            moved.push(`${r.name}: ${PRODUCTS[ch.product]} Rs ${or} → Rs ${nr} (${rateLabel("discount", r.discount)})`);
+            (perClient[r.client_id] ??= []).push(`${PRODUCTS[ch.product]}: Rs ${nr}/L (pehle Rs ${or})`);
+        }
+    }
+    return { moved, fixed, perClient };
+}
+/** opening_balance is stored signed: positive = client owes us, negative = advance the client paid us. `opening_kind` sets the sign for the UI. */
+const signedOpening = (b) => {
+    if (b.opening_balance === undefined || !b.opening_kind)
+        return;
+    b.opening_balance = b.opening_kind === "advance" ? -Math.abs(b.opening_balance) : Math.abs(b.opening_balance);
+};
+wholesale.post("/wholesale/clients", requirePerm("wholesale.manage"), h(async (req) => {
+    const b = parse(clientBody, req.body);
+    assertNoDuplicateParty("wholesale_clients", tid(req), b.name, b.phone, "Client");
+    guardFinancials(req, b);
+    signedOpening(b);
+    // today's advance = a payment txn (cash book / bank / ledger follow), not an opening figure
+    const liveAdvance = (b.opening_balance ?? 0) < 0 && b.opening_method ? { amount: -b.opening_balance, method: b.opening_method, account_id: bankAccountFor(tid(req), b.opening_account_id, b.opening_method) } : null;
+    if (liveAdvance) {
+        if (isCheque(liveAdvance.method))
+            throw new AppError(400, "A cheque advance goes through Receive payment (cheque register) after the client is added");
+        if (!liveAdvance.account_id && !/^cash$/i.test(liveAdvance.method.trim()))
+            throw new AppError(400, `${liveAdvance.method}: choose the bank / wallet account the advance came into`);
+        b.opening_balance = 0;
+    }
+    const created = tx(() => {
+        const { id } = run("INSERT INTO wholesale_clients (tenant_id,name,business_name,phone,city,address,credit_limit,opening_balance,notes,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)", tid(req), b.name, b.business_name ?? null, b.phone ? normalizePhone(b.phone) : null, b.city ?? null, b.address ?? null, b.credit_limit ?? 0, b.opening_balance ?? 0, b.notes ?? null, now());
+        if (b.rates)
+            saveRates(id, b.rates, req.user.name);
+        if (liveAdvance)
+            insertTxn(req, id, { amount: liveAdvance.amount, method: liveAdvance.method, account_id: liveAdvance.account_id, note: "Advance received at account opening", type: "payment" });
+        return { ...get("SELECT * FROM wholesale_clients WHERE id=?", id), rates: rates(id), due: clientDue(id) };
+    });
+    await announce(tid(req), req.user.id, ["wholesale", "admin"], { type: "new_wholesale_client", data: { client_id: created.id },
+        title: `🚛 New wholesale client: ${b.name}`,
+        body: b.rates ? Object.entries(rateCard(created.id)).map(([p, r]) => `${PRODUCTS[p]} Rs ${r.rate}/L${r.mode === "discount" ? ` (${r.label})` : ""}`).join(" · ") : "Rate abhi set nahi — admin rate card set karein." });
+    return created;
+}));
+wholesale.patch("/wholesale/clients/:id", requirePerm("wholesale.manage"), h((req) => {
+    const c = ownClient(tid(req), Number(req.params.id));
+    const b = parse(clientBody.partial(), req.body);
+    guardFinancials(req, b);
+    signedOpening(b);
+    const m = { ...c, ...b };
+    run(`UPDATE wholesale_clients SET name=?, business_name=?, phone=?, city=?, address=?, credit_limit=?, opening_balance=?, notes=?, active=? WHERE id=?`, m.name, m.business_name ?? null, b.phone ? normalizePhone(b.phone) : c.phone, m.city ?? null, m.address ?? null, m.credit_limit, m.opening_balance, m.notes ?? null, b.active === undefined ? c.active : b.active ? 1 : 0, c.id);
+    if (b.rates)
+        tx(() => saveRates(c.id, b.rates, req.user.name));
+    return get("SELECT * FROM wholesale_clients WHERE id=?", c.id);
+}));
+wholesale.put("/wholesale/clients/:id/rates", requirePerm("wholesale.rates"), h(async (req) => {
+    const c = ownClient(tid(req), Number(req.params.id));
+    const b = parse(z.object({ rates: z.record(product, rateInput) }), req.body);
+    const before = rates(c.id);
+    tx(() => saveRates(c.id, b.rates, req.user.name));
+    const after = rates(c.id);
+    await wholesaleRateMessage(tid(req), c.id, Object.keys(b.rates).filter((p) => after[p] !== before[p]).map((p) => `${PRODUCTS[p]}: Rs ${after[p]}/L${before[p] ? ` (pehle Rs ${before[p]})` : ""}`));
+    return { rates: after, rate_card: rateCard(c.id) };
+}));
+/**
+ * Bulk rate change for ALL wholesale clients: add (or subtract) Rs per litre on a fuel across every
+ * active client at once — e.g. diesel went up Rs 2, enter +2. This is the wholesale rate only; it is
+ * separate from the pump/meter (retail) price. Fixed-rate clients get rate+delta; discount ("pump − X")
+ * clients keep following the pump, their effective rate moving by the same delta (their discount shrinks).
+ */
+wholesale.post("/wholesale/rates/bulk", requirePerm("wholesale.rates"), h(async (req) => {
+    const t = tid(req);
+    const b = parse(z.object({
+        deltas: z.record(product, z.number().refine((n) => n !== 0, "zero change")),
+        note: z.string().max(120).optional().nullable(),
+        notify: z.boolean().optional(),
+    }), req.body);
+    if (!Object.keys(b.deltas).length)
+        throw new AppError(400, "Kam se kam ek fuel ka change daalein");
+    const pump = currentPrices(t);
+    const by = req.user.name;
+    const result = {};
+    const note = b.note || "Bulk rate change";
+    // per-client lines (new effective rate per fuel) so each client can be told on WhatsApp
+    const perClient = {};
+    const apply = (clientId, p, oldRate, newRate, delta) => {
+        run("INSERT INTO wholesale_rate_history (client_id,product,old_rate,new_rate,changed_by,note,created_at) VALUES (?,?,?,?,?,?,?)", clientId, p, oldRate, newRate, by, `${note} (${delta >= 0 ? "+" : ""}${delta})`, now());
+        (perClient[clientId] ??= []).push(`${PRODUCTS[p]}: Rs ${newRate}/L (pehle Rs ${oldRate})`);
+    };
+    tx(() => {
+        for (const [p, deltaRaw] of Object.entries(b.deltas)) {
+            const delta = round2(deltaRaw);
+            let updated = 0, skipped = 0;
+            for (const r of all(`SELECT r.* FROM wholesale_rates r JOIN wholesale_clients c ON c.id=r.client_id
+          WHERE c.tenant_id=? AND c.active=1 AND r.product=?`, t, p)) {
+                if (r.mode === "discount") {
+                    // keep tracking the pump, but shift the effective rate by delta → discount shrinks by delta
+                    const newDiscount = round2(r.discount - delta);
+                    const newRate = pump[p] ? round2(pump[p].price - newDiscount) : round2(r.rate + delta);
+                    if (newRate <= 0) {
+                        skipped++;
+                        continue;
+                    }
+                    run("UPDATE wholesale_rates SET rate=?, discount=?, updated_at=?, updated_by=? WHERE client_id=? AND product=?", newRate, newDiscount, now(), by, r.client_id, p);
+                    apply(r.client_id, p, r.rate, newRate, delta);
+                    updated++;
+                }
+                else {
+                    const newRate = round2(r.rate + delta);
+                    if (newRate <= 0) {
+                        skipped++;
+                        continue;
+                    }
+                    run("UPDATE wholesale_rates SET rate=?, updated_at=?, updated_by=? WHERE client_id=? AND product=?", newRate, now(), by, r.client_id, p);
+                    apply(r.client_id, p, r.rate, newRate, delta);
+                    updated++;
+                }
+            }
+            result[p] = { updated, skipped };
+        }
+    });
+    // tell each affected client their new rate on WhatsApp (best-effort; respects the wholesale_messages setting + client phone)
+    let notified = 0;
+    if (b.notify !== false) {
+        for (const [clientId, lines] of Object.entries(perClient)) {
+            try {
+                await wholesaleRateMessage(t, Number(clientId), lines);
+                notified++;
+            }
+            catch { /* keep going */ }
+        }
+    }
+    return { ok: true, changed: result, notified };
+}));
+/** All wholesale rate changes across every client — newest first (for the rate-change log). */
+wholesale.get("/wholesale/rate-history", requirePerm("wholesale.rates"), h((req) => {
+    const t = tid(req);
+    const limit = Math.min(500, Math.max(1, Number(req.query.limit) || 150));
+    return all(`SELECT h.id, h.client_id, c.name client_name, h.product, h.old_rate, h.new_rate, h.changed_by, h.note, h.created_at
+    FROM wholesale_rate_history h JOIN wholesale_clients c ON c.id=h.client_id
+    WHERE c.tenant_id=? ORDER BY h.id DESC LIMIT ?`, t, limit);
+}));
+/** Per-client rate comparison: the rate entering this month (i.e. last month's) vs the current rate, per fuel. */
+export function rateCompare(tenantId) {
+    const monthStart = new Date(pkDate().slice(0, 7) + "-01T00:00:00+05:00").toISOString();
+    return all(`SELECT r.client_id, c.name client_name, r.product, r.rate FROM wholesale_rates r JOIN wholesale_clients c ON c.id=r.client_id
+    WHERE c.tenant_id=? AND c.active=1 ORDER BY c.name, r.product`, tenantId).map((r) => {
+        const prev = get("SELECT new_rate FROM wholesale_rate_history WHERE client_id=? AND product=? AND created_at < ? ORDER BY id DESC LIMIT 1", r.client_id, r.product, monthStart);
+        const last = prev ? prev.new_rate : r.rate; // no change this month → same as now
+        return { client_id: r.client_id, client_name: r.client_name, product: r.product, last_month: last, this_month: r.rate, diff: round2(r.rate - last) };
+    });
+}
+wholesale.get("/wholesale/rate-compare", requirePerm("wholesale.rates"), h((req) => rateCompare(tid(req))));
+/** The wholesale rate-change log as a CSV (Excel) download — newest first. */
+wholesale.get("/wholesale/rate-history.csv", (req, res, next) => {
+    try {
+        if (!can(req.user, "wholesale.rates"))
+            throw new AppError(403, "You don't have permission for this");
+        const rows = all(`SELECT h.id, c.name client_name, h.product, h.old_rate, h.new_rate, h.changed_by, h.note, h.created_at
+      FROM wholesale_rate_history h JOIN wholesale_clients c ON c.id=h.client_id WHERE c.tenant_id=? ORDER BY h.id DESC LIMIT 5000`, tid(req));
+        const esc = (v) => `"${typeof v === "string" && /^[=+@-]/.test(v) ? "'" : ""}${String(v ?? "").replaceAll('"', '""')}"`; // ' stops Excel running a text cell as a formula
+        const out = [
+            ["Wholesale rate change history"].map(esc).join(","),
+            ["Date", "Client", "Fuel", "Old rate", "New rate", "Change", "Note", "By"].map(esc).join(","),
+            ...rows.map((h) => [String(h.created_at).slice(0, 16).replace("T", " "), h.client_name, PRODUCTS[h.product] ?? h.product,
+                h.old_rate ?? "", h.new_rate, h.old_rate != null ? round2(h.new_rate - h.old_rate) : "", h.note ?? "", h.changed_by ?? ""].map(esc).join(",")),
+        ].join("\n");
+        res.setHeader("Content-Type", "text/csv; charset=utf-8");
+        res.setHeader("Content-Disposition", `attachment; filename="wholesale-rate-history-${pkDate()}.csv"`);
+        res.send("﻿" + out);
+    }
+    catch (e) {
+        next(e);
+    }
+});
+wholesale.get("/wholesale/clients/:id", h((req) => {
+    const c = ownClient(tid(req), Number(req.params.id));
+    return {
+        ...c, rates: rates(c.id), rate_card: rateCard(c.id), summary: summary(c.id),
+        month: summary(c.id, new Date(pkDate().slice(0, 7) + "-01T00:00:00+05:00").toISOString()),
+        rate_history: all("SELECT * FROM wholesale_rate_history WHERE client_id=? ORDER BY id DESC LIMIT 30", c.id),
+    };
+}));
+/* ---------------- Statement (ledger with running balance) ---------------- */
+export function statement(tenantId, clientId, from, to) {
+    const c = ownClient(tenantId, clientId);
+    const opening = from ? clientDue(c.id, pkStart(from)) : c.opening_balance;
+    const rows = all(`SELECT x.*, ${proofCol("'wtx:'||x.id")}, s.name station_name,
+       (SELECT GROUP_CONCAT(p.id) FROM photos p WHERE x.trip_id IS NOT NULL AND p.ref = 'trip:' || x.trip_id) trip_proof_ids
+     FROM wholesale_txns x LEFT JOIN stations s ON s.id=x.station_id
+     WHERE x.client_id=? ${from ? "AND x.txn_date >= ?" : ""} ${to ? "AND x.txn_date < ?" : ""} ORDER BY x.txn_date, x.id`, ...[c.id, ...(from ? [pkStart(from)] : []), ...(to ? [pkEnd(to)] : [])]);
+    let bal = opening;
+    const real = rows.map((r) => {
+        const effect = r.voided ? 0 : r.type === "payment" || r.type === "return" ? -r.amount : r.amount;
+        bal = round2(bal + effect);
+        return { ...r, debit: effect > 0 ? effect : 0, credit: effect < 0 ? -effect : 0, balance: bal };
+    });
+    // bypass fuel-money records (direct to depot, or routed through us) — shown for the record only; no effect on the due
+    const fuels = all(`SELECT f.*, s.name depot_name, ${proofCol("'bfp:'||f.id")} FROM bypass_fuel_payments f LEFT JOIN suppliers s ON s.id=f.supplier_id
+     WHERE f.client_id=? AND f.voided=0 ${from ? "AND f.txn_date >= ?" : ""} ${to ? "AND f.txn_date < ?" : ""}`, ...[c.id, ...(from ? [pkStart(from)] : []), ...(to ? [pkEnd(to)] : [])]).map((f) => ({ id: `bfp${f.id}`, type: "fuel_note", txn_date: f.txn_date, amount: f.amount, fuel_mode: f.mode, fuel_status: f.status, depot_name: f.depot_name, ref: f.invoice_ref, note: f.note, proof_ids: f.proof_ids, debit: 0, credit: 0, balance: 0 }));
+    // merge by date; a fuel note carries the prevailing balance (it does not move it)
+    const lines = [...real, ...fuels].sort((a, b) => (a.txn_date < b.txn_date ? -1 : a.txn_date > b.txn_date ? 1 : 0));
+    let rb = opening;
+    for (const l of lines) {
+        if (l.type !== "fuel_note")
+            rb = l.balance;
+        else
+            l.balance = rb;
+    }
+    const dueNow = clientDue(c.id), nowMs = Date.now();
+    return { client: c, from: from ?? null, to: to ?? null, opening_balance: opening, closing_balance: bal, lines, summary: summary(c.id, from, to),
+        due_now: dueNow, ageing: ageing(c.id, dueNow, nowMs), unpaid: unpaidBills(c.id, dueNow, nowMs) };
+}
+/** The statement, or (with `page`) one page of it: the whole history is computed once (running balances need it) but
+ *  only `size` lines travel, with the period totals, the month summary and a text search applied before paging. */
+wholesale.get("/wholesale/clients/:id/statement", h((req) => {
+    const q = parse(z.object({ from: dateStr, to: dateStr, page: z.coerce.number().int().min(1).optional(), size: z.coerce.number().int().min(5).max(100).default(10),
+        q: z.string().trim().max(80).optional(), voided: z.coerce.boolean().optional(), newest: z.coerce.boolean().optional() }), req.query);
+    const s = statement(tid(req), Number(req.params.id), q.from, q.to);
+    if (!q.page)
+        return s;
+    const live = s.lines.filter((l) => l.type !== "fuel_note" && !l.voided);
+    const period = { debit: round2(live.reduce((a, l) => a + l.debit, 0)), credit: round2(live.reduce((a, l) => a + l.credit, 0)),
+        litres: round2(live.reduce((a, l) => a + (l.type === "supply" ? l.litres ?? 0 : l.type === "return" ? -(l.litres ?? 0) : 0), 0)) };
+    const months = new Map();
+    let bal = s.opening_balance;
+    for (const l of live) {
+        const k = new Date(Date.parse(l.txn_date) + 5 * 3600_000).toISOString().slice(0, 7);
+        if (!months.has(k))
+            months.set(k, { month: k, opening: bal, dr: 0, cr: 0, closing: bal, litres: 0, n: 0 });
+        const m = months.get(k);
+        m.dr = round2(m.dr + l.debit);
+        m.cr = round2(m.cr + l.credit);
+        m.n++;
+        bal = l.balance;
+        m.closing = bal;
+        if (l.type === "supply")
+            m.litres = round2(m.litres + (l.litres ?? 0));
+    }
+    const needle = (q.q ?? "").toLowerCase().replace(/^#/, ""); // "#125" / "WS-125" / "125" all find voucher WS-125
+    const no = (l) => l.voucher_no ?? `${l.type === "supply" ? "WS" : l.type === "payment" ? "RV" : l.type === "return" ? "CN" : "JV"}-${l.id}`;
+    const rows = s.lines.filter((l) => (q.voided || !l.voided) && (!needle ||
+        [no(l), l.id, l.type, l.product && PRODUCTS[l.product], l.vehicle_no, l.driver_name, l.ref, l.note, l.method, l.location, l.litres, l.rate, l.amount, l.txn_date?.slice(0, 10), l.created_by].some((v) => String(v ?? "").toLowerCase().includes(needle))));
+    if (q.newest)
+        rows.reverse(); // ?newest=1: page 1 = the latest entries (each line keeps its own running balance)
+    const pages = Math.max(1, Math.ceil(rows.length / q.size)), page = Math.min(q.page, pages);
+    const monthList = [...months.values()];
+    return { ...s, lines: rows.slice((page - 1) * q.size, page * q.size), page, pages, size: q.size, total: rows.length, period, months: q.newest ? monthList.reverse() : monthList, newest: !!q.newest };
+}));
+/** One wholesale entry with every input filled in — for the "View" panel on the client page. A supply that came off a
+ *  pump nozzle links to its sale, so a print link is returned too. */
+wholesale.get("/wholesale/clients/:id/txn/:tid/detail", h((req) => {
+    const t = tid(req);
+    const c = ownClient(t, Number(req.params.id));
+    const x = get(`SELECT x.*, ${proofCol("'wtx:'||x.id")}, st.name station_name FROM wholesale_txns x LEFT JOIN stations st ON st.id=x.station_id WHERE x.id=? AND x.client_id=?`, Number(req.params.tid), c.id);
+    if (!x)
+        throw new AppError(404, "Entry nahi mili");
+    const sale = x.sale_id ? get("SELECT s.id FROM sales s JOIN stations st ON st.id=s.station_id WHERE s.id=? AND st.tenant_id=?", x.sale_id, t) : null;
+    return {
+        entry: x, client: { id: c.id, name: c.name, phone: c.phone, balance: clientDue(c.id) },
+        print_url: sale ? receiptUrl(t, "f", sale.id) : null,
+        can_whatsapp: Boolean(c.phone),
+    };
+}));
+/** Resend one wholesale entry to the client on WhatsApp. */
+wholesale.post("/wholesale/clients/:id/txn/:tid/whatsapp", requirePerm("wholesale.manage"), h(async (req) => {
+    const t = tid(req);
+    const c = ownClient(t, Number(req.params.id));
+    if (!c.phone)
+        throw new AppError(400, "Is client ka WhatsApp number nahi — pehle number add karein");
+    const x = get("SELECT * FROM wholesale_txns WHERE id=? AND client_id=?", Number(req.params.tid), c.id);
+    if (!x)
+        throw new AppError(404, "Entry nahi mili");
+    await wholesaleReceipt(t, c.id, x);
+    return { ok: true };
+}));
+wholesale.get("/wholesale/clients/:id/statement.csv", (req, res, next) => {
+    try {
+        const q = parse(z.object({ from: dateStr, to: dateStr }), req.query);
+        const s = statement(tid(req), Number(req.params.id), q.from, q.to);
+        const esc = (v) => `"${typeof v === "string" && /^[=+@-]/.test(v) ? "'" : ""}${String(v ?? "").replaceAll('"', '""')}"`; // ' stops Excel running a text cell as a formula
+        const out = [
+            ["Statement", s.client.name, s.client.business_name ?? ""].map(esc).join(","),
+            ["Period", s.from ?? "start", s.to ?? "today"].map(esc).join(","),
+            ["Opening balance", s.opening_balance].map(esc).join(","),
+            ["Date", "Type", "Product", "Litres", "Rate", "Debit (billed)", "Credit (received/returned)", "Balance", "Method", "Vehicle", "Driver", "Drop location", "Trip", "Ref", "Note", "Status"].map(esc).join(","),
+            ...s.lines.map((l) => [l.txn_date.slice(0, 10), l.type, l.product ?? "", l.litres ?? "", l.rate ?? "", l.debit || "", l.credit || "", l.balance,
+                l.method ?? "", l.vehicle_no ?? "", l.driver_name ?? "", l.location ?? "", l.trip_id ?? "", l.ref ?? "", l.note ?? "", l.voided ? "VOID" : ""].map(esc).join(",")),
+            ["Closing balance", s.closing_balance].map(esc).join(","),
+        ].join("\n");
+        res.setHeader("Content-Type", "text/csv; charset=utf-8");
+        res.setHeader("Content-Disposition", `attachment; filename="statement-${s.client.name.replace(/[^\w-]+/g, "_")}.csv"`);
+        res.send("﻿" + out);
+    }
+    catch (e) {
+        next(e);
+    }
+});
+/* ---------------- Ledger entries ---------------- */
+function pickTank(tenantId, stationId, prod) {
+    const t = get(`SELECT t.* FROM tanks t JOIN stations s ON s.id=t.station_id WHERE s.tenant_id=? AND t.station_id=? AND t.product=? ORDER BY t.current_l DESC LIMIT 1`, tenantId, stationId, prod);
+    if (!t)
+        throw new AppError(400, `No ${PRODUCTS[prod] ?? prod} tank at this station`);
+    return t;
+}
+export function insertTxn(req, clientId, f) {
+    const ts = f.txn_date ? pkStamp(String(f.txn_date)) : now(); // "YYYY-MM-DD" → noon PK, "YYYY-MM-DDTHH:MM" → that minute PK, ISO as is
+    const { id } = run(`INSERT INTO wholesale_txns (tenant_id,client_id,type,station_id,tank_id,product,litres,rate,amount,method,vehicle_no,ref,note,created_by,txn_date,created_at,
+       trip_id,tanker_id,driver_id,driver_name,location,account_id)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, tid(req), clientId, f.type, f.station_id ?? null, f.tank_id ?? null, f.product ?? null, f.litres ?? null, f.rate ?? null, f.amount, f.method ?? null, f.vehicle_no ?? null, f.ref ?? null, f.note ?? null, req.user.name, ts, now(), f.trip_id ?? null, f.tanker_id ?? null, f.driver_id ?? null, f.driver_name ?? null, f.location ?? null, f.account_id ?? null);
+    linkPhotos(tid(req), f.photo_ids, `wtx:${id}`);
+    // WhatsApp receipt to the client once the entry is committed
+    if (!f.silent)
+        setImmediate(() => { if (get("SELECT id FROM wholesale_txns WHERE id=?", id))
+            wholesaleReceipt(tid(req), clientId, get("SELECT * FROM wholesale_txns WHERE id=?", id)).catch((e) => console.error("[wholesale receipt]", e.message)); });
+    return { ...get("SELECT * FROM wholesale_txns WHERE id=?", id), due_after: clientDue(clientId) };
+}
+const fuelBody = z.object({
+    station_id: z.number(), product, litres: z.number().positive(), rate: z.number().positive().optional(),
+    vehicle_no: z.string().optional().nullable(), ref: z.string().optional().nullable(), note: z.string().optional().nullable(),
+    tanker_id: z.number().int().optional().nullable(), driver_id: z.number().int().optional().nullable(), location: z.string().max(120).optional().nullable(),
+    txn_date: dateStr, override_limit: z.boolean().optional(), photo_ids: proofPhotos, order_id: z.number().int().optional().nullable(),
+});
+/** Tanker number and driver name from the fleet register (a typed vehicle number still works). */
+export function fleet(t, b) {
+    const tanker = b.tanker_id ? get("SELECT * FROM tankers WHERE id=? AND tenant_id=?", b.tanker_id, t) : null;
+    if (b.tanker_id && !tanker)
+        throw new AppError(400, "Tanker not found");
+    const driverId = b.driver_id ?? tanker?.driver_id ?? null;
+    const driver = driverId ? get("SELECT * FROM drivers WHERE id=? AND tenant_id=?", driverId, t) : null;
+    if (b.driver_id && !driver)
+        throw new AppError(400, "Driver not found");
+    return { tanker, driver, tanker_id: tanker?.id ?? null, driver_id: driver?.id ?? null, vehicle_no: tanker?.number ?? b.vehicle_no ?? null, driver_name: driver?.name ?? null };
+}
+/** Rate and amount for one supply to one client, after the rate-permission and credit-limit checks. */
+export function priceSupply(req, clientId, p, alreadyAdded = 0, skipLimit = false, at) {
+    const c = ownClient(tid(req), clientId);
+    if (!c.active)
+        throw new AppError(400, `${c.name} is inactive`);
+    const card = ratesAt(c.id, at)[p.product]; // the rate card as of the entry's own moment (today's card when not back-dated)
+    // allowAnyRate: bypass trades are negotiated deal-by-deal, so the officer may set the sale amount directly
+    if (p.rate !== undefined && p.rate !== card && !p.allowAnyRate && !can(req.user, "wholesale.rates"))
+        throw new AppError(403, "Only the admin can change the rate on a supply");
+    const rate = p.rate ?? card;
+    if (!rate)
+        throw new AppError(400, `No ${PRODUCTS[p.product]} rate set for ${c.name}. Ask the admin to set the rate first.`);
+    const amount = p.amount != null ? round2(p.amount) : round2(p.litres * rate);
+    const due = clientDue(c.id) + alreadyAdded;
+    // skipLimit: the sale is paid on the spot (cash / cheque / online), so it never adds to the outstanding — no limit check
+    if (!skipLimit && c.credit_limit > 0 && due + amount > c.credit_limit && !(p.override_limit && can(req.user, "wholesale.rates")))
+        throw new AppError(400, `Credit limit exceeded for ${c.name}: due ${pkr(due)} + this supply ${pkr(amount)} > limit ${pkr(c.credit_limit)}`);
+    return { c, rate, amount };
+}
+function limitAlert(req, c, dueAfter) {
+    if (c.credit_limit > 0 && dueAfter >= 0.9 * c.credit_limit)
+        createAlert(tid(req), { type: "wholesale_limit", severity: "warning", title: `${c.name} is at ${Math.round((dueAfter / c.credit_limit) * 100)}% of wholesale credit limit`,
+            body: `Due ${pkr(dueAfter)} of ${pkr(c.credit_limit)}.`, dedupe_key: `wlimit-${c.id}` });
+}
+wholesale.post("/wholesale/clients/:id/supply", requirePerm("wholesale.manage"), h((req) => {
+    const b = parse(fuelBody, req.body);
+    const { c, rate, amount } = priceSupply(req, Number(req.params.id), b, 0, false, b.txn_date ? pkStamp(b.txn_date) : null);
+    const fl = fleet(tid(req), b);
+    const tank = pickTank(tid(req), b.station_id, b.product);
+    if (tank.current_l < b.litres)
+        throw new AppError(400, `Not enough stock in ${tank.name} (${Math.round(tank.current_l)} L available)`);
+    return tx(() => {
+        run("UPDATE tanks SET current_l = current_l - ? WHERE id=?", b.litres, tank.id);
+        const t = insertTxn(req, c.id, { ...b, ...fl, type: "supply", tank_id: tank.id, rate, amount });
+        deliverOrder(tid(req), b.order_id, c.id, t.id);
+        limitAlert(req, c, t.due_after);
+        return t;
+    });
+}));
+/* ---------------- Supply voucher (ERP style): several fuel lines + kiraya in one posting ---------------- */
+const voucherBody = z.object({
+    station_id: z.number().int(),
+    lines: z.array(z.object({ product, litres: z.number().positive(), rate: z.number().positive().optional() })).min(1, "Add at least one fuel line").max(6),
+    carriage: z.number().min(0).max(10_000_000).optional().nullable(),
+    tanker_id: z.number().int().optional().nullable(), driver_id: z.number().int().optional().nullable(), vehicle_no: z.string().max(30).optional().nullable(),
+    location: z.string().max(120).optional().nullable(), ref: z.string().max(60).optional().nullable(), note: z.string().max(300).optional().nullable(),
+    txn_date: dateStr, override_limit: z.boolean().optional(), photo_ids: proofPhotos, order_id: z.number().int().optional().nullable(),
+});
+/** Everything the voucher screen shows before posting: each line's rate / tank / margin, the credit check and the journal it will post.
+ *  Never throws on a business rule — problems come back as `issues` so the form can show them next to the fields. */
+export function voucherPreview(req, clientId, b) {
+    const t = tid(req);
+    const c = ownClient(t, clientId);
+    const card = ratesAt(c.id, b.txn_date ? pkStamp(b.txn_date) : null); // voucher lines bill at the rate card of the voucher's own day
+    const station = get("SELECT id, name FROM stations WHERE id=? AND tenant_id=?", b.station_id, t);
+    const issues = [];
+    if (!c.active)
+        issues.push(`${c.name} is inactive`);
+    if (!station)
+        issues.push("Station not found");
+    const taken = {}; // litres already drawn from a tank by earlier lines
+    const lines = b.lines.map((l) => {
+        const tank = station ? get(`SELECT t.* FROM tanks t WHERE t.station_id=? AND t.product=? ORDER BY t.current_l DESC LIMIT 1`, station.id, l.product) : null;
+        const rate = l.rate ?? card[l.product] ?? null;
+        if (!rate)
+            issues.push(`No ${PRODUCTS[l.product] ?? l.product} rate set for ${c.name}`);
+        if (l.rate !== undefined && l.rate !== card[l.product] && !can(req.user, "wholesale.rates"))
+            issues.push("Only the admin can change the rate on a supply");
+        if (station && !tank)
+            issues.push(`No ${PRODUCTS[l.product] ?? l.product} tank at ${station.name}`);
+        const before = tank ? round2(tank.current_l - (taken[tank.id] ?? 0)) : null;
+        if (tank)
+            taken[tank.id] = (taken[tank.id] ?? 0) + l.litres;
+        if (tank && before < l.litres)
+            issues.push(`Not enough stock in ${tank.name} (${Math.round(before)} L available)`);
+        const cost = lastCost(t, l.product);
+        const amount = rate ? round2(l.litres * rate) : 0;
+        return { product: l.product, litres: l.litres, rate, card_rate: card[l.product] ?? null, amount, tank_id: tank?.id ?? null, tank_name: tank?.name ?? null,
+            stock_before: before, stock_after: before == null ? null : round2(before - l.litres), cost, margin: cost != null && rate ? round2((rate - cost) * l.litres) : null };
+    });
+    const fuel = round2(lines.reduce((a, l) => a + l.amount, 0));
+    const carriage = round2(b.carriage ?? 0);
+    const total = round2(fuel + carriage);
+    const due = clientDue(c.id);
+    const after = round2(due + total);
+    const over = c.credit_limit > 0 && after > c.credit_limit;
+    const canOverride = can(req.user, "wholesale.rates");
+    if (over && !(b.override_limit && canOverride))
+        issues.push(`Credit limit exceeded: due ${pkr(due)} + this voucher ${pkr(total)} > limit ${pkr(c.credit_limit)}`);
+    const posting = [
+        { account: `Receivable — ${c.name}`, dr: total, cr: 0 },
+        ...lines.filter((l) => l.amount).map((l) => ({ account: `Wholesale sales — ${PRODUCTS[l.product] ?? l.product}`, dr: 0, cr: l.amount })),
+        ...(carriage ? [{ account: "Carriage income (kiraya)", dr: 0, cr: carriage }] : []),
+    ];
+    const dr = round2(posting.reduce((a, p) => a + p.dr, 0)), cr = round2(posting.reduce((a, p) => a + p.cr, 0));
+    const margin = lines.every((l) => l.margin != null) ? round2(lines.reduce((a, l) => a + l.margin, 0) + carriage) : null;
+    return {
+        client: { id: c.id, name: c.name, city: c.city, phone: c.phone, credit_limit: c.credit_limit },
+        lines, fuel, carriage, total, litres: round2(lines.reduce((a, l) => a + l.litres, 0)),
+        credit: { due, after, limit: c.credit_limit, pct: c.credit_limit > 0 ? Math.round((after / c.credit_limit) * 100) : null, over, can_override: canOverride },
+        posting, balanced: Math.abs(dr - cr) < 0.01, dr, cr, margin, issues: [...new Set(issues)],
+    };
+}
+wholesale.post("/wholesale/clients/:id/voucher/preview", requirePerm("wholesale.manage"), h((req) => voucherPreview(req, Number(req.params.id), parse(voucherBody, req.body))));
+/** Post a supply voucher: every fuel line is its own supply entry (stock out of its tank) and the kiraya a carriage entry —
+ *  all in one transaction, sharing the bilty no. / narration, so either the whole voucher posts or nothing does. */
+/** The same voucher POST sent twice (a phone retrying on a bad network) must post once: the first answer is stored under the
+ *  client's key and replayed. Keys are per tenant, 36 chars max, and pruned after a day. */
+function idem(req) {
+    const k = String(req.get("x-idempotency-key") ?? "").trim();
+    return /^[\w-]{8,36}$/.test(k) ? k : null;
+}
+function idemReplay(t, key) {
+    if (!key)
+        return null;
+    run("DELETE FROM idempotency_keys WHERE tenant_id=? AND created_at < ?", t, new Date(Date.now() - 86_400_000).toISOString());
+    const r = get("SELECT response FROM idempotency_keys WHERE tenant_id=? AND key=?", t, key);
+    return r ? { ...JSON.parse(r.response), replayed: true } : null;
+}
+wholesale.post("/wholesale/clients/:id/voucher", requirePerm("wholesale.manage"), h((req) => {
+    const key = idem(req);
+    const again = idemReplay(tid(req), key);
+    if (again)
+        return again;
+    const b = parse(voucherBody, req.body);
+    const p = voucherPreview(req, Number(req.params.id), b);
+    if (p.issues.length)
+        throw new AppError(400, p.issues[0]);
+    guardClosedDay(req, tid(req), b.txn_date ?? pkDate());
+    const fl = fleet(tid(req), b);
+    const c = ownClient(tid(req), p.client.id);
+    return tx(() => {
+        const ids = [];
+        p.lines.forEach((l, i) => {
+            run("UPDATE tanks SET current_l = current_l - ? WHERE id=?", l.litres, l.tank_id);
+            const x = insertTxn(req, c.id, { ...b, ...fl, type: "supply", station_id: b.station_id, tank_id: l.tank_id, product: l.product, litres: l.litres, rate: l.rate, amount: l.amount,
+                photo_ids: i === 0 ? b.photo_ids : undefined, silent: true }); // one bill message for the whole voucher, below
+            ids.push(x.id);
+        });
+        if (p.carriage > 0) {
+            const x = insertTxn(req, c.id, { ...b, ...fl, type: "carriage", station_id: b.station_id, amount: p.carriage, note: b.note ? `Kiraya · ${b.note}` : "Kiraya (carriage)", photo_ids: undefined, silent: true });
+            ids.push(x.id);
+        }
+        run(`UPDATE wholesale_txns SET voucher_no=? WHERE id IN (${ids.map(() => "?").join(",")})`, `WS-${ids[0]}`, ...ids);
+        deliverOrder(tid(req), b.order_id, c.id, ids[0]);
+        const due_after = clientDue(c.id);
+        limitAlert(req, c, due_after);
+        audit(tid(req), req.user, "wholesale_voucher", `wtx:${ids[0]}`, { client_id: c.id, lines: p.lines.length, total: p.total, carriage: p.carriage, ids });
+        const no = `WS-${ids[0]}`;
+        setImmediate(() => wholesaleBillMessage(tid(req), c.id, no, all(`SELECT * FROM wholesale_txns WHERE voucher_no=? AND tenant_id=?`, no, tid(req))).catch((e) => console.error("[wholesale bill]", e.message)));
+        const out = { ok: true, voucher_no: no, ids, total: p.total, due_after };
+        if (key)
+            run("INSERT OR IGNORE INTO idempotency_keys (tenant_id,key,response,created_at) VALUES (?,?,?,?)", tid(req), key, JSON.stringify(out), now());
+        return out;
+    });
+}));
+/* ---------------- Tanker trips: one tanker, several clients / places, each at their own rate ---------------- */
+const tripBody = z.object({
+    station_id: z.number(), product, tanker_id: z.number().int().optional().nullable(), driver_id: z.number().int().optional().nullable(),
+    vehicle_no: z.string().optional().nullable(), txn_date: dateStr, note: z.string().max(200).optional().nullable(), photo_ids: proofPhotos,
+    drops: z.array(z.object({
+        client_id: z.number().int(), litres: z.number().positive(), rate: z.number().positive().optional(),
+        // a tanker with chambers can carry petrol and diesel on one trip: each drop says its fuel (default: the trip's)
+        product: product.optional(),
+        location: z.string().max(120).optional().nullable(), ref: z.string().max(60).optional().nullable(), override_limit: z.boolean().optional(),
+        order_id: z.number().int().optional().nullable(),
+    })).min(1, "Add at least one drop").max(30),
+    // bypass: loaded at the supplier's depot and taken straight to the clients — never in our tanks
+    source: z.enum(["pump", "depot"]).default("pump"),
+    supplier_id: z.number().int().optional().nullable(),
+    cost_rates: z.record(product, z.number().positive()).optional(), // purchase rate per fuel (Rs/L)
+    invoice_l: z.record(product, z.number().positive()).optional(), // litres the depot billed per fuel (default: what was dropped)
+    depot_ref: z.string().max(60).optional().nullable(),
+    freight: z.number().min(0).optional().nullable(),
+    freight_by: z.enum(["rate", "supplier", "cash"]).default("rate"),
+});
+const FREIGHT_CAT = "Tanker freight & transport";
+wholesale.get("/wholesale/depots", h((req) => {
+    // suppliers to buy a depot-direct trip from, each with the last rate they charged per fuel (any supplier's when they have none)
+    const t = tid(req);
+    return all(`SELECT s.id, s.name, s.phone, s.depot_id, s.company, d.name depot_name FROM suppliers s LEFT JOIN depots d ON d.id=s.depot_id
+    WHERE s.tenant_id=? AND COALESCE(s.active,1)=1 ORDER BY COALESCE(d.name,''), s.company, s.name`, t).map((s) => ({
+        ...s, rates: Object.fromEntries(Object.keys(PRODUCTS).map((p) => [p,
+            get("SELECT rate FROM supplier_txns WHERE supplier_id=? AND type='purchase' AND product=? AND rate > 0 ORDER BY txn_date DESC, id DESC LIMIT 1", s.id, p)?.rate ?? lastCost(t, p)])),
+    }));
+}));
+wholesale.post("/wholesale/trips", requirePerm("wholesale.manage"), h(async (req) => {
+    const b = parse(tripBody, req.body);
+    const depot = b.source === "depot";
+    const supplier = depot ? get("SELECT * FROM suppliers WHERE id=? AND tenant_id=?", b.supplier_id ?? 0, tid(req)) : null;
+    if (depot && !supplier)
+        throw new AppError(400, "Choose the supplier (depot) the tanker was loaded from · سپلائر منتخب کریں");
+    if (!get("SELECT id FROM stations WHERE id=? AND tenant_id=?", b.station_id, tid(req)))
+        throw new AppError(400, "Station not found");
+    const fl = fleet(tid(req), b);
+    const total = round2(b.drops.reduce((a, d) => a + d.litres, 0));
+    if (fl.tanker?.capacity_l && total > fl.tanker.capacity_l)
+        throw new AppError(400, `Tanker ${fl.tanker.number} holds ${Math.round(fl.tanker.capacity_l).toLocaleString()} L — the drops add up to ${total.toLocaleString()} L`);
+    // price every drop first (same client twice counts both against the limit) so a bad drop saves nothing
+    const added = {};
+    const priced = b.drops.map((d) => {
+        const prod = d.product ?? b.product;
+        const p = priceSupply(req, d.client_id, { ...d, product: prod }, added[d.client_id] ?? 0, false, b.txn_date ? pkStamp(b.txn_date) : null);
+        added[d.client_id] = (added[d.client_id] ?? 0) + p.amount;
+        return { ...d, ...p, product: prod };
+    });
+    const products = [...new Set(priced.map((d) => d.product))];
+    const litresOf = (p) => round2(priced.filter((d) => d.product === p).reduce((a, d) => a + d.litres, 0));
+    // from our pump: each fuel comes out of its own tank. From the depot: nothing touches the tanks, the supplier bills us instead
+    const tanks = depot ? {} : Object.fromEntries(products.map((p) => [p, pickTank(tid(req), b.station_id, p)]));
+    if (!depot)
+        for (const p of products) {
+            if (tanks[p].current_l < litresOf(p))
+                throw new AppError(400, `Not enough stock in ${tanks[p].name} (${Math.round(tanks[p].current_l)} L ${PRODUCTS[p] ?? p} available, trip needs ${litresOf(p)} L)`);
+        }
+    const buy = depot ? products.map((p) => {
+        const rate = b.cost_rates?.[p];
+        if (!rate)
+            throw new AppError(400, `Enter the purchase rate for ${PRODUCTS[p] ?? p} from the depot invoice · خریداری ریٹ لکھیں`);
+        const litres = b.invoice_l?.[p] ?? litresOf(p);
+        if (litres < litresOf(p) - 0.01)
+            throw new AppError(400, `${PRODUCTS[p] ?? p}: the depot billed ${litres} L but ${litresOf(p)} L were dropped — check the litres`);
+        return { p, rate, litres, amount: round2(litres * rate) };
+    }) : [];
+    const freight = depot && b.freight_by !== "rate" ? round2(b.freight ?? 0) : 0;
+    if (depot && b.freight_by !== "rate" && !freight)
+        throw new AppError(400, "Enter the freight amount, or choose \"included in the rate\"");
+    // the freight expense must be bookable on that day (a closed day would refuse it after the trip was saved)
+    const freightDay = new Date(Date.parse(b.txn_date ? pkStamp(b.txn_date) : now()) + 5 * 3600_000).toISOString().slice(0, 10);
+    if (freight && b.freight_by === "cash")
+        guardClosedDay(req, tid(req), freightDay);
+    const mixed = products.length > 1;
+    const ts = b.txn_date ? pkStamp(b.txn_date) : now();
+    const trip = tx(() => {
+        for (const p of Object.keys(tanks))
+            run("UPDATE tanks SET current_l = current_l - ? WHERE id=?", litresOf(p), tanks[p].id);
+        const tank = depot ? null : tanks[products[0]];
+        const amount = round2(priced.reduce((a, d) => a + d.amount, 0));
+        const { id } = run(`INSERT INTO wholesale_trips (tenant_id,station_id,tank_id,product,tanker_id,driver_id,vehicle_no,driver_name,litres,amount,drops,note,created_by,trip_date,created_at,
+        source,supplier_id,depot_ref,invoice_l,cost,freight,freight_by)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, tid(req), b.station_id, mixed || !tank ? null : tank.id, products.join("+"), fl.tanker_id, fl.driver_id, fl.vehicle_no, fl.driver_name, total, amount, priced.length, b.note ?? null, req.user.name, ts, now(), b.source, supplier?.id ?? null, depot ? b.depot_ref ?? null : null, depot ? round2(buy.reduce((a, x) => a + x.litres, 0)) : null, depot ? round2(buy.reduce((a, x) => a + x.amount, 0)) : null, depot ? freight : null, depot ? b.freight_by : null);
+        linkPhotos(tid(req), b.photo_ids, `trip:${id}`);
+        for (const d of priced) {
+            const t = insertTxn(req, d.c.id, { type: "supply", station_id: b.station_id, tank_id: depot ? null : tanks[d.product].id, product: d.product, litres: d.litres, rate: d.rate, amount: d.amount,
+                ref: d.ref ?? `TRIP-${id}`, note: b.note ?? null, location: d.location ?? null, txn_date: b.txn_date, trip_id: id, ...fl });
+            deliverOrder(tid(req), d.order_id, d.c.id, t.id);
+            limitAlert(req, d.c, t.due_after);
+        }
+        // the supplier's bill for a depot-direct trip: the fuel, and the freight when it is on their bill
+        const ref = b.depot_ref || `TRIP-${id}`;
+        for (const x of buy)
+            recordPurchase(tid(req), { supplier_id: supplier.id, trip_id: id, product: x.p, litres: x.litres, rate: x.rate, ref, note: `Depot direct — trip #${id}`, by: req.user.name, at: ts });
+        // the depot billed more than the clients got (beyond the allowed loss): claim it from the supplier, like a short tanker
+        for (const x of buy) {
+            const claim = claimForTrip(tid(req), { trip_id: id, supplier_id: supplier.id, product: x.p, invoice_l: x.litres, received_l: litresOf(x.p), rate: x.rate, at: ts });
+            if (claim)
+                createAlert(tid(req), { station_id: b.station_id, type: "short_delivery", severity: "warning", dedupe_key: `trip-claim-${claim}`,
+                    title: `Depot ${supplier.name} short by ${round2(x.litres - litresOf(x.p))} L ${PRODUCTS[x.p] ?? x.p} (trip #${id})`,
+                    body: `Billed ${x.litres} L, clients got ${litresOf(x.p)} L. A shortage claim was opened (Suppliers → Claims).` });
+        }
+        if (freight && b.freight_by === "supplier")
+            recordPurchase(tid(req), { supplier_id: supplier.id, trip_id: id, product: null, litres: null, rate: null, amount: freight, ref, note: `Freight — trip #${id}`, by: req.user.name, at: ts });
+        return id;
+    });
+    // freight paid in cash is an expense (it goes to the owner for approval above the limit, like any other)
+    if (freight && b.freight_by === "cash") {
+        if (!get("SELECT id FROM expense_categories WHERE tenant_id=? AND name=?", tid(req), FREIGHT_CAT))
+            run("INSERT INTO expense_categories (tenant_id,name) VALUES (?,?)", tid(req), FREIGHT_CAT);
+        await createExpense(req, { category: FREIGHT_CAT, amount: freight, method: "cash", station_id: b.station_id, paid_to: fl.vehicle_no ?? fl.driver_name ?? null,
+            note: `Trip #${trip} — depot ${supplier.name}`, expense_date: freightDay });
+    }
+    return tripSheet(tid(req), trip);
+}));
+export function tripSheet(t, id) {
+    const trip = get(`SELECT tr.*, ${proofCol("'trip:'||tr.id")}, s.name station_name, tk.name tank_name, d.phone driver_phone, d.cnic driver_cnic, d.licence_no driver_licence, sp.name supplier_name
+    FROM wholesale_trips tr JOIN stations s ON s.id=tr.station_id LEFT JOIN tanks tk ON tk.id=tr.tank_id LEFT JOIN drivers d ON d.id=tr.driver_id LEFT JOIN suppliers sp ON sp.id=tr.supplier_id
+    WHERE tr.id=? AND tr.tenant_id=?`, id, t);
+    if (!trip)
+        throw new AppError(404, "Trip not found");
+    const drops = all(`SELECT w.id, ${proofCol("'wtx:'||w.id")}, w.client_id, c.name client_name, c.business_name, c.phone, c.address, w.product, w.litres, w.rate, w.amount, w.location, w.ref, w.voided
+    FROM wholesale_txns w JOIN wholesale_clients c ON c.id=w.client_id WHERE w.trip_id=? ORDER BY w.id`, id);
+    const live = drops.filter((d) => !d.voided);
+    const delivered = round2(live.reduce((a, d) => a + d.litres, 0)), billed = round2(live.reduce((a, d) => a + d.amount, 0));
+    // depot-direct: what the trip earned after the supplier's bill and the freight
+    const depot = trip.source === "depot" ? {
+        purchases: all("SELECT product, litres, rate, amount, ref FROM supplier_txns WHERE trip_id=? AND type='purchase' ORDER BY id", id),
+        short_l: round2(Math.max(0, (trip.invoice_l ?? 0) - drops.reduce((a, d) => a + d.litres, 0))),
+        profit: round2(billed - (trip.cost ?? 0) - (trip.freight ?? 0)),
+        claims: all("SELECT id, product, litres, amount, recovered, status FROM shortage_claims WHERE trip_id=? ORDER BY id", id),
+    } : null;
+    // the header of the printed challans: who is delivering
+    const biz = profile(t);
+    const st = get("SELECT name, address, city FROM stations WHERE id=?", trip.station_id);
+    const business = { name: biz.name, phone: biz.biz_phone || biz.owner_phone, address: biz.place || [st.address, st.city].filter(Boolean).join(", "),
+        city: biz.biz_city || st.city, ntn: biz.ntn, strn: biz.strn, logo_url: biz.logo_url, footer: biz.receipt_footer, station: st.name,
+        email: biz.biz_email, website: biz.website, omc: biz.omc, color: biz.brand_color, social: Object.fromEntries(SOCIALS.map((x) => [x.key, biz[x.key]]).filter(([, v]) => v)) };
+    return { ...trip, drops, delivered_l: delivered, billed, depot, business };
+}
+/** Tanker trips, newest first. Optional `q` (tanker number, driver or a client on the trip), `from`/`to` (PK days) and `limit` (default 100, max 500). */
+const tripListQuery = z.object({
+    q: z.string().trim().max(80).optional(), from: dateStr, to: dateStr,
+    limit: z.coerce.number().int().min(1).max(500).default(100),
+});
+wholesale.get("/wholesale/trips", h((req) => {
+    const t = tid(req);
+    const qp = parse(tripListQuery, { ...req.query, q: req.query.q || undefined, from: req.query.from || undefined, to: req.query.to || undefined, limit: req.query.limit || undefined });
+    const where = ["tr.tenant_id=?"];
+    const args = [t];
+    if (qp.from) {
+        where.push("tr.trip_date>=?");
+        args.push(pkStart(qp.from));
+    }
+    if (qp.to) {
+        where.push("tr.trip_date<?");
+        args.push(pkEnd(qp.to));
+    }
+    if (qp.q) {
+        const like = `%${qp.q}%`;
+        where.push(`(tr.vehicle_no LIKE ? OR tr.driver_name LIKE ? OR sp.name LIKE ? OR CAST(tr.id AS TEXT)=? OR EXISTS (SELECT 1 FROM wholesale_txns w JOIN wholesale_clients c ON c.id=w.client_id WHERE w.trip_id=tr.id AND (c.name LIKE ? OR c.business_name LIKE ?)))`);
+        args.push(like, like, like, qp.q.replace(/^(#|tr-|trip-)/i, ""), like, like);
+    }
+    return all(`SELECT tr.*, s.name station_name, sp.name supplier_name FROM wholesale_trips tr JOIN stations s ON s.id=tr.station_id LEFT JOIN suppliers sp ON sp.id=tr.supplier_id
+    WHERE ${where.join(" AND ")} ORDER BY tr.trip_date DESC, tr.id DESC LIMIT ?`, ...args, qp.limit);
+}));
+wholesale.get("/wholesale/trips/:id", h((req) => tripSheet(tid(req), Number(req.params.id))));
+/** CEO edit of a trip's sheet details (tanker / driver / date / note) — the money and litres per drop stay as booked. */
+wholesale.patch("/wholesale/trips/:id", requirePerm("entries.edit"), h((req) => {
+    const t = tid(req);
+    const trip = get("SELECT * FROM wholesale_trips WHERE id=? AND tenant_id=?", Number(req.params.id), t);
+    if (!trip)
+        throw new AppError(404, "Trip not found");
+    const b = parse(z.object({ reason: z.string().trim().min(3), tanker_id: z.number().int().optional().nullable(), driver_id: z.number().int().optional().nullable(), vehicle_no: z.string().max(30).optional().nullable(),
+        driver_name: z.string().max(80).optional().nullable(), note: z.string().max(200).optional().nullable(), trip_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() }), req.body);
+    const f = fleet(t, { tanker_id: b.tanker_id ?? trip.tanker_id, driver_id: b.driver_id ?? trip.driver_id, vehicle_no: b.vehicle_no ?? trip.vehicle_no });
+    const driverName = b.driver_name ?? f.driver_name ?? trip.driver_name;
+    const when = b.trip_date ? new Date(`${b.trip_date}T12:00:00+05:00`).toISOString() : trip.trip_date;
+    const before = { tanker_id: trip.tanker_id, driver_id: trip.driver_id, vehicle_no: trip.vehicle_no, driver_name: trip.driver_name, trip_date: trip.trip_date, note: trip.note };
+    tx(() => {
+        run("UPDATE wholesale_trips SET tanker_id=?, driver_id=?, vehicle_no=?, driver_name=?, note=?, trip_date=? WHERE id=?", f.tanker_id, f.driver_id, f.vehicle_no, driverName, b.note ?? trip.note, when, trip.id);
+        // every drop of the trip carries the same sheet details and day
+        run("UPDATE wholesale_txns SET tanker_id=?, driver_id=?, vehicle_no=?, driver_name=?, txn_date=? WHERE trip_id=? AND tenant_id=?", f.tanker_id, f.driver_id, f.vehicle_no, driverName, when, trip.id, t);
+        run("UPDATE supplier_txns SET txn_date=? WHERE trip_id=? AND tenant_id=?", when, trip.id, t);
+    });
+    audit(t, req.user, "trip_edit", `trip:${trip.id}`, { before, after: { tanker_id: f.tanker_id, driver_id: f.driver_id, vehicle_no: f.vehicle_no, driver_name: driverName, trip_date: when, note: b.note ?? trip.note }, reason: b.reason });
+    return tripSheet(t, trip.id);
+}));
+/* ---------------- Fleet register: tankers and drivers ---------------- */
+const tankerBody = z.object({
+    number: z.string().trim().min(2).max(30).transform((v) => v.toUpperCase()), capacity_l: z.number().positive().max(100_000).optional().nullable(),
+    chambers: z.number().int().min(1).max(10).optional().nullable(), ownership: z.enum(["own", "hired"]).default("own"),
+    owner_name: z.string().max(80).optional().nullable(), owner_phone: z.string().max(20).optional().nullable(),
+    driver_id: z.number().int().optional().nullable(), notes: z.string().max(200).optional().nullable(), active: z.boolean().optional(),
+});
+const driverBody = z.object({
+    name: z.string().trim().min(2).max(80), phone: z.string().max(20).optional().nullable(), cnic: z.string().max(20).optional().nullable(),
+    licence_no: z.string().max(30).optional().nullable(), licence_expiry: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable().or(z.literal("")),
+    address: z.string().max(160).optional().nullable(), notes: z.string().max(200).optional().nullable(), active: z.boolean().optional(),
+});
+const clean = (o) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, v === "" ? null : typeof v === "boolean" ? Number(v) : v]));
+wholesale.get("/wholesale/fleet", h((req) => {
+    const today = pkDate();
+    return {
+        tankers: all(`SELECT tk.*, d.name driver_name, d.phone driver_phone, (SELECT MAX(txn_date) FROM wholesale_txns w WHERE w.tanker_id=tk.id AND w.voided=0) last_trip
+      FROM tankers tk LEFT JOIN drivers d ON d.id=tk.driver_id WHERE tk.tenant_id=? ORDER BY tk.active DESC, tk.number`, tid(req)),
+        drivers: all(`SELECT d.*, (SELECT MAX(txn_date) FROM wholesale_txns w WHERE w.driver_id=d.id AND w.voided=0) last_trip FROM drivers d WHERE d.tenant_id=? ORDER BY d.active DESC, d.name`, tid(req))
+            .map((d) => ({ ...d, licence_expired: Boolean(d.licence_expiry && d.licence_expiry < today) })),
+    };
+}));
+function saveFleet(table, req, data, id) {
+    const t = tid(req);
+    if (data.driver_id && !get("SELECT id FROM drivers WHERE id=? AND tenant_id=?", data.driver_id, t))
+        throw new AppError(400, "Driver not found");
+    if (table === "tankers" && data.number && get("SELECT id FROM tankers WHERE tenant_id=? AND number=? AND id<>?", t, data.number, id ?? 0))
+        throw new AppError(400, `Tanker ${data.number} is already on file`);
+    const v = clean(data);
+    if (id) {
+        if (!get(`SELECT id FROM ${table} WHERE id=? AND tenant_id=?`, id, t))
+            throw new AppError(404, "Not found");
+        const keys = Object.keys(v);
+        if (keys.length)
+            run(`UPDATE ${table} SET ${keys.map((k) => `${k}=?`).join(",")} WHERE id=?`, ...Object.values(v), id);
+        return get(`SELECT * FROM ${table} WHERE id=?`, id);
+    }
+    const keys = Object.keys(v);
+    const r = run(`INSERT INTO ${table} (tenant_id,${keys.join(",")},created_at) VALUES (?,${keys.map(() => "?").join(",")},?)`, t, ...Object.values(v), now());
+    return get(`SELECT * FROM ${table} WHERE id=?`, r.id);
+}
+wholesale.post("/wholesale/tankers", requirePerm("wholesale.manage"), h((req) => saveFleet("tankers", req, parse(tankerBody, req.body))));
+wholesale.patch("/wholesale/tankers/:id", requirePerm("wholesale.manage"), h((req) => saveFleet("tankers", req, parse(tankerBody.partial(), req.body), Number(req.params.id))));
+wholesale.post("/wholesale/drivers", requirePerm("wholesale.manage"), h((req) => saveFleet("drivers", req, parse(driverBody, req.body))));
+wholesale.patch("/wholesale/drivers/:id", requirePerm("wholesale.manage"), h((req) => saveFleet("drivers", req, parse(driverBody.partial(), req.body), Number(req.params.id))));
+wholesale.post("/wholesale/clients/:id/return", requirePerm("wholesale.manage"), h((req) => {
+    const c = ownClient(tid(req), Number(req.params.id));
+    const b = parse(fuelBody, req.body);
+    // credit the return at the rate of their latest supply of that product (or the card rate)
+    const last = get("SELECT rate FROM wholesale_txns WHERE client_id=? AND type='supply' AND product=? AND voided=0 ORDER BY txn_date DESC, id DESC LIMIT 1", c.id, b.product);
+    const def = last?.rate ?? rates(c.id)[b.product];
+    if (b.rate !== undefined && b.rate !== def && !can(req.user, "wholesale.rates"))
+        throw new AppError(403, "Only the admin can change the return rate");
+    const rate = b.rate ?? def;
+    if (!rate)
+        throw new AppError(400, "No rate found for this product");
+    const tank = pickTank(tid(req), b.station_id, b.product);
+    if (tank.current_l + b.litres > tank.capacity_l)
+        throw new AppError(400, `${tank.name} does not have space for ${b.litres} L`);
+    return tx(() => {
+        run("UPDATE tanks SET current_l = current_l + ? WHERE id=?", b.litres, tank.id);
+        return insertTxn(req, c.id, { ...b, type: "return", tank_id: tank.id, rate, amount: round2(b.litres * rate) });
+    });
+}));
+wholesale.post("/wholesale/clients/:id/payment", requireAny("wholesale.manage", "cash.receive"), h((req) => {
+    const c = ownClient(tid(req), Number(req.params.id));
+    const b = parse(z.object({ amount: z.number().positive(), method: z.string().min(2), ref: z.string().optional().nullable(), note: z.string().optional().nullable(), txn_date: dateStr, photo_ids: proofPhotos, account_id: accountIdField,
+        cheque_bank: z.string().max(80).optional().nullable(), cheque_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable() }), req.body);
+    if (isCheque(b.method))
+        requireProof(tid(req), b.photo_ids, "cheque");
+    // a cheque still in hand goes into the cheque register — the due comes down when it clears
+    if (isCheque(b.method) && !b.account_id) {
+        const t = tid(req), no = b.ref?.trim() || "—", bank = b.cheque_bank?.trim() || "Bank not given";
+        if (no !== "—" && get("SELECT id FROM wholesale_cheques WHERE tenant_id=? AND bank=? AND cheque_no=? AND status<>'returned'", t, bank, no))
+            throw new AppError(400, `Cheque ${no} of ${bank} is already in the register`);
+        const { id } = run(`INSERT INTO wholesale_cheques (tenant_id,client_id,amount,bank,cheque_no,cheque_date,status,note,created_by,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)`, t, c.id, b.amount, bank, no, b.cheque_date || b.txn_date?.slice(0, 10) || pkDate(), "in_hand", b.note ?? null, req.user.name, now(), now());
+        linkPhotos(t, b.photo_ids, `wchq:${id}`);
+        return { cheque_pending: true, cheque: get("SELECT * FROM wholesale_cheques WHERE id=?", id), due_after: clientDue(c.id),
+            message: "Cheque is in the register — it counts as paid when it clears" };
+    }
+    return insertTxn(req, c.id, { ...b, account_id: bankAccountFor(tid(req), b.account_id, b.method), type: "payment" });
+}));
+/** A wholesale supply that came from the POS nozzle (POS-<sale id>): the wholesale officer (or CEO) corrects its rate,
+ *  vehicle or note. The litres stay as the nozzle meter and tank recorded them — a litre change is a sale edit (CEO).
+ *  The old row is voided and re-posted (same day, same POS link) so the client's statement, ledger and bill all follow. */
+wholesale.post("/wholesale/txns/:id/pos-edit", requireAny("wholesale.manage", "entries.edit"), h((req) => {
+    const t = tid(req);
+    const b = parse(z.object({ reason: z.string().trim().min(3, "Wajah likhein (kam se kam 3 harf)"), rate: z.number().positive().max(100000).optional(),
+        vehicle_no: z.string().max(40).nullable().optional(), note: z.string().max(200).nullable().optional() }), req.body);
+    const x = get("SELECT x.*, c.name client_name FROM wholesale_txns x JOIN wholesale_clients c ON c.id=x.client_id WHERE x.id=? AND x.tenant_id=? AND x.voided=0", Number(req.params.id), t);
+    if (!x)
+        throw new AppError(404, "Wholesale entry nahi mili");
+    if (!x.sale_id || x.type !== "supply")
+        throw new AppError(400, "Sirf POS se aayi supply entry yahan se badalti hai — baqi entries CEO ke Edit se");
+    if (get("SELECT 1 FROM wholesale_txns WHERE sale_id=? AND type='payment' AND voided=0", x.sale_id))
+        throw new AppError(400, "Is sale ki payment bhi saath hui thi — CEO Sale edit se dono badlein");
+    if (get("SELECT 1 FROM cashier_vouchers WHERE tenant_id=? AND src=? AND voided=0", t, `wtx:${x.id}`))
+        throw new AppError(400, "Is entry par cashier voucher bana hai — Cashier desk se badlein");
+    guardClosedDay(req, t, String(x.txn_date).slice(0, 10)); // a closed day is CEO-only
+    if (b.rate !== undefined && round2(b.rate) !== round2(x.rate ?? 0) && !can(req.user, "wholesale.rates"))
+        throw new AppError(403, "Rate sirf CEO (ya jise rate ki ijazat ho) badal sakta hai — gaari number / note aap badal sakte hain");
+    const rate = round2(b.rate ?? x.rate), litres = round2(x.litres ?? 0), amount = round2(litres * rate);
+    const vehicle = b.vehicle_no !== undefined ? (b.vehicle_no?.toUpperCase() || null) : x.vehicle_no;
+    const note = b.note !== undefined ? b.note : x.note;
+    const saved = tx(() => {
+        run("UPDATE wholesale_txns SET voided=1, void_reason=? WHERE id=?", `${req.user.name} (POS edit): ${b.reason}`, x.id);
+        const n = insertTxn(req, x.client_id, { type: "supply", station_id: x.station_id, tank_id: null, product: x.product, litres, rate, amount, ref: x.ref, note, vehicle_no: vehicle, txn_date: x.txn_date });
+        run("UPDATE wholesale_txns SET sale_id=?, created_at=? WHERE id=?", x.sale_id, x.created_at, n.id);
+        run("UPDATE sales SET rate=?, amount=?, vehicle_no=? WHERE id=?", rate, amount, vehicle, x.sale_id); // the POS row shows the same figures
+        return n;
+    });
+    audit(t, req.user, "wholesale_pos_edit", `wtx:${x.id}`, { before: { rate: x.rate, amount: x.amount, vehicle_no: x.vehicle_no, note: x.note }, after: { rate, amount, vehicle_no: vehicle, note }, new_txn_id: saved.id, sale_id: x.sale_id, reason: b.reason });
+    return { ok: true, txn_id: saved.id, amount, due_after: clientDue(x.client_id) };
+}));
+wholesale.post("/wholesale/clients/:id/adjustment", requirePerm("wholesale.rates"), h((req) => {
+    const c = ownClient(tid(req), Number(req.params.id));
+    const b = parse(z.object({ amount: z.number().refine((v) => v !== 0, "Amount cannot be zero"), note: z.string().min(3, "Give a reason"), txn_date: dateStr, photo_ids: proofPhotos }), req.body);
+    return insertTxn(req, c.id, { ...b, type: "adjustment" });
+}));
+/** Return a client's advance (they overpaid — e.g. 400 due but paid a 600 cheque) back in cash / bank. Money actually
+ *  leaves; the client's due moves back up toward zero. Booked as an adjustment with a "refund:" ref so the ledger pays
+ *  out of cash/bank instead of Other income (tally stays 0). */
+wholesale.post("/wholesale/clients/:id/refund", requirePerm("wholesale.manage"), h((req) => {
+    const c = ownClient(tid(req), Number(req.params.id));
+    const b = parse(z.object({ amount: z.number().positive(), method: z.string().min(2), note: z.string().optional().nullable(), txn_date: dateStr, photo_ids: proofPhotos, account_id: accountIdField }), req.body);
+    if (isCheque(b.method))
+        throw new AppError(400, "Advance cash ya bank/online se wapas karein (cheque se nahi)");
+    const accountId = bankAccountFor(tid(req), b.account_id, b.method);
+    if (!/^cash$/i.test(b.method.trim()) && !accountId)
+        throw new AppError(400, `${b.method}: bank / wallet account chunein`);
+    return insertTxn(req, c.id, { amount: b.amount, method: b.method, account_id: accountId, ref: "refund:", note: b.note ?? "Advance returned", txn_date: b.txn_date, photo_ids: b.photo_ids, type: "adjustment" });
+}));
+/** Cancel a wrong entry: it stays in the ledger marked VOID and any stock movement is reversed. */
+wholesale.post("/wholesale/txns/:id/void", requirePerm("wholesale.void"), h((req) => {
+    const b = parse(z.object({ reason: z.string().min(3, "Give a reason") }), req.body);
+    const t = get("SELECT * FROM wholesale_txns WHERE id=? AND tenant_id=?", Number(req.params.id), tid(req));
+    if (!t)
+        throw new AppError(404, "Entry not found");
+    if (t.voided)
+        throw new AppError(400, "Already voided");
+    if (String(t.ref ?? "").startsWith("oth-"))
+        throw new AppError(400, "Ye Other-entries (CEO) ki entry hai — wahin se undo karein.");
+    if (get("SELECT 1 FROM bypass_supplier_payments WHERE tenant_id=? AND wtx_id=? AND voided=0", tid(req), t.id))
+        throw new AppError(400, "Is par bypass supplier payment judi hai — Bypass page se void karein.");
+    // a bypass drop is voided right here too: its litres go back to the bypass stock along with the client's bill
+    const drop = get("SELECT * FROM bypass_drops WHERE tenant_id=? AND wtx_id=? AND voided=0 AND tank_id IS NULL", tid(req), t.id);
+    if (drop) {
+        if (get("SELECT 1 FROM cashier_vouchers WHERE tenant_id=? AND src=? AND voided=0", tid(req), `wtx:${t.id}`))
+            throw new AppError(400, "Is drop par cashier voucher bana hai — pehle woh void karein");
+        tx(() => {
+            run("UPDATE bypass_drops SET voided=1, note=COALESCE(note,'') || ? WHERE id=?", ` [void: ${b.reason}]`, drop.id);
+            run("UPDATE wholesale_txns SET voided=1, void_reason=? WHERE id=?", `${req.user.name} (drop void): ${b.reason}`, t.id);
+        });
+        audit(tid(req), req.user, "bypass_drop_void", `bypdrop:${drop.id}`, { reason: b.reason, litres: drop.litres, cost: drop.cost_amount, client_id: drop.client_id, wtx_id: t.id });
+        return { ok: true };
+    }
+    return tx(() => {
+        if (t.tank_id && t.litres) {
+            if (t.type === "supply")
+                run("UPDATE tanks SET current_l = current_l + ? WHERE id=?", t.litres, t.tank_id);
+            if (t.type === "return")
+                run("UPDATE tanks SET current_l = MAX(0, current_l - ?) WHERE id=?", t.litres, t.tank_id);
+        }
+        run("UPDATE wholesale_txns SET voided=1, void_reason=? WHERE id=?", `${b.reason} (by ${req.user.name})`, t.id);
+        // a payment made straight to our depot: the depot's side goes too
+        if (t.type === "payment" && t.method === DEPOT_PAY) {
+            unshiftClientFuel(tid(req), t.id);
+            run("DELETE FROM supplier_txns WHERE tenant_id=? AND ref=? AND method=?", tid(req), `wtx:${t.id}`, DEPOT_PAY);
+        }
+        const c = get("SELECT name FROM wholesale_clients WHERE id=?", t.client_id);
+        createAlert(tid(req), { type: "wholesale_void", severity: "info", title: `Wholesale ${t.type} #${t.id} voided — ${c.name}`, body: `${pkr(t.amount)}. Reason: ${b.reason}. By ${req.user.name}.` });
+        return { ...get("SELECT * FROM wholesale_txns WHERE id=?", t.id), due_after: clientDue(t.client_id) };
+    });
+}));
+/* ---------------- Monthly statement on WhatsApp ---------------- */
+const monthQ = z.object({ month: z.string().regex(/^\d{4}-\d{2}$/).optional() });
+wholesale.get("/wholesale/clients/:id/statement-link", h((req) => {
+    const c = ownClient(tid(req), Number(req.params.id));
+    const q = parse(monthQ.extend({ from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() }), req.query);
+    const period = q.from && q.to ? `${q.from}..${q.to}` : (q.month ?? pkDate().slice(0, 7));
+    return { month: period.slice(0, 7), period, url: billLink(tid(req), "w", c.id, period) };
+}));
+wholesale.post("/wholesale/clients/:id/send-statement", requirePerm("wholesale.manage"), h(async (req) => {
+    const c = ownClient(tid(req), Number(req.params.id));
+    if (!c.phone)
+        throw new AppError(400, "Add the client's WhatsApp number first");
+    return sendWholesaleStatement(tid(req), c.id, parse(monthQ, req.body).month ?? prevMonth());
+}));

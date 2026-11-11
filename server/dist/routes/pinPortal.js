@@ -1,0 +1,631 @@
+/**
+ * A customer's own khata page behind a PIN — for wholesale clients (/w/…) and khata customers (/k/…).
+ *
+ * The link and the 6-digit PIN are both signed with the server secret from (kind, id, version), so
+ * any copy of the server can check them without looking anything up (this also works on serverless
+ * hosting where each copy has its own database). "New link + PIN" raises the version, so the old
+ * link and PIN stop working; the page can be turned off. Five wrong PINs lock the page for 15 minutes.
+ */
+import { BRAND_CSS, brandHead, brandFoot } from "../brandPrint.js";
+import { Router } from "express";
+import express from "express";
+import crypto from "node:crypto";
+import jwt from "jsonwebtoken";
+import { get, run, now, pkDate } from "../db.js";
+import { h, tid, requirePerm, modulesOf } from "../auth.js";
+import { AppError, normalizePhone, currentPrices, paymentLink, createAlert } from "../services.js";
+import { config, PRODUCTS } from "../config.js";
+import { statement, rateCard, clientDue } from "./wholesale.js";
+import { clientRequests, placeClientRequest, editClientRequest } from "./wholesaleDesk.js";
+import { khataStatement } from "./crm.js";
+import { investorStatement, investorRequest, cancelInvestorRequest } from "./investors.js";
+import { round2 } from "../services.js";
+import { billLink } from "../billing.js";
+import { sendDirect, sendWhatsApp } from "../whatsapp/cloud.js";
+import { logoTag } from "./setup.js";
+export const pinPortalAdmin = Router();
+export const pinPortalPublic = Router();
+const TABLE = { w: "wholesale_clients", k: "customers", i: "investors" };
+const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+const rs = (v) => `Rs ${Math.round(v).toLocaleString("en-IN")}`;
+const n2 = (v) => Number(v).toLocaleString("en-IN", { maximumFractionDigits: 2 });
+const MAX_FAILS = 5, LOCK_MIN = 15;
+const hmac = (s) => crypto.createHmac("sha256", config.jwtSecret).update(s).digest();
+const codeOf = (kind, id, v) => `${id}-${v}-${hmac(`${kind}:link:${id}:${v}`).toString("base64url").slice(0, 10)}`;
+export const pinOf = (kind, id, v) => String(hmac(`${kind}:pin:${id}:${v}`).readUIntBE(0, 6) % 1_000_000).padStart(6, "0");
+export const pinLink = (kind, c) => `${config.publicUrl}/${kind}/${codeOf(kind, c.id, c.portal_v ?? 0)}`;
+/** The record behind a link, or null when the link is forged, replaced by a newer one, or turned off. */
+function fromCode(kind, code) {
+    const m = /^(\d+)-(\d+)-([\w-]{10})$/.exec(code);
+    if (!m)
+        return null;
+    const id = Number(m[1]), v = Number(m[2]);
+    const want = Buffer.from(codeOf(kind, id, v)), got = Buffer.from(code);
+    if (want.length !== got.length || !crypto.timingSafeEqual(want, got))
+        return null; // "01-0-…" must not throw
+    const c = get(`SELECT * FROM ${TABLE[kind]} WHERE id=?`, id);
+    if (kind === "i" && c && !modulesOf(c.tenant_id).investors)
+        return null; // module off → the link is dead
+    // a newer link was made (version went up) or the page is off
+    if (!c || (c.portal_v ?? 0) > v || c.portal_off || c.active === 0)
+        return null;
+    return { c, v };
+}
+/* ---------------- staff side ---------------- */
+function ownRow(kind, t, id) {
+    const c = get(`SELECT * FROM ${TABLE[kind]} WHERE id=? AND tenant_id=?`, id, t);
+    if (!c)
+        throw new AppError(404, kind === "w" ? "Wholesale client not found" : kind === "i" ? "Investor nahi mila" : "Customer not found");
+    return c;
+}
+const info = (kind, c) => ({ url: pinLink(kind, c), pin: pinOf(kind, c.id, c.portal_v ?? 0), enabled: !c.portal_off, last_seen: c.portal_seen_at ?? null });
+const message = (kind, c, tenant) => {
+    const p = info(kind, c);
+    if (kind === "i")
+        return `${c.name}\n📈 Apna investment khata kabhi bhi dekhein (raqam, har deal ka munafa, payment aur baqaya):\n${p.url}\nPIN: ${p.pin}\nYeh PIN kisi ko na batayein.\n— ${tenant}`;
+    return `${c.name}\n📒 Apna khata kabhi bhi dekhein (baqaya, har ${kind === "w" ? "supply" : "fill"}, payment aur bill):\n${p.url}\nPIN: ${p.pin}\nYeh PIN kisi ko na batayein.\n— ${tenant}`;
+};
+for (const [kind, base, view, manage] of [["w", "/wholesale/clients/:id/portal", "wholesale.view", "wholesale.manage"], ["k", "/customers/:id/portal", "khata.manage", "khata.manage"], ["i", "/investors/:id/portal", "investors.manage", "investors.manage"]]) {
+    pinPortalAdmin.get(base, requirePerm(view), h((req) => info(kind, ownRow(kind, tid(req), Number(req.params.id)))));
+    /** Shared with the wrong person? A new link and PIN; the old ones stop working. */
+    pinPortalAdmin.post(`${base}/new`, requirePerm(manage), h((req) => {
+        const c = ownRow(kind, tid(req), Number(req.params.id));
+        run(`UPDATE ${TABLE[kind]} SET portal_v=COALESCE(portal_v,0)+1, portal_off=0, portal_fails=0, portal_locked_until=NULL WHERE id=?`, c.id);
+        return info(kind, get(`SELECT * FROM ${TABLE[kind]} WHERE id=?`, c.id));
+    }));
+    pinPortalAdmin.post(`${base}/:state(on|off)`, requirePerm(manage), h((req) => {
+        const c = ownRow(kind, tid(req), Number(req.params.id));
+        run(`UPDATE ${TABLE[kind]} SET portal_off=? WHERE id=?`, req.params.state === "off" ? 1 : 0, c.id);
+        return info(kind, get(`SELECT * FROM ${TABLE[kind]} WHERE id=?`, c.id));
+    }));
+    pinPortalAdmin.post(`${base}/send`, requirePerm(manage), h(async (req) => {
+        const c = ownRow(kind, tid(req), Number(req.params.id));
+        if (!c.phone)
+            throw new AppError(400, "Add a WhatsApp number first");
+        if (c.portal_off)
+            run(`UPDATE ${TABLE[kind]} SET portal_off=0 WHERE id=?`, c.id);
+        const text = message(kind, c, get("SELECT name FROM tenants WHERE id=?", tid(req)).name);
+        // khata customers chat with the pump in the WhatsApp inbox; wholesale clients get a direct message
+        if (kind === "k")
+            await sendWhatsApp(tid(req), c, text, "system", { kind: "portal_link" });
+        else
+            await sendDirect(tid(req), { ...c, phone: normalizePhone(c.phone) }, "portal_link", `${kind}:${c.id}`, text);
+        return { ...info(kind, c), sent: true };
+    }));
+}
+/* ---------------- customer side ---------------- */
+const FUEL_UR = { PMG: "پیٹرول", HOBC: "ہائی آکٹین", HSD: "ڈیزل" };
+const DAYMS = 86_400_000;
+const CSS = `:root{color-scheme:light}*{box-sizing:border-box}body{font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;margin:0;background:#eef2f6;color:#0f172a}
+.ur{font-family:"Noto Nastaliq Urdu","Jameel Noori Nastaleeq","Noto Naskh Arabic",serif;direction:rtl;unicode-bidi:isolate}
+.w{max-width:760px;margin:0 auto;padding:12px}.c{background:#fff;border-radius:16px;padding:16px;margin-bottom:12px;box-shadow:0 1px 2px rgba(15,23,42,.06)}
+.top{position:sticky;top:0;z-index:5;background:#064e3b;color:#fff;border-radius:0 0 16px 16px;padding:10px 12px;margin:-12px -12px 12px}
+.brand{display:flex;align-items:center;gap:10px;font-weight:700}.brand img{background:#fff;border-radius:8px;padding:2px}
+.acts{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:10px}.acts a,.acts button{display:flex;flex-direction:column;align-items:center;gap:2px;background:rgba(255,255,255,.12);color:#fff;border:0;border-radius:12px;padding:8px 4px;font:600 13px system-ui;text-decoration:none;cursor:pointer}
+.acts .i{font-size:22px;line-height:1}.acts .ur{font-size:12px;font-weight:400}
+h1{font-size:22px;margin:0}.m{color:#64748b;font-size:13px}.g{color:#047857}.red{color:#b91c1c}
+.hero{border-radius:16px;padding:16px;text-align:center}.hero.owe{background:#fef2f2;border:2px solid #fecaca}.hero.ok{background:#ecfdf5;border:2px solid #a7f3d0}
+.hero .amt{font-size:38px;font-weight:800;letter-spacing:.5px;white-space:nowrap}.hero .lbl{font-size:16px;font-weight:600}.hero .ur{font-size:20px}
+.bar{height:10px;border-radius:99px;background:#e2e8f0;overflow:hidden;margin-top:6px}.bar>i{display:block;height:100%;border-radius:99px}
+.tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}.tile{background:#f8fafc;border-radius:12px;padding:10px;text-align:center}.tile .i{font-size:22px}.tile{min-width:0}.tile b{display:block;font-size:clamp(12px,3.4vw,19px);white-space:nowrap}
+.rates{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}.rate{border-radius:12px;padding:12px;color:#fff;text-align:center}.rate b{display:block;font-size:24px}
+.chips{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px}.chips a{flex:none;padding:7px 12px;border-radius:99px;background:#f1f5f9;color:#0f172a;text-decoration:none;font-size:14px;border:1px solid #e2e8f0}.chips a.on{background:#064e3b;color:#fff;border-color:#064e3b}
+.e{display:flex;gap:10px;align-items:flex-start;padding:12px 0;border-bottom:1px solid #e2e8f0}.e .ic{flex:none;width:42px;height:42px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:22px}
+.e .l{min-width:0;flex:1}.et{font-weight:700;font-size:16px}.e .r{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}.e .r b{font-size:18px}
+.slips{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}.slips a{display:block;color:#475569;font-size:12px;text-align:center}.slips img{display:block;width:96px;height:72px;object-fit:cover;border-radius:10px;border:1px solid #cbd5e1;margin-bottom:2px}
+.sup .ic{background:#eff6ff}.pay .ic{background:#ecfdf5}.ret .ic{background:#fefce8}.adj .ic{background:#f5f3ff}
+.sum{display:flex;justify-content:space-between;padding:10px 0;font-weight:700;border-top:2px solid #0f172a}
+.row{display:flex;gap:10px;justify-content:space-between;padding:9px 0;border-bottom:1px solid #e2e8f0}.row .l{min-width:0}.rr{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-top:10px}.t{background:#f8fafc;border-radius:10px;padding:10px}.big{font-size:24px;font-weight:700;white-space:nowrap}
+a.b,button.b{display:block;width:100%;text-align:center;background:#064e3b;color:#fff;border:0;padding:14px;border-radius:12px;font-size:17px;font-weight:600;text-decoration:none;margin-top:10px;cursor:pointer}
+input[name=pin]{font-size:30px;letter-spacing:10px;text-align:center;width:100%;padding:12px;border:2px solid #cbd5e1;border-radius:12px}
+.err{background:#fee2e2;color:#991b1b;padding:10px;border-radius:10px;margin-top:10px}ul{padding-left:18px;margin:6px 0}.po{display:none}.ent{display:flex;flex-direction:column}
+.f{display:block;width:100%;padding:11px;border:2px solid #cbd5e1;border-radius:10px;font-size:16px;margin-top:4px;background:#fff;font-family:inherit}
+@page{margin:0}@media print{body{padding:10mm}}@media print{body{background:#fff;font-size:12px}.np,.top{display:none!important}.po{display:block}.c{box-shadow:none;border:1px solid #cbd5e1;break-inside:avoid;padding:10px;margin-bottom:8px}
+.e{break-inside:avoid;padding:6px 0}.ent{flex-direction:column-reverse}.rate{background:#fff!important;color:#000;border:1px solid #94a3b8}.tile{border:1px solid #e2e8f0}.e .ic{width:28px;height:28px;font-size:15px}.hero .amt{font-size:26px}.w{max-width:none;padding:0}a{color:inherit;text-decoration:none}}`;
+const page = (title, body, tenantId, top = "") => `<!doctype html><html lang="ur"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Noto+Nastaliq+Urdu:wght@400;600&display=swap" rel="stylesheet">
+<title>${esc(title)}</title><style>${CSS}${BRAND_CSS}</style></head>
+<body><div class=w>${top || (tenantId ? `<div class=c><div class=brand>${logoTag(tenantId, "height:34px;max-width:110px;object-fit:contain")}<span>${esc(get("SELECT name FROM tenants WHERE id=?", tenantId)?.name)}</span></div></div>` : "")}${body}${tenantId ? brandFoot(tenantId) : ""}</div></body></html>`;
+function pinForm(c, error) {
+    return page(`${c.name} — khata`, `<div class=c style="text-align:center"><div style="font-size:44px">🔒</div><h1>${esc(c.name)}</h1>
+<p style="margin:6px 0 2px">Enter the 6-digit PIN</p><p class=ur style="margin:0 0 12px;font-size:20px">اپنا ۶ ہندسوں کا پن لکھیں</p>
+<form method=post><input name=pin inputmode=numeric autocomplete=one-time-code pattern="[0-9]{6}" maxlength=6 required autofocus placeholder="••••••">
+<label class=m style="display:flex;gap:6px;align-items:center;justify-content:center;margin-top:10px"><input type=checkbox name=remember value=1 checked> Remember this phone 30 days · <span class=ur>یہ فون یاد رکھیں</span></label>
+<button class=b>Open my khata · <span class=ur>کھاتہ کھولیں</span></button></form>${error ? `<div class=err>${esc(error)}</div>` : ""}</div>`, c.tenant_id);
+}
+/** Top bar with the pump's name and the main buttons (print, monthly bill, call, WhatsApp, lock). */
+function topBar(c, code, billUrl) {
+    const t = c.tenant_id;
+    const tenant = get("SELECT * FROM tenants WHERE id=?", t);
+    const phone = String(get("SELECT value FROM settings WHERE tenant_id=? AND key='biz_phone'", t)?.value || tenant.owner_phone || "").replace(/[^\d+]/g, "");
+    const wa = phone.replace(/^\+/, "").replace(/^0/, "92");
+    return `<div class="top np"><div class=brand>${logoTag(t, "height:30px;max-width:90px;object-fit:contain")}<span>${esc(tenant.name)}</span></div>
+<div class=acts>
+<button onclick="print()"><span class=i>🖨️</span>Print<span class=ur>پرنٹ</span></button>
+${billUrl ? `<a href="${esc(billUrl)}"><span class=i>🧾</span>Bill<span class=ur>ماہانہ بل</span></a>` : ""}
+${phone ? `<a href="tel:${esc(phone)}"><span class=i>📞</span>Call<span class=ur>کال کریں</span></a>` : `<a href="#"><span class=i>📞</span>Call<span class=ur>کال</span></a>`}
+<form method=post action="${esc(code)}/logout" style="display:contents"><button><span class=i>🔒</span>Lock<span class=ur>بند کریں</span></button></form>
+</div>${wa ? `<a href="https://wa.me/${esc(wa)}?text=${encodeURIComponent(`${c.name}: khata ke baare mein`)}" style="display:block;margin-top:8px;background:#25d366;color:#fff;text-align:center;padding:9px;border-radius:12px;text-decoration:none;font-weight:600">💬 WhatsApp the pump · <span class=ur>واٹس ایپ کریں</span></a>` : ""}</div>`;
+}
+const monthsBack = (n) => Array.from({ length: n }, (_, i) => { const d = new Date(Date.parse(`${pkDate().slice(0, 7)}-15T00:00:00Z`)); d.setUTCMonth(d.getUTCMonth() - i); return d.toISOString().slice(0, 7); });
+const monthName = (m) => new Date(`${m}-15T00:00:00Z`).toLocaleDateString("en-PK", { month: "short", year: "numeric" });
+const dateStr = (iso) => new Date(iso).toLocaleDateString("en-PK", { timeZone: "Asia/Karachi", day: "2-digit", month: "short", year: "numeric" });
+/** The "order fuel" card: a form the client fills (date + product + litres) and the status of their recent requests. */
+function orderCard(c, code, flash) {
+    const t = c.tenant_id;
+    const card = rateCard(c.id);
+    const prods = Object.keys(card).length ? Object.keys(card) : Object.keys(PRODUCTS);
+    const today = pkDate();
+    const reqs = clientRequests(t, c.id, true).slice(0, 8);
+    const BADGE = { pending: "background:#fef9c3;color:#854d0e", approved: "background:#dcfce7;color:#166534", rejected: "background:#fee2e2;color:#991b1b", cancelled: "background:#f1f5f9;color:#475569" };
+    const LABEL = { pending: "Pending · انتظار", approved: "Approved · منظور", rejected: "Not done · نہیں ہو سکا", cancelled: "Cancelled · منسوخ" };
+    const editForm = (r) => `<details style="margin-top:6px"><summary style="cursor:pointer;color:#064e3b;font-weight:600;font-size:14px">✏️ Edit · <span class=ur>تبدیل کریں</span></summary>
+<form method=post action="${esc(code)}/order/${r.id}" style="margin-top:8px">
+<div class=grid style="margin-top:0">
+<label>Product · <span class=ur>مصنوعات</span><select name=product class=f required>${prods.map((p) => `<option value="${esc(p)}"${p === r.product ? " selected" : ""}>${esc(PRODUCTS[p] ?? p)}</option>`).join("")}</select></label>
+<label>Litres · <span class=ur>لیٹر</span><input name=litres class=f type=number min=1 max=200000 step=1 required value="${esc(r.litres)}"></label>
+<label>Date needed · <span class=ur>کس تاریخ</span><input name=want_date class=f type=date min="${today}" value="${esc(r.want_date)}" required></label>
+</div>
+<label style="display:block;margin-top:8px">Note · <span class=ur>نوٹ</span><input name=note class=f type=text maxlength=200 value="${esc(r.note ?? "")}"></label>
+<button class=b style="margin-top:8px">Save changes · <span class=ur>محفوظ کریں</span></button></form></details>`;
+    const list = reqs.map((r) => `<div class=row><div class=l><div class=et>${n2(r.litres)} L ${esc(PRODUCTS[r.product] ?? r.product)}</div>
+    <div class=m>📅 ${esc(dateStr(r.want_date + "T00:00:00+05:00"))}${r.note ? ` · ${esc(r.note)}` : ""}</div>${r.reply ? `<div class=m>💬 ${esc(r.reply)}</div>` : ""}${r.status === "pending" ? editForm(r) : ""}</div>
+    <div class=rr><span style="display:inline-block;padding:3px 9px;border-radius:99px;font-size:12px;font-weight:600;${BADGE[r.status] ?? ""}">${esc(LABEL[r.status] ?? r.status)}</span></div></div>`).join("");
+    return `<div class="c np"><b>🛒 Order fuel · <span class=ur>آرڈر بھیجیں</span></b>
+<div class=m style="margin:2px 0 10px">Tell us how much you need and when — we'll confirm on WhatsApp · <span class=ur>کتنا اور کب چاہیے، ہم واٹس ایپ پر تصدیق کریں گے</span></div>
+${flash === "ok" ? `<div style="background:#dcfce7;color:#166534;padding:10px;border-radius:10px;margin-bottom:10px">✅ Order sent. We'll confirm soon. · <span class=ur>آرڈر بھیج دیا گیا، جلد تصدیق ہوگی</span></div>` : ""}
+${flash === "err" ? `<div class=err>Please choose a product, litres and a date (today or later).</div>` : ""}
+<form method=post action="${esc(code)}/order">
+<div class=grid style="margin-top:0">
+<label>Product · <span class=ur>مصنوعات</span><select name=product class=f required>${prods.map((p) => `<option value="${esc(p)}">${esc(PRODUCTS[p] ?? p)}</option>`).join("")}</select></label>
+<label>Litres · <span class=ur>لیٹر</span><input name=litres class=f type=number min=1 max=200000 step=1 required placeholder="e.g. 5000"></label>
+<label>Date needed · <span class=ur>کس تاریخ</span><input name=want_date class=f type=date min="${today}" value="${today}" required></label>
+</div>
+<label style="display:block;margin-top:8px">Note (optional) · <span class=ur>نوٹ</span><input name=note class=f type=text maxlength=200 placeholder="vehicle, time, location…"></label>
+<button class=b>Send order · <span class=ur>آرڈر بھیجیں</span></button>
+</form>
+${list ? `<div style="margin-top:14px"><b>Your recent orders · <span class=ur>آپ کے آرڈر</span></b>${list}</div>` : ""}</div>`;
+}
+function wholesaleBody(c, month, code, flash = null) {
+    const t = c.tenant_id;
+    const from = month ? `${month}-01` : pkDate(Date.now() - 60 * DAYMS);
+    const to = month ? new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).toISOString().slice(0, 10) : undefined;
+    const s = statement(t, c.id, from, to);
+    const due = clientDue(c.id);
+    const card = rateCard(c.id);
+    const live = s.lines.filter((l) => !l.voided);
+    const litres = live.filter((l) => l.type === "supply").reduce((a, l) => a + l.litres, 0);
+    const billed = live.filter((l) => l.type === "supply").reduce((a, l) => a + l.amount, 0);
+    const paid = live.filter((l) => l.type === "payment").reduce((a, l) => a + l.amount, 0);
+    const used = c.credit_limit > 0 ? Math.min(100, Math.max(0, (due / c.credit_limit) * 100)) : 0;
+    const periodLabel = month ? monthName(month) : "Last 60 days";
+    const COLORS = { PMG: "#2a78d6", HOBC: "#eb6834", HSD: "#1baf7a" };
+    const rows = [...live].reverse().map((l) => {
+        const d = `<div class=m>${esc(dateStr(l.txn_date))}</div>`;
+        const bal = `<div class=m>Baqi · <span class=ur>باقی</span> ${n2(l.balance)}</div>`;
+        if (l.type === "supply")
+            return `<div class="e sup"><div class=ic>⛽</div><div class=l>${d}<div class=et>${esc(PRODUCTS[l.product] ?? l.product)} · <span class=ur>${FUEL_UR[l.product] ?? ""}</span></div>
+      <div>${n2(l.litres)} L × Rs ${n2(l.rate)}</div><div class=m>${esc([l.vehicle_no && `🚛 ${l.vehicle_no}`, l.driver_name && `👤 ${l.driver_name}`, l.location && `📍 ${l.location}`, l.ref && `🧾 ${l.ref}`].filter(Boolean).join("  "))}</div>${photoThumbs(code, l.proof_ids, "Delivery", "ڈیلیوری")}${photoThumbs(code, l.trip_proof_ids, "Tanker", "ٹینکر")}</div>
+      <div class=r><b>+${n2(l.amount)}</b>${bal}</div></div>`;
+        if (l.type === "payment")
+            return `<div class="e pay"><div class=ic>💵</div><div class=l>${d}<div class="et g">Payment received · <span class=ur>رقم وصول</span></div><div class=m>${esc([l.method, l.ref].filter(Boolean).join(" · "))}</div>${photoThumbs(code, l.proof_ids, "Receipt", "رسید")}</div>
+      <div class=r><b class=g>−${n2(l.amount)}</b>${bal}</div></div>`;
+        if (l.type === "return")
+            return `<div class="e ret"><div class=ic>↩️</div><div class=l>${d}<div class=et>Fuel returned · <span class=ur>تیل واپس</span></div><div>${n2(l.litres)} L ${esc(PRODUCTS[l.product] ?? "")}</div>${photoThumbs(code, l.proof_ids, "Return", "واپسی")}</div>
+      <div class=r><b class=g>−${n2(l.amount)}</b>${bal}</div></div>`;
+        if (l.type === "carriage")
+            return `<div class="e sup"><div class=ic>🚚</div><div class=l>${d}<div class=et>Carriage / kiraya · <span class=ur>کرایہ</span></div>
+      <div class=m>${esc([l.litres ? `${n2(l.litres)} L ${PRODUCTS[l.product] ?? "fuel"}` : "", l.note].filter(Boolean).join(" · "))}</div></div>
+      <div class=r><b>+${n2(l.amount)}</b>${bal}</div></div>`;
+        if (l.type === "fuel_note")
+            return `<div class="e pay"><div class=ic>⛽</div><div class=l>${d}<div class=et>Fuel payment · <span class=ur>فیول کی ادائیگی</span></div>
+      <div class=m>${esc([l.fuel_mode === "direct" ? `Paid depot direct — ${l.depot_name ?? "depot"}` : `Through us → ${l.depot_name ?? "depot"}${l.fuel_status === "held" ? " (forwarding)" : ""}`, l.ref && `inv ${l.ref}`, l.note].filter(Boolean).join(" · "))}</div>${photoThumbs(code, l.proof_ids, "Proof", "ثبوت")}</div>
+      <div class=r><b class=m>${n2(l.amount)}</b><div class=m>fuel · <span class=ur>تیل</span></div></div></div>`;
+        return `<div class="e adj"><div class=ic>✏️</div><div class=l>${d}<div class=et>Adjustment · <span class=ur>ایڈجسٹمنٹ</span></div><div class=m>${esc(l.note ?? "")}</div></div>
+      <div class=r><b class="${l.amount < 0 ? "g" : ""}">${l.amount < 0 ? "−" : "+"}${n2(Math.abs(l.amount))}</b>${bal}</div></div>`;
+    }).join("");
+    const chips = [`<a href="${esc(code)}" class="${month ? "" : "on"}">60 days · <span class=ur>۶۰ دن</span></a>`, ...monthsBack(6).map((m) => `<a href="${esc(code)}?m=${m}" class="${month === m ? "on" : ""}">${esc(monthName(m))}</a>`)].join("");
+    return `<div class=po>${brandHead(t, "Statement")}<b>Account statement · <span class=ur>کھاتہ</span></b><br>${esc(c.name)} · ${esc(periodLabel)} · printed ${esc(new Date().toLocaleString("en-PK", { timeZone: "Asia/Karachi" }))}</div>
+<div class=c><h1>${esc(c.name)}</h1><div class=m>${esc([c.business_name, c.city].filter(Boolean).join(" · "))}</div>
+<div class="hero ${due > 0 ? "owe" : "ok"}" style="margin-top:12px">
+${due > 0 ? `<div class=lbl>You have to pay · <span class=ur>آپ کے ذمے</span></div><div class="amt red">${rs(due)}</div>`
+        : `<div class=lbl>${due < 0 ? "Advance with the pump · <span class=ur>پمپ پر ایڈوانس</span>" : "All paid · <span class=ur>حساب صاف</span>"} ✅</div><div class="amt g">${rs(Math.abs(due))}</div>`}
+${c.credit_limit > 0 ? `<div class=m style="margin-top:6px">Credit limit · <span class=ur>حد</span> ${rs(c.credit_limit)} — left · <span class=ur>باقی حد</span> <b>${rs(Math.max(0, c.credit_limit - due))}</b></div>
+<div class=bar><i style="width:${used}%;background:${used >= 90 ? "#dc2626" : used >= 75 ? "#d97706" : "#059669"}"></i></div>` : ""}</div>
+<div class=tiles><div class=tile><div class=i>⛽</div><b>${Math.round(litres).toLocaleString("en-IN")} L</b><div class=m>Fuel taken · <span class=ur>تیل لیا</span></div></div>
+<div class=tile><div class=i>🧾</div><b>${rs(billed)}</b><div class=m>Bill · <span class=ur>بل</span></div></div>
+<div class=tile><div class=i>💵</div><b class=g>${rs(paid)}</b><div class=m>Paid · <span class=ur>ادا کیا</span></div></div></div>
+<div class=m style="text-align:center;margin-top:6px">${esc(periodLabel)}</div></div>
+<div class=c><b>Your rate today · <span class=ur>آج آپ کا ریٹ</span></b><div class=rates style="margin-top:10px">${Object.entries(card).map(([p, r]) => `<div class=rate style="background:${COLORS[p] ?? "#475569"}">${esc(PRODUCTS[p] ?? p)} · <span class=ur>${FUEL_UR[p] ?? ""}</span><b>Rs ${r.rate != null ? r.rate.toFixed(2) : "—"}</b><span style="font-size:12px">per litre · <span class=ur>فی لیٹر</span></span></div>`).join("") || "<p class=m>No rate set</p>"}</div></div>
+${orderCard(c, code, flash)}
+<div class=c><div class=np style="margin-bottom:8px"><div class=chips>${chips}</div></div>
+<b>Entries · <span class=ur>تفصیل</span> — ${esc(periodLabel)}</b>
+<div class=m>⛽ fuel taken (+) · 💵 payment (−) · <span class=ur>باقی</span> = balance after each entry</div>
+<div class=sum style="border-top:0;border-bottom:1px solid #e2e8f0;font-weight:600"><span>Opening · <span class=ur>شروع کا باقی</span></span><span>${n2(s.opening_balance)}</span></div>
+<div class=ent>${rows || `<p class=m style="text-align:center;padding:16px">No entries in this period · <span class=ur>اس دوران کوئی اندراج نہیں</span></p>`}</div>
+<div class=sum><span>Closing · <span class=ur>آخری باقی</span></span><span>${n2(s.closing_balance)}</span></div></div>`;
+}
+/** Khata customer's page: same look as the wholesale page — balance, pay, rate, every fill and payment. */
+function khataBody(c, month, code, flash = null) {
+    const t = c.tenant_id;
+    const from = month ? `${month}-01` : pkDate(Date.now() - 60 * DAYMS);
+    const to = month ? new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).toISOString().slice(0, 10) : undefined;
+    const s = khataStatement(t, c.id, from, to);
+    const due = c.balance;
+    const fills = s.lines.filter((l) => l.type === "debit");
+    const litres = fills.reduce((a, l) => a + (l.litres ?? 0), 0);
+    const billed = fills.reduce((a, l) => a + l.amount, 0);
+    const paid = s.lines.filter((l) => l.type === "credit").reduce((a, l) => a + l.amount, 0);
+    const used = c.credit_limit > 0 ? Math.min(100, Math.max(0, (due / c.credit_limit) * 100)) : 0;
+    const periodLabel = month ? monthName(month) : "Last 60 days";
+    const COLORS = { PMG: "#2a78d6", HOBC: "#eb6834", HSD: "#1baf7a" };
+    const prices = currentPrices(t);
+    // fuel per vehicle in this period (schools, police and fleets have several)
+    const byVehicle = Object.values(fills.reduce((a, l) => {
+        const k = l.vehicle_no || "—";
+        a[k] ??= { v: k, litres: 0, amount: 0, n: 0 };
+        a[k].litres += l.litres ?? 0;
+        a[k].amount += l.amount;
+        a[k].n++;
+        return a;
+    }, {}));
+    const rows = [...s.lines].reverse().map((l) => {
+        const d = `<div class=m>${esc(new Date(l.created_at).toLocaleString("en-PK", { timeZone: "Asia/Karachi", day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }))}</div>`;
+        const bal = `<div class=m>Baqi · <span class=ur>باقی</span> ${n2(l.balance)}</div>`;
+        if (l.type === "credit")
+            return `<div class="e pay"><div class=ic>💵</div><div class=l>${d}<div class="et g">Payment received · <span class=ur>رقم وصول</span></div><div class=m>${esc([l.ref, l.note !== "Payment received" ? l.note : null].filter(Boolean).join(" · "))}</div></div>
+      <div class=r><b class=g>−${n2(l.amount)}</b>${bal}</div></div>`;
+        if (l.product)
+            return `<div class="e sup"><div class=ic>⛽</div><div class=l>${d}<div class=et>${esc(PRODUCTS[l.product] ?? l.product)} · <span class=ur>${FUEL_UR[l.product] ?? ""}</span></div>
+      <div>${n2(l.litres ?? 0)} L × Rs ${n2(l.rate ?? 0)}</div><div class=m>${esc([l.vehicle_no && `🚗 ${l.vehicle_no}`, l.slip_no && `🧾 slip ${l.slip_no}`, l.station_name && `📍 ${String(l.station_name)}`].filter(Boolean).join("  "))}</div>${photoThumbs(code, l.proof_ids, "Slip", "پرچی")}</div>
+      <div class=r><b>+${n2(l.amount)}</b>${bal}</div></div>`;
+        return `<div class="e adj"><div class=ic>✏️</div><div class=l>${d}<div class=et>Charge · <span class=ur>چارج</span></div><div class=m>${esc(l.note ?? l.ref ?? "")}</div></div>
+      <div class=r><b>+${n2(l.amount)}</b>${bal}</div></div>`;
+    }).join("");
+    const chips = [`<a href="${esc(code)}" class="${month ? "" : "on"}">60 days · <span class=ur>۶۰ دن</span></a>`, ...monthsBack(6).map((m) => `<a href="${esc(code)}?m=${m}" class="${month === m ? "on" : ""}">${esc(monthName(m))}</a>`)].join("");
+    return `<div class=po>${brandHead(t, "Statement")}<b>Khata statement · <span class=ur>کھاتہ</span></b><br>${esc(c.name)} · ${esc(periodLabel)} · printed ${esc(new Date().toLocaleString("en-PK", { timeZone: "Asia/Karachi" }))}</div>
+<div class=c><h1>${esc(c.name)}</h1><div class=m>${esc([c.city, c.phone].filter(Boolean).join(" · "))}</div>
+<div class="hero ${due > 0 ? "owe" : "ok"}" style="margin-top:12px">
+${due > 0 ? `<div class=lbl>You have to pay · <span class=ur>آپ کے ذمے</span></div><div class="amt red">${rs(due)}</div>`
+        : `<div class=lbl>${due < 0 ? "Advance with the pump · <span class=ur>پمپ پر ایڈوانس</span>" : "All paid · <span class=ur>حساب صاف</span>"} ✅</div><div class="amt g">${rs(Math.abs(due))}</div>`}
+${c.credit_limit > 0 ? `<div class=m style="margin-top:6px">Credit limit · <span class=ur>حد</span> ${rs(c.credit_limit)} — left · <span class=ur>باقی حد</span> <b>${rs(Math.max(0, c.credit_limit - due))}</b></div>
+<div class=bar><i style="width:${used}%;background:${used >= 90 ? "#dc2626" : used >= 75 ? "#d97706" : "#059669"}"></i></div>` : ""}
+${c.khata_blocked ? `<div class=err>⛔ Khata is on hold — payment is overdue. Please pay to fill again · <span class=ur>ادائیگی کے بعد کھاتہ دوبارہ چلے گا</span></div>` : ""}
+${due > 0 && paymentLink(c, due) ? `<a class="b np" href="${esc(paymentLink(c, due))}">💳 Pay now · <span class=ur>ابھی ادائیگی کریں</span> <span style="font-weight:400;font-size:14px">(JazzCash / Easypaisa / Raast)</span></a>` : ""}</div>
+<div class=tiles><div class=tile><div class=i>⛽</div><b>${Math.round(litres).toLocaleString("en-IN")} L</b><div class=m>Fuel taken · <span class=ur>تیل لیا</span></div></div>
+<div class=tile><div class=i>🧾</div><b>${rs(billed)}</b><div class=m>Bill · <span class=ur>بل</span></div></div>
+<div class=tile><div class=i>💵</div><b class=g>${rs(paid)}</b><div class=m>Paid · <span class=ur>ادا کیا</span></div></div></div>
+<div class=m style="text-align:center;margin-top:6px">${esc(periodLabel)}</div></div>
+<div class=c><b>Today's rate · <span class=ur>آج کا ریٹ</span></b><div class=rates style="margin-top:10px">${Object.entries(prices).map(([p, r]) => `<div class=rate style="background:${COLORS[p] ?? "#475569"}">${esc(PRODUCTS[p] ?? p)} · <span class=ur>${FUEL_UR[p] ?? ""}</span><b>Rs ${r.price.toFixed(2)}</b><span style="font-size:12px">per litre · <span class=ur>فی لیٹر</span></span></div>`).join("")}</div></div>
+${byVehicle.length > 1 ? `<div class=c><b>By vehicle · <span class=ur>گاڑی وار</span> — ${esc(periodLabel)}</b>${byVehicle.sort((a, b) => b.amount - a.amount).map((v) => `<div class=sum style="border-top:0;border-bottom:1px solid #e2e8f0;font-weight:400"><span>🚗 <b>${esc(v.v)}</b> <span class=m>${v.n} fills</span></span><span>${n2(v.litres)} L · <b>${rs(v.amount)}</b></span></div>`).join("")}</div>` : ""}
+<div class=c><div class=np style="margin-bottom:8px"><div class=chips>${chips}</div></div>
+<b>Entries · <span class=ur>تفصیل</span> — ${esc(periodLabel)}</b>
+<div class=m>⛽ fuel taken (+) · 💵 payment (−) · <span class=ur>باقی</span> = balance after each entry</div>
+<div class=sum style="border-top:0;border-bottom:1px solid #e2e8f0;font-weight:600"><span>Opening · <span class=ur>شروع کا باقی</span></span><span>${n2(s.opening_balance)}</span></div>
+<div class=ent>${rows || `<p class=m style="text-align:center;padding:16px">No entries in this period · <span class=ur>اس دوران کوئی اندراج نہیں</span></p>`}</div>
+<div class=sum><span>Closing · <span class=ur>آخری باقی</span></span><span>${n2(s.closing_balance)}</span></div></div>
+<div class=c><b>Message / call-back · <span class=ur>پیغام یا رابطہ</span></b>
+${flash === "sent" ? `<div class="hero ok" style="margin-top:10px"><div class=lbl>✅ Mil gaya — pump aap se raabta karega · <span class=ur>پیغام موصول ہوگیا</span></div></div>`
+        : `<div class=m style="margin:6px 0">Koi sawal ya ghalti? Pump ko batayein (payment pooch-gach, ghalat entry, raabta).</div>
+<form method=post action="${esc(code)}/message"><textarea name=msg maxlength=300 required rows=3 style="width:100%;box-sizing:border-box;border:1px solid #cbd5e1;border-radius:10px;padding:10px;font:inherit" placeholder="Apna paigham likhein..."></textarea>
+<button class="b np" style="margin-top:8px" type=submit>📩 Bhejein · <span class=ur>بھیجیں</span></button></form>`}</div>`;
+}
+function investorBody(c, q, code) {
+    const t = c.tenant_id;
+    const ymd = /^\d{4}-\d{2}-\d{2}$/;
+    const month = q.m && /^\d{4}-\d{2}$/.test(q.m) ? q.m : null;
+    const from = month ? `${month}-01` : ymd.test(q.from ?? "") ? q.from : undefined;
+    const to = month ? new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).toISOString().slice(0, 10) : ymd.test(q.to ?? "") ? q.to : undefined;
+    const s = investorStatement(t, c.id, from, to);
+    const f = s.investor;
+    const theirPct = 100 - (c.our_pct ?? 60);
+    const net = round2(f.profit_share - f.loss_share);
+    const pendingOut = s.requests.filter((r) => r.kind === "withdraw" && r.status === "pending").reduce((a, r) => a + r.amount, 0);
+    const canTake = Math.max(0, round2(f.free - pendingOut));
+    const periodLabel = month ? monthName(month) : from || to ? `${from ?? "shuru"} → ${to ?? "aaj"}` : "All time · سارا حساب";
+    const qs = (o) => { const x = new URLSearchParams(); for (const [k, v] of Object.entries({ m: month ?? undefined, from: month ? undefined : from, to: month ? undefined : to, f: q.f, d: q.d, ...o }))
+        if (v)
+            x.set(k, v); const z = x.toString(); return `${esc(code)}${z ? `?${esc(z)}` : ""}`; };
+    // ---- monthly bars ----
+    const maxM = Math.max(1, ...s.monthly.map((m) => Math.abs(m.profit)));
+    const bars = `<div style="display:flex;align-items:flex-end;gap:6px;height:120px;margin-top:10px">${s.monthly.map((m) => {
+        const h = Math.max(3, Math.round((Math.abs(m.profit) / maxM) * 100));
+        return `<div style="flex:1;text-align:center;min-width:0"><div class=m style="font-size:10px;white-space:nowrap">${m.profit ? n2(Math.round(m.profit / 1000)) + "k" : ""}</div>
+      <div style="height:${h}px;border-radius:6px 6px 0 0;background:${m.profit < 0 ? "#dc2626" : m.profit ? "#059669" : "#e2e8f0"}"></div><div class=m style="font-size:11px">${esc(monthName(m.month).split(" ")[0])}</div></div>`;
+    }).join("")}</div>`;
+    // ---- deals ----
+    const dealFilter = q.d === "open" ? "open" : q.d === "closed" ? "closed" : null;
+    const dealList = s.deals.filter((d) => !dealFilter || d.status === dealFilter);
+    const days = (a, b) => Math.max(0, Math.round(((b ? Date.parse(b) : Date.now()) - Date.parse(a + "T00:00:00+05:00")) / DAYMS));
+    const dealRows = dealList.map((d) => {
+        const head = `<summary style="cursor:pointer;list-style:none"><div class=row style="border:0;padding:4px 0"><div class=l><div class=et>#${d.id} · ${n2(d.litres)} L ${esc(PRODUCTS[d.product] ?? d.product)}</div>
+      <div class=m>${esc(dateStr(d.deal_date + "T00:00:00+05:00"))} · ${d.status === "open" ? `${days(d.deal_date)} din se chal rahi` : `${days(d.deal_date, d.closed_at)} din me band`} · ▸ tafseel</div></div>
+      <div class=rr>${d.status === "open" ? `<b style="color:#b45309">Chal rahi · <span class=ur>جاری</span></b><div class=m>laga ${rs(d.cost_amount)}</div>` : `<b class="${d.investor_share >= 0 ? "g" : "red"}">${d.investor_share >= 0 ? "+" : "−"}${n2(Math.abs(d.investor_share))}</b><div class=m>aap ka hissa</div>`}</div></div></summary>`;
+        const line = (a, b, cls = "") => `<div class=sum style="border-top:0;border-bottom:1px dashed #e2e8f0;font-weight:400;padding:6px 0"><span>${a}</span><span class="${cls}">${b}</span></div>`;
+        const body = d.status === "open"
+            ? line("Khareed · خرید", `${n2(d.litres)} L × Rs ${n2(d.cost_rate)} = <b>${rs(d.cost_amount)}</b>`) + (d.supplier ? line("Supplier", esc(d.supplier)) : "") + (d.ref ? line("Bilty / ref", esc(d.ref)) : "")
+                + `<p class=m>Fuel bikne ke baad deal band hogi aur munafa ${theirPct}% aap ke khate me aayega.</p>`
+            : line("Khareed · خرید", `${n2(d.litres)} L × Rs ${n2(d.cost_rate)} = ${rs(d.cost_amount)}`)
+                + line("Becha · فروخت", `${n2(d.sold_litres)} L × Rs ${n2(d.sale_rate)} = ${rs(d.sale_amount)}`)
+                + (d.litres - d.sold_litres > 0.001 ? line("Kami (shortage)", `${n2(d.litres - d.sold_litres)} L`, "red") : "")
+                + line("Kiraya / carriage", rs(d.exp_carriage ?? 0)) + line("Staff / bijli", rs(d.exp_overhead ?? 0)) + line("Doosre kharche", rs(d.exp_other ?? 0))
+                + line(`<b>${d.profit >= 0 ? "Kul munafa · منافع" : "Kul nuqsan · نقصان"}</b>`, `<b class="${d.profit >= 0 ? "g" : "red"}">${rs(d.profit)}</b>`)
+                + line(`Pump ${d.our_pct}%`, rs(d.our_share)) + line(`<b>Aap ${100 - d.our_pct}%</b>`, `<b class="${d.investor_share >= 0 ? "g" : "red"}">${rs(d.investor_share)}</b>`)
+                + (d.supplier ? line("Supplier", esc(d.supplier)) : "") + (d.ref ? line("Bilty / ref", esc(d.ref)) : "")
+                + line("Munafa per litre", `Rs ${n2(round2((d.sale_rate ?? 0) - d.cost_rate))}`);
+        return `<details style="border-bottom:1px solid #e2e8f0;padding:4px 0">${head}<div style="padding:4px 0 10px">${body}</div></details>`;
+    }).join("");
+    const dChips = [["", "Sab"], ["open", "Chal rahi"], ["closed", "Band"]].map(([k, l]) => `<a href="${qs({ d: k || undefined })}#deals" class="${(q.d ?? "") === k ? "on" : ""}">${l}</a>`).join("");
+    // ---- ledger ----
+    const TY = {
+        capital_in: ["💵", "Raqam di · Investment", "رقم دی", "pay"], profit: ["📈", "Munafa (aap ka hissa)", "منافع", "pay"],
+        payout: ["🏦", "Pump ne diya", "ادائیگی", "sup"], loss: ["📉", "Nuqsan (aap ka hissa)", "نقصان", "adj"],
+    };
+    const live = s.lines.filter((l) => !l.voided && (q.f === "cr" ? l.credit : q.f === "dr" ? l.debit : true));
+    const rows = [...live].reverse().map((l) => {
+        const [ic, en, ur, cls] = TY[l.type] ?? ["✏️", l.type, "", "adj"];
+        const what = l.type === "payout" ? (l.purpose === "capital" ? "Asal raqam wapas" : "Munafa diya") : l.deal_id && l.product ? `Deal #${l.deal_id} · ${n2(l.sold_litres ?? l.litres ?? 0)} L ${PRODUCTS[l.product] ?? l.product}${l.deal_pct != null ? ` · ${100 - l.deal_pct}% hissa` : ""}` : "";
+        const extra = l.type === "profit" || l.type === "loss" ? null : l.note; // a share's note only repeats the deal number
+        return `<div class="e ${cls}"><div class=ic>${ic}</div><div class=l><div class=m>${esc(dateStr(l.created_at))}</div><div class=et>${esc(en)} · <span class=ur>${ur}</span></div>
+      <div class=m>${esc([what, l.method && l.type !== "profit" && l.type !== "loss" ? l.method : null, l.ref && l.type !== "profit" && l.type !== "loss" ? `#${l.ref}` : null, extra].filter(Boolean).join(" · "))}</div></div>
+      <div class=r>${l.credit ? `<b class=g>+${n2(l.credit)}</b><div class=m>Credit</div>` : `<b class=red>−${n2(l.debit)}</b><div class=m>Debit</div>`}<div class=m>Baqi · <span class=ur>باقی</span> ${n2(l.balance)}</div></div></div>`;
+    }).join("");
+    const chips = [`<a href="${esc(code)}#entries" class="${month || from || to ? "" : "on"}">All · <span class=ur>سب</span></a>`, ...monthsBack(6).map((m) => `<a href="${qs({ m, from: undefined, to: undefined })}#entries" class="${month === m ? "on" : ""}">${esc(monthName(m))}</a>`)].join("");
+    const fChips = [["", "Sab"], ["cr", "Credit (+)"], ["dr", "Debit (−)"]].map(([k, l]) => `<a href="${qs({ f: k || undefined })}#entries" class="${(q.f ?? "") === k ? "on" : ""}">${l}</a>`).join("");
+    // ---- requests ----
+    const RS = { pending: "background:#fef9c3;color:#854d0e", done: "background:#dcfce7;color:#166534", rejected: "background:#fee2e2;color:#991b1b", cancelled: "background:#f1f5f9;color:#475569" };
+    const RL = { pending: "Intezar · انتظار", done: "Ho gaya · مکمل", rejected: "Nahi hua · نہیں", cancelled: "Wapas li · منسوخ" };
+    const reqRows = s.requests.slice(0, 10).map((r) => `<div class=row><div class=l><div class=et>${r.kind === "withdraw" ? `💰 ${rs(r.amount)} · ${r.purpose === "capital" ? "asal raqam" : "munafa"}` : "✉️ Paigham"}</div>
+    <div class=m>${esc(dateStr(r.created_at))}${r.method_pref ? ` · ${esc(r.method_pref)}` : ""}${r.note ? ` · ${esc(r.note)}` : ""}</div>${r.reply ? `<div class=m>💬 Pump: ${esc(r.reply)}</div>` : ""}
+    ${r.status === "pending" ? `<form method=post action="${esc(code)}/request/${r.id}/cancel" style="margin-top:4px"><button style="background:none;border:0;color:#b91c1c;padding:0;font:600 13px system-ui;cursor:pointer">✕ Request wapas lein</button></form>` : ""}</div>
+    <div class=rr><span style="display:inline-block;padding:3px 9px;border-radius:99px;font-size:12px;font-weight:600;${RS[r.status] ?? ""}">${RL[r.status] ?? r.status}</span></div></div>`).join("");
+    const flash = q.flash === "req" ? `<div style="background:#dcfce7;color:#166534;padding:10px;border-radius:10px;margin:8px 0">✅ Request bhej di — pump jald jawab dega · <span class=ur>درخواست بھیج دی گئی</span></div>`
+        : q.flash === "msg" ? `<div style="background:#dcfce7;color:#166534;padding:10px;border-radius:10px;margin:8px 0">✅ Paigham mil gaya · <span class=ur>پیغام موصول</span></div>`
+            : q.flash === "cancel" ? `<div style="background:#f1f5f9;padding:10px;border-radius:10px;margin:8px 0">Request wapas le li.</div>` : "";
+    const err = q.err ? `<div class=err>${esc(q.err)}</div>` : "";
+    const cnic = c.cnic ? String(c.cnic).replace(/^(\d{5})-?\d{7}-?(\d)$/, "$1-•••••••-$2") : null;
+    const nav = [["#summary", "📊", "Khulasa"], ["#deals", "⛽", "Deals"], ["#entries", "📒", "Khata"], ["#request", "💰", "Paisa nikalein"], ["#profile", "👤", "Profile"]]
+        .map(([h, i, l]) => `<a href="${h}">${i} ${l}</a>`).join("");
+    return `<div class=po>${brandHead(t, "Investor statement")}<b>Investment statement · <span class=ur>انویسٹمنٹ کھاتہ</span></b><br>${esc(c.name)} · ${esc(periodLabel)} · printed ${esc(new Date().toLocaleString("en-PK", { timeZone: "Asia/Karachi" }))}</div>
+<div class="c np" style="padding:8px"><div class=chips>${nav}</div></div>
+${flash}${err}
+<div class=c id=summary><h1>${esc(c.name)}</h1><div class=m>${esc([c.city, c.phone].filter(Boolean).join(" · "))}</div>
+<div class="hero ok" style="margin-top:12px"><div class=lbl>Pump ke zimme aap ka · <span class=ur>پمپ کے ذمے آپ کا</span></div><div class="amt g">${rs(f.balance)}</div>
+<div class=m style="margin-top:6px">Deal me laga · <span class=ur>کاروبار میں</span> <b>${rs(f.in_deals)}</b> · Free · <span class=ur>فارغ</span> <b>${rs(f.free)}</b></div></div>
+<div class=tiles><div class=tile><div class=i>💵</div><b>${rs(f.capital_in)}</b><div class=m>Raqam di · <span class=ur>سرمایہ</span></div></div>
+<div class=tile><div class=i>📈</div><b class="${net < 0 ? "red" : "g"}">${rs(net)}</b><div class=m>Kul munafa · <span class=ur>منافع</span></div></div>
+<div class=tile><div class=i>🏦</div><b>${rs(f.paid_out)}</b><div class=m>Mil chuka · <span class=ur>وصول</span></div></div></div>
+<div class=tiles><div class=tile><div class=i>📊</div><b class="${f.roi_pct < 0 ? "red" : "g"}">${n2(f.roi_pct)}%</b><div class=m>Return (ROI)</div></div>
+<div class=tile><div class=i>⛽</div><b>${n2(f.deals)}</b><div class=m>Deals · ${n2(f.open_deals)} chal rahi</div></div>
+<div class=tile><div class=i>🛢️</div><b>${Math.round(f.litres).toLocaleString("en-IN")} L</b><div class=m>Fuel becha</div></div></div>
+<div class=m style="text-align:center;margin-top:6px">Munafa ka hissa: pump ${c.our_pct}% · aap ${theirPct}%</div>
+<div style="margin-top:14px"><b>Mahana munafa · <span class=ur>ماہانہ منافع</span></b><span class=m> — aakhri 6 mahine (aap ka hissa)</span>${bars}</div></div>
+
+<div class=c id=deals><b>Deals · <span class=ur>سودے</span></b> <span class=m>— har deal par tap karein, poora hisaab khulega</span>
+<div class=np style="margin:8px 0"><div class=chips>${dChips}</div></div>
+${dealRows || `<p class=m style="text-align:center;padding:12px">Koi deal nahi</p>`}</div>
+
+<div class=c id=entries><div class=np style="margin-bottom:8px"><div class=chips>${chips}</div>
+<form method=get action="${esc(code)}#entries" style="display:flex;gap:6px;flex-wrap:wrap;align-items:end;margin-top:8px">
+<label class=m>Se<input class=f type=date name=from value="${esc(month ? "" : from ?? "")}" style="padding:7px"></label>
+<label class=m>Tak<input class=f type=date name=to value="${esc(month ? "" : to ?? "")}" style="padding:7px"></label>
+${q.f ? `<input type=hidden name=f value="${esc(q.f)}">` : ""}<button class=b style="width:auto;padding:9px 14px;margin:0;font-size:15px">Dikhayein</button></form>
+<div class=chips style="margin-top:8px">${fChips}<a href="${esc(code)}/csv${from || to || month ? `?${esc(new URLSearchParams(Object.entries({ from, to }).filter(([, v]) => v)).toString())}` : ""}">⬇️ CSV / Excel</a><a href="#" onclick="print();return false">🖨️ Print / PDF</a></div></div>
+<b>Entries · <span class=ur>تفصیل</span> — ${esc(periodLabel)}</b>
+<div class=m>Credit (+) = aap ka pump par barha · Debit (−) = aap ko mila / nuqsan · <span class=ur>باقی</span> = har entry ke baad</div>
+<div class=sum style="border-top:0;border-bottom:1px solid #e2e8f0;font-weight:600"><span>Opening · <span class=ur>شروع کا باقی</span></span><span>${n2(s.opening)}</span></div>
+<div class=ent>${rows || `<p class=m style="text-align:center;padding:16px">No entries · <span class=ur>کوئی اندراج نہیں</span></p>`}</div>
+<div class=sum><span>Credit ${n2(s.totals.credit)} · Debit ${n2(s.totals.debit)}</span><span>Closing ${n2(s.closing)}</span></div></div>
+
+<div class="c np" id=request><b>💰 Paisa nikalein · <span class=ur>رقم نکلوائیں</span></b>
+<div class=m style="margin:4px 0 8px">Abhi nikal sakte hain: <b>${rs(canTake)}</b>${pendingOut ? ` (${rs(pendingOut)} ki request pehle se pending)` : ""}${f.in_deals ? ` · ${rs(f.in_deals)} deal me laga hai` : ""}</div>
+${canTake > 0 ? `<form method=post action="${esc(code)}/request"><input type=hidden name=kind value=withdraw>
+<div class=grid style="margin-top:0"><label>Raqam (Rs)<input class=f name=amount type=number min=1 max="${Math.floor(canTake)}" step=1 required placeholder="${Math.floor(canTake)}"></label>
+<label>Kya nikalna hai<select class=f name=purpose><option value=profit>Munafa</option><option value=capital>Asal raqam (capital)</option></select></label>
+<label>Kaise chahiye<select class=f name=method_pref><option>Cash</option><option>Bank transfer${c.bank_name ? ` — ${esc(c.bank_name)}` : ""}</option><option>JazzCash / Easypaisa</option></select></label></div>
+<label style="display:block;margin-top:8px">Note<input class=f name=note maxlength=200 placeholder="e.g. 5 tareekh tak chahiye"></label>
+<button class=b>Request bhejein · <span class=ur>درخواست بھیجیں</span></button></form>` : `<p class=m>Abhi nikalne ke liye free raqam nahi.</p>`}
+${reqRows ? `<div style="margin-top:14px"><b>Meri requests · <span class=ur>میری درخواستیں</span></b>${reqRows}</div>` : ""}
+<div style="margin-top:14px"><b>✉️ Pump ko paigham · <span class=ur>پیغام</span></b>
+<form method=post action="${esc(code)}/request"><input type=hidden name=kind value=message><textarea name=note maxlength=300 required rows=3 class=f placeholder="Sawal, hisaab me ghalti, nayi raqam lagani hai…"></textarea>
+<button class=b style="margin-top:8px">📩 Bhejein · <span class=ur>بھیجیں</span></button></form></div></div>
+
+<div class=c id=profile><b>👤 Profile · <span class=ur>پروفائل</span></b>
+${[["Naam", c.name], ["Phone", c.phone], ["CNIC", cnic], ["Shehar", c.city], ["Address", c.address], ["Bank", [c.bank_name, c.bank_account].filter(Boolean).join(" · ")], ["Munafa ka hissa", `Pump ${c.our_pct}% · Aap ${theirPct}%`], ["Investor since", dateStr(c.created_at)]]
+        .filter(([, v]) => v).map(([k, v]) => `<div class=row><span class=m>${k}</span><span class=rr>${esc(v)}</span></div>`).join("")}
+<p class=m style="margin-top:8px">Kuch ghalat hai? Upar "Pump ko paigham" se batayein.</p></div>`;
+}
+/** Photos kept with an entry (khata slip / parchi, delivery challan, cheque or receipt), shown under it; they open full size from this page only. */
+function photoThumbs(code, ids, en, ur) {
+    const list = String(ids ?? "").split(",").map(Number).filter((n) => n > 0);
+    if (!list.length)
+        return "";
+    return `<div class="slips np">${list.map((id) => `<a href="${esc(code)}/slip/${id}" target="_blank" rel="noopener"><img src="${esc(code)}/slip/${id}" alt="${esc(en)} photo" loading="lazy">${esc(en)} · <span class=ur>${ur}</span></a>`).join("")}</div>`;
+}
+function khataPage(kind, c, code, month, flash = null, iq) {
+    const bill = kind === "i" ? "" : billLink(c.tenant_id, kind, c.id, month ?? pkDate().slice(0, 7));
+    return page(`${c.name} — khata`, (kind === "w" ? wholesaleBody(c, month, code, flash) : kind === "i" ? investorBody(c, iq ?? { m: month ?? undefined }, code) : khataBody(c, month, code, flash)) +
+        `<div class=m style="text-align:center;margin:8px 0 20px">Updated · <span class=ur>تازہ ترین</span> ${esc(new Date().toLocaleString("en-PK", { timeZone: "Asia/Karachi" }))}</div>`, c.tenant_id, topBar(c, code, bill));
+}
+const cookieName = (kind, id) => `pp_${kind}${id}`;
+const monthQ = (req) => (/^\d{4}-\d{2}$/.test(String(req.query.m ?? "")) ? String(req.query.m) : null);
+function remembered(req, kind, c, v) {
+    const raw = String(req.headers.cookie ?? "").split(/;\s*/).find((x) => x.startsWith(cookieName(kind, c.id) + "="));
+    if (!raw)
+        return false;
+    try {
+        const p = jwt.verify(decodeURIComponent(raw.split("=")[1]), config.jwtSecret);
+        return p.k === kind && p.id === c.id && p.v === v;
+    }
+    catch {
+        return false;
+    }
+}
+const gone = (res) => res.status(404).type("html").send(page("Not found", "<div class=c>This link is not valid any more. Ask the pump for a new one.</div>"));
+const seen = (kind, id) => run(`UPDATE ${TABLE[kind]} SET portal_seen_at=? WHERE id=?`, now(), id);
+for (const kind of ["w", "k", "i"]) {
+    pinPortalPublic.get(`/${kind}/:code`, (req, res) => {
+        const r = fromCode(kind, req.params.code);
+        if (!r)
+            return gone(res);
+        res.setHeader("cache-control", "no-store");
+        if (remembered(req, kind, r.c, r.v)) {
+            seen(kind, r.c.id);
+            return res.type("html").send(khataPage(kind, r.c, req.params.code, monthQ(req), String(req.query.sent ?? "") === "1" ? "sent" : String(req.query.ordered ?? "") === "1" ? "ok" : String(req.query.ordererr ?? "") === "1" ? "err" : null, kind === "i" ? Object.fromEntries(["m", "from", "to", "f", "d", "flash", "err"].map((k) => [k, typeof req.query[k] === "string" ? String(req.query[k]).slice(0, 200) : undefined])) : undefined));
+        }
+        res.type("html").send(pinForm(r.c));
+    });
+    pinPortalPublic.post(`/${kind}/:code`, express.urlencoded({ extended: false, limit: "2kb" }), (req, res) => {
+        const r = fromCode(kind, req.params.code);
+        if (!r)
+            return gone(res);
+        const c = r.c;
+        res.setHeader("cache-control", "no-store");
+        if (c.portal_locked_until && Date.parse(c.portal_locked_until) > Date.now())
+            return res.status(429).type("html").send(pinForm(c, `Too many wrong PINs. Try again after ${Math.ceil((Date.parse(c.portal_locked_until) - Date.now()) / 60_000)} minutes.`));
+        const pin = String(req.body?.pin ?? "").trim();
+        if (!/^\d{6}$/.test(pin) || !crypto.timingSafeEqual(Buffer.from(pin.padEnd(6)), Buffer.from(pinOf(kind, c.id, r.v)))) {
+            const fails = (c.portal_fails ?? 0) + 1;
+            const lock = fails >= MAX_FAILS ? new Date(Date.now() + LOCK_MIN * 60_000).toISOString() : null;
+            run(`UPDATE ${TABLE[kind]} SET portal_fails=?, portal_locked_until=? WHERE id=?`, lock ? 0 : fails, lock, c.id);
+            return res.status(401).type("html").send(pinForm(c, lock ? `Wrong PIN. The page is locked for ${LOCK_MIN} minutes.` : `Wrong PIN · غلط پن (${MAX_FAILS - fails} tries left)`));
+        }
+        run(`UPDATE ${TABLE[kind]} SET portal_fails=0, portal_locked_until=NULL, portal_seen_at=? WHERE id=?`, now(), c.id);
+        // remembered phones keep the cookie 30 days; otherwise it lasts until the browser closes (so the month buttons work)
+        const keep = Boolean(req.body?.remember);
+        const tok = jwt.sign({ k: kind, id: c.id, v: r.v }, config.jwtSecret, { expiresIn: keep ? "30d" : "12h" });
+        res.setHeader("set-cookie", `${cookieName(kind, c.id)}=${encodeURIComponent(tok)}; Path=/${kind}/; ${keep ? `Max-Age=${30 * 86400}; ` : ""}HttpOnly; SameSite=Lax${config.publicUrl.startsWith("https") ? "; Secure" : ""}`);
+        res.type("html").send(khataPage(kind, c, req.params.code, null));
+    });
+    pinPortalPublic.get(`/${kind}/:code/slip/:photo`, (req, res) => {
+        const r = fromCode(kind, req.params.code);
+        // only after the PIN, and only a photo of one of this customer's / client's own entries
+        if (!r || kind === "i" || !remembered(req, kind, r.c, r.v))
+            return res.status(404).end();
+        const p = kind === "k"
+            ? get(`SELECT p.mime, p.data FROM photos p JOIN khata_ledger k ON p.ref = 'khata:' || k.id
+          WHERE p.id=? AND p.tenant_id=? AND k.customer_id=? AND k.type='debit'`, Number(req.params.photo), r.c.tenant_id, r.c.id)
+            // the client's own entry, or the tanker trip one of their (not voided) deliveries came on
+            : get(`SELECT p.mime, p.data FROM photos p JOIN wholesale_txns x ON (p.ref = 'wtx:' || x.id OR (x.trip_id IS NOT NULL AND p.ref = 'trip:' || x.trip_id))
+          WHERE p.id=? AND p.tenant_id=? AND x.client_id=? AND x.voided=0 LIMIT 1`, Number(req.params.photo), r.c.tenant_id, r.c.id);
+        if (!p)
+            return res.status(404).end();
+        res.setHeader("content-type", /^image\/(jpeg|png|webp)$/.test(p.mime) ? p.mime : "application/octet-stream");
+        res.setHeader("x-content-type-options", "nosniff");
+        res.setHeader("content-disposition", "inline");
+        res.setHeader("cache-control", "private, max-age=3600");
+        res.end(Buffer.from(p.data));
+    });
+    pinPortalPublic.post(`/${kind}/:code/logout`, (req, res) => {
+        const r = fromCode(kind, req.params.code);
+        if (r)
+            res.setHeader("set-cookie", `${cookieName(kind, r.c.id)}=; Path=/${kind}/; Max-Age=0`);
+        res.redirect(303, `/${kind}/${req.params.code}`);
+    });
+}
+// an investor asks to take money out, or sends a message; takes back a pending request; downloads the ledger as CSV
+pinPortalPublic.post("/i/:code/request", express.urlencoded({ extended: false, limit: "2kb" }), (req, res) => {
+    const r = fromCode("i", req.params.code);
+    if (!r || !remembered(req, "i", r.c, r.v))
+        return gone(res);
+    const kind = req.body?.kind === "withdraw" ? "withdraw" : "message";
+    try {
+        investorRequest(r.c, { kind, purpose: String(req.body?.purpose ?? ""), amount: Number(req.body?.amount), method_pref: String(req.body?.method_pref ?? ""), note: String(req.body?.note ?? "") });
+        seen("i", r.c.id);
+        res.redirect(303, `/i/${req.params.code}?flash=${kind === "withdraw" ? "req" : "msg"}#request`);
+    }
+    catch (e) {
+        res.redirect(303, `/i/${req.params.code}?err=${encodeURIComponent(e.message)}#request`);
+    }
+});
+pinPortalPublic.post("/i/:code/request/:id/cancel", (req, res) => {
+    const r = fromCode("i", req.params.code);
+    if (!r || !remembered(req, "i", r.c, r.v))
+        return gone(res);
+    try {
+        cancelInvestorRequest(r.c, Number(req.params.id));
+        res.redirect(303, `/i/${req.params.code}?flash=cancel#request`);
+    }
+    catch (e) {
+        res.redirect(303, `/i/${req.params.code}?err=${encodeURIComponent(e.message)}#request`);
+    }
+});
+pinPortalPublic.get("/i/:code/csv", (req, res) => {
+    const r = fromCode("i", req.params.code);
+    if (!r || !remembered(req, "i", r.c, r.v))
+        return res.status(404).end();
+    const d = /^\d{4}-\d{2}-\d{2}$/;
+    const s = investorStatement(r.c.tenant_id, r.c.id, d.test(String(req.query.from ?? "")) ? String(req.query.from) : undefined, d.test(String(req.query.to ?? "")) ? String(req.query.to) : undefined);
+    // a cell starting with = + - @ would run as a formula in Excel: text cells get a leading ' (numbers stay numbers)
+    const cell = (v) => { let x = String(v ?? ""); if (typeof v === "string" && /^[=+\-@]/.test(x))
+        x = "'" + x; return /[",\n]/.test(x) ? `"${x.replace(/"/g, '""')}"` : x; };
+    const NAME = { capital_in: "Capital diya", profit: "Munafa hissa", payout: "Pump ne diya", loss: "Nuqsan hissa" };
+    const lines = [["Date", "Type", "Deal", "Litres", "Note", "Debit", "Credit", "Balance"], ["", "Opening", "", "", "", "", "", s.opening],
+        ...s.lines.filter((l) => !l.voided).map((l) => [String(l.created_at).slice(0, 10), NAME[l.type] ?? l.type, l.deal_id ? `#${l.deal_id}` : "", l.litres ?? "", l.note ?? "", l.debit || "", l.credit || "", l.balance]),
+        ["", "Closing", "", "", "", s.totals.debit, s.totals.credit, s.closing]];
+    res.setHeader("content-type", "text/csv; charset=utf-8");
+    res.setHeader("content-disposition", `attachment; filename="investment-statement-${r.c.id}.csv"`);
+    res.setHeader("cache-control", "no-store");
+    res.send("\ufeff" + lines.map((l) => l.map(cell).join(",")).join("\r\n"));
+});
+// a khata customer sends a message / call-back request from their own link — pure communication, raises an owner alert
+pinPortalPublic.post("/k/:code/message", express.urlencoded({ extended: false, limit: "2kb" }), (req, res) => {
+    const r = fromCode("k", req.params.code);
+    if (!r || !remembered(req, "k", r.c, r.v))
+        return gone(res);
+    const back = (q) => res.redirect(303, `/k/${req.params.code}${q}`);
+    const msg = String(req.body?.msg ?? "").trim().slice(0, 300);
+    if (!msg)
+        return back("");
+    // one message per 2 minutes per customer, so a stuck tap can't flood the owner (each message is its own alert)
+    const recent = get("SELECT created_at FROM alerts WHERE tenant_id=? AND type='khata_message' AND dedupe_key LIKE ? AND created_at > ?", r.c.tenant_id, `kmsg-${r.c.id}-%`, new Date(Date.now() - 120_000).toISOString());
+    if (!recent) {
+        createAlert(r.c.tenant_id, { type: "khata_message", severity: "info",
+            title: `Khata paigham — ${r.c.name}`, body: `${msg}${r.c.phone ? `\n📞 ${r.c.phone}` : ""}`, dedupe_key: `kmsg-${r.c.id}-${Date.now()}` });
+    }
+    seen("k", r.c.id);
+    back("?sent=1");
+});
+// a wholesale client places a supply request from their own link (behind the PIN) — pure communication, no ledger entry
+pinPortalPublic.post("/w/:code/order", express.urlencoded({ extended: false, limit: "2kb" }), async (req, res) => {
+    const r = fromCode("w", req.params.code);
+    if (!r || !remembered(req, "w", r.c, r.v))
+        return gone(res);
+    const back = (q) => res.redirect(303, `/w/${req.params.code}${q}`);
+    const product = String(req.body?.product ?? "");
+    const litres = Number(req.body?.litres);
+    const want_date = String(req.body?.want_date ?? "");
+    const note = String(req.body?.note ?? "").trim().slice(0, 200) || null;
+    if (!PRODUCTS[product] || !(litres > 0) || litres > 200_000 || !/^\d{4}-\d{2}-\d{2}$/.test(want_date) || want_date < pkDate())
+        return back("?ordererr=1");
+    // don't let one link pile up pending requests
+    const pending = get("SELECT COUNT(*) n FROM wholesale_requests WHERE client_id=? AND status='pending'", r.c.id).n;
+    if (pending >= 10)
+        return back("?ordererr=1");
+    seen("w", r.c.id);
+    try {
+        await placeClientRequest(r.c.tenant_id, r.c.id, { product, litres, want_date, note });
+    }
+    catch {
+        return back("?ordererr=1");
+    }
+    back("?ordered=1");
+});
+// the client edits their own still-pending request from the same link — changes the ask only, nothing in the system
+pinPortalPublic.post("/w/:code/order/:id", express.urlencoded({ extended: false, limit: "2kb" }), async (req, res) => {
+    const r = fromCode("w", req.params.code);
+    if (!r || !remembered(req, "w", r.c, r.v))
+        return gone(res);
+    const back = (q) => res.redirect(303, `/w/${req.params.code}${q}`);
+    const product = String(req.body?.product ?? "");
+    const litres = Number(req.body?.litres);
+    const want_date = String(req.body?.want_date ?? "");
+    const note = String(req.body?.note ?? "").trim().slice(0, 200) || null;
+    if (!PRODUCTS[product] || !(litres > 0) || litres > 200_000 || !/^\d{4}-\d{2}-\d{2}$/.test(want_date) || want_date < pkDate())
+        return back("?ordererr=1");
+    seen("w", r.c.id);
+    const done = await editClientRequest(r.c.tenant_id, r.c.id, Number(req.params.id), { product, litres, want_date, note }).catch(() => null);
+    back(done ? "?ordered=1" : "?ordererr=1");
+});
+void pkDate;
