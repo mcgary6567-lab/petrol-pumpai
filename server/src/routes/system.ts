@@ -222,9 +222,13 @@ system.post("/system/restart", requirePerm("settings.manage"), h((req) => {
 }));
 
 /* ================= Push notifications ================= */
+const PUSH_HOSTS = ["googleapis.com", "push.services.mozilla.com", "notify.windows.com", "push.apple.com"];
 system.get("/push/key", h((req) => ({ key: vapidPublicKey(), subscribed: subscriptionCount(req.user!.id) })));
 system.post("/push/subscribe", h((req) => {
   const b = parse(z.object({ endpoint: z.string().url().max(1000), keys: z.object({ p256dh: z.string().max(200), auth: z.string().max(100) }) }), req.body);
+  // only the browsers' own push services: the server POSTs to this address, so it must not be an arbitrary host
+  let host = ""; try { const u = new URL(b.endpoint); host = u.protocol === "https:" ? u.hostname.toLowerCase() : ""; } catch { /* stays "" */ }
+  if (!PUSH_HOSTS.some((h2) => host === h2 || host.endsWith("." + h2))) throw new AppError(400, "Ye push address kisi browser ki push service ka nahi");
   vapidPublicKey();
   saveSubscription(tid(req), req.user!.id, b);
   return { ok: true, subscribed: subscriptionCount(req.user!.id) };

@@ -285,13 +285,17 @@ export function pinLogin(device: string | undefined, userId: number, pin: string
     throw new AppError(429, `Too many wrong PINs. Try again after ${Math.ceil((Date.parse(u.pin_locked_until) - Date.now()) / 60000)} minutes, or ask the admin to reset your PIN.`);
   if (!bcrypt.compareSync(pin, u.pin_hash)) {
     const fails = u.pin_fails + 1;
+    // each further lock within a day lasts 3× longer (10, 30, 90 min … up to a day): a 4-digit PIN cannot be walked
+    // through 5 guesses at a time by someone holding the tablet's link
+    const locksToday = fails >= PIN_TRIES ? Number(get("SELECT COUNT(*) n FROM audit_log WHERE user_id=? AND action LIKE 'login:Wrong PIN — locked%' AND created_at >= ?", u.id, new Date(Date.now() - 86_400_000).toISOString())!.n) : 0;
+    const lockMin = Math.min(24 * 60, PIN_LOCK_MIN * 3 ** Math.min(locksToday, 6));
     run("UPDATE users SET pin_fails=?, pin_locked_until=? WHERE id=?", fails >= PIN_TRIES ? 0 : fails,
-      fails >= PIN_TRIES ? new Date(Date.now() + PIN_LOCK_MIN * 60000).toISOString() : null, u.id);
-    auditLogin(u, false, fails >= PIN_TRIES ? "PIN — locked for 10 minutes" : "PIN", meta);
+      fails >= PIN_TRIES ? new Date(Date.now() + lockMin * 60000).toISOString() : null, u.id);
+    auditLogin(u, false, fails >= PIN_TRIES ? `PIN — locked for ${lockMin} minutes` : "PIN", meta);
     if (fails >= PIN_TRIES) securityNotify(u.tenant_id, `PIN lock — baar-baar ghalat PIN — ${u.name}`,
-      `${PIN_TRIES} ghalat PIN; ${PIN_LOCK_MIN} minute ke liye lock. Tablet par koi ghalat PIN daal raha hai — dekh lein.`,
+      `${PIN_TRIES} ghalat PIN; ${lockMin} minute ke liye lock. Tablet par koi ghalat PIN daal raha hai — dekh lein.`,
       ownerPhone(u.tenant_id), `pinlock-${u.id}-${pkToday()}`);
-    throw new AppError(401, fails >= PIN_TRIES ? `Wrong PIN. Locked for ${PIN_LOCK_MIN} minutes — forgot it? Ask the admin to reset it.` : `Wrong PIN (${PIN_TRIES - fails} tries left)`);
+    throw new AppError(401, fails >= PIN_TRIES ? `Wrong PIN. Locked for ${lockMin} minutes — forgot it? Ask the admin to reset it.` : `Wrong PIN (${PIN_TRIES - fails} tries left)`);
   }
   run("UPDATE users SET pin_fails=0, pin_locked_until=NULL WHERE id=?", u.id);
   auditLogin(u, true, "PIN", meta);
@@ -488,3 +492,7 @@ export const cancelPinGuard: RequestHandler = (req, res, next) => {
   run("UPDATE users SET pin_fails=0, pin_locked_until=NULL WHERE id=?", u.id);
   next();
 };
+
+/** On a SaaS server the platform owner's email unlocks the install-wide settings (integrations), so no pump may
+ *  sign up with it or rename a user to it. */
+export const isReservedEmail = (email: string) => config.saas && !!config.platformEmail && email.toLowerCase().trim() === config.platformEmail;

@@ -44,7 +44,11 @@ function redact(v: unknown, depth = 0): unknown {
   if (typeof v === "string" && v.length > 300) return `${v.slice(0, 300)}…`;
   return v;
 }
-const snapshot = (table: string, id: number) => get(`SELECT * FROM ${table} WHERE id=?`, id) ?? null;
+/** The row as it is now — never another pump's: a row that carries tenant_id must be the caller's. */
+const snapshot = (table: string, id: number, tenantId?: number) => {
+  const r = get(`SELECT * FROM ${table} WHERE id=?`, id) ?? null;
+  return r && tenantId != null && r.tenant_id != null && Number(r.tenant_id) !== Number(tenantId) ? null : r;
+};
 
 /** What kind of change this is (for filtering) and a plain-English label. */
 export function describe(method: string, path: string) {
@@ -66,7 +70,7 @@ export function auditTrail(req: Request, res: Response, next: NextFunction) {
   if (!["POST", "PUT", "PATCH", "DELETE"].includes(m) || !req.user || SKIP.some(([sm, re]) => sm === m && re.test(req.path))) return next();
   const res_ = RESOURCES.find(([re]) => re.test(req.path));
   const id = res_ ? Number(req.path.match(res_[0])![1]) : null;
-  const before = res_ && id ? snapshot(res_[1], id) : null;
+  const before = res_ && id ? snapshot(res_[1], id, req.user.tenant_id) : null;
   const startId = get("SELECT COALESCE(MAX(id),0) v FROM audit_log")!.v as number;
   const user = req.user;
   const body = redact(req.body);
@@ -75,7 +79,9 @@ export function auditTrail(req: Request, res: Response, next: NextFunction) {
     try {
       // a screen that already wrote its own, more detailed entry for this request wins
       if (get("SELECT id FROM audit_log WHERE id > ? AND user_id=? LIMIT 1", startId, user.id)) return;
-      const after = res_ && id && m !== "DELETE" ? snapshot(res_[1], id) : null;
+      // a DELETE that removed nothing (wrong id, another pump's row) is not a change — and must not copy that row here
+      if (m === "DELETE" && before && res_ && id && get(`SELECT 1 x FROM ${res_[1]} WHERE id=?`, id)) return;
+      const after = res_ && id && m !== "DELETE" ? snapshot(res_[1], id, user.tenant_id) : null;
       const changes = before && after ? Object.keys(after).filter((k) => !HIDDEN.has(k) && !["created_at", "updated_at"].includes(k) && JSON.stringify(before[k]) !== JSON.stringify(after[k]))
         .map((k) => ({ field: k, from: before[k], to: after[k] })) : [];
       if (m !== "DELETE" && before && after && !changes.length && m !== "POST") return; // nothing really changed

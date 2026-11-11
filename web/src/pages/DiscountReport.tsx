@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useApi } from "../lib/api";
 import { Loading, Pager, PageHeader, SearchBar, Stat, matchQuery, usePaged } from "../components/ui";
 import { PRODUCTS, pkr, num, dt } from "../lib/format";
@@ -6,8 +6,8 @@ import { PRODUCTS, pkr, num, dt } from "../lib/format";
 /** Who gave khata discounts and limit-overrides, and how much — a check on the two money "levers". */
 export default function DiscountReport() {
   const [days, setDays] = useState(30);
-  const to = new Date().toISOString();
-  const from = new Date(Date.now() - days * 86_400_000).toISOString();
+  // fixed per chosen period: a fresh timestamp on every render changed the URL each time and refetched without end
+  const { from, to } = useMemo(() => ({ to: new Date().toISOString(), from: new Date(Date.now() - days * 86_400_000).toISOString() }), [days]);
   const { data } = useApi<any>(`/reports/discounts?from=${from}&to=${to}`);
   const [q, setQ] = useState("");
   const paged = usePaged(data?.list ?? [], 10);

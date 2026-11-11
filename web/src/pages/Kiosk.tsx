@@ -79,11 +79,12 @@ function QrAttendance() {
   const clearFace = (id: number) => { if (confirm("Is bande ka saved chehra hata dein?")) run(() => api(`/attendance/workers/${id}/face`, { body: { photo_id: null } }), "Chehra hata diya").then(reload); };
   const print = () => {
     const w = window.open("", "_blank"); if (!w || !src) return;
+    const esc = (x: string) => x.replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`);
     w.document.write(`<html><head><title>Haazri QR</title><style>body{font-family:system-ui,sans-serif;text-align:center;padding:24px;color:#0f172a}h1{margin:0 0 4px}.ur{direction:rtl;font-size:20px;color:#334155}img{width:320px;height:320px;margin:16px auto}ol{display:inline-block;text-align:right;direction:rtl;font-size:20px;line-height:2}</style></head><body>
-      <h1>${data?.pump ?? "Haazri · حاضری"}</h1><div class="ur">حاضری لگانے کے لیے یہ QR اسکین کریں</div>
+      <h1>${esc(data?.pump ?? "Haazri · حاضری")}</h1><div class="ur">حاضری لگانے کے لیے یہ QR اسکین کریں</div>
       <img src="${src}"/>
       <ol><li>موبائل کیمرہ سے یہ QR اسکین کریں</li><li>اپنا کوڈ درج کریں</li><li>سیلفی لیں — حاضری لگ جائے گی</li></ol>
-      <p style="color:#0f172a;margin-top:16px;font-weight:700;font-size:18px">${data?.pump ?? ""}</p></body></html>`);
+      <p style="color:#0f172a;margin-top:16px;font-weight:700;font-size:18px">${esc(data?.pump ?? "")}</p></body></html>`);
     w.document.close(); w.focus(); setTimeout(() => w.print(), 300);
   };
   if (!data) return null;

@@ -34,8 +34,6 @@ function prep(sql: string) {
   return s;
 }
 /** Testing / diagnostics: distinct statements cached, and a query counter so a test can assert list endpoints stay O(1) in queries. */
-export const _stmtCacheSize = () => stmtCache.size;
-export function _clearStmtCache() { stmtCache.clear(); }
 let queryCount = 0;
 export const _queryCount = () => queryCount;
 export const _resetQueryCount = () => { queryCount = 0; };
@@ -53,7 +51,6 @@ export function get<T = Row>(sql: string, ...params: Params): T | undefined {
  * speed up the dashboards but can never show a stale figure after an entry.
  */
 let dataVersion = 0;
-export const _dataVersion = () => dataVersion;
 const memoStore = new Map<string, { v: number; at: number; val: unknown }>();
 export function memo<T>(key: string, fn: () => T, ttlMs = 60_000): T {
   const hit = memoStore.get(key);

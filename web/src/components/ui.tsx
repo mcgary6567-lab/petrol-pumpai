@@ -2,7 +2,7 @@ import { matchRow, SEARCH_HELP } from "../lib/search";
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode, type InputHTMLAttributes } from "react";
 import { PrintFooter, PrintHeader } from "./Letterhead";
 import { createPortal } from "react-dom";
-import { X, CheckCircle2, AlertTriangle, Loader2, Search } from "lucide-react";
+import { X, CheckCircle2, AlertTriangle, Search } from "lucide-react";
 
 export function PageHeader({ title, subtitle, actions }: { title: ReactNode; subtitle?: ReactNode; actions?: ReactNode }) {
   return (
@@ -96,7 +96,6 @@ export const CnicInput = ({ value, onChange, required, className, ...rest }: {
     placeholder="xxxxx-xxxxxxx-x" value={value ?? ""} maxLength={15} onChange={(e) => onChange(fmt(e.target.value))} />;
 };
 
-export const Spinner = () => <Loader2 className="animate-spin text-slate-400" size={20} />;
 /** Grey shimmer placeholder while a page/card loads — reads as "coming" rather than "stuck". */
 export const Loading = ({ rows = 4, className = "" }: { rows?: number; className?: string }) => (
   <div className={`animate-fade-in space-y-3 ${className}`} role="status" aria-label="Loading">
@@ -105,7 +104,6 @@ export const Loading = ({ rows = 4, className = "" }: { rows?: number; className
     {Array.from({ length: rows }, (_, i) => <div key={i} className="skel h-10" style={{ width: `${92 - (i % 3) * 9}%` }} />)}
   </div>
 );
-export const Skeleton = ({ className = "h-5 w-full" }: { className?: string }) => <div className={`skel ${className}`} />;
 export const Empty = ({ children }: { children: ReactNode }) => <div className="py-10 text-center text-sm text-slate-500">{children}</div>;
 export const ErrorBox = ({ error }: { error: string }) => <div className="animate-shake rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>;
 
@@ -319,14 +317,4 @@ export function useNewRows<T>(rows: T[] | null | undefined, keyOf: (r: T) => str
     return () => clearTimeout(t);
   }, [rows]);
   return fresh;
-}
-/** Returns a class that flashes the element green for a moment whenever `key` changes (new row, live refresh). */
-export function useFlash(key: unknown) {
-  const [cls, setCls] = useState("");
-  const first = useRef(true);
-  useEffect(() => {
-    if (first.current) { first.current = false; return; }
-    setCls("row-new"); const t = setTimeout(() => setCls(""), 1700); return () => clearTimeout(t);
-  }, [key]);
-  return cls;
 }

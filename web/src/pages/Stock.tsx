@@ -77,7 +77,7 @@ export default function Stock() {
           </div>
         ))}
       </div>
-      <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+      <div className="grid grid-cols-1 gap-5 md:grid-cols-2 print:hidden">
         <form className="card min-w-0 space-y-3 p-4" onSubmit={async (e) => {
           e.preventDefault();
           const body: any = { ...(dip.cm ? { tank_id: dipTank, measured_cm: toCm(dip.cm) } : { tank_id: dipTank, measured_l: Number(dip.measured_l) }), photo_ids: dipPhotos, confirm: dipSure };
@@ -161,7 +161,7 @@ export default function Stock() {
           <ListTools q={flt.q} onQ={(q) => setFlt({ ...flt, q })} placeholder="Supplier, tanker no, tank… · تلاش"
             chips={[{ k: "", label: "All tanks" }, ...tanks.map((t: any) => ({ k: String(t.id), label: multi ? `${t.name} · ${t.station_name}` : t.name }))]} chip={flt.tank} onChip={(tank) => setFlt({ ...flt, tank })}
             from={flt.from} to={flt.to} onFrom={(from) => setFlt({ ...flt, from })} onTo={(to) => setFlt({ ...flt, to })} />); })()}
-      <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+      <div className="grid grid-cols-1 gap-5 md:grid-cols-2 print:block print:space-y-4">
         <History title="Dip readings" right={4} rows={stock.data.dips} cols={[["When", (r) => dt(r.created_at)], ["Tank", (r) => `${r.station} ${r.tank}`], ["Book", (r) => num(r.book_l)], ["Dip", (r) => <>{num(r.measured_l)}{r.measured_cm != null ? <span className="text-xs text-slate-400"> ({r.measured_cm} cm)</span> : null}</>], ["Var %", (r) => <span className={Math.abs(r.variance_pct) >= 0.5 ? "font-semibold text-red-600" : ""}>{r.variance_pct}%</span>], ["Photo", (r) => (r.proof_ids?.length ? <ProofThumbs ids={r.proof_ids} /> : null)]]} />
         <History title="Deliveries" right={4} rows={stock.data.deliveries} cols={[["When", (r) => dt(r.created_at)], ["Tank", (r) => `${r.station} ${r.tank}`], ["Tanker", (r) => <span className="flex items-center gap-1">{r.tanker_no}{r.photo_id ? <PhotoThumb id={r.photo_id} size={7} /> : null}</span>], ["Supplier", (r) => r.supplier ?? "—"], ["Invoice/Recv", (r) => `${num(r.invoice_l)} / ${num(r.received_l)}`], ["Short %", (r) => <span className={r.shortage_pct >= 0.3 ? "font-semibold text-red-600" : ""}>{r.shortage_pct}%</span>]]} />
       </div>

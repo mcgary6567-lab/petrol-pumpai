@@ -17,7 +17,7 @@ import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import { config } from "../config.js";
 import { all, get, run, now, setSetting, tx, db } from "../db.js";
-import { h, parse, tid, forgetModules } from "../auth.js";
+import { h, parse, tid, forgetModules, isReservedEmail } from "../auth.js";
 import { AppError, audit, normalizePhone, pkr } from "../services.js";
 import { setupBody, provisionTenant, integrationsValues, applyIntegrations } from "./setup.js";
 import { mountBackupRoutes, makeBackup, listBackups } from "./system.js";
@@ -53,7 +53,7 @@ export function tenantState(t: number) {
 saasPublic.post("/signup", h((req) => {
   if (!config.saas) throw new AppError(404, "Sign-up is off on this server");
   const b = parse(setupBody, req.body);
-  if (get("SELECT 1 FROM users WHERE email=?", b.admin.email.toLowerCase())) throw new AppError(400, "Ye email pehle se registered hai — sign in karein.");
+  if (get("SELECT 1 FROM users WHERE email=?", b.admin.email.toLowerCase()) || isReservedEmail(b.admin.email)) throw new AppError(400, "Ye email pehle se registered hai — sign in karein.");
   // paid add-ons (wholesale / investors) are switched on by the platform owner, never self-granted at sign-up
   return provisionTenant({ ...b, modules: undefined }, { status: "trial", trialEndsAt: trialEnd() });
 }));
@@ -101,9 +101,12 @@ export function requirePlatform(req: Request, _res: Response, next: NextFunction
   const hdr = req.headers.authorization;
   // a backup download opens in the browser itself, so a GET may carry the platform token as ?token=
   const dl = req.method === "GET" && /^\/backups\/[^/]+(\/enc)?$/.test(req.path); // only the download opens via a link
-  const token = hdr?.startsWith("Bearer ") ? hdr.slice(7) : dl && typeof req.query.token === "string" ? req.query.token : "";
+  const viaLink = !hdr?.startsWith("Bearer ");
+  const token = !viaLink ? hdr!.slice(7) : dl && typeof req.query.token === "string" ? req.query.token : "";
   try {
-    const p = jwt.verify(token, config.jwtSecret) as { padmin?: number };
+    const p = jwt.verify(token, config.jwtSecret) as { padmin?: number; dl?: number };
+    // a link carries only the 15-minute download token (never the 7-day session), and that token opens nothing else
+    if (viaLink !== Boolean(p.dl)) throw new Error();
     const a = p.padmin ? get("SELECT id, email, name FROM platform_admins WHERE id=?", p.padmin) : null;
     if (!a) throw new Error();
     (req as Request & { padmin?: { id: number; email: string } }).padmin = a as { id: number; email: string };
@@ -359,6 +362,8 @@ platform.get("/codes", h(() => ({ codes: all("SELECT * FROM activation_codes ORD
 // whole-database backups (every pump in one file) + Google Drive / Dropbox copies — platform owner only in SaaS
 mountBackupRoutes(platform, (_req, _res, next) => next(), (req) => ({ t: 0, user: { id: 0, name: `platform:${(req as Request & { padmin?: { email: string } }).padmin?.email ?? ""}` } }));
 mountMigrationExport(platform, (_req, _res, next) => next(), (req) => `platform:${(req as Request & { padmin?: { email: string } }).padmin?.email ?? ""}`);
+/** A 15-minute token that only opens a backup download link — so the session token never sits in a URL (history, proxy logs). */
+platform.get("/download-token", h((req) => ({ token: jwt.sign({ padmin: (req as Request & { padmin: { id: number } }).padmin.id, dl: 1 }, config.jwtSecret, { expiresIn: "15m" }) })));
 platform.get("/integrations", h(() => integrationsValues()));
 platform.put("/integrations", h((req) => {
   const changed = applyIntegrations(req.body);

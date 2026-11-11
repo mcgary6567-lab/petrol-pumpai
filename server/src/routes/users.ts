@@ -2,7 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
 import { all, get, run, now } from "../db.js";
-import { h, parse, tid, requirePerm, ROLES, PERMISSIONS, permissionMatrix, forgetRoleOverrides, revokeSessions, revokeSession, unlinkDevices, type Permission } from "../auth.js";
+import { h, parse, tid, requirePerm, isReservedEmail, ROLES, PERMISSIONS, permissionMatrix, forgetRoleOverrides, revokeSessions, revokeSession, unlinkDevices, type Permission } from "../auth.js";
 import crypto from "node:crypto";
 import { AppError, normalizePhone, audit, createAlert } from "../services.js";
 import { sendToPhone } from "../whatsapp/cloud.js";
@@ -54,7 +54,7 @@ users.post("/users", h((req) => {
     role: z.enum(ROLES), station_id: z.number().nullable().optional(), phone: z.string().optional().nullable(), pin: pinField,
   }), req.body);
   const email = b.email.toLowerCase().trim();
-  if (get("SELECT id FROM users WHERE email=?", email)) throw new AppError(400, "This email is already in use");
+  if (get("SELECT id FROM users WHERE email=?", email) || isReservedEmail(email)) throw new AppError(400, "This email is already in use");
   checkStation(tid(req), b.role, b.station_id);
   // a salesman runs the forecourt shift: default duty start 8:00 AM (the owner can change it on the Staff page)
   const { id } = run("INSERT INTO users (tenant_id,name,email,password_hash,role,station_id,phone,duty_start,active,created_at) VALUES (?,?,?,?,?,?,?,?,1,?)",
@@ -94,7 +94,7 @@ users.patch("/users/:id", h((req) => {
   if (u.id === req.user!.id && !active) throw new AppError(400, "You cannot disable your own account");
   checkStation(tid(req), role, stationId);
   const email = b.email?.toLowerCase().trim() ?? u.email;
-  if (email !== u.email && get("SELECT id FROM users WHERE email=?", email)) throw new AppError(400, "This email is already in use");
+  if (email !== u.email && (get("SELECT id FROM users WHERE email=?", email) || isReservedEmail(email))) throw new AppError(400, "This email is already in use");
   run("UPDATE users SET name=?, email=?, role=?, station_id=?, active=? WHERE id=?", b.name ?? u.name, email, role, stationId ?? null, active ? 1 : 0, u.id);
   if (b.phone !== undefined) run("UPDATE users SET phone=? WHERE id=?", b.phone ? normalizePhone(b.phone) : null, u.id);
   if (b.password) run("UPDATE users SET password_hash=?, pw_fails=0, pw_locked_until=NULL WHERE id=?", bcrypt.hashSync(b.password, 10), u.id);

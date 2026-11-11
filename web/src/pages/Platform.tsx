@@ -76,6 +76,14 @@ function Panel({ onLogout }: { onLogout: () => void }) {
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState<"all" | "active" | "trial" | "suspended" | "lifetime" | "locked" | "attention">("all");
   const [tab, setTab] = useState<"pumps" | "codes" | "backups" | "server" | "catalog" | "integrations">("pumps");
+  // backup links carry a short download-only token, refreshed while the tab is open (never the session token)
+  const [dlTok, setDlTok] = useState("");
+  useEffect(() => {
+    if (tab !== "backups") return;
+    const load = () => pfetch("/platform/download-token").then((r: any) => setDlTok(r.token)).catch(() => null);
+    load(); const iv = setInterval(load, 10 * 60_000);
+    return () => clearInterval(iv);
+  }, [tab]);
   const load = useCallback(async () => {
     try { setOv(await pfetch("/platform/overview")); setCodes((await pfetch("/platform/codes")).codes); setErr(null); }
     catch (e: any) { setErr(e.message); if (/login|401/i.test(e.message)) onLogout(); }
@@ -292,7 +300,7 @@ function Panel({ onLogout }: { onLogout: () => void }) {
 
         {tab === "backups" && (
           <div className="space-y-4">
-          <BackupsPanel title="Backups — saare pumps (poora database)" base="/platform/backups" request={(p, i) => pfetch(p, i?.body, i?.method)} downloadUrl={(n) => `/api/platform/backups/${n}?token=${getTok() ?? ""}`} />
+          <BackupsPanel title="Backups — saare pumps (poora database)" base="/platform/backups" request={(p, i) => pfetch(p, i?.body, i?.method)} downloadUrl={(n) => `/api/platform/backups/${n}?token=${dlTok}`} />
           <MigrationExport url="/platform/migration/export" token={getTok} />
           </div>
         )}

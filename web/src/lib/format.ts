@@ -14,7 +14,6 @@ export let activeProducts: { code: string; name: string; short: string; colour: 
   { code: "HSD", name: "Diesel", short: "Diesel", colour: "#1baf7a", ur: "ڈیزل" },
 ];
 const productSubs = new Set<() => void>();
-export const onProductsChanged = (fn: () => void) => { productSubs.add(fn); return () => { productSubs.delete(fn); }; };
 /** Fetch the admin's fuel products and refresh the shared maps in place. Call at sign-in and after a change. */
 export async function loadProducts() {
   try {
@@ -33,7 +32,6 @@ export const num = (n: number | null | undefined, d = 0) =>
 export const pkr = (n: number | null | undefined) => (n == null ? "—" : `Rs ${num(Math.round(n))}`);
 /** Party balance with its direction: "Rs 5,000 due" or "Advance Rs 5,000" (their money lying with us). */
 export const dueLabel = (n: number | null | undefined) => (n == null ? "—" : n < -0.5 ? `Advance ${pkr(-n)}` : `${pkr(n)} due`);
-export const dueTone = (n: number | null | undefined): "amber" | "green" | "slate" => (n == null || Math.abs(n) < 0.5 ? "slate" : n < 0 ? "green" : "amber");
 export const pkrShort = (n: number) =>
   Math.abs(n) >= 1e7 ? `Rs ${(n / 1e7).toFixed(2)} Cr` : Math.abs(n) >= 1e5 ? `Rs ${(n / 1e5).toFixed(1)} L` : pkr(n);
 export const litres = (n: number) => `${num(n)} L`;

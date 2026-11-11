@@ -11,7 +11,6 @@ import type { ToolCtx } from "./tools.js";
 // runTool is passed in (not imported) so this module stays free of the heavy tools.js import graph — avoids a require cycle.
 type RunTool = (tools: any, name: string, ctx: ToolCtx, input: unknown) => Promise<{ content: string; is_error?: boolean }>;
 
-export const geminiActive = () => Boolean(config.geminiKey) && !config.anthropicKey;
 
 type ToolSchema = { name: string; description?: string; input_schema: any };
 type Part =

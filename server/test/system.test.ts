@@ -72,7 +72,7 @@ test("two-person rule: a manager's price change waits for the admin, then takes 
 test("push: key, subscribe/unsubscribe; hardware integrations are listed as pending", async () => {
   const k = ok(await call("salesman", "GET", "/api/push/key"), "key");
   assert.ok(k.key.length > 40); assert.equal(k.subscribed, 0);
-  const sub = { endpoint: "https://push.example.com/sub/abc123", keys: { p256dh: "BNcRdreALRFXTkOOUHK1EtK2wtaz5Ry4YfYCA_0QTpQtUbVlUls0VJXg7A8u-Ts1XbjhazAkj7I99e8QcYP7DkM", auth: "tBHItJI5svbpez7KI4CCXg" } };
+  const sub = { endpoint: "https://fcm.googleapis.com/sub/abc123", keys: { p256dh: "BNcRdreALRFXTkOOUHK1EtK2wtaz5Ry4YfYCA_0QTpQtUbVlUls0VJXg7A8u-Ts1XbjhazAkj7I99e8QcYP7DkM", auth: "tBHItJI5svbpez7KI4CCXg" } };
   assert.equal(ok(await call("salesman", "POST", "/api/push/subscribe", sub), "sub").subscribed, 1);
   ok(await call("salesman", "POST", "/api/push/unsubscribe", { endpoint: sub.endpoint }), "unsub");
   assert.equal(ok(await call("salesman", "GET", "/api/push/key"), "key").subscribed, 0);

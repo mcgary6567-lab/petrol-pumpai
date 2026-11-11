@@ -19,7 +19,6 @@ import { receiptUrl } from "../billing.js";
 import { supplierPayment, supplierPayBody } from "./suppliers.js";
 
 export const shop = Router();
-export const SHOP_CATEGORIES = ["lubricant", "filter", "coolant", "tyre", "battery", "tuck", "service", "other"] as const;
 
 const itemBody = z.object({
   station_id: z.number(), name: z.string().min(2).max(80), category: z.string().max(40).default("other"), // one of Settings → Lists → Shop categories

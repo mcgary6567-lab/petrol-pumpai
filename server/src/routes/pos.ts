@@ -2,6 +2,7 @@
 import { Router } from "express";
 import { all, get, pkDate, getSetting, type Row } from "../db.js";
 import { h, tid, requirePerm, scopedStation, can } from "../auth.js";
+import { ownStation } from "./operationsShared.js";
 import { AppError, currentPrices, UNDO_SECONDS } from "../services.js";
 import { institutionTypes } from "./lookups.js";
 import { shiftSummary } from "../shifts.js";
@@ -85,6 +86,7 @@ pos.get("/pos/khata-accounts", h((req) => {
 pos.get("/pos/today", h((req) => {
   const u = req.user!;
   const stationId = u.role === "salesman" ? scopedStation(req) : Number(req.query.station_id) || get("SELECT id FROM stations WHERE tenant_id=? ORDER BY id LIMIT 1", tid(req))!.id;
+  ownStation(tid(req), Number(stationId)); // never another pump's station (station_id comes from the query)
   const shift = u.role === "salesman"
     ? get("SELECT * FROM shifts WHERE station_id=? AND attendant=? AND status='open' ORDER BY id DESC LIMIT 1", stationId, u.name)
     : get("SELECT * FROM shifts WHERE station_id=? AND status='open' ORDER BY id DESC LIMIT 1", stationId);
@@ -114,6 +116,7 @@ pos.get("/pos/today", h((req) => {
 pos.get("/pos/entries", h((req) => {
   const u = req.user!;
   const stationId = u.role === "salesman" ? scopedStation(req) : Number(req.query.station_id) || get("SELECT id FROM stations WHERE tenant_id=? ORDER BY id LIMIT 1", tid(req))!.id;
+  ownStation(tid(req), Number(stationId)); // never another pump's station (station_id comes from the query)
   const shift = u.role === "salesman"
     ? get("SELECT * FROM shifts WHERE station_id=? AND attendant=? AND status='open' ORDER BY id DESC LIMIT 1", stationId, u.name)
     : get("SELECT * FROM shifts WHERE station_id=? AND status='open' ORDER BY id DESC LIMIT 1", stationId);

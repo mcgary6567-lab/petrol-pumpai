@@ -130,7 +130,6 @@ export const institutionTypes = (t: number) => lookups(t, "customer_type").filte
 /** Training topics with validity, in the shape the training matrix uses. */
 export const trainingTopics = (t: number) => lookups(t, "training_topic").map((x) => ({ topic: x.key, months: Number(x.extra.months ?? 12), required: Boolean(x.extra.required) }));
 /** Non-khata money methods the admin set up (cash + card/digital brands). */
-export const paymentMethods = (t: number) => lookups(t, "payment_method");
 /** Keys of money methods that settle into a bank account (card, JazzCash, SadaPay…), not the cash drawer.
  *  This one list drives the POS, the bank module AND the ledger, so adding a brand never breaks the tally. */
 export const digitalMethods = (t: number): string[] => lookups(t, "payment_method").filter((m) => m.extra.digital).map((m) => m.key);

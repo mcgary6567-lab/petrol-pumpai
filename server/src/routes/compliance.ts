@@ -51,7 +51,7 @@ compliance.patch("/licences/:id", requirePerm("alerts.view"), h((req) => {
   return get("SELECT * FROM licences WHERE id=?", l.id);
 }));
 compliance.delete("/licences/:id", requirePerm("settings.manage"), h((req) => {
-  run("DELETE FROM licences WHERE id=? AND tenant_id=?", Number(req.params.id), tid(req));
+  if (!run("DELETE FROM licences WHERE id=? AND tenant_id=?", Number(req.params.id), tid(req)).changes) throw new AppError(404, "Not found");
   return { ok: true };
 }));
 

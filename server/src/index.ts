@@ -454,8 +454,17 @@ app.use("/api", api);
 // Serve the built dashboard in production
 const webDist = path.resolve(process.env.WEB_DIST ?? "../web/dist");
 if (fs.existsSync(webDist)) {
-  app.use(express.static(webDist, { redirect: false })); // "/help" is an app page, not the "help/" PDF folder — never 301 it to "/help/"
-  app.get(/^\/(?!api|webhooks).*/, (_req, res) => res.sendFile(path.join(webDist, "index.html")));
+  // "/help" is an app page, not the "help/" PDF folder — never 301 it to "/help/"
+  app.use(express.static(webDist, {
+    redirect: false,
+    setHeaders: (res, file) => {
+      // Vite's files under /assets carry a content hash in the name: a new build is a new name, so the browser may keep
+      // them for a year without asking. Everything else (index.html, sw.js, manifest, icons) is checked on every load.
+      if (/[\\/]assets[\\/]/.test(file)) res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+      else res.setHeader("Cache-Control", "no-cache");
+    },
+  }));
+  app.get(/^\/(?!api|webhooks).*/, (_req, res) => { res.setHeader("Cache-Control", "no-cache"); res.sendFile(path.join(webDist, "index.html")); });
 }
 app.use(errorHandler);
 

@@ -315,7 +315,9 @@ backoffice.put("/tanks/:id/chart", requirePerm("stock.manage"), h((req) => {
 }));
 backoffice.get("/tanks/:id/dip-litres", requirePerm("stock.manage"), h((req) => {
   const tank = ownTank(tid(req), Number(req.params.id));
-  return { litres: litresFromCm(tank.id, Number(req.query.cm)) };
+  const cm = Number(req.query.cm);
+  if (req.query.cm === undefined || req.query.cm === "" || !Number.isFinite(cm) || cm < 0) throw new AppError(400, "Dip (cm) likhein"); // was a 500 on an empty box
+  return { litres: litresFromCm(tank.id, cm) };
 }));
 
 /* ================= Day close ================= */

@@ -27,4 +27,3 @@ export function decryptSecret(v: string | null | undefined): string {
     return Buffer.concat([d.update(raw.subarray(28)), d.final()]).toString("utf8");
   } catch { return ""; }
 }
-export const isEncrypted = (v?: string | null) => Boolean(v && v.startsWith(PFX));

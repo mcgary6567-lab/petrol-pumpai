@@ -47,7 +47,7 @@ recurring.patch("/recurring-expenses/:id", requirePerm("expenses.approve"), h((r
   return get("SELECT * FROM recurring_expenses WHERE id=?", r.id);
 }));
 recurring.delete("/recurring-expenses/:id", requirePerm("expenses.approve"), h((req) => {
-  run("DELETE FROM recurring_expenses WHERE id=? AND tenant_id=?", Number(req.params.id), tid(req));
+  if (!run("DELETE FROM recurring_expenses WHERE id=? AND tenant_id=?", Number(req.params.id), tid(req)).changes) throw new AppError(404, "Not found");
   return { ok: true };
 }));
 
