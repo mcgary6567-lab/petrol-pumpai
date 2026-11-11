@@ -572,11 +572,13 @@ function LedgerTable({ rows: allRows, running, showClient, tools, onVoid, onEdit
           <th className="th text-right">Debit<span className="print:hidden"> (billed)</span></th><th className="th text-right">Credit<span className="print:hidden"> (paid / returned)</span></th>{running && <th className="th text-right">Balance</th>}<th className="th print:hidden" />
         </tr></thead>
         <tbody>
-          {paged.slice.map((r) => {
+          {/* the screen shows one page of 10; paper gets every entry of the period (the other pages are print-only rows) */}
+          {rows.map((r, ri) => {
+            const onPage = ri >= paged.start && ri < paged.start + paged.size;
             const debit = r.type === "fuel_note" ? 0 : running ? r.debit : r.type === "supply" || r.type === "carriage" || (r.type === "adjustment" && r.amount > 0) ? Math.abs(r.amount) : 0;
             const credit = r.type === "fuel_note" ? 0 : running ? r.credit : debit ? 0 : Math.abs(r.amount);
             return (
-              <tr key={r.id} className={r.voided ? "text-slate-400 line-through print:hidden" : ""}>
+              <tr key={r.id} className={`${r.voided ? "text-slate-400 line-through print:hidden" : ""} ${onPage ? "" : r.voided ? "hidden" : "hidden print:table-row"}`}>
                 <td className="td whitespace-nowrap text-xs"><span className="print:hidden">{dt(r.txn_date).split(", ").map((x, i) => <span key={i} className={i ? "block text-slate-400" : "block"}>{x}</span>)}</span><span className="hidden whitespace-nowrap print:inline">{d(r.txn_date)}</span><LateBadge at={r.txn_date} typed={r.created_at} className="mt-0.5" /></td>
                 {showClient && <td className="td text-sm"><Link to={`/wholesale/${r.client_id}`} className="hover:underline">{r.client_name}</Link></td>}
                 <td className="td"><Badge tone={TYPE[r.type].tone}>{TYPE[r.type].label}</Badge> {r.voided ? <Badge tone="red">VOID</Badge> : null}</td>
@@ -584,7 +586,7 @@ function LedgerTable({ rows: allRows, running, showClient, tools, onVoid, onEdit
                 <td className="td whitespace-nowrap text-xs">{r.product ? PRODUCTS[r.product] ?? r.product : ""}</td>
                 <td className="td whitespace-nowrap text-right text-xs tabular-nums">{r.litres && r.type !== "fuel_note" ? `${num(r.litres, r.litres % 1 ? 2 : 0)} L` : ""}</td>
                 <td className="td whitespace-nowrap text-right text-xs tabular-nums">{r.rate && r.type !== "carriage" && r.type !== "fuel_note" ? `Rs ${num(r.rate, 2)}` : ""}</td>
-                <td className="td min-w-[180px] text-xs print:min-w-0 print:max-w-[150px]">
+                <td className="td min-w-[180px] text-xs print:min-w-0">
                   {r.type === "fuel_note" ? <div>Fuel <b>{pkr(r.amount)}</b> · {fuelLabel(r)}</div> : r.type === "carriage" ? <div>Kiraya</div> : null}
                   {r.method && <div className="font-medium">{r.method}</div>}
                   <ProofThumbs ids={r.proof_ids} />

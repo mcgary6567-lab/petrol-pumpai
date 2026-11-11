@@ -102,7 +102,12 @@ input, select, textarea { min-width: 0; max-width: 100%; }
   th.money, td.money { border-left: 2px solid #0f172a !important; border-right: 2px solid #0f172a !important; }
   th, .th { padding-left: 5px !important; padding-right: 5px !important; }
   /* columns may wrap on paper: a nowrap table wider than A4 would lose its last columns past the page edge */
-  th, td { white-space: normal !important; overflow-wrap: anywhere; }
+  th, td { white-space: normal !important; overflow-wrap: break-word; }
+  /* money, litres and dates never break letter by letter: "anywhere" let the browser squeeze those columns to one
+     character (Rs 6,11,000 printed as a vertical stack); break-word keeps whole words and still wraps long text */
+  td.text-right, th.text-right, td [class*="rounded"] { white-space: nowrap !important; overflow-wrap: normal !important; }
+  /* the page itself is as tall as what it prints (a 100vh shell left a blank last page) */
+  html, body, #root, .min-h-screen, .h-screen { height: auto !important; min-height: 0 !important; }
   table { table-layout: auto !important; }
   tfoot td { border-top: 2px solid #0f172a !important; font-weight: 700; }
   .tabular-nums, td.text-right { font-variant-numeric: tabular-nums; }
