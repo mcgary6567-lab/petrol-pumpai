@@ -682,7 +682,7 @@ wholesale.get("/wholesale/clients/:id/statement", h((req) => {
     if (l.type === "supply") m.litres = round2(m.litres + (l.litres ?? 0));
   }
   const needle = (q.q ?? "").toLowerCase().replace(/^#/, ""); // "#125" / "WS-125" / "125" all find voucher WS-125
-  const no = (l: Row) => l.voucher_no ?? `${l.type === "supply" ? "WS" : l.type === "payment" ? "RV" : l.type === "return" ? "CN" : "JV"}-${l.id}`;
+  const no = (l: Row) => l.voucher_no ?? `${l.type === "supply" ? "WS" : l.type === "payment" ? "WR" : l.type === "return" ? "CN" : "JV"}-${l.id}`;
   const rows = s.lines.filter((l) => (q.voided || !l.voided) && (!needle ||
     [no(l), l.id, l.type, l.product && PRODUCTS[l.product], l.vehicle_no, l.driver_name, l.ref, l.note, l.method, l.location, l.litres, l.rate, l.amount, l.txn_date?.slice(0, 10), l.created_by].some((v) => String(v ?? "").toLowerCase().includes(needle))));
   if (q.newest) rows.reverse(); // ?newest=1: page 1 = the latest entries (each line keeps its own running balance)

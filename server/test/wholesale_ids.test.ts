@@ -111,3 +111,17 @@ test("the search box finds an entry by the ID its list shows (and only for a rol
   assert.equal((await hit("wholesale", `BYP-${byp}`))[0].to, `/wholesale?tab=trips&sub=deliveries&voucher=${byp}`);
   assert.deepEqual(await hit("admin", "S-999999999"), []);
 });
+
+test("a wholesale client's payment is WR-n (RV- stays the cashier's receipt voucher); an old printed RV-n still finds it", async () => {
+  const clients = ok(await call("admin", "GET", "/api/wholesale/clients"), "clients");
+  const W = (clients.clients ?? clients)[0];
+  const pay = ok(await call("wholesale", "POST", `/api/wholesale/clients/${W.id}/payment`, { amount: 1234, method: "Cash" }), "payment");
+  const id = pay.id ?? db.get("SELECT id FROM wholesale_txns WHERE client_id=? AND type='payment' ORDER BY id DESC LIMIT 1", W.id)!.id;
+  const find = async (q: string) => ok(await call("wholesale", "GET", `/api/vouchers/find?q=${encodeURIComponent(q)}`), q).results as any[];
+  assert.equal((await find(`WR-${id}`))[0].no, `WR-${id}`);
+  assert.equal((await find(`RV-${id}`))[0].no, `WR-${id}`, "the old number still opens it");
+  const line = ok(await call("wholesale", "GET", `/api/wholesale/clients/${W.id}/statement?page=1&size=10&newest=1&q=${encodeURIComponent(`WR-${id}`)}`), "ledger search").lines;
+  assert.ok(line.some((l: any) => l.id === id), "ledger search by WR number");
+  const hits = (ok(await call("wholesale", "GET", `/api/search?q=WR-${id}`), "search").hits as any[]).filter((x) => x.kind === "entry");
+  assert.match(hits[0].label, new RegExp(`^WR-${id} `));
+});

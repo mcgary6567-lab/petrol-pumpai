@@ -172,7 +172,7 @@ vouchers.post("/vouchers/:kind/:id/void", requirePerm("wholesale.void"), h((req)
 
 /* ------------------------------------------------------------------ find by ID ------------------------------------------------------------------ */
 /** Every wholesale entry has a number; type it and get the entry: BYP-185 (depot / balance-stock / unload voucher),
- *  WS- / RV- / CN- / JV- (a client's supply, receipt, return, journal), TRIP-12 (tanker trip from our tank),
+ *  WS- / WR- / CN- / JV- (a client's supply, receipt, return, journal; RV- is the cashier's receipt voucher), TRIP-12 (tanker trip from our tank),
  *  BP-40 (one supplier bill line), SP-7 (a payment to a bypass supplier). A bare number is tried against all of them.
  *  Mansookh entries are found too (marked voided) — nothing disappears. */
 vouchers.get("/vouchers/find", requirePerm("wholesale.manage"), h((req) => {
@@ -193,10 +193,10 @@ vouchers.get("/vouchers/find", requirePerm("wholesale.manage"), h((req) => {
       title: [d.bought ? `khareeda ${d.bought} L` : "", d.dropped ? `client ko ${d.dropped} L` : "", d.unloaded ? `apne tank ${d.unloaded} L` : "", d.vehicle_no].filter(Boolean).join(" · "),
       litres: d.bought || d.dropped || d.unloaded, party: [d.sups, d.clients].filter(Boolean).join(" → ") || null, open: { type: "bypass", id: d.id } });
   }
-  if (want("WS", "RV", "CN", "JV")) {
+  if (want("WS", "WR", "RV", "CN", "JV")) {
     for (const w of all(`SELECT w.*, c.name client FROM wholesale_txns w JOIN wholesale_clients c ON c.id=w.client_id WHERE w.tenant_id=? AND (w.id=? OR w.voucher_no=?) ORDER BY w.id LIMIT 12`, t, n, `${pre || "WS"}-${n}`)) {
-      const no = (w.voucher_no as string | null) ?? `${w.type === "supply" ? "WS" : w.type === "payment" ? "RV" : w.type === "return" ? "CN" : "JV"}-${w.id}`;
-      if (pre && !no.startsWith(pre + "-")) continue;
+      const no = (w.voucher_no as string | null) ?? `${w.type === "supply" ? "WS" : w.type === "payment" ? "WR" : w.type === "return" ? "CN" : "JV"}-${w.id}`;
+      if (pre && !no.startsWith((pre === "RV" ? "WR" : pre) + "-")) continue; // an old printed RV-89 still finds the payment
       out.push({ kind: w.type === "supply" ? "Client supply" : w.type === "payment" ? "Client payment" : w.type === "return" ? "Return" : w.type === "carriage" ? "Kiraya" : "Adjustment", id: w.id, no, date: w.txn_date, voided: !!w.voided,
         title: [w.litres ? `${w.litres} L ${fuel(w.product)}` : "", w.method, w.vehicle_no, w.ref].filter(Boolean).join(" · "), amount: w.amount, litres: w.litres, party: w.client, open: { type: "wtx", id: w.id, client_id: w.client_id } });
     }

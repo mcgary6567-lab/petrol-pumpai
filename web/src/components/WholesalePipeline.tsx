@@ -89,7 +89,7 @@ export function OrderToCash() {
                   </>}
                   {c.key === "paid" && <>
                     <span className="font-semibold text-emerald-700">{pkr(x.amount)}</span>
-                    <span className="text-xs text-slate-500">RV-{x.id} · {day(x.txn_date)} · {x.method ?? "cash"}{x.ref && x.ref !== "refund:" ? ` · ${x.ref}` : ""}</span>
+                    <span className="text-xs text-slate-500">WR-{x.id} · {day(x.txn_date)} · {x.method ?? "cash"}{x.ref && x.ref !== "refund:" ? ` · ${x.ref}` : ""}</span>
                   </>}
                 </article>
               ))}

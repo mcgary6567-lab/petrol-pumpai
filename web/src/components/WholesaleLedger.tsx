@@ -13,8 +13,8 @@ const pkToday = () => new Date(Date.now() + 5 * 3600_000).toISOString().slice(0,
 const dayLabel = (iso: string) => new Date(Date.parse(iso)).toLocaleDateString("en-PK", { day: "2-digit", month: "short", year: "2-digit" });
 const amt = (n: number) => num(Math.round(n * 100) / 100, 0);
 
-/** Voucher number per entry type: WS supply, RV receipt, CN credit note (return), JV journal (kiraya / adjustment). */
-export const voucherNo = (l: any) => l.voucher_no ?? `${l.type === "supply" ? "WS" : l.type === "payment" ? "RV" : l.type === "return" ? "CN" : "JV"}-${l.id}`;
+/** Voucher number per entry type: WS supply, WR receipt (wholesale; RV is the cashier's voucher), CN credit note (return), JV journal (kiraya / adjustment). */
+export const voucherNo = (l: any) => l.voucher_no ?? `${l.type === "supply" ? "WS" : l.type === "payment" ? "WR" : l.type === "return" ? "CN" : "JV"}-${l.id}`;
 function particulars(l: any): string {
   const fuel = PRODUCTS[l.product] ?? l.product ?? "";
   if (l.type === "supply") return `Supply · ${fuel}${l.location ? ` → ${l.location}` : ""}`;
@@ -226,7 +226,7 @@ export function PartyLedger() {
             <div className="px-4 pb-2"><Pager {...pagedUnpaid} /></div>
           </div>}
           <div className="flex flex-wrap justify-between gap-2 px-4 py-3 text-xs text-slate-500 print:hidden">
-            <span>Balance = client par baqaya · <b className="text-emerald-700">Adv</b> = client ka advance humare paas · voucher number par click karein: poori entry, print, WhatsApp · WS supply · RV receipt · CN return · JV kiraya / adjustment</span>
+            <span>Balance = client par baqaya · <b className="text-emerald-700">Adv</b> = client ka advance humare paas · voucher number par click karein: poori entry, print, WhatsApp · WS supply · WR receipt · CN return · JV kiraya / adjustment</span>
             <span>{paged.total} entries</span>
           </div>
         </section>

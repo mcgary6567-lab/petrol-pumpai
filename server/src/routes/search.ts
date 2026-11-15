@@ -57,9 +57,10 @@ search.get("/search", requireAuth, h((req) => {
     if (can(u, "wholesale.view")) {
       if (["BYP", "UNL", "DEL"].includes(pre)) { const r = get("SELECT id, kind, txn_date, voided, vehicle_no FROM bypass_deliveries WHERE id=? AND tenant_id=?", n, t);
         if (r) push([{ kind: "entry", label: `BYP-${r.id} · ${r.kind === "unload" ? "Tank unload" : "Bypass voucher"}${r.voided ? " (mansookh)" : ""}`, sub: `${day(r.txn_date)}${r.vehicle_no ? ` · ${r.vehicle_no}` : ""}`, to: `/wholesale?tab=trips&sub=deliveries&voucher=${r.id}` }]); }
-      if (["WS", "CN", "JV", "RV"].includes(pre)) for (const w of all("SELECT w.id, w.type, w.amount, w.litres, w.product, w.txn_date, w.voided, w.voucher_no, c.id cid, c.name FROM wholesale_txns w JOIN wholesale_clients c ON c.id=w.client_id WHERE w.tenant_id=? AND (w.id=? OR w.voucher_no=?) LIMIT 6", t, n, `${pre}-${n}`)) {
-        const no = (w.voucher_no as string | null) ?? `${w.type === "supply" ? "WS" : w.type === "payment" ? "RV" : w.type === "return" ? "CN" : "JV"}-${w.id}`;
-        if (!no.startsWith(pre + "-")) continue;
+      // WR = a wholesale client's payment (RV- is the cashier's receipt voucher; an old printed "RV-89" still finds it)
+      if (["WS", "CN", "JV", "RV", "WR"].includes(pre)) for (const w of all("SELECT w.id, w.type, w.amount, w.litres, w.product, w.txn_date, w.voided, w.voucher_no, c.id cid, c.name FROM wholesale_txns w JOIN wholesale_clients c ON c.id=w.client_id WHERE w.tenant_id=? AND (w.id=? OR w.voucher_no=?) LIMIT 6", t, n, `${pre}-${n}`)) {
+        const no = (w.voucher_no as string | null) ?? `${w.type === "supply" ? "WS" : w.type === "payment" ? "WR" : w.type === "return" ? "CN" : "JV"}-${w.id}`;
+        if (!no.startsWith((pre === "RV" ? "WR" : pre) + "-")) continue;
         push([{ kind: "entry", label: `${no} · Wholesale ${w.type} · ${w.name}${w.voided ? " (mansookh)" : ""}`, sub: `${day(w.txn_date)}${w.litres ? ` · ${w.litres} L ${w.product ?? ""}` : ""}`, amount: w.amount as number, to: `/wholesale/${w.cid}?tab=statement` }]);
       }
       if (pre === "BP") { const r = get("SELECT p.id, p.litres, p.product, p.amount, p.txn_date, p.delivery_id, s.name FROM bypass_purchases p JOIN suppliers s ON s.id=p.supplier_id WHERE p.id=? AND p.tenant_id=?", n, t);

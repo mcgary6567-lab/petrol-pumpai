@@ -123,9 +123,9 @@ test.describe("Supply voucher → ledger → invoice → board", () => {
     await expect(l.table.getByRole("button", { name: /^(WS|JV|CN)-\d+$/ })).toHaveCount(0); // server search answered (debounced)
     for (const row of await l.table.getByRole("row").all()) {
       const t = (await row.textContent()) ?? "";
-      if (/RV-|WS-|JV-|CN-/.test(t)) expect(t).toMatch(/Payment/);
+      if (/WR-|WS-|JV-|CN-/.test(t)) expect(t).toMatch(/Payment/);
     }
-    const first = l.table.getByRole("button", { name: /^RV-\d+$/ }).first();
+    const first = l.table.getByRole("button", { name: /^WR-\d+$/ }).first();
     if (await first.isVisible()) { await first.click(); await expect(l.entryDialog).toBeVisible(); }
   });
 

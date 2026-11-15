@@ -256,7 +256,7 @@ export function BypassVoucher({ id, onClose }: { id: number; onClose: () => void
   );
 }
 
-/** "ID se dhoondein": type any entry number (BYP-185, WS-91, RV-89, CN-90, JV-12, TRIP-4, BP-40, SP-7 or just the digits)
+/** "ID se dhoondein": type any entry number (BYP-185, WS-91, WR-89, CN-90, JV-12, TRIP-4, BP-40, SP-7 or just the digits)
  *  and open that entry — live or mansookh. */
 export function FindById({ onVoucher }: { onVoucher: (id: number) => void }) {
   const nav = useNavigate();
@@ -280,12 +280,12 @@ export function FindById({ onVoucher }: { onVoucher: (id: number) => void }) {
     <div className="relative">
       <form onSubmit={find} className="flex items-center gap-1.5">
         <label className="relative block"><span className="sr-only">ID se dhoondein</span>
-          <input className="input h-10 w-56 pl-8 font-mono text-sm" placeholder="ID: BYP-185, RV-89…" value={q} onChange={(e) => { setQ(e.target.value); setRes(null); }} aria-label="Entry ID se dhoondein" />
+          <input className="input h-10 w-56 pl-8 font-mono text-sm" placeholder="ID: BYP-185, WR-89…" value={q} onChange={(e) => { setQ(e.target.value); setRes(null); }} aria-label="Entry ID se dhoondein" />
           <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400">#</span></label>
         <button className="btn-secondary h-10" disabled={busy || !q.trim()}>Dhoondein · <Ur>تلاش</Ur></button>
       </form>
       {res && <div className="absolute left-0 top-11 z-20 w-[min(92vw,460px)] rounded-xl bg-white p-2 text-sm shadow-xl ring-1 ring-slate-200">
-        {res.length === 0 ? <p className="p-2 text-slate-600">Is number ki koi entry nahi mili. Misaal: BYP-185 (voucher), WS-91 (supply), RV-89 (payment), CN-90 (return), SP-7 (supplier payment).</p>
+        {res.length === 0 ? <p className="p-2 text-slate-600">Is number ki koi entry nahi mili. Misaal: BYP-185 (voucher), WS-91 (supply), WR-89 (payment), CN-90 (return), SP-7 (supplier payment).</p>
           : <ul className="divide-y divide-slate-100">{res.map((r) => (
             <li key={`${r.no}`}><button type="button" className="flex w-full items-start justify-between gap-3 rounded-lg p-2 text-left hover:bg-slate-50" onClick={() => open(r)}>
               <span className="min-w-0"><b className="font-mono text-brand-700">{r.no}</b> <span className="text-slate-500">· {r.kind}</span>{r.voided ? <span className="ml-1 rounded bg-rose-100 px-1 text-[10px] font-bold text-rose-800">VOID</span> : null}

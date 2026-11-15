@@ -275,7 +275,7 @@ export function WholesaleDashboard({ onTrip, onAddClient, onTab, recent = [] }: 
 
 /* ---------------- Recent wholesale entries: the day's postings right under the voice box, ERP style ---------------- */
 const KIND: Record<string, { label: string; tone: "blue" | "green" | "amber" | "violet" | "slate" | "red"; vch: string }> = {
-  supply: { label: "Supply", tone: "blue", vch: "WS" }, payment: { label: "Payment", tone: "green", vch: "RV" }, return: { label: "Return", tone: "amber", vch: "CN" },
+  supply: { label: "Supply", tone: "blue", vch: "WS" }, payment: { label: "Payment", tone: "green", vch: "WR" }, return: { label: "Return", tone: "amber", vch: "CN" },
   adjustment: { label: "Adjustment", tone: "violet", vch: "JV" }, carriage: { label: "Carriage", tone: "slate", vch: "JV" }, fuel_note: { label: "Fuel note", tone: "slate", vch: "FN" },
 };
 const GROUPS: Record<string, { label: string; ur: string; kinds: string[] }> = {
