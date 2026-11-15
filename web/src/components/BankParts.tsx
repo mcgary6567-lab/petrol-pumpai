@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowLeftRight, Banknote, Building2, Landmark, Pencil, Plus, Printer, Trash2, AlertTriangle, CreditCard, Zap, Smartphone } from "lucide-react";
 import { api, useApi } from "../lib/api";
-import { Field, ListTools, Loading, Modal, useAction, useListFilter } from "./ui";
+import { Field, IdTag, ListTools, Loading, Modal, useAction, useListFilter } from "./ui";
 import { d, dt, pkr } from "../lib/format";
 import { PK_BANKS, ALL_PK_BANKS, bankInfo, logoUrl } from "../lib/banks";
 import { ProofPhotos, ProofThumbs } from "./Capture";
@@ -14,6 +14,17 @@ const isCash = (m?: string | null) => !m || /^cash$/i.test(m.trim());
 const today = () => new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 10);
 
 /** The bank's logo; a badge in the bank's colour with its short name when the logo can't load (offline). */
+/** A bank-book line's entry number — the number of the entry behind it, as its own list shows it. A day's POS / card
+ *  total and the bank's card charges are sums, not one entry: they have none. */
+export function bankId(l: any): string {
+  const [pre, n] = String(l?.ref ?? "").split(":");
+  if (!n || pre === "pos" || pre === "cardfee") return "";
+  if (pre === "expense") return `EX-${n.padStart(5, "0")}`;
+  if (pre === "wtx") return `${l.kind === "receipt" ? "WR" : "JV"}-${n}`;
+  if (pre === "coupons") return `CPN-${n}`;
+  return `${({ khata: "K", ctx: "CR", stx: "SUP", byppay: "SP", staff: "ST", bank: "BK", deposit: "DEP", wallet: "WL" } as Record<string, string>)[pre] ?? pre.toUpperCase()}-${n}`;
+}
+
 export function BankLogo({ name, size = 40 }: { name?: string | null; size?: number }) {
   const b = bankInfo(name);
   const [failed, setFailed] = useState(false);
@@ -340,6 +351,7 @@ function Statement({ acc, manage, onEdit, onClose, onChanged }: { acc: any; mana
             rows={[...data.lines, { __open: true, at: range.from, balance: data.opening } as any]} /* newest first, opening at the bottom */
             columns={[
               { label: "Date", v: (l: any) => (l.__open ? d(range.from) : new Date(l.at).toLocaleString("en-PK", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })) },
+              { label: "ID", v: (l: any) => (l.__open ? "" : bankId(l) || "din ka total") },
               { label: "Details", v: (l: any) => (l.__open ? "Opening balance" : [KIND_TAG[l.kind] ?? l.kind, l.text, l.who].filter(Boolean).join(" · ")), total: () => `${data.lines.length} entries` },
               { label: "Credit (aaya)", r: true, v: (l: any) => (!l.__open && l.amount > 0 ? pkr(l.amount) : ""), tone: () => "pos" as const, total: () => pkr(data.money_in), totalTone: "pos" as const },
               { label: "Debit (gaya)", r: true, v: (l: any) => (!l.__open && l.amount < 0 ? pkr(-l.amount) : ""), tone: () => "neg" as const, total: () => pkr(data.money_out), totalTone: "neg" as const },
@@ -359,7 +371,7 @@ function Statement({ acc, manage, onEdit, onClose, onChanged }: { acc: any; mana
             {lines.map((l: any, i: number) => (
               <li key={i} className="flex gap-3 px-3 py-2.5 text-sm">
                 <div className="min-w-0 flex-1">
-                  <div className="text-xs text-slate-500">{dt(l.at)} · <span className="font-medium text-slate-600">{KIND_TAG[l.kind] ?? l.kind}</span></div>
+                  <div className="text-xs text-slate-500">{bankId(l) ? <><IdTag id={bankId(l)} /> · </> : null}{dt(l.at)} · <span className="font-medium text-slate-600">{KIND_TAG[l.kind] ?? l.kind}</span></div>
                   <div className="break-words">{l.text} <ProofThumbs ids={l.proof_ids} /></div>
                 </div>
                 <div className="shrink-0 text-right tabular-nums">
@@ -372,11 +384,12 @@ function Statement({ acc, manage, onEdit, onClose, onChanged }: { acc: any; mana
           </ul>
           <div className="hidden max-h-[55vh] overflow-auto rounded-xl ring-1 ring-slate-200 sm:block print:hidden">
             <table className="w-full text-sm">
-              <thead className="sticky top-0 bg-white"><tr><th className="th">Date</th><th className="th">Details</th><th className="th text-right">In</th><th className="th text-right">Out</th><th className="th text-right">Balance</th></tr></thead>
+              <thead className="sticky top-0 bg-white"><tr><th className="th">Date</th><th className="th">ID</th><th className="th">Details</th><th className="th text-right">In</th><th className="th text-right">Out</th><th className="th text-right">Balance</th></tr></thead>
               <tbody>
                 {lines.map((l: any, i: number) => (
                   <tr key={i} className="border-t border-slate-100">
                     <td className="td whitespace-nowrap text-xs text-slate-500">{dt(l.at)}</td>
+                    <td className="td">{bankId(l) ? <IdTag id={bankId(l)} /> : <span className="whitespace-nowrap text-[11px] text-slate-400" title="Ye poore din ki jama line hai, ek entry nahi">din ka total</span>}</td>
                     <td className="td"><span className="mr-1 rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-medium text-slate-600">{KIND_TAG[l.kind] ?? l.kind}</span>{l.text}
                       {l.who && <span className="text-xs text-slate-400"> · {l.who}</span>} <ProofThumbs ids={l.proof_ids} />
                       {manage && l.txn_id && <button className="ml-1 align-middle text-slate-400 hover:text-red-600 print:hidden" title="Delete this entry" disabled={busy}
@@ -387,7 +400,7 @@ function Statement({ acc, manage, onEdit, onClose, onChanged }: { acc: any; mana
                     <td className="td text-right tabular-nums">{pkr(l.balance)}</td>
                   </tr>
                 ))}
-                {!lines.length && <tr><td colSpan={5} className="td py-6 text-center text-slate-500">{filtered ? "Kuch nahi mila · کچھ نہیں ملا" : "Nothing in this period"}</td></tr>}
+                {!lines.length && <tr><td colSpan={6} className="td py-6 text-center text-slate-500">{filtered ? "Kuch nahi mila · کچھ نہیں ملا" : "Nothing in this period"}</td></tr>}
               </tbody>
             </table>
           </div>

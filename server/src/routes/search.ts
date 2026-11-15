@@ -54,6 +54,10 @@ search.get("/search", requireAuth, h((req) => {
       if (r) push([{ kind: "entry", label: `DLV-${r.id} · Tanker delivery · ${r.received_l} L → ${r.tank}`, sub: `${day(r.created_at)} · ${r.supplier ?? ""}`, to: "/stock" }]); }
     if (pre === "DIP") { const r = one(can(u, "stock.manage"), "SELECT d.id, d.measured_l, d.created_at, tk.name tank FROM dip_readings d JOIN tanks tk ON tk.id=d.tank_id JOIN stations st ON st.id=tk.station_id WHERE d.id=? AND st.tenant_id=?", n, t);
       if (r) push([{ kind: "entry", label: `DIP-${r.id} · Dip · ${r.measured_l} L · ${r.tank}`, sub: day(r.created_at), to: "/stock" }]); }
+    if (pre === "BK") { const r = one(can(u, "bank.view"), "SELECT x.id, x.kind, x.amount, x.txn_date, x.account_id, x.note FROM bank_txns x WHERE x.id=? AND x.tenant_id=?", n, t);
+      if (r) push([{ kind: "entry", label: `BK-${r.id} · Bank ${r.kind}${r.note ? ` · ${r.note}` : ""}`, sub: day(r.txn_date), amount: r.amount, to: "/cash" }]); }
+    if (pre === "DEP") { const r = one(can(u, "bank.view"), "SELECT x.id, x.amount, x.created_at, x.slip_ref FROM bank_deposits x WHERE x.id=? AND x.tenant_id=?", n, t);
+      if (r) push([{ kind: "entry", label: `DEP-${r.id} · Cash deposited${r.slip_ref ? ` · slip ${r.slip_ref}` : ""}`, sub: day(r.created_at), amount: r.amount, to: "/cash" }]); }
     if (can(u, "wholesale.view")) {
       if (["BYP", "UNL", "DEL"].includes(pre)) { const r = get("SELECT id, kind, txn_date, voided, vehicle_no FROM bypass_deliveries WHERE id=? AND tenant_id=?", n, t);
         if (r) push([{ kind: "entry", label: `BYP-${r.id} · ${r.kind === "unload" ? "Tank unload" : "Bypass voucher"}${r.voided ? " (mansookh)" : ""}`, sub: `${day(r.txn_date)}${r.vehicle_no ? ` · ${r.vehicle_no}` : ""}`, to: `/wholesale?tab=trips&sub=deliveries&voucher=${r.id}` }]); }
