@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Download } from "lucide-react";
 import { useApi } from "../lib/api";
-import { Empty, ListTools, Loading, Pager, PageHeader, useListFilter, usePaged } from "../components/ui";
+import { IdTag, Empty, ListTools, Loading, Pager, PageHeader, useListFilter, usePaged } from "../components/ui";
 import { Ur } from "../components/VoiceShell";
 import { dt, num, pkr } from "../lib/format";
 import { useAuth } from "../App";
@@ -81,11 +81,11 @@ export default function SalesHistory() {
                 ))}
               </ul>
               <table className="hidden w-full min-w-[760px] text-sm sm:table">
-                <thead><tr><th className="th">Date</th><th className="th">Station</th><th className="th">Fuel</th><th className="th text-right">Litres</th><th className="th text-right">Rate</th><th className="th text-right">Amount</th><th className="th">Method</th><th className="th">Customer / gaari</th><th className="th">Slip</th><th className="th">Salesman</th></tr></thead>
+                <thead><tr><th className="th">Date</th><th className="th">ID</th><th className="th">Station</th><th className="th">Fuel</th><th className="th text-right">Litres</th><th className="th text-right">Rate</th><th className="th text-right">Amount</th><th className="th">Method</th><th className="th">Customer / gaari</th><th className="th">Slip</th><th className="th">Salesman</th></tr></thead>
                 <tbody>{paged.slice.map((r) => (
                   <tr key={r.id} className="border-t border-slate-100 hover:bg-slate-50">
                     <td className="td whitespace-nowrap">{dt(r.created_at)}{r.at_close ? <span className="ml-1 rounded bg-slate-100 px-1 text-[10px]">close</span> : null}<LateBadge at={r.created_at} typed={r.entered_at} className="ml-1" /></td>
-                    <td className="td">{r.station_name}</td><td className="td">{PRODUCT[r.product] ?? r.product}</td>
+                    <td className="td"><IdTag id={`S-${r.id}`} /></td><td className="td">{r.station_name}</td><td className="td">{PRODUCT[r.product] ?? r.product}</td>
                     <td className="td text-right tabular-nums">{num(r.litres, 2)}</td><td className="td text-right tabular-nums">{r.rate}</td>
                     <td className="td text-right font-semibold tabular-nums">{pkr(r.amount)}{r.discount ? <span className="block text-[10px] font-normal text-rose-600">disc {pkr(r.discount)}</span> : null}</td>
                     <td className="td">{r.payment_method}</td>

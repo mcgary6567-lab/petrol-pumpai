@@ -1,11 +1,11 @@
 import { BypassPnl } from "../components/BypassPnl";
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { askCancel, pinHeader } from "../components/CancelEntry";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell } from "recharts";
 import { Plus, Truck, Fuel, Factory, Download, Printer, HandCoins, Ban, Pencil } from "lucide-react";
 import { api, linkToken, useApi } from "../lib/api";
-import { Empty, ErrorBox, Field, ListTools, Loading, Modal, Pager, Stat, useAction, useListFilter, usePaged } from "../components/ui";
+import { IdTag, Empty, ErrorBox, Field, ListTools, Loading, Modal, Pager, Stat, useAction, useListFilter, usePaged } from "../components/ui";
 import { PRODUCTS, activeProducts, newestFirst, dt, num, phone, pkr, pkrShort } from "../lib/format";
 import { useAuth } from "../App";
 import { ProofPhotos, ProofThumbs } from "../components/Capture";
@@ -37,6 +37,9 @@ export function BypassPanel({ section = "all" }: { section?: BypassSection }) {
   const monthly = useApi<any[]>("/bypass/monthly?months=6");
   const [openSup, setOpenSup] = useState<number | null>(null);
   const [voucher, setVoucher] = useState<number | null>(null);
+  // ?voucher=185 (from the search box / a link) opens that voucher straight away
+  const [sp] = useSearchParams();
+  useEffect(() => { const v = Number(sp.get("voucher")); if (v > 0) setVoucher(v); }, [sp]);
   const refresh = () => { sups.reload(); dels.reload(); stock.reload(); monthly.reload(); };
   const owedTotal = (sups.data ?? []).reduce((a, s) => a + (s.bypass_owed > 0 ? s.bypass_owed : 0), 0);
   const stockLines = (stock.data?.by_product ?? []) as any[];
@@ -673,6 +676,7 @@ function SupplierStatement({ id, onClose, onChanged }: { id: number; onClose: ()
   const csvUrl = `/api/bypass/suppliers/${id}/statement.csv?${qs ? qs + "&" : ""}token=${linkToken()}`;
   const s = data?.supplier;
   const allLines: any[] = newestFirst(data?.lines); // newest first, opening balance at the bottom
+  const [lineVoucher, setLineVoucher] = useState<number | null>(null); // a bill line's voucher opened in place
   const KIND_LABEL: Record<string, string> = { purchase: "Fuel bought", payment: "Payment", adjustment: "Adjustment" };
   const kindChips = [{ k: "", label: "All", n: allLines.length }, ...Array.from(new Set(allLines.map((l) => String(l.kind)))).map((k) => ({ k, label: KIND_LABEL[k] ?? k, n: allLines.filter((l) => l.kind === k).length }))];
   const lines = useListFilter(allLines, { q, keep: (l) => !kind || l.kind === kind,
@@ -699,13 +703,14 @@ function SupplierStatement({ id, onClose, onChanged }: { id: number; onClose: ()
           <ListTools q={q} onQ={setQ} placeholder="Ref / fuel / method… · تلاش" chips={kindChips} chip={kind} onChip={setKind} shown={lines.length} total={allLines.length} />
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead><tr className="border-b text-left text-xs text-slate-500"><th className="py-2">Date</th><th>Entry</th><th className="text-right">We owe</th><th className="text-right">Paid</th><th className="text-right">Balance</th>{can("wholesale.void") && <th></th>}</tr></thead>
+              <thead><tr className="border-b text-left text-xs text-slate-500"><th className="py-2">Date</th><th>ID</th><th>Entry</th><th className="text-right">We owe</th><th className="text-right">Paid</th><th className="text-right">Balance</th>{can("wholesale.void") && <th></th>}</tr></thead>
               <tbody>
-                <tr className="border-b-2 font-bold"><td className="py-2" colSpan={4}>Closing (we owe)</td><td className="text-right tabular-nums">{pkr(data.closing_balance)}</td>{can("wholesale.void") && <td></td>}</tr>
-                {allLines.length > 0 && !lines.length && <tr><td colSpan={5} className="py-4 text-center text-slate-500">Kuch nahi mila · کچھ نہیں ملا</td></tr>}
+                <tr className="border-b-2 font-bold"><td className="py-2" colSpan={5}>Closing (we owe)</td><td className="text-right tabular-nums">{pkr(data.closing_balance)}</td>{can("wholesale.void") && <td></td>}</tr>
+                {allLines.length > 0 && !lines.length && <tr><td colSpan={6} className="py-4 text-center text-slate-500">Kuch nahi mila · کچھ نہیں ملا</td></tr>}
                 {lines.map((l: any) => (
                   <tr key={`${l.kind}-${l.id}`} className="border-b">
                     <td className="py-2 whitespace-nowrap">{dt(l.txn_date)}</td>
+                    <td className="pr-2">{l.kind === "purchase" && l.voucher_id ? <button type="button" className="font-mono text-[11px] font-semibold text-brand-700 underline" title="Voucher kholein" onClick={() => setLineVoucher(l.voucher_id)}>BYP-{l.voucher_id}</button> : <IdTag id={l.kind === "purchase" ? `BP-${l.id}` : `SP-${l.id}`} />}</td>
                     <td><span className="flex flex-wrap items-center gap-1">{l.kind === "purchase" ? `Bypass fuel${l.litres ? ` · ${num(l.litres)} L ${PRODUCTS[l.product] ?? l.product} @ ${l.cost_rate}` : ""}` : `Payment${l.mode && l.mode !== "we_pay" ? ` · ${l.mode}` : ""}${l.method ? ` · ${l.method}` : ""}`}{l.ref ? <span className="text-xs text-slate-400"> · {l.ref}</span> : ""}<ProofThumbs ids={l.proof_ids} onChanged={refresh} /></span></td>
                     <td className="text-right tabular-nums text-rose-600">{l.debit ? pkr(l.debit) : ""}</td>
                     <td className="text-right tabular-nums text-emerald-600">{l.credit ? pkr(l.credit) : ""}</td>
@@ -716,13 +721,14 @@ function SupplierStatement({ id, onClose, onChanged }: { id: number; onClose: ()
                     </td>}
                   </tr>
                 ))}
-                <tr className="border-t bg-slate-50"><td className="py-2" colSpan={4}>Opening</td><td className="text-right tabular-nums">{pkr(data.opening_balance)}</td>{can("wholesale.void") && <td></td>}</tr>
+                <tr className="border-t bg-slate-50"><td className="py-2" colSpan={5}>Opening</td><td className="text-right tabular-nums">{pkr(data.opening_balance)}</td>{can("wholesale.void") && <td></td>}</tr>
               </tbody>
             </table>
           </div>
         </div>
       )}
       {pay && <PaySupplier id={id} owed={s?.bypass_owed ?? 0} onClose={() => setPay(false)} onDone={() => { setPay(false); refresh(); }} />}
+      {lineVoucher != null && <BypassVoucher id={lineVoucher} onClose={() => { setLineVoucher(null); refresh(); }} />}
       {edit && <EditBypassPurchase x={{ ...edit, supplier_name: s?.name, client_fuel: edit.client_fuel || s?.client_id }} onClose={() => setEdit(null)} onDone={() => { setEdit(null); refresh(); }} />}
     </Modal>
   );

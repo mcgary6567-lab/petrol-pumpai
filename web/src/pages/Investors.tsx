@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { askCancel, pinHeader } from "../components/CancelEntry";
 import { api, useApi } from "../lib/api";
-import { Field, ListTools, Loading, Modal, Pager, PageHeader, Stat, useAction, useListFilter, usePaged } from "../components/ui";
+import { IdTag, Field, ListTools, Loading, Modal, Pager, PageHeader, Stat, useAction, useListFilter, usePaged } from "../components/ui";
 import { AccountPicker, BankNamePicker } from "../components/BankParts";
 import { PortalCard } from "../components/PortalCard";
 import { PrintListButton } from "../components/PrintList";
@@ -252,10 +252,11 @@ function InvestorDetail({ id, onBack, onEdit, form, setForm }: { id: number; onB
         <div className="card mb-4 p-4">
           <h2 className="mb-2 font-semibold">Transfers · <Ur>منتقلی</Ur> <span className="text-xs font-normal text-slate-500">supplier / client ka hisab ↔ investor ka khata</span></h2>
           <table className="w-full text-sm">
-            <thead><tr><th className="th">Tareekh</th><th className="th">Rukh</th><th className="th">Party</th><th className="th text-right">Amount</th><th className="th">Kaise</th><th className="th">Note</th><th className="th"></th></tr></thead>
+            <thead><tr><th className="th">Tareekh</th><th className="th">ID</th><th className="th">Rukh</th><th className="th">Party</th><th className="th text-right">Amount</th><th className="th">Kaise</th><th className="th">Note</th><th className="th"></th></tr></thead>
             <tbody>{data.transfers.map((x: any) => (
               <tr key={x.id} className={x.voided ? "text-slate-400 line-through" : ""}>
                 <td className="td whitespace-nowrap text-xs">{dt(x.txn_date).slice(0, 11)}</td>
+                <td className="td"><IdTag id={`IT-${x.id}`} /></td>
                 <td className="td text-xs">{XFER_DIR[x.direction]?.short ?? x.direction}{x.purpose === "profit" ? " (munafa)" : ""}</td>
                 <td className="td">{x.party_name} <span className="text-xs text-slate-500">({x.party_type === "khata" ? "khata" : x.party_type})</span></td>
                 <td className="td text-right tabular-nums">{pkr(x.amount)}</td>
@@ -310,11 +311,12 @@ function InvestorDetail({ id, onBack, onEdit, form, setForm }: { id: number; onB
         </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[860px] text-sm">
-            <thead><tr><th className="th">Tareekh</th><th className="th">Kism</th><th className="th">Kaise</th><th className="th">Tafseel</th><th className="th text-right">Debit</th><th className="th text-right">Credit</th><th className="th text-right">Balance</th><th className="th"></th></tr></thead>
+            <thead><tr><th className="th">Tareekh</th><th className="th">ID</th><th className="th">Kism</th><th className="th">Kaise</th><th className="th">Tafseel</th><th className="th text-right">Debit</th><th className="th text-right">Credit</th><th className="th text-right">Balance</th><th className="th"></th></tr></thead>
             <tbody>
               {paged.slice.map((x: any) => (
                 <tr key={x.id} className={`border-t ${x.voided ? "text-slate-400 line-through" : ""}`}>
                   <td className="td whitespace-nowrap text-xs">{dt(x.created_at)}</td>
+                  <td className="td"><IdTag id={`IV-${x.id}`} /></td>
                   <td className="td"><span className={`whitespace-nowrap rounded-md px-1.5 py-0.5 text-[11px] font-semibold ${TYPE[x.type]?.cls ?? ""}`}>{TYPE[x.type]?.en ?? x.type}</span></td>
                   <td className="td whitespace-nowrap text-xs text-slate-700">{how(x)}</td>
                   <td className="td text-xs text-slate-600">{describe(x)}{x.voided ? ` — mansookh: ${x.void_reason ?? ""}` : ""}</td>
@@ -324,10 +326,10 @@ function InvestorDetail({ id, onBack, onEdit, form, setForm }: { id: number; onB
                   <td className="td text-right">{!x.voided && (x.type === "capital_in" || x.type === "payout" || x.method === "Opening" || x.method === "Manual") && <button className="text-slate-400 hover:text-rose-600" onClick={() => voidTxn(x)} aria-label="Mansookh"><Ban size={15} /></button>}</td>
                 </tr>
               ))}
-              <tr className="bg-slate-50 text-xs"><td className="td" colSpan={6}>Opening balance</td><td className="td text-right font-semibold tabular-nums">{pkr(data.opening)}</td><td className="td"></td></tr>
+              <tr className="bg-slate-50 text-xs"><td className="td" colSpan={7}>Opening balance</td><td className="td text-right font-semibold tabular-nums">{pkr(data.opening)}</td><td className="td"></td></tr>
             </tbody>
             <tfoot><tr className="border-t-2 border-slate-300 bg-slate-50 font-semibold tabular-nums">
-              <td className="td" colSpan={4}>Kul · closing balance</td>
+              <td className="td" colSpan={5}>Kul · closing balance</td>
               <td className="td text-right text-rose-700">{pkr(data.totals.debit)}</td><td className="td text-right text-emerald-700">{pkr(data.totals.credit)}</td>
               <td className="td text-right">{pkr(data.closing)}</td><td className="td"></td>
             </tr></tfoot>

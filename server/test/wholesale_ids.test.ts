@@ -96,3 +96,18 @@ test("every wholesale entry has an ID: a stand-alone tank unload gets its own vo
   assert.equal(p2.ok, false); assert.match(p2.blockers.join(" "), /bik chuke/);
   assert.equal((await call("wholesale", "POST", `/api/vouchers/bypass/${buy2.id}/void`, { reason: "koshish" })).status, 400);
 });
+
+test("the search box finds an entry by the ID its list shows (and only for a role that may see it)", async () => {
+  const hit = async (who: string, q: string) => (ok(await call(who, "GET", `/api/search?q=${encodeURIComponent(q)}`), q).hits as any[]).filter((x) => x.kind === "entry");
+  const sale = db.get("SELECT s.id FROM sales s ORDER BY s.id DESC LIMIT 1")!.id as number;
+  assert.equal((await hit("admin", `S-${sale}`))[0].to, `/sales-history?id=${sale}`);
+  const k = db.get("SELECT k.id, k.customer_id FROM khata_ledger k ORDER BY k.id DESC LIMIT 1")!;
+  assert.equal((await hit("admin", `k ${k.id}`))[0].to, `/customers/${k.customer_id}`);
+  const ex = db.get("SELECT id FROM expenses ORDER BY id LIMIT 1")!.id as number;
+  assert.match((await hit("admin", `EX-${String(ex).padStart(5, "0")}`))[0].label, /^EX-0/);
+  assert.deepEqual(await hit("salesman", `EX-${ex}`), [], "a salesman does not see expenses");
+  assert.deepEqual(await hit("wholesale", `S-${sale}`), [], "the wholesale officer does not see pump sales");
+  const byp = db.get("SELECT id FROM bypass_deliveries ORDER BY id LIMIT 1")!.id as number;
+  assert.equal((await hit("wholesale", `BYP-${byp}`))[0].to, `/wholesale?tab=trips&sub=deliveries&voucher=${byp}`);
+  assert.deepEqual(await hit("admin", "S-999999999"), []);
+});

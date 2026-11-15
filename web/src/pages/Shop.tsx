@@ -9,7 +9,7 @@ import { api, useApi } from "../lib/api";
 import { useAuth } from "../App";
 import { AccountPicker } from "../components/BankParts";
 import { ProofPhotos, ProofThumbs } from "../components/Capture";
-import { Badge, Empty, Field, ListTools, Loading, Modal, Pager, PageHeader, Stat, matchQuery, useAction, usePaged } from "../components/ui";
+import { IdTag, Badge, Empty, Field, ListTools, Loading, Modal, Pager, PageHeader, Stat, matchQuery, useAction, usePaged } from "../components/ui";
 import { dt, num, pkr } from "../lib/format";
 
 import { labelMap, useLookups } from "../lib/lookups";
@@ -386,8 +386,8 @@ function Moves({ item, onClose }: { item: any; onClose: () => void }) {
   return (
     <Modal open onClose={onClose} title={`Stock history — ${item.name}`} wide>
       {!data ? <Loading /> : <div className="max-h-[60vh] overflow-auto"><table className="w-full">
-        <thead><tr><th className="th">When</th><th className="th">Type</th><th className="th text-right">Qty</th><th className="th">Note</th><th className="th">By</th></tr></thead>
-        <tbody>{data.map((m) => <tr key={m.id}><td className="td text-xs">{dt(m.created_at)}</td><td className="td text-sm capitalize">{m.type}</td><td className={`td text-right tabular-nums ${m.qty < 0 ? "text-red-600" : "text-emerald-700"}`}>{m.qty > 0 ? "+" : ""}{num(m.qty, 2)}</td><td className="td text-sm text-slate-600">{m.note ?? m.ref ?? ""} <ProofThumbs ids={m.proof_ids} /></td><td className="td text-xs">{m.created_by}</td></tr>)}</tbody>
+        <thead><tr><th className="th">When</th><th className="th">ID</th><th className="th">Type</th><th className="th text-right">Qty</th><th className="th">Note</th><th className="th">By</th></tr></thead>
+        <tbody>{data.map((m) => <tr key={m.id}><td className="td text-xs">{dt(m.created_at)}</td><td className="td"><IdTag id={`SM-${m.id}`} /></td><td className="td text-sm capitalize">{m.type}</td><td className={`td text-right tabular-nums ${m.qty < 0 ? "text-red-600" : "text-emerald-700"}`}>{m.qty > 0 ? "+" : ""}{num(m.qty, 2)}</td><td className="td text-sm text-slate-600">{m.note ?? m.ref ?? ""} <ProofThumbs ids={m.proof_ids} /></td><td className="td text-xs">{m.created_by}</td></tr>)}</tbody>
       </table></div>}
     </Modal>
   );

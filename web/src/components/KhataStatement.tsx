@@ -3,7 +3,7 @@ import { Download, Printer, Send, QrCode, ExternalLink } from "lucide-react";
 import { api, linkToken, useApi } from "../lib/api";
 import { ProofThumbs } from "./Capture";
 import { PortalCard } from "./PortalCard";
-import { Field, ListTools, Loading, Modal, useAction, useListFilter, useNewRows } from "./ui";
+import { IdTag, Field, ListTools, Loading, Modal, useAction, useListFilter, useNewRows } from "./ui";
 import { WhatsAppDoc } from "./WhatsAppDoc";
 import { PRODUCTS, newestFirst, num, phone, pkr } from "../lib/format";
 
@@ -122,11 +122,12 @@ export default function KhataStatement({ customerId, onClose }: { customerId: nu
           </ul>
           <div className="hidden max-h-[55vh] overflow-auto rounded-lg border border-slate-200 sm:block print:block print:max-h-none">
             <table className="w-full">
-              <thead className="sticky top-0"><tr>{["Date & time", ...(cols.vehicle ? ["Vehicle"] : []), ...(cols.slip ? ["Slip no."] : []), "Fuel", "Litres", "Rate / L", billOnly ? "Amount" : "Charged", ...(billOnly ? [] : ["Paid", "Balance"])].map((h) => <th key={h} className={`th whitespace-nowrap ${["Litres", "Rate / L", "Charged", "Paid", "Balance"].includes(h) ? "text-right" : ""}`}>{h}</th>)}</tr></thead>
+              <thead className="sticky top-0"><tr>{["Date & time", "ID", ...(cols.vehicle ? ["Vehicle"] : []), ...(cols.slip ? ["Slip no."] : []), "Fuel", "Litres", "Rate / L", billOnly ? "Amount" : "Charged", ...(billOnly ? [] : ["Paid", "Balance"])].map((h) => <th key={h} className={`th whitespace-nowrap ${["Litres", "Rate / L", "Charged", "Paid", "Balance"].includes(h) ? "text-right" : ""}`}>{h}</th>)}</tr></thead>
               <tbody>
                 {lines.map((l: any) => (
                   <tr key={l.id} className={fresh.has(l.id) ? "row-new" : ""}>
                     <td className="td whitespace-nowrap text-xs">{new Date(l.created_at).toLocaleString("en-PK", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}</td>
+                    <td className="td"><IdTag id={`K-${l.id}`} /></td>
                     {cols.vehicle && <td className="td text-xs">{l.vehicle_no ?? "—"}</td>}
                     {cols.slip && <td className="td text-xs font-medium">{l.slip_no ?? (l.type === "credit" ? l.ref ?? "Payment" : "—")}</td>}
                     <td className="td whitespace-nowrap text-sm">{l.product ? PRODUCTS[l.product] : l.type === "credit" ? <span className="text-emerald-700">Payment</span> : l.note} <span className="print:hidden"><ProofThumbs ids={l.proof_ids} /></span></td>
@@ -138,7 +139,7 @@ export default function KhataStatement({ customerId, onClose }: { customerId: nu
                   </tr>
                 ))}
               </tbody>
-              {billOnly && lines.length > 0 && <tfoot><tr><td className="td font-semibold" colSpan={3 + (cols.vehicle ? 1 : 0) + (cols.slip ? 1 : 0)}>Total · {lines.length} entries</td><td className="td text-right tabular-nums font-semibold">{num(lines.reduce((a: number, l: any) => a + (l.litres ?? 0), 0), 2)}</td><td className="td"></td><td className="td text-right tabular-nums font-semibold text-rose-700">{pkr(lines.reduce((a: number, l: any) => a + l.amount, 0))}</td></tr></tfoot>}
+              {billOnly && lines.length > 0 && <tfoot><tr><td className="td font-semibold" colSpan={4 + (cols.vehicle ? 1 : 0) + (cols.slip ? 1 : 0)}>Total · {lines.length} entries</td><td className="td text-right tabular-nums font-semibold">{num(lines.reduce((a: number, l: any) => a + (l.litres ?? 0), 0), 2)}</td><td className="td"></td><td className="td text-right tabular-nums font-semibold text-rose-700">{pkr(lines.reduce((a: number, l: any) => a + l.amount, 0))}</td></tr></tfoot>}
             </table>
             {!lines.length && <div className="p-6 text-center text-sm text-slate-500">{narrowed ? "No entries match this filter" : "No entries in this period"}</div>}
           </div>

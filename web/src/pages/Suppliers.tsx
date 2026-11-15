@@ -15,7 +15,7 @@ import { VoucherVoidModal } from "../components/VoucherVoid";
 import { api, linkToken, useApi } from "../lib/api";
 import { ProofPhotos, ProofThumbs } from "../components/Capture";
 import { AccountPicker } from "../components/BankParts";
-import { Badge, Empty, Field, ListTools, Loading, Modal, PageHeader, Pager, PhoneInput, SearchBar, Stat, matchQuery, useAction, useListFilter, usePaged } from "../components/ui";
+import { IdTag, Badge, Empty, Field, ListTools, Loading, Modal, PageHeader, Pager, PhoneInput, SearchBar, Stat, matchQuery, useAction, useListFilter, usePaged } from "../components/ui";
 import { WhatsAppDoc } from "../components/WhatsAppDoc";
 import { Ur } from "../components/VoiceShell";
 import { PRODUCTS, ago, d, dt, num, phone, pkr, pkrShort } from "../lib/format";
@@ -300,11 +300,11 @@ function SupplierDetail({ id, onClose, onChanged, depots, onDepots }: { id: numb
               <div className="text-right text-sm">We owe: <b className="tabular-nums">{pkr(s.total_owed ?? s.owed)}</b><div className="text-xs text-slate-500">{Math.abs(s.bypass_owed ?? 0) > 0.5 ? `pump ${pkr(s.owed)} · bypass ${pkr(s.bypass_owed)} · ` : ""}as on {dt(new Date().toISOString())}</div></div>
             </div>
             <table className="mt-2 w-full">
-              <thead><tr><th className="th">Date</th><th className="th">Entry</th><th className="th">Gaari</th><th className="th">Fuel</th><th className="th text-right">Litres</th><th className="th text-right">Rate</th><th className="th">Tafseel</th><th className="th text-right">Purchased</th><th className="th text-right">Paid</th><th className="th text-right">We owe</th></tr></thead>
+              <thead><tr><th className="th">Date</th><th className="th">ID</th><th className="th">Entry</th><th className="th">Gaari</th><th className="th">Fuel</th><th className="th text-right">Litres</th><th className="th text-right">Rate</th><th className="th">Tafseel</th><th className="th text-right">Purchased</th><th className="th text-right">Paid</th><th className="th text-right">We owe</th></tr></thead>
               <tbody>
                 {s.lines.map((t: any) => ( /* newest first, like the screen */
                   <tr key={t.id}>
-                    <td className="td whitespace-nowrap">{d(t.txn_date)}</td><td className="td capitalize">{t.type}{t.source === "bypass" ? " (bypass)" : ""}</td>
+                    <td className="td whitespace-nowrap">{d(t.txn_date)}</td><td className="td whitespace-nowrap">{supId(t)}</td><td className="td capitalize">{t.type}{t.source === "bypass" ? " (bypass)" : ""}</td>
                     <td className="td whitespace-nowrap">{t.vehicle_no ?? ""}{t.driver_name ? <span className="block text-[10px] text-slate-500">{t.driver_name}</span> : null}</td>
                     <td className="td">{t.product ? PRODUCTS[t.product] ?? t.product : ""}</td>
                     <td className="td whitespace-nowrap text-right tabular-nums">{t.litres ? num(t.litres, t.litres % 1 ? 2 : 0) : ""}</td>
@@ -314,8 +314,8 @@ function SupplierDetail({ id, onClose, onChanged, depots, onDepots }: { id: numb
                     <td className="td whitespace-nowrap text-right tabular-nums text-emerald-700">{t.credit ? pkr(t.credit) : ""}</td>
                     <td className="td whitespace-nowrap text-right tabular-nums">{pkr(t.balance)}</td>
                   </tr>))}
-                <tr><td className="td" colSpan={9}>Opening balance</td><td className="td whitespace-nowrap text-right tabular-nums">{pkr(s.opening_balance ?? 0)}</td></tr>
-                <tr className="font-bold"><td className="td border-t-2 border-slate-800" colSpan={4}>Closing balance (we owe)</td>
+                <tr><td className="td" colSpan={10}>Opening balance</td><td className="td whitespace-nowrap text-right tabular-nums">{pkr(s.opening_balance ?? 0)}</td></tr>
+                <tr className="font-bold"><td className="td border-t-2 border-slate-800" colSpan={5}>Closing balance (we owe)</td>
                 <td className="td border-t-2 border-slate-800 whitespace-nowrap text-right tabular-nums">{num(s.lines.reduce((a: number, t: any) => a + (t.type === "purchase" ? t.litres ?? 0 : 0), 0))} L</td>
                 <td className="td border-t-2 border-slate-800" colSpan={2} />
                 <td className="td border-t-2 border-slate-800 whitespace-nowrap text-right tabular-nums text-rose-700">{pkr(s.lines.reduce((a: number, t: any) => a + t.debit, 0))}</td>
@@ -380,16 +380,17 @@ function SupplierDetail({ id, onClose, onChanged, depots, onDepots }: { id: numb
             </ul>
             <div className="hidden overflow-x-auto sm:block">
             <table className="w-full min-w-[900px]">
-              <thead className="sticky top-0"><tr><th className="th">Date</th><th className="th">Entry</th><th className="th">Gaari · driver</th><th className="th">Fuel</th><th className="th text-right">Litres</th><th className="th text-right">Rate</th><th className="th">Tafseel</th><th className="th text-right">Purchased</th><th className="th text-right">Paid</th><th className="th text-right">We owe</th><th className="th" /></tr></thead>
+              <thead className="sticky top-0"><tr><th className="th">Date</th><th className="th">ID</th><th className="th">Entry</th><th className="th">Gaari · driver</th><th className="th">Fuel</th><th className="th text-right">Litres</th><th className="th text-right">Rate</th><th className="th">Tafseel</th><th className="th text-right">Purchased</th><th className="th text-right">Paid</th><th className="th text-right">We owe</th><th className="th" /></tr></thead>
               <tbody>{lines.map((t: any) => (
                 <tr key={t.id}>
                   <td className="td whitespace-nowrap text-xs">{dt(t.txn_date)}</td>
+                  <td className="td"><IdTag id={supId(t)} /></td>
                   <td className="td"><Badge tone={t.type === "purchase" ? "blue" : t.type === "payment" ? "green" : "violet"}>{t.type}</Badge>{t.source === "bypass" && <> <Badge tone="amber">bypass</Badge></>}</td>
                   <td className="td text-xs">{t.vehicle_no ? <b className="whitespace-nowrap font-semibold text-slate-800">🚛 {t.vehicle_no}</b> : <span className="text-slate-300">—</span>}{t.driver_name && <span className="block text-slate-500">{t.driver_name}</span>}</td>
                   <td className="td whitespace-nowrap text-xs">{t.product ? PRODUCTS[t.product] ?? t.product : ""}</td>
                   <td className="td whitespace-nowrap text-right text-xs tabular-nums">{t.litres ? `${num(t.litres, t.litres % 1 ? 2 : 0)} L` : ""}</td>
                   <td className="td whitespace-nowrap text-right text-xs tabular-nums">{t.rate ? `Rs ${num(t.rate, 2)}` : ""}</td>
-                  <td className="td min-w-[180px] text-xs">{t.source === "bypass" ? <span className="mr-1.5 whitespace-nowrap font-mono text-[11px] font-semibold text-brand-700" title="Entry ID — Wholesale → ID se dhoondein">{t.type === "purchase" ? (t.voucher_id ? `BYP-${t.voucher_id}` : `BP-${String(t.id).replace(/^b/, "")}`) : `SP-${String(t.id).replace(/^b/, "").replace(/^p/, "")}`}</span> : null}{t.type === "payment" && t.method ? <span className="font-medium">{t.method}{t.account_name ? ` · ${t.account_name}` : ""}</span> : null} <span className="text-slate-500">{[t.ref !== t.vehicle_no ? t.ref : null, t.note].filter(Boolean).join(" · ")}</span> <ProofThumbs ids={t.proof_ids} /></td>
+                  <td className="td min-w-[180px] text-xs">{t.type === "payment" && t.method ? <span className="font-medium">{t.method}{t.account_name ? ` · ${t.account_name}` : ""}</span> : null} <span className="text-slate-500">{[t.ref !== t.vehicle_no ? t.ref : null, t.note].filter(Boolean).join(" · ")}</span> <ProofThumbs ids={t.proof_ids} /></td>
                   <td className="td whitespace-nowrap text-right tabular-nums text-rose-700">{t.debit ? pkr(t.debit) : ""}</td>
                   <td className="td whitespace-nowrap text-right tabular-nums text-emerald-700">{t.credit ? pkr(t.credit) : ""}</td>
                   <td className="td whitespace-nowrap text-right font-medium tabular-nums">{pkr(t.balance)}</td>
@@ -414,6 +415,8 @@ function SupplierDetail({ id, onClose, onChanged, depots, onDepots }: { id: numb
   );
 }
 
+/** A supplier-statement line's entry number: bypass bill → its voucher (BYP-n) or BP-n, bypass payment → SP-n, pump side → SUP-n. */
+const supId = (t: any) => { const raw = String(t.id).replace(/^b/, ""); return t.source === "bypass" ? (t.type === "purchase" ? (t.voucher_id ? `BYP-${t.voucher_id}` : `BP-${raw}`) : `SP-${raw}`) : `SUP-${t.id}`; };
 /** Void one statement line with a reason (CEO). Pump-side rows go through Corrections; bypass rows through the Bypass void routes. */
 function VoidLine({ t, supplier, onClose, onDone }: { t: any; supplier: string; onClose: () => void; onDone: () => void }) {
   const { busy, run } = useAction();

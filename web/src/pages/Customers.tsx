@@ -11,7 +11,7 @@ import { KhataBulkRateButton } from "../components/KhataBulkRate";
 import { PartyAdmin } from "../components/PartyAdmin";
 
 import { api, useApi } from "../lib/api";
-import { Badge, CnicInput, Empty, ErrorBox, Field, ListTools, Loading, Modal, PageHeader, Pager, PhoneInput, Stat, statusTone, useAction, useListFilter, usePaged } from "../components/ui";
+import { IdTag, Badge, CnicInput, Empty, ErrorBox, Field, ListTools, Loading, Modal, PageHeader, Pager, PhoneInput, Stat, statusTone, useAction, useListFilter, usePaged } from "../components/ui";
 import { PRODUCTS, ago, d, dt, num, phone, pkr } from "../lib/format";
 import { useAuth } from "../App";
 import { OpeningBalanceField, type AdvanceReceipt } from "../components/OpeningBalanceField";
@@ -286,10 +286,10 @@ function CustomerDetail({ id, onClose, onChanged }: { id: string; onClose: () =>
                   ))}
                 </ul>
                 <table className="hidden w-full min-w-[820px] sm:table">
-                  <thead className="sticky top-0"><tr><th className="th">Date</th><th className="th">Gaari</th><th className="th">Slip</th><th className="th">Fuel</th><th className="th text-right">Litres</th><th className="th text-right">Rate</th><th className="th">Tafseel</th><th className="th text-right">Charge</th><th className="th text-right">Paid</th><th className="th print:hidden" /></tr></thead>
+                  <thead className="sticky top-0"><tr><th className="th">Date</th><th className="th">ID</th><th className="th">Gaari</th><th className="th">Slip</th><th className="th">Fuel</th><th className="th text-right">Litres</th><th className="th text-right">Rate</th><th className="th">Tafseel</th><th className="th text-right">Charge</th><th className="th text-right">Paid</th><th className="th print:hidden" /></tr></thead>
                   <tbody>
                   {ledger.map((l: any) => (
-                    <tr key={l.id}><td className="td whitespace-nowrap text-xs text-slate-500">{d(l.created_at)}</td>
+                    <tr key={l.id}><td className="td whitespace-nowrap text-xs text-slate-500">{d(l.created_at)}</td><td className="td"><IdTag id={`K-${l.id}`} /></td>
                       <td className="td whitespace-nowrap text-xs">{l.vehicle_no ? <b className="font-semibold text-slate-800">🚛 {l.vehicle_no}</b> : <span className="text-slate-300">—</span>}</td>
                       <td className="td whitespace-nowrap text-xs">{l.slip_no ?? ""}</td>
                       <td className="td whitespace-nowrap text-xs">{l.product ? PRODUCTS[l.product] ?? l.product : ""}</td>

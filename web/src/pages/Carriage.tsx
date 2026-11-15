@@ -7,7 +7,7 @@ import { PrintListButton } from "../components/PrintList";
 import { PartyAdmin } from "../components/PartyAdmin";
 
 import { api, linkToken, useApi } from "../lib/api";
-import { Badge, CnicInput, Empty, ErrorBox, Field, FilterChips, ListTools, Loading, Modal, PageHeader, Pager, PhoneInput, useAction, useListFilter, usePaged } from "../components/ui";
+import { IdTag, Badge, CnicInput, Empty, ErrorBox, Field, FilterChips, ListTools, Loading, Modal, PageHeader, Pager, PhoneInput, useAction, useListFilter, usePaged } from "../components/ui";
 import { WhatsAppDoc } from "../components/WhatsAppDoc";
 import { PRODUCTS, activeProducts, newestFirst, dt, num, pkr, pkrShort } from "../lib/format";
 import { useAuth } from "../App";
@@ -211,7 +211,7 @@ function Statement({ data, canVoid, canEdit, onChanged }: { data: any; canVoid: 
         <li key={`${r.type}-${r.id}`} className={`flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 text-sm ${r.voided ? "opacity-40 line-through print:hidden" : ""} ${r.type === "fuel_note" ? "bg-slate-50/60" : ""}`}>
           <div className="min-w-0 flex-1">
             <div className="font-medium">{label(r)}</div>
-            <div className="flex flex-wrap items-center gap-1 text-xs text-slate-400">{dt(r.txn_date)}{r.note && r.type !== "adjustment" ? ` · ${r.note}` : ""}<ProofThumbs ids={r.proof_ids} onChanged={onChanged} /></div>
+            <div className="flex flex-wrap items-center gap-1 text-xs text-slate-400">{r.type !== "fuel_note" && <IdTag id={`CR-${r.id}`} />}{dt(r.txn_date)}{r.note && r.type !== "adjustment" ? ` · ${r.note}` : ""}<ProofThumbs ids={r.proof_ids} onChanged={onChanged} /></div>
           </div>
           <div className="w-24 text-right tabular-nums text-rose-600">{r.debit ? pkr(r.debit) : ""}</div>
           <div className="w-24 text-right tabular-nums text-emerald-600">{r.credit ? pkr(r.credit) : ""}</div>

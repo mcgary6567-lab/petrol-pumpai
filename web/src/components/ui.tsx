@@ -318,3 +318,6 @@ export function useNewRows<T>(rows: T[] | null | undefined, keyOf: (r: T) => str
   }, [rows]);
   return fresh;
 }
+
+/** The entry's own number, the same in every list, statement and print — what "ID se dhoondein" takes. */
+export const IdTag = ({ id }: { id: string | number | null | undefined }) => (id == null || id === "" ? null : <span className="whitespace-nowrap font-mono text-xs font-semibold text-slate-700" title="Entry ID — isi number se dhoond sakte hain">{id}</span>);

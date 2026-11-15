@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { askCancel, pinHeader } from "./CancelEntry";
 import { AlertTriangle, CheckCircle2, Printer, Trash2, Pencil } from "lucide-react";
 import { api, useApi } from "../lib/api";
-import { Field, Loading, Modal, useAction } from "./ui";
+import { IdTag, Field, Loading, Modal, useAction } from "./ui";
 import { WhatsAppDoc } from "./WhatsAppDoc";
 import { PhotoButton, ProofThumbs, PhotoThumb } from "./Capture";
 import { PRODUCTS, ago, dt, num, pkr } from "../lib/format";
@@ -506,11 +506,11 @@ function ShiftSales({ shiftId }: { shiftId: number }) {
       <h3 className="mb-1 font-semibold">Sales in this shift · <span lang="ur" dir="rtl" className="font-urdu">اس شفٹ کی سیلز</span> <span className="text-xs font-normal text-slate-500">{rows.length} entries</span></h3>
       <div className="max-h-72 overflow-auto rounded-lg border border-slate-200">
         <table className="w-full text-sm">
-          <thead className="sticky top-0 bg-slate-50 text-left text-xs text-slate-500"><tr><th className="px-2 py-1">Time</th><th className="px-2 py-1">Fuel</th><th className="px-2 py-1 text-right">Litres</th><th className="px-2 py-1 text-right">Rs</th><th className="px-2 py-1">How</th><th className="px-2 py-1">Customer / vehicle</th>{can("entries.edit") && <th className="px-2 py-1" />}</tr></thead>
+          <thead className="sticky top-0 bg-slate-50 text-left text-xs text-slate-500"><tr><th className="px-2 py-1">Time</th><th className="px-2 py-1">ID</th><th className="px-2 py-1">Fuel</th><th className="px-2 py-1 text-right">Litres</th><th className="px-2 py-1 text-right">Rs</th><th className="px-2 py-1">How</th><th className="px-2 py-1">Customer / vehicle</th>{can("entries.edit") && <th className="px-2 py-1" />}</tr></thead>
           <tbody>
             {rows.map((s: any) => (
               <tr key={s.id} className="border-t border-slate-100">
-                <td className="whitespace-nowrap px-2 py-1 text-xs text-slate-500">{dt(s.created_at)}<LateBadge at={s.created_at} typed={s.entered_at} className="ml-1" /></td>
+                <td className="whitespace-nowrap px-2 py-1 text-xs text-slate-500">{dt(s.created_at)}<LateBadge at={s.created_at} typed={s.entered_at} className="ml-1" /></td><td className="px-2 py-1"><IdTag id={`S-${s.id}`} /></td>
                 <td className="px-2 py-1">{PRODUCTS[s.product] ?? s.product}</td>
                 <td className="px-2 py-1 text-right tabular-nums">{num(s.litres, 2)}</td>
                 <td className="px-2 py-1 text-right font-medium tabular-nums">{pkr(s.amount)}</td>

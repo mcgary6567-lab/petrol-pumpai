@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Wallet, Plus, Minus, Banknote, Pencil } from "lucide-react";
 import { api, useApi } from "../lib/api";
-import { Badge, Empty, Field, ListTools, Loading, Modal, PageHeader, Pager, PhoneInput, Stat, matchQuery, useAction, useListFilter, usePaged } from "../components/ui";
+import { IdTag, Badge, Empty, Field, ListTools, Loading, Modal, PageHeader, Pager, PhoneInput, Stat, matchQuery, useAction, useListFilter, usePaged } from "../components/ui";
 import { dt, pkr } from "../lib/format";
 import { PhotoThumb, ProofPhotos, ProofThumbs } from "../components/Capture";
 import { DAY_STATUS, LeaveForm } from "./MyAccount";
@@ -412,10 +412,11 @@ export function LedgerList({ lines }: { lines: any[] }) {
         ))}
       </ul>
       <table className="hidden w-full sm:table">
-        <thead className="sticky top-0"><tr><th className="th">Date</th><th className="th">Entry</th><th className="th">Note</th><th className="th text-right">Amount</th><th className="th text-right">Owes after</th></tr></thead>
+        <thead className="sticky top-0"><tr><th className="th">Date</th><th className="th">ID</th><th className="th">Entry</th><th className="th">Note</th><th className="th text-right">Amount</th><th className="th text-right">Owes after</th></tr></thead>
         <tbody>{shown.map((l) => (
           <tr key={l.id}>
             <td className="td whitespace-nowrap text-xs">{dt(l.created_at)}</td>
+            <td className="td"><IdTag id={`ST-${l.id}`} /></td>
             <td className="td"><Badge tone={TYPE[l.type]?.tone}>{TYPE[l.type]?.label ?? l.type}</Badge></td>
             <td className="td text-sm text-slate-600">{l.note} <ProofThumbs ids={l.proof_ids} /></td>
             <td className="td text-right tabular-nums">{TYPE[l.type]?.sign}{pkr(l.amount)}</td>

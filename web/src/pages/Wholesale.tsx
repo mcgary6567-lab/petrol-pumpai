@@ -8,7 +8,7 @@ import { PrintListButton } from "../components/PrintList";
 import { PartyAdmin } from "../components/PartyAdmin";
 
 import { api, linkToken, useApi } from "../lib/api";
-import { Badge, Empty, ErrorBox, Field, ListTools, Loading, Modal, PageHeader, Pager, PhoneInput, useAction, useListFilter, usePaged } from "../components/ui";
+import { IdTag, Badge, Empty, ErrorBox, Field, ListTools, Loading, Modal, PageHeader, Pager, PhoneInput, useAction, useListFilter, usePaged } from "../components/ui";
 import { WhatsAppDoc } from "../components/WhatsAppDoc";
 import { newestFirst, PRODUCTS, ago, d, dt, num, phone, pkr, pkrShort, dueLabel, nowLocal } from "../lib/format";
 import { useAuth } from "../App";
@@ -617,7 +617,7 @@ function LedgerTable({ rows: allRows, running, showClient, tools, onVoid, onEdit
     <div className="hidden overflow-x-auto sm:block print:block">
       <table className="w-full min-w-[960px] print:min-w-0">
         <thead><tr>
-          <th className="th">Date</th>{showClient && <th className="th">Client</th>}<th className="th">Entry</th><th className="th">Gaari · driver</th><th className="th">Fuel</th><th className="th text-right">Litres</th><th className="th text-right">Rate</th><th className="th">Tafseel</th>
+          <th className="th">Date</th><th className="th">ID</th>{showClient && <th className="th">Client</th>}<th className="th">Entry</th><th className="th">Gaari · driver</th><th className="th">Fuel</th><th className="th text-right">Litres</th><th className="th text-right">Rate</th><th className="th">Tafseel</th>
           <th className="th text-right">Debit<span className="print:hidden"> (billed)</span></th><th className="th text-right">Credit<span className="print:hidden"> (paid / returned)</span></th>{running && <th className="th text-right">Balance</th>}<th className="th print:hidden" />
         </tr></thead>
         <tbody>
@@ -629,6 +629,7 @@ function LedgerTable({ rows: allRows, running, showClient, tools, onVoid, onEdit
             return (
               <tr key={r.id} className={`${r.voided ? "text-slate-400 line-through print:hidden" : ""} ${onPage ? "" : r.voided ? "hidden" : "hidden print:table-row"}`}>
                 <td className="td whitespace-nowrap text-xs"><span className="print:hidden">{dt(r.txn_date).split(", ").map((x, i) => <span key={i} className={i ? "block text-slate-400" : "block"}>{x}</span>)}</span><span className="hidden whitespace-nowrap print:inline">{d(r.txn_date)}</span><LateBadge at={r.txn_date} typed={r.created_at} className="mt-0.5" /></td>
+                <td className="td">{r.type === "fuel_note" ? null : <IdTag id={voucherNo(r)} />}</td>
                 {showClient && <td className="td text-sm"><Link to={`/wholesale/${r.client_id}`} className="hover:underline">{r.client_name}</Link></td>}
                 <td className="td"><Badge tone={TYPE[r.type].tone}>{TYPE[r.type].label}</Badge> {r.voided ? <Badge tone="red">VOID</Badge> : null}</td>
                 <td className="td text-xs print:max-w-[95px]">{r.vehicle_no ? <b className="whitespace-nowrap font-semibold text-slate-800">🚛 {r.vehicle_no}</b> : <span className="text-slate-300">—</span>}{r.driver_name && <span className="block text-slate-500">{r.driver_name}</span>}</td>

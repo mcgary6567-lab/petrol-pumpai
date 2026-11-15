@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Ruler } from "lucide-react";
 import { api, useApi } from "../lib/api";
-import { Badge, Field, ListTools, Loading, Modal, PageHeader, useAction } from "../components/ui";
+import { IdTag, Badge, Field, ListTools, Loading, Modal, PageHeader, useAction } from "../components/ui";
 import { PRODUCTS } from "../lib/format";
 import { PhotoButton, PhotoThumb, ProofPhotos, ProofThumbs } from "../components/Capture";
 import { SupplierForm } from "../components/QuickAdd";
@@ -162,8 +162,8 @@ export default function Stock() {
             chips={[{ k: "", label: "All tanks" }, ...tanks.map((t: any) => ({ k: String(t.id), label: multi ? `${t.name} · ${t.station_name}` : t.name }))]} chip={flt.tank} onChip={(tank) => setFlt({ ...flt, tank })}
             from={flt.from} to={flt.to} onFrom={(from) => setFlt({ ...flt, from })} onTo={(to) => setFlt({ ...flt, to })} />); })()}
       <div className="grid grid-cols-1 gap-5 md:grid-cols-2 print:block print:space-y-4">
-        <History title="Dip readings" right={4} rows={stock.data.dips} cols={[["When", (r) => dt(r.created_at)], ["Tank", (r) => `${r.station} ${r.tank}`], ["Book", (r) => num(r.book_l)], ["Dip", (r) => <>{num(r.measured_l)}{r.measured_cm != null ? <span className="text-xs text-slate-400"> ({r.measured_cm} cm)</span> : null}</>], ["Var %", (r) => <span className={Math.abs(r.variance_pct) >= 0.5 ? "font-semibold text-red-600" : ""}>{r.variance_pct}%</span>], ["Photo", (r) => (r.proof_ids?.length ? <ProofThumbs ids={r.proof_ids} /> : null)]]} />
-        <History title="Deliveries" right={4} rows={stock.data.deliveries} cols={[["When", (r) => dt(r.created_at)], ["Tank", (r) => `${r.station} ${r.tank}`], ["Tanker", (r) => <span className="flex items-center gap-1">{r.tanker_no}{r.photo_id ? <PhotoThumb id={r.photo_id} size={7} /> : null}</span>], ["Supplier", (r) => r.supplier ?? "—"], ["Invoice/Recv", (r) => `${num(r.invoice_l)} / ${num(r.received_l)}`], ["Short %", (r) => <span className={r.shortage_pct >= 0.3 ? "font-semibold text-red-600" : ""}>{r.shortage_pct}%</span>]]} />
+        <History title="Dip readings" right={4} rows={stock.data.dips} cols={[["When", (r) => dt(r.created_at)], ["Tank", (r) => `${r.station} ${r.tank}`], ["Book", (r) => num(r.book_l)], ["Dip", (r) => <>{num(r.measured_l)}{r.measured_cm != null ? <span className="text-xs text-slate-400"> ({r.measured_cm} cm)</span> : null}</>], ["Var %", (r) => <span className={Math.abs(r.variance_pct) >= 0.5 ? "font-semibold text-red-600" : ""}>{r.variance_pct}%</span>], ["Photo", (r) => (r.proof_ids?.length ? <ProofThumbs ids={r.proof_ids} /> : null)], ["ID", (r) => <IdTag id={`DIP-${r.id}`} />]]} />
+        <History title="Deliveries" right={4} rows={stock.data.deliveries} cols={[["When", (r) => dt(r.created_at)], ["Tank", (r) => `${r.station} ${r.tank}`], ["Tanker", (r) => <span className="flex items-center gap-1">{r.tanker_no}{r.photo_id ? <PhotoThumb id={r.photo_id} size={7} /> : null}</span>], ["Supplier", (r) => r.supplier ?? "—"], ["Invoice/Recv", (r) => `${num(r.invoice_l)} / ${num(r.received_l)}`], ["Short %", (r) => <span className={r.shortage_pct >= 0.3 ? "font-semibold text-red-600" : ""}>{r.shortage_pct}%</span>], ["ID", (r) => <IdTag id={`DLV-${r.id}`} />]]} />
       </div>
       {limit < 500 && (stock.data.dips.length >= limit || stock.data.deliveries.length >= limit) && (
         <div className="mt-3 flex justify-center print:hidden"><button type="button" className="btn-secondary" onClick={() => setLimit(Math.min(500, limit + 100))}>Show more · <span lang="ur" dir="rtl" className="font-urdu">مزید دکھائیں</span></button></div>

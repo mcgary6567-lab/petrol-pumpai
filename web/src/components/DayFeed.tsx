@@ -6,7 +6,7 @@
 import { useState } from "react";
 import { ChevronDown, BarChart3, Fuel, Coins, Scale, MessageCircle } from "lucide-react";
 import { useApi } from "../lib/api";
-import { Loading, Pager, usePaged, useListFilter } from "./ui";
+import { IdTag, Loading, Pager, usePaged, useListFilter } from "./ui";
 import { PrintListButton } from "./PrintList";
 import { Ur } from "./VoiceShell";
 import { num, pkr } from "../lib/format";
@@ -17,6 +17,15 @@ const daysAgo = (n: number) => new Date(Date.now() + 5 * 3600_000 - n * 86_400_0
  *  marks wholesale rows itself; the rest follow their direction. A neutral row (hisaab barabar) sits in neither column. */
 const sideOf = (r: any): "dr" | "cr" | null => r.side ?? (r.dir === "out" || r.kind === "ws_supply" ? "dr" : r.dir === "in" || r.kind === "supply_bill" ? "cr" : null);
 const sumDrCr = (rs: any[], side: "dr" | "cr") => rs.reduce((a, r) => a + (sideOf(r) === side ? r.amount : 0), 0);
+/** The entry's number as the rest of the app prints it (S-, EX-, K-, WS- / RV- / CN-, CV-, SUP-, DLV-, BP-, SP-). */
+const feedId = (r: any): string => {
+  const [pre, n] = String(r.id ?? "").split("-");
+  if (!n) return "";
+  if (pre === "exp") return `EX-${n.padStart(5, "0")}`;
+  if (pre === "cv") return `${r.dir === "out" ? "PV" : "RV"}-${n.padStart(5, "0")}`;
+  if (pre === "wtx") return `${/return/.test(r.kind) ? "CN" : /supply/.test(r.kind) ? "WS" : /khata_in|pay/.test(r.kind) ? "RV" : "JV"}-${n}`;
+  return `${({ sale: "S", khata: "K", dlv: "DLV", bpur: "BP", bspay: "SP", cv: "CV", stx: "SUP" } as Record<string, string>)[pre] ?? pre.toUpperCase()}-${n}`;
+};
 /** Running Dr − Cr down the list, oldest first (the feed is newest first), keyed by row id. */
 function running(rs: any[]): Map<string, number> {
   const m = new Map<string, number>(); let bal = 0;
@@ -162,13 +171,14 @@ export function DayFeed({ title = "Aaj ki saari entries", scope = "all" }: { tit
               <div className="hidden overflow-x-auto rounded-lg border border-slate-200 sm:block">
                 <table className="w-full min-w-[860px]">
                   <thead><tr>
-                    <th className="th">Waqt</th><th className="th">Kism</th><th className="th">Kis ne</th><th className="th">Party</th><th className="th">Tafseel</th>
+                    <th className="th">Waqt</th><th className="th">ID</th><th className="th">Kism</th><th className="th">Kis ne</th><th className="th">Party</th><th className="th">Tafseel</th>
                     {vehCol && <th className="th">Gaari</th>}{fuelCols && <><th className="th text-right">Litre</th><th className="th text-right">Rate</th></>}
                     <th className="th text-right">Debit</th><th className="th text-right">Credit</th>
                   </tr></thead>
                   <tbody>{paged.slice.map((r: any) => (
                     <tr key={r.id}>
                       <td className="td whitespace-nowrap text-xs text-slate-600">{when(r.at, multi)}</td>
+                      <td className="td"><IdTag id={feedId(r)} /></td>
                       <td className="td"><span className={`whitespace-nowrap rounded-md px-1.5 py-0.5 text-[11px] font-semibold ${KIND[r.kind]?.cls ?? "bg-slate-100 text-slate-600"}`}>{KIND[r.kind]?.en ?? r.kind}</span></td>
                       <td className="td text-xs text-slate-600">{r.who ?? "—"}</td>
                       <td className="td text-sm font-medium">{r.party ?? "—"}</td>
@@ -184,7 +194,7 @@ export function DayFeed({ title = "Aaj ki saari entries", scope = "all" }: { tit
                   ))}</tbody>
                   {rows.length > 0 && (
                     <tfoot><tr className="border-t-2 border-slate-300 bg-slate-50 font-semibold tabular-nums">
-                      <td className="td" colSpan={5 + (vehCol ? 1 : 0) + (fuelCols ? 2 : 0)}>Kul ({rows.length} entries) · Farq (Dr − Cr): <span className="text-slate-900">{farq(sumDrCr(rows, "dr") - sumDrCr(rows, "cr"))}</span></td>
+                      <td className="td" colSpan={6 + (vehCol ? 1 : 0) + (fuelCols ? 2 : 0)}>Kul ({rows.length} entries) · Farq (Dr − Cr): <span className="text-slate-900">{farq(sumDrCr(rows, "dr") - sumDrCr(rows, "cr"))}</span></td>
                       <td className="td whitespace-nowrap text-right text-rose-700">{pkr(sumDrCr(rows, "dr"))}</td>
                       <td className="td whitespace-nowrap text-right text-emerald-700">{pkr(sumDrCr(rows, "cr"))}</td>
                     </tr></tfoot>

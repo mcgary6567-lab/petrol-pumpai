@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { askCancel, pinHeader } from "../components/CancelEntry";
 import { Plus, Download, Check, X, Trash2, Settings2, Repeat, Printer } from "lucide-react";
 import { api, linkToken, useApi } from "../lib/api";
-import { Badge, Empty, Field, ListTools, Loading, Modal, Pager, PageHeader, Stat, statusTone, useAction, usePaged } from "../components/ui";
+import { IdTag, Badge, Empty, Field, ListTools, Loading, Modal, Pager, PageHeader, Stat, statusTone, useAction, usePaged } from "../components/ui";
 import { FixedCosts } from "../components/FixedCosts";
 import { d, pkr, pkrShort } from "../lib/format";
 import { useAuth } from "../App";
@@ -130,10 +130,11 @@ export default function Expenses() {
         </ul>
         <div className="card hidden min-w-0 overflow-x-auto sm:block">
           <table className="w-full">
-            <thead><tr><th className="th">Date</th><th className="th">Category</th><th className="th">Paid to / note</th><th className="th">Station</th><th className="th text-right">Amount</th><th className="th">Status</th><th className="th" /></tr></thead>
+            <thead><tr><th className="th">Date</th><th className="th">ID</th><th className="th">Category</th><th className="th">Paid to / note</th><th className="th">Station</th><th className="th text-right">Amount</th><th className="th">Status</th><th className="th" /></tr></thead>
             <tbody>{paged.slice.map((e: any) => (
               <tr key={e.id}>
                 <td className="td text-xs">{d(e.expense_date)}</td>
+                <td className="td"><IdTag id={`EX-${String(e.id).padStart(5, "0")}`} /></td>
                 <td className="td text-sm">{e.category}</td>
                 <td className="td text-xs"><div>{e.paid_to ?? "—"} <span className="text-slate-400">· {e.method}</span></div><div className="flex flex-wrap items-center gap-1 text-slate-500">{[e.note, e.receipt_ref].filter(Boolean).join(" · ")}{e.photo_id ? <PhotoThumb id={e.photo_id} size={7} /> : null}</div></td>
                 <td className="td text-xs">{e.station_name ?? "All"}</td>
