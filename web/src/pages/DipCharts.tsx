@@ -278,7 +278,7 @@ function Editor({ id, tanks, onChanged, onDeleted }: { id: number; tanks: any[];
         {rows.length === 0 ? <Empty>Koi line nahi — "Add rows" se daalein.</Empty> : (
           <div className={`mt-3 gap-x-6 md:grid-cols-3 ${showTable || q ? "grid" : "hidden print:grid"}`}>
             {cols.map((col, ci) => (
-              <table key={ci} className="w-full text-sm">
+              <table key={ci} className="raw w-full text-sm">
                 <thead><tr className="text-left text-xs uppercase text-slate-500"><th className="py-1">mm</th><th className="py-1">Litres</th><th className="w-8 print:hidden" /></tr></thead>
                 <tbody>
                   {col.map(({ r, i }) => {

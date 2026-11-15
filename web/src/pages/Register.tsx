@@ -87,7 +87,7 @@ export default function Register() {
                 ))}
               </ul>
               <div className="hidden overflow-x-auto sm:block print:block">
-                <table className="mt-1 w-full min-w-[760px] border border-slate-300 text-xs">
+                <table className="raw mt-1 w-full min-w-[760px] border border-slate-300 text-xs">
                   <thead className="bg-slate-50"><tr className="text-left">
                     {["Date", "Opening stock", "Received (tanker / invoice)", "Total", "Sold (meter)", "Wholesale", "Book closing", "Dip closing", "Gain / loss", "Closing c/f", "Sign"].map((h) =>
                       <th key={h} className="border border-slate-300 px-1.5 py-1 font-semibold">{h}</th>)}

@@ -127,7 +127,7 @@ function StaffCalendar() {
       </div>
       {!data ? <Loading /> : !data.staff.length ? <Empty>{all ? "No staff to show. Add staff members in the Accounts tab." : "No non-login staff yet. Tick ‘Show all staff’, or add staff members in the Accounts tab."}</Empty>
         : <div className="card overflow-x-auto">
-          <table className="min-w-full border-separate" style={{ borderSpacing: 0 }}>
+          <table className="raw min-w-full border-separate" style={{ borderSpacing: 0 }}>
             <thead>
               <tr>
                 <th className="sticky left-0 z-10 bg-white px-3 py-2 text-left text-xs font-semibold text-slate-500">Staff</th>

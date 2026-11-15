@@ -35,6 +35,25 @@
   @media (max-width: 640px) { .input { font-size: 16px; } }
 }
 
+/* ---------- One ERP table look, system-wide ----------
+   Every list in the app reads the same: grey header strip, small caps labels, same row height, figures in
+   aligned digits and a bold totals foot. A grid that is not a list (attendance sheet, dip-chart editor, the
+   government register form) opts out with class "raw". Screen only: paper has its own rules below. */
+@media screen {
+  table:not(.raw) > thead th {
+    padding: 0.5rem 0.75rem; font-size: 0.75rem; line-height: 1rem; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.025em; color: #64748b; background-color: #f8fafc; border-bottom: 1px solid #e2e8f0; white-space: nowrap;
+  }
+  table:not(.raw) > thead ~ tbody > tr > td, table:not(.raw) > tfoot td { padding: 0.5rem 0.75rem; font-variant-numeric: tabular-nums; }
+  table:not(.raw) > thead ~ tbody > tr:not(:last-child) > td:not(.td) { border-bottom: 1px solid #f1f5f9; }
+  /* a figure never breaks over two lines ("Rs" on one, the amount on the next) */
+  table:not(.raw) td.text-right, table:not(.raw) th.text-right { white-space: nowrap; }
+  table:not(.raw) > tfoot td { font-weight: 700; border-top: 2px solid #cbd5e1; background-color: #f8fafc; }
+  .dark table:not(.raw) > thead th { background-color: #0f1a2b; color: #94a3b8; border-bottom-color: #24344d; }
+  .dark table:not(.raw) > thead ~ tbody > tr:not(:last-child) > td:not(.td) { border-bottom-color: #1e2d44; }
+  .dark table:not(.raw) > tfoot td { background-color: #0f1a2b; border-top-color: #2a3b56; }
+}
+
 /* ---------- Number entry, system-wide (money, litres, readings) ---------- */
 /* no up/down spinner arrows anywhere: a digit must never change by a stray tap or scroll */
 input[type="number"]::-webkit-outer-spin-button, input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }

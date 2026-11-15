@@ -34,7 +34,7 @@ export default function ProfitExplainer() {
   );
 
   const fuels = m.data?.products ?? [];
-  const detailTable = (rows: React.ReactNode) => <table className="w-full"><tbody>{rows}</tbody></table>;
+  const detailTable = (rows: React.ReactNode) => <table className="raw w-full"><tbody>{rows}</tbody></table>;
   const line = (a: string, b: string, cls = "") => <tr><td className="py-0.5 pr-2 text-slate-600">{a}</td><td className={`py-0.5 text-right tabular-nums ${cls}`}>{b}</td></tr>;
 
   return (
