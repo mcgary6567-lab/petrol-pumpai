@@ -8,7 +8,7 @@
  */
 import { Router } from "express";
 import { z } from "zod";
-import { all, get, run, tx, now, pkDate, pkStart, pkEnd, type Row } from "../db.js";
+import { dmy, all, get, run, tx, now, pkDate, pkStart, pkEnd, type Row } from "../db.js";
 import { h, parse, tid, requirePerm, requireAny, requireRole } from "../auth.js";
 import { AppError, createAlert, round2, pkr, audit } from "../services.js";
 import { productSchema } from "../products.js";
@@ -233,14 +233,14 @@ wholesaleDesk.post("/wholesale/cheques/:id/:action", requireAny("wholesale.manag
   const stamp = now();
   if (action === "deposit") {
     if (q.status !== "in_hand") throw new AppError(400, "Only a cheque in hand can be deposited");
-    if (q.cheque_date > pkDate()) throw new AppError(400, `This cheque is dated ${q.cheque_date} — deposit it on or after that day`);
+    if (q.cheque_date > pkDate()) throw new AppError(400, `This cheque is dated ${dmy(q.cheque_date)} — deposit it on or after that day`);
     run("UPDATE wholesale_cheques SET status='deposited', account_id=?, deposited_at=?, updated_at=? WHERE id=?", bankAccountFor(t, b.account_id ?? q.account_id, "cheque"), stamp, stamp, q.id);
   } else if (action === "clear") {
     if (!["in_hand", "deposited"].includes(q.status)) throw new AppError(400, "This cheque is already closed");
     const account = bankAccountFor(t, b.account_id ?? q.account_id, "cheque");
     tx(() => {
       const { id } = run(`INSERT INTO wholesale_txns (tenant_id,client_id,type,amount,method,ref,note,created_by,txn_date,created_at,account_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-        t, q.client_id, "payment", q.amount, "Cheque", `CHQ ${q.cheque_no}`, `${q.bank} cheque ${q.cheque_no} dated ${q.cheque_date} — cleared`, req.user!.name, stamp, stamp, account);
+        t, q.client_id, "payment", q.amount, "Cheque", `CHQ ${q.cheque_no}`, `${q.bank} cheque ${q.cheque_no} dated ${dmy(q.cheque_date)} — cleared`, req.user!.name, stamp, stamp, account);
       run("UPDATE wholesale_cheques SET status='cleared', account_id=?, payment_txn_id=?, cleared_at=?, updated_at=? WHERE id=?", account, id, stamp, stamp, q.id);
     });
   } else if (action === "bounce") {
@@ -253,7 +253,7 @@ wholesaleDesk.post("/wholesale/cheques/:id/:action", requireAny("wholesale.manag
       run("UPDATE wholesale_cheques SET status='bounced', bounce_reason=?, updated_at=? WHERE id=?", b.reason ?? null, stamp, q.id);
     });
     createAlert(t, { type: "cheque_bounced", severity: "critical", title: `Cheque bounced — ${c.name} ${pkr(q.amount)}`,
-      body: `${q.bank} cheque ${q.cheque_no} dated ${q.cheque_date}${b.reason ? `. Reason: ${b.reason}` : ""}. Due now ${pkr(clientDue(c.id))}.` });
+      body: `${q.bank} cheque ${q.cheque_no} dated ${dmy(q.cheque_date)}${b.reason ? `. Reason: ${b.reason}` : ""}. Due now ${pkr(clientDue(c.id))}.` });
     if (c.phone) await sendDirect(t, { phone: c.phone, name: c.name }, "cheque_bounced", `wchq:${q.id}`,
       `Assalam o Alaikum ${c.name}, aap ka ${q.bank} cheque # ${q.cheque_no} (${pkr(q.amount)}) bank se wapas aa gaya hai${b.reason ? ` (${b.reason})` : ""}. Meharbani kar ke payment jald ada karein. Baqaya: ${pkr(clientDue(c.id))}.`).catch(() => undefined);
   } else {
@@ -287,7 +287,7 @@ export function callList(t: number) {
     const reasons: string[] = [];
     let score = 0;
     const broken = mine.find((p) => p.state === "broken"), todayP = mine.find((p) => p.state === "today"), openP = mine.find((p) => p.state === "open");
-    if (broken) { score += 100; reasons.push(`Promised ${pkr(broken.amount)} on ${broken.promised_on} — not paid`); }
+    if (broken) { score += 100; reasons.push(`Promised ${pkr(broken.amount)} on ${dmy(broken.promised_on)} — not paid`); }
     if (todayP) { score += 90; reasons.push(`Promised ${pkr(todayP.amount - todayP.paid)} today`); }
     if (c.credit_limit > 0 && due >= c.credit_limit * 0.95) { score += 70; reasons.push(`At the credit limit (${Math.round((due / c.credit_limit) * 100)}%)`); }
     if (oldDays > 60) { score += 80; reasons.push(`Bills unpaid ${oldDays} days`); } else if (oldDays > 30) { score += 60; reasons.push(`Bills unpaid ${oldDays} days`); }
@@ -333,7 +333,7 @@ export function deskSuggestions(t: number, clients: { id: number; name: string; 
   // orders
   const open = openOrders(t);
   const late = open.filter((o) => o.needed_on < today), dueToday = open.filter((o) => o.needed_on === today);
-  if (late.length) sug.push({ level: "critical", title: `${late.length} order${late.length > 1 ? "s" : ""} late — not delivered yet`, ur: `${late.length} آرڈر لیٹ ہیں — ابھی تک نہیں دیے`, detail: late.slice(0, 3).map((o) => `${o.client_name} ${Math.round(o.litres).toLocaleString()} L ${PRODUCTS[o.product]} (for ${o.needed_on})`).join(" · "), action: { kind: "orders", label: "Order book" } });
+  if (late.length) sug.push({ level: "critical", title: `${late.length} order${late.length > 1 ? "s" : ""} late — not delivered yet`, ur: `${late.length} آرڈر لیٹ ہیں — ابھی تک نہیں دیے`, detail: late.slice(0, 3).map((o) => `${o.client_name} ${Math.round(o.litres).toLocaleString()} L ${PRODUCTS[o.product]} (for ${dmy(o.needed_on)})`).join(" · "), action: { kind: "orders", label: "Order book" } });
   if (dueToday.length) {
     const l = dueToday.reduce((a, o) => a + o.litres, 0);
     sug.push({ level: "warning", title: `Deliver today: ${dueToday.length} order${dueToday.length > 1 ? "s" : ""}, ${Math.round(l).toLocaleString()} L`, ur: `آج ${dueToday.length} آرڈر دینے ہیں، ${Math.round(l).toLocaleString()} لیٹر`, detail: `${dueToday.map((o) => o.client_name).slice(0, 4).join(", ")}. Put nearby drops on one tanker trip.`, action: { kind: "trip", label: "Plan a trip" } });
@@ -347,7 +347,7 @@ export function deskSuggestions(t: number, clients: { id: number; name: string; 
   // promises
   for (const p of promises(t)) {
     if (p.state === "broken" && p.promised_on >= addDays(today, -14))
-      sug.push({ level: "critical", title: `${p.client_name} broke a promise: ${pkr(p.amount)} on ${p.promised_on}`, ur: `${p.client_name} نے ${p.promised_on} کو رقم دینے کا وعدہ پورا نہیں کیا — آج فون کریں`, detail: `Received ${pkr(p.paid)} since. Call today; hold the next supply until paid.`, action: { kind: "collect", label: "Call list" } });
+      sug.push({ level: "critical", title: `${p.client_name} broke a promise: ${pkr(p.amount)} on ${dmy(p.promised_on)}`, ur: `${p.client_name} نے ${dmy(p.promised_on)} کو رقم دینے کا وعدہ پورا نہیں کیا — آج فون کریں`, detail: `Received ${pkr(p.paid)} since. Call today; hold the next supply until paid.`, action: { kind: "collect", label: "Call list" } });
     if (p.state === "today")
       sug.push({ level: "warning", title: `${p.client_name} promised ${pkr(p.amount - p.paid)} today`, ur: `${p.client_name} نے آج ${Math.round(p.amount - p.paid).toLocaleString()} روپے دینے کا وعدہ کیا ہے`, detail: "A friendly reminder in the morning gets the money the same day.", action: { kind: "statement", client_id: p.client_id, label: "WhatsApp statement" } });
   }
@@ -358,7 +358,7 @@ export function deskSuggestions(t: number, clients: { id: number; name: string; 
   const slow = ch.filter((q) => q.status === "deposited" && q.deposited_at && nowMs - Date.parse(q.deposited_at) > 3 * DAY);
   if (slow.length) sug.push({ level: "info", title: `${slow.length} deposited cheque${slow.length > 1 ? "s" : ""} not marked cleared after 3 days`, ur: "جمع کروائے چیک 3 دن سے کلیئر نہیں لکھے — بینک اسٹیٹمنٹ دیکھیں", detail: "Check the bank statement and mark each cleared or bounced, so the client's due is right.", action: { kind: "collect", label: "Cheques" } });
   const soon = ch.filter((q) => q.status === "in_hand" && q.cheque_date > today && q.cheque_date <= addDays(today, 3));
-  if (soon.length) sug.push({ level: "info", title: `${soon.length} post-dated cheque${soon.length > 1 ? "s" : ""} due in the next 3 days`, ur: `${soon.length} چیک اگلے 3 دن میں جمع ہونے والے ہیں`, detail: soon.map((q) => `${q.client_name} ${pkr(q.amount)} on ${q.cheque_date}`).slice(0, 3).join(" · "), action: { kind: "collect", label: "Cheques" } });
+  if (soon.length) sug.push({ level: "info", title: `${soon.length} post-dated cheque${soon.length > 1 ? "s" : ""} due in the next 3 days`, ur: `${soon.length} چیک اگلے 3 دن میں جمع ہونے والے ہیں`, detail: soon.map((q) => `${q.client_name} ${pkr(q.amount)} on ${dmy(q.cheque_date)}`).slice(0, 3).join(" · "), action: { kind: "collect", label: "Cheques" } });
   for (const r of all(`SELECT q.client_id, c.name, COUNT(*) n, SUM(q.amount) v FROM wholesale_cheques q JOIN wholesale_clients c ON c.id=q.client_id
       WHERE q.tenant_id=? AND q.status='bounced' AND q.updated_at >= ? GROUP BY q.client_id`, t, new Date(nowMs - 90 * DAY).toISOString()))
     sug.push({ level: "warning", title: `${r.name}: ${r.n} cheque${r.n > 1 ? "s" : ""} bounced in 90 days (${pkr(r.v)})`, ur: `${r.name} کا چیک باؤنس ہوا — صرف نقد یا آن لائن لیں`, detail: "Take cash / online transfer only, and keep the credit limit low until they are regular again.", action: { kind: "edit", client_id: r.client_id, label: "Credit limit" } });

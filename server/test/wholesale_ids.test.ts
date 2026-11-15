@@ -125,3 +125,16 @@ test("a wholesale client's payment is WR-n (RV- stays the cashier's receipt vouc
   const hits = (ok(await call("wholesale", "GET", `/api/search?q=WR-${id}`), "search").hits as any[]).filter((x) => x.kind === "entry");
   assert.match(hits[0].label, new RegExp(`^WR-${id} `));
 });
+
+test("search finds a wallet entry (WL-n) and a coupon book (CPN-<book>)", async () => {
+  const t = db.get("SELECT id FROM tenants ORDER BY id LIMIT 1")!.id as number;
+  const c = db.get("SELECT id, name FROM customers WHERE tenant_id=? LIMIT 1", t)!;
+  const now = new Date().toISOString();
+  const wl = db.run("INSERT INTO wallet_ledger (tenant_id,customer_id,type,amount,method,created_by,created_at) VALUES (?,?,?,?,?,?,?)", t, c.id, "deposit", 5000, "cash", "test", now).id;
+  db.run("INSERT INTO fuel_coupons (tenant_id,code,batch,value,buyer,method,status,sold_by,sold_at) VALUES (?,?,?,?,?,?,?,?,?)", t, "TSTC0001", "BK-TEST-7", 1000, "Test Buyer", "cash", "active", "test", now);
+  const hit = async (who: string, q: string) => (ok(await call(who, "GET", `/api/search?q=${encodeURIComponent(q)}`), q).hits as any[]).filter((x) => x.kind === "entry");
+  const w = await hit("admin", `WL-${wl}`); assert.equal(w[0].to, `/customers/${c.id}`); assert.match(w[0].label, new RegExp(`^WL-${wl} · Wallet deposit`));
+  const b = await hit("admin", "cpn-bk-test-7"); assert.equal(b[0].to, "/coupons/BK-TEST-7"); assert.match(b[0].label, /^CPN-BK-TEST-7 · Coupon book · 1 coupons · Test Buyer/);
+  assert.deepEqual(await hit("salesman", `WL-${wl}`), []); assert.deepEqual(await hit("salesman", "CPN-BK-TEST-7"), []);
+  assert.deepEqual(await hit("admin", "CPN-nahi-hai"), []);
+});

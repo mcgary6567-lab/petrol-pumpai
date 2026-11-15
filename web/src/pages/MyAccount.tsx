@@ -2,7 +2,7 @@ import { useState } from "react";
 import { LogIn, LogOut, CalendarPlus } from "lucide-react";
 import { api, useApi, setToken } from "../lib/api";
 import { Badge, Field, Loading, Modal, PageHeader, useAction, useToast } from "../components/ui";
-import { pkr } from "../lib/format";
+import { dOnly, pkr } from "../lib/format";
 import { LedgerList } from "./Staff";
 import { Leaderboard } from "./Team";
 import { SlipsList } from "../components/StaffExtras";
@@ -149,7 +149,7 @@ function MyTraining() {
       {rows.map(([topic, r]: [string, any]) => (
         <div key={topic} className="flex justify-between border-b border-slate-100 py-1 text-sm"><span>{topic}</span>
           <span className={r.status === "overdue" || r.status === "missing" ? "font-semibold text-red-600" : r.status === "due_soon" ? "text-amber-700" : "text-emerald-700"}>
-            {r.status === "missing" ? "Needed — ask the manager" : r.status === "overdue" ? `Overdue (${r.next_due})` : r.next_due ? `OK till ${r.next_due}` : "Done"}</span></div>
+            {r.status === "missing" ? "Needed — ask the manager" : r.status === "overdue" ? `Overdue (${dOnly(r.next_due)})` : r.next_due ? `OK till ${dOnly(r.next_due)}` : "Done"}</span></div>
       ))}
     </div>
   );

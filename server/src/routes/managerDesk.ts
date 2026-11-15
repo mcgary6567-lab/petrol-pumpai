@@ -3,7 +3,7 @@
  * suggestions for today — each one says what to do and links to the screen that does it.
  */
 import { Router } from "express";
-import { all, get, pkDate, pkDayStart, getSetting } from "../db.js";
+import { dmy, all, get, pkDate, pkDayStart, getSetting } from "../db.js";
 import { h, tid, requirePerm } from "../auth.js";
 import { pkr } from "../services.js";
 import { PRODUCTS } from "../config.js";
@@ -108,10 +108,10 @@ managerDesk.get("/dashboard/desk", requirePerm("dashboard.view"), h((req) => {
   }
   const in30 = new Date(nowMs + 30 * DAY + 5 * 3600_000).toISOString().slice(0, 10);
   for (const l of all("SELECT name, expires_on FROM licences WHERE tenant_id=? AND expires_on <= ? ORDER BY expires_on", t, in30))
-    sug.push({ level: l.expires_on < today ? "critical" : "warning", title: `Licence ${l.expires_on < today ? "expired" : "expires"}: ${l.name} (${l.expires_on})`, detail: "Start the renewal now — inspections can stop sales.", to: "/compliance", label: "Licences" });
+    sug.push({ level: l.expires_on < today ? "critical" : "warning", title: `Licence ${l.expires_on < today ? "expired" : "expires"}: ${l.name} (${dmy(l.expires_on)})`, detail: "Start the renewal now — inspections can stop sales.", to: "/compliance", label: "Licences" });
   const in3 = new Date(nowMs + 3 * DAY + 5 * 3600_000).toISOString().slice(0, 10);
   const svc = all("SELECT name, next_service_on FROM machines WHERE tenant_id=? AND next_service_on IS NOT NULL AND next_service_on <= ? ORDER BY next_service_on", t, in3);
-  if (svc.length) sug.push({ level: svc.some((m) => m.next_service_on < today) ? "warning" : "info", title: `${svc.length} machine${svc.length > 1 ? "s" : ""} due for service`, detail: svc.slice(0, 4).map((m) => `${m.name} (${m.next_service_on})`).join(", "), to: "/machines", label: "Machines" });
+  if (svc.length) sug.push({ level: svc.some((m) => m.next_service_on < today) ? "warning" : "info", title: `${svc.length} machine${svc.length > 1 ? "s" : ""} due for service`, detail: svc.slice(0, 4).map((m) => `${m.name} (${dmy(m.next_service_on)})`).join(", "), to: "/machines", label: "Machines" });
 
   /* ---- a word of praise ---- */
   const best = get(`SELECT sh.attendant, SUM(x.litres) l FROM sales x JOIN shifts sh ON sh.id=x.shift_id JOIN stations s ON s.id=x.station_id

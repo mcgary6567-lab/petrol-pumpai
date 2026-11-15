@@ -182,3 +182,11 @@ html.sun:not(.dark) main .bg-slate-50 { background-color: #fff !important; }
 html.sun:not(.dark) main .bg-slate-100 { background-color: #e2e8f0 !important; }
 html.sun:not(.dark) main ::placeholder { color: #475569; }
 html.sun:not(.dark) main .tabular-nums { font-weight: 700; }
+
+/* Phones and tablets: every button is big enough for a finger (40 px), without touching fixed-size controls (switches,
+   avatars, icon squares with their own h-… size). Desktop with a mouse keeps the compact sizes. */
+@media (pointer: coarse) {
+  main button:not([role="switch"]):not([class*=" h-"]):not([class^="h-"]):not([class*="aspect-"]) { min-height: 40px; }
+  main button:not([role="switch"]):not([class*=" w-"]):not([class^="w-"]):has(> svg:only-child) { min-width: 40px; }
+  main a.btn-primary, main a.btn-secondary { min-height: 40px; }
+}

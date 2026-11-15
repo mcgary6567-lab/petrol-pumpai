@@ -5,7 +5,7 @@ import QRCode from "qrcode";
 import { Ticket, Wallet, Plus, Printer, ArrowLeft, Ban } from "lucide-react";
 import { api, useApi } from "../lib/api";
 import { Badge, Empty, ErrorBox, Field, ListTools, Loading, Modal, Pager, PageHeader, SearchBar, Stat, matchQuery, useAction, usePaged } from "../components/ui";
-import { dt, pkr, PRODUCTS } from "../lib/format";
+import { dOnly, dt, pkr, PRODUCTS } from "../lib/format";
 import { useAuth } from "../App";
 import { AccountPicker } from "../components/BankParts";
 
@@ -59,7 +59,7 @@ function Coupons() {
               <span className="min-w-0"><span className="block font-semibold">{b.buyer ?? "—"}</span><span className="font-mono text-xs text-slate-500">{b.batch}</span></span>
               <span className="shrink-0 text-right"><span className="block font-semibold tabular-nums">{pkr(b.n * b.value)}</span><span className="text-xs tabular-nums text-slate-500">{b.n} × {pkr(b.value)}</span></span>
             </div>
-            <div className="text-xs text-slate-500">{dt(b.sold_at)} · {b.sold_by} · {b.method}{b.product ? ` · ${PRODUCTS[b.product]} only` : ""}{b.expires_on ? ` · expires ${b.expires_on}` : ""}</div>
+            <div className="text-xs text-slate-500">{dt(b.sold_at)} · {b.sold_by} · {b.method}{b.product ? ` · ${PRODUCTS[b.product]} only` : ""}{b.expires_on ? ` · expires ${dOnly(b.expires_on)}` : ""}</div>
             <div className="mt-1.5 flex items-center gap-2"><div className="h-1.5 flex-1 overflow-hidden rounded bg-slate-100"><div className="h-full bg-emerald-500" style={{ width: `${(b.used / b.n) * 100}%` }} /></div><span className="shrink-0 text-xs text-slate-500">{b.used} used{b.void ? ` · ${b.void} cancelled` : ""}</span></div>
             <div className="mt-2 flex justify-end gap-2">
               <Link className="btn-secondary min-h-9 !py-1 text-xs" to={`/coupons/${b.batch}`}><Printer size={13} /> Print / view</Link>
@@ -82,7 +82,7 @@ function Coupons() {
                 <td className="text-right tabular-nums">{b.n} × {pkr(b.value)}</td>
                 <td className="text-right font-semibold tabular-nums">{pkr(b.n * b.value)}</td>
                 <td><div className="h-2 w-24 overflow-hidden rounded bg-slate-100"><div className="h-full bg-emerald-500" style={{ width: `${(b.used / b.n) * 100}%` }} /></div><span className="text-xs text-slate-500">{b.used} used{b.void ? ` · ${b.void} cancelled` : ""}</span></td>
-                <td className="text-xs">{b.expires_on ?? "—"}</td>
+                <td className="text-xs">{dOnly(b.expires_on)}</td>
                 <td className="whitespace-nowrap px-3 text-right">
                   <Link className="btn-secondary px-2 py-1 text-xs" to={`/coupons/${b.batch}`}><Printer size={13} /> Print / view</Link>
                   {can("settings.manage") && b.n - b.used - b.void > 0 && <button className="ml-1 rounded p-1 text-slate-400 hover:text-red-600" title="Cancel unused coupons of this book"
@@ -160,7 +160,7 @@ function CouponCard({ business, c }: { business: string; c: any }) {
         </div>
         <div className="text-4xl font-black tabular-nums">Rs {c.value.toLocaleString()}</div>
         <div className="text-[11px] leading-snug text-slate-600">
-          {c.product ? `${PRODUCTS[c.product]} only · ` : ""}{c.expires_on ? `Valid till ${c.expires_on} · ` : ""}One time use<br />
+          {c.product ? `${PRODUCTS[c.product]} only · ` : ""}{c.expires_on ? `Valid till ${dOnly(c.expires_on)} · ` : ""}One time use<br />
           <span className="font-mono text-xs">{c.code}</span>
         </div>
       </div>

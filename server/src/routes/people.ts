@@ -11,7 +11,7 @@ import { z } from "zod";
 import Anthropic from "@anthropic-ai/sdk";
 import { config, aiEnabled, aiProvider } from "../config.js";
 import { geminiText } from "../ai/gemini.js";
-import { all, get, run, now, pkDate, pkStart, pkEnd, tx } from "../db.js";
+import { dmy, all, get, run, now, pkDate, pkStart, pkEnd, tx } from "../db.js";
 import { h, parse, tid, requirePerm, can } from "../auth.js";
 import { AppError, round2, pkr, audit } from "../services.js";
 import { trainingTopics } from "./lookups.js";
@@ -230,7 +230,7 @@ export async function trainingWatch(t: number) {
   const due: string[] = [];
   for (const u of m.staff) {
     const mine = Object.entries(u.records).filter(([, r]: [string, any]) => ["overdue", "due_soon", "missing"].includes(r.status))
-      .map(([topic, r]: [string, any]) => `${topic}${r.status === "missing" ? " (never done)" : r.status === "overdue" ? ` (was due ${r.next_due})` : ` (due ${r.next_due})`}`);
+      .map(([topic, r]: [string, any]) => `${topic}${r.status === "missing" ? " (never done)" : r.status === "overdue" ? ` (was due ${dmy(r.next_due)})` : ` (due ${dmy(r.next_due)})`}`);
     if (!mine.length) continue;
     due.push(`${u.name}: ${mine.join(", ")}`);
     const user = get("SELECT id, phone FROM users WHERE id=?", u.id);

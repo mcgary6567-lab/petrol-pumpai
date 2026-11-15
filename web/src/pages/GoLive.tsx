@@ -72,7 +72,7 @@ function Row({ n, it, reload }: { n: number; it: Item; reload: () => void }) {
             <Summary it={it} />
           </div>
         </div>
-        <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+        <div className="flex w-full flex-wrap items-center gap-1.5 sm:w-auto sm:shrink-0">
           {m.link && <Link to={m.link.to} className="btn-secondary text-xs"><ExternalLink size={13} /> {m.link.label}</Link>}
           {it.status !== "done" && <button className="btn-primary text-xs" onClick={() => setOpen(!open)}>{open ? "Band karein" : "Set karein"}</button>}
           {it.status === "pending" && <button className="btn-secondary text-xs" disabled={busy} onClick={() => post(`/golive/${it.key}/skip`, {}, "Skip kiya")}><SkipForward size={13} /> Skip</button>}

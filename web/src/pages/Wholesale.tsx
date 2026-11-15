@@ -10,7 +10,7 @@ import { PartyAdmin } from "../components/PartyAdmin";
 import { api, linkToken, useApi } from "../lib/api";
 import { IdTag, Badge, Empty, ErrorBox, Field, ListTools, Loading, Modal, PageHeader, Pager, PhoneInput, useAction, useListFilter, usePaged } from "../components/ui";
 import { WhatsAppDoc } from "../components/WhatsAppDoc";
-import { newestFirst, PRODUCTS, ago, d, dt, num, phone, pkr, pkrShort, dueLabel, nowLocal } from "../lib/format";
+import { dOnly, newestFirst, PRODUCTS, ago, d, dt, num, phone, pkr, pkrShort, dueLabel, nowLocal } from "../lib/format";
 import { useAuth } from "../App";
 import { OpeningBalanceField, type AdvanceReceipt } from "../components/OpeningBalanceField";
 import { WholesaleDashboard } from "../components/WholesaleDashboard";
@@ -719,7 +719,7 @@ function FuelEntry({ kind, client, orderId, onClose, onDone }: { kind: "supply" 
       <div className="mb-3 flex items-center gap-1">
         <Dot n={1} label="Kya & kitna" /><Dot n={2} label="Kahan se" /><Dot n={3} label="Confirm" />
       </div>
-      {order && <p className="mb-2 rounded-lg bg-brand-50 p-2 text-sm text-brand-800">📋 Order deliver ho raha hai — <b>{order.needed_on}</b>, {num(order.litres)} L {PRODUCTS[order.product]}. Save karne par order band ho jayega.</p>}
+      {order && <p className="mb-2 rounded-lg bg-brand-50 p-2 text-sm text-brand-800">📋 Order deliver ho raha hai — <b>{dOnly(order.needed_on)}</b>, {num(order.litres)} L {PRODUCTS[order.product]}. Save karne par order band ho jayega.</p>}
 
       {step === 1 && <div className="space-y-4">
         <div>

@@ -16,7 +16,7 @@
  */
 import { Router } from "express";
 import { z } from "zod";
-import { all, get, run, tx, now, pkDate, pkStart, stampFor, type Row } from "../db.js";
+import { dmy, all, get, run, tx, now, pkDate, pkStart, stampFor, type Row } from "../db.js";
 import type { Request } from "express";
 import { partiesList, doPay, doReceive, voidVoucher } from "./cashier.js";
 import { insertTxn, clientDue } from "./wholesale.js";
@@ -258,7 +258,7 @@ export function investorChequeCleared(t: number, by: string, q: { party_id: numb
   const i = get("SELECT * FROM investors WHERE id=? AND tenant_id=?", q.party_id, t);
   if (!i) throw new AppError(404, "Investor nahi mila");
   const id = moneyTxn(t, by, i, { dir: q.direction, amount: q.amount, method: "Cheque", account_id: accountId, purpose: q.category === "capital" ? "capital" : "profit", ref: q.cheque_no,
-    note: [`${q.bank} cheque ${q.cheque_no} dated ${q.cheque_date} — cleared`, q.note].filter(Boolean).join(" · ") });
+    note: [`${q.bank} cheque ${q.cheque_no} dated ${dmy(q.cheque_date)} — cleared`, q.note].filter(Boolean).join(" · ") });
   return `invtx:${id}`;
 }
 

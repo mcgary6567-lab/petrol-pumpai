@@ -6,7 +6,7 @@ import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Toolti
 import { Plus, Truck, Fuel, Factory, Download, Printer, HandCoins, Ban, Pencil } from "lucide-react";
 import { api, linkToken, useApi } from "../lib/api";
 import { IdTag, Empty, ErrorBox, Field, ListTools, Loading, Modal, Pager, Stat, useAction, useListFilter, usePaged } from "../components/ui";
-import { PRODUCTS, activeProducts, newestFirst, dt, num, phone, pkr, pkrShort } from "../lib/format";
+import { dOnly, PRODUCTS, activeProducts, newestFirst, dt, num, phone, pkr, pkrShort } from "../lib/format";
 import { useAuth } from "../App";
 import { ProofPhotos, ProofThumbs } from "../components/Capture";
 import { AccountPicker } from "../components/BankParts";
@@ -458,7 +458,7 @@ export function BypassDeliveryForm({ onClose, onDone, fromHeld = false, fromClie
                           <td className="td font-semibold">{PRODUCTS[l.product] ?? l.product}</td>
                           <td className="td whitespace-nowrap">{l.vehicle_no ? <>🚛 <b>{l.vehicle_no}</b></> : <span className="text-slate-400">—</span>}{l.driver_name ? <span className="block text-[10px] text-slate-500">{l.driver_name}</span> : null}</td>
                           <td className="td">{l.supplier}</td>
-                          <td className="td whitespace-nowrap">{String(l.txn_date).slice(0, 10)}</td>
+                          <td className="td whitespace-nowrap">{dOnly(l.txn_date)}</td>
                           <td className="td whitespace-nowrap">{l.delivery_id ? <button type="button" className="font-mono text-brand-700 underline" title="Bill / voucher kholein" onClick={() => setLotVoucher(l.delivery_id)}>BYP-{l.delivery_id}</button> : ""}{l.ref ? <span className="text-slate-500"> · {l.ref}</span> : ""}</td>
                           <td className="td whitespace-nowrap text-right tabular-nums font-semibold">{num(l.left)} L<span className="block text-[10px] font-normal text-slate-400">/ {num(l.litres)}</span></td>
                           <td className="td text-right tabular-nums">{num(l.cost_rate, 2)}</td>
@@ -534,7 +534,7 @@ export function BypassDeliveryForm({ onClose, onDone, fromHeld = false, fromClie
                     const free = drops.findIndex((x) => !x.client_id && !x.litres && !x.amount);
                     setDrops(free >= 0 ? drops.map((x, j) => (j === free ? d : x)) : [...drops, d]);
                   }}>
-                  <b>{o.client_name}</b> · {PRODUCTS[o.product]} {num(o.litres)} L<span className="block text-xs text-slate-500">{o.late ? "late · " : o.today ? "today · " : ""}{o.needed_on}{o.location ? ` · ${o.location}` : ""}</span>
+                  <b>{o.client_name}</b> · {PRODUCTS[o.product]} {num(o.litres)} L<span className="block text-xs text-slate-500">{o.late ? "late · " : o.today ? "today · " : ""}{dOnly(o.needed_on)}{o.location ? ` · ${o.location}` : ""}</span>
                 </button>))}</div>
             </div>
           );

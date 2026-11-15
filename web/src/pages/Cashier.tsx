@@ -10,7 +10,7 @@ import { api, linkToken, useApi } from "../lib/api";
 import { Badge, Empty, ErrorBox, Field, ListTools, Loading, Modal, PageHeader, useAction, useListFilter, useNewRows } from "../components/ui";
 import { WhatsAppDoc } from "../components/WhatsAppDoc";
 import { PaymentApprovals } from "../components/PaymentApprovals";
-import { ago, newestFirst, dt, num, phone, pkr, pkrShort } from "../lib/format";
+import { dOnly, ago, newestFirst, dt, num, phone, pkr, pkrShort } from "../lib/format";
 import { toWords } from "../lib/words";
 import { NumPad, useNumPadOn } from "../components/Asaan";
 import { ProofPhotos, ProofThumbs } from "../components/Capture";
@@ -198,7 +198,7 @@ function Desk({ go, onSlip }: { go: (k: string, extra?: Record<string, string>) 
             <h2 className="p-4 pb-1 font-semibold">Promised payments · <Ur>وعدے</Ur></h2>
             <ul className="divide-y divide-slate-100">{data.promised.map((p: any) => (
               <li key={`${p.client_id}-${p.promised_on}`} className="flex items-center gap-2 px-4 py-2.5 text-sm">
-                <span className="min-w-0 flex-1"><b>{p.name}</b><span className={`block text-xs ${p.state === "broken" ? "text-red-600" : "text-slate-500"}`}>{p.state === "broken" ? "Promise broken" : "Today"} · <span className="whitespace-nowrap">{p.promised_on}</span> · <Ur>{p.state === "broken" ? "وعدہ ٹوٹا" : "آج"}</Ur></span></span>
+                <span className="min-w-0 flex-1"><b>{p.name}</b><span className={`block text-xs ${p.state === "broken" ? "text-red-600" : "text-slate-500"}`}>{p.state === "broken" ? "Promise broken" : "Today"} · <span className="whitespace-nowrap">{dOnly(p.promised_on)}</span> · <Ur>{p.state === "broken" ? "وعدہ ٹوٹا" : "آج"}</Ur></span></span>
                 <span className="shrink-0 font-semibold tabular-nums">{pkr(p.amount)}</span>
                 <button className="btn-secondary min-h-9 shrink-0 !px-3 !py-1.5 text-xs" onClick={() => go("receive", { type: "wholesale", id: String(p.client_id), amount: String(p.amount) })}>Receive</button>
               </li>
@@ -643,7 +643,7 @@ function VoucherBody({ r, copy }: { r: any; copy: string }) {
           <dt className="text-slate-500">{isIn ? "Received from" : "Paid to"}</dt><dd className="font-medium">{v.party_name}</dd>
           {v.category && <><dt className="text-slate-500">For</dt><dd>{v.category}</dd></>}
           <dt className="text-slate-500">How</dt><dd>{v.method}{r.account ? ` · ${r.account}` : ""}</dd>
-          {r.cheque && <><dt className="text-slate-500">Cheque</dt><dd>{r.cheque.bank} · {r.cheque.cheque_no} · dated {r.cheque.cheque_date}</dd></>}
+          {r.cheque && <><dt className="text-slate-500">Cheque</dt><dd>{r.cheque.bank} · {r.cheque.cheque_no} · dated {dOnly(r.cheque.cheque_date)}</dd></>}
           {v.ref && !r.cheque && <><dt className="text-slate-500">Ref</dt><dd>{v.ref}</dd></>}
           {v.note && <><dt className="text-slate-500">Note</dt><dd>{v.note}</dd></>}
           {r.balance_after != null && <><dt className="text-slate-500">{r.party_type === "supplier" ? (r.balance_after < -0.5 ? <>Supplier still owes us · <Ur>سپلائر پر باقی</Ur></> : <>We still owe · <Ur>باقی دینا</Ur></>) : r.party_type === "staff" ? <>Total advance · <Ur>کل ایڈوانس</Ur></> : <>Still owes · <Ur>باقی</Ur></>}</dt><dd className="font-semibold">{pkr(r.party_type === "supplier" && r.balance_after < -0.5 ? -r.balance_after : r.balance_after)}</dd></>}
@@ -719,7 +719,7 @@ function Cheques({ go }: { go: (k: string, extra?: Record<string, string>) => vo
           <thead><tr><th className="th">#</th><th className="th">Cheque date</th><th className="th">Party</th><th className="th">Bank · cheque no.</th><th className="th">In / out</th><th className="th">Status</th><th className="th text-right">Amount</th></tr></thead>
           <tbody>{list.map((q: any, i: number) => (
             <tr key={`${q.src}-${q.id}`}>
-              <td className="td">{i + 1}</td><td className="td whitespace-nowrap">{q.cheque_date}</td>
+              <td className="td">{i + 1}</td><td className="td whitespace-nowrap">{dOnly(q.cheque_date)}</td>
               <td className="td">{q.party_name}<div className="text-slate-500">{q.party_type}{q.reason ? ` · ${q.reason}` : ""}</div></td>
               <td className="td">{q.bank}<div className="text-slate-500"># {q.cheque_no}{q.account_name ? ` · ${q.account_name}` : ""}</div></td>
               <td className="td">{q.direction === "in" ? "Received" : "Issued"}</td><td className="td">{(STATUS[q.status] ?? STATUS.in_hand).en}</td>
@@ -746,7 +746,7 @@ function Cheques({ go }: { go: (k: string, extra?: Record<string, string>) => vo
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-x-2"><b>{q.party_name}</b><Badge tone={s.tone}>{s.en} · {s.ur}</Badge>
                     <span className={`text-xs ${q.direction === "in" ? "text-emerald-700" : "text-rose-700"}`}>{q.direction === "in" ? "↓ received" : "↑ issued"} · {q.party_type}</span></div>
-                  <div className="text-xs text-slate-500">{q.bank} · # {q.cheque_no} · <span className={`whitespace-nowrap ${due ? "font-semibold text-sky-700" : ""}`}>dated {q.cheque_date}{due && q.status === "in_hand" ? " — deposit now" : ""}</span>
+                  <div className="text-xs text-slate-500">{q.bank} · # {q.cheque_no} · <span className={`whitespace-nowrap ${due ? "font-semibold text-sky-700" : ""}`}>dated {dOnly(q.cheque_date)}{due && q.status === "in_hand" ? " — deposit now" : ""}</span>
                     {q.account_name ? ` · ${q.account_name}` : ""}</div>
                   {q.reason && <div className="text-xs text-red-600">{q.reason}</div>}
                 </div>

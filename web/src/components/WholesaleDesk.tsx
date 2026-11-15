@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { CalendarClock, CheckCircle2, ClipboardList, HandCoins, Landmark, MessageCircle, Phone, Plus, Truck, Undo2, XCircle, Banknote } from "lucide-react";
 import { api, useApi } from "../lib/api";
 import { Badge, Empty, Field, Loading, Modal, Pager, SearchBar, useAction, usePaged } from "./ui";
-import { PRODUCTS, num, pkr, pkrShort } from "../lib/format";
+import { dOnly, PRODUCTS, num, pkr, pkrShort } from "../lib/format";
 import { ProofPhotos, ProofThumbs } from "./Capture";
 import { AccountPicker, BankLogo, BankNamePicker } from "./BankParts";
 import { useAuth } from "../App";
@@ -167,7 +167,7 @@ export function OrdersTab({ onTrip }: { onTrip: () => void }) {
       {(doneRows.length > 0 || doneQ) && <details className="card p-4 text-sm" open={!!doneQ}><summary className="cursor-pointer font-semibold">Recently closed ({doneRows.length}{doneRows.length >= doneLimit ? "+" : ""})</summary>
         <SearchBar className="mt-2 max-w-sm" value={doneQ} onChange={(v) => { setDoneQ(v); setDoneLimit(15); }} placeholder="Client ka naam… · کلائنٹ" />
         <ul className="mt-2 divide-y divide-slate-100">{doneRows.map((o: any) => (
-          <li key={o.id} className="flex justify-between py-1.5"><span>{o.client_name} · {num(o.litres)} L {PRODUCTS[o.product]} · {o.needed_on}</span>
+          <li key={o.id} className="flex justify-between py-1.5"><span>{o.client_name} · {num(o.litres)} L {PRODUCTS[o.product]} · {dOnly(o.needed_on)}</span>
             <Badge tone={o.status === "done" ? "green" : "slate"}>{o.status === "done" ? "Delivered" : "Cancelled"}</Badge></li>))}
           {!doneRows.length && <li className="py-3 text-center text-slate-500">Kuch nahi mila · کچھ نہیں ملا</li>}</ul>
         {doneRows.length >= doneLimit && doneLimit < 200 && <button type="button" className="btn-secondary mt-2 w-full" onClick={() => setDoneLimit((n) => Math.min(200, n + 30))}>Show more · <Ur>مزید دکھائیں</Ur></button>}</details>}
@@ -283,10 +283,10 @@ export function CollectTab() {
                 <BankLogo name={q.bank} size={36} />
                 <div className="min-w-0 flex-1 basis-48">
                   <div className="font-semibold">{q.client_name} <span className="tabular-nums">{pkr(q.amount)}</span> <Badge tone={CHQ[q.status].tone}>{CHQ[q.status].label}</Badge></div>
-                  <div className="text-xs text-slate-500">{q.bank} · #{q.cheque_no} · dated <b className={ready ? "text-amber-700" : ""}>{q.cheque_date}</b>{q.bounce_reason ? ` · ${q.bounce_reason}` : ""} <ProofThumbs ids={q.proof_ids} /></div>
+                  <div className="text-xs text-slate-500">{q.bank} · #{q.cheque_no} · dated <b className={ready ? "text-amber-700" : ""}>{dOnly(q.cheque_date)}</b>{q.bounce_reason ? ` · ${q.bounce_reason}` : ""} <ProofThumbs ids={q.proof_ids} /></div>
                 </div>
                 {manage && <div className="flex flex-wrap gap-1.5">
-                  {q.status === "in_hand" && <button className="btn-secondary min-h-9 !py-1 text-xs sm:min-h-0" disabled={!ready} title={ready ? "" : `Dated ${q.cheque_date}`} onClick={() => setAct({ q, kind: "deposit" })}><Landmark size={13} /> Deposit</button>}
+                  {q.status === "in_hand" && <button className="btn-secondary min-h-9 !py-1 text-xs sm:min-h-0" disabled={!ready} title={ready ? "" : `Dated ${dOnly(q.cheque_date)}`} onClick={() => setAct({ q, kind: "deposit" })}><Landmark size={13} /> Deposit</button>}
                   {(q.status === "in_hand" || q.status === "deposited") && <button className="btn-primary min-h-9 !py-1 text-xs sm:min-h-0" onClick={() => setAct({ q, kind: "clear" })}><CheckCircle2 size={13} /> Cleared</button>}
                   {["in_hand", "deposited", "cleared"].includes(q.status) && <button className="btn-secondary min-h-9 !py-1 text-xs text-red-600 sm:min-h-0" onClick={() => setAct({ q, kind: "bounce" })}>Bounced</button>}
                   {q.status === "in_hand" && <button className="btn-secondary min-h-9 !px-2 !py-1 text-xs sm:min-h-0" title="Give back to the client" disabled={busy} onClick={async () => {
@@ -342,7 +342,7 @@ export function ChequeAction({ q, kind, onClose, onDone }: { q: any; kind: "depo
         if (await run(() => api(`/wholesale/cheques/${q.id}/${kind}`, { body }), (r: any) => kind === "deposit" ? "Marked deposited" : `${kind === "clear" ? "Payment added" : "Bounce recorded — client told on WhatsApp"}. Due now ${pkr(r.due_after)}`)) onDone();
       }}>
         <div className="flex items-center gap-3 rounded-xl bg-slate-50 p-3"><BankLogo name={q.bank} size={40} />
-          <div><b>{q.client_name}</b> · {pkr(q.amount)}<div className="text-xs text-slate-500">{q.bank} · #{q.cheque_no} · dated {q.cheque_date}</div></div></div>
+          <div><b>{q.client_name}</b> · {pkr(q.amount)}<div className="text-xs text-slate-500">{q.bank} · #{q.cheque_no} · dated {dOnly(q.cheque_date)}</div></div></div>
         {kind !== "bounce" && <AccountPicker method="cheque" label="Our bank account · ہمارا بینک" value={account} onChange={setAccount} />}
         {kind === "clear" && <p className="text-sm text-slate-600">The payment of {pkr(q.amount)} is added to the client's account, dated today.</p>}
         {kind === "bounce" && <>
@@ -390,7 +390,7 @@ export function ClientDeskCard({ client, onAction, refreshKey, onChanged }: { cl
         <div><div className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Cheques not cleared</div>
           {live.length ? live.map((q: any) => (
             <div key={q.id} className="flex items-center gap-2 border-b border-slate-100 py-1.5"><BankLogo name={q.bank} size={24} />
-              <span className="flex-1">{pkr(q.amount)} · {q.cheque_date}</span><Badge tone={CHQ[q.status].tone}>{CHQ[q.status].label}</Badge>
+              <span className="flex-1">{pkr(q.amount)} · {dOnly(q.cheque_date)}</span><Badge tone={CHQ[q.status].tone}>{CHQ[q.status].label}</Badge>
               {manage && <button className="-my-1.5 min-h-9 shrink-0 px-1 text-brand-700 hover:underline" onClick={() => setAct({ q: { ...q, client_name: client.name }, kind: "clear" })}>Cleared</button>}
             </div>)) : <p className="text-slate-400">None</p>}</div>
       </div>

@@ -1,4 +1,5 @@
 import { AsaanToggle, SIMPLE_LABEL, SunToggle, SyncDot, useAsaan } from "./Asaan";
+import { NAV_UR } from "../lib/navUr";
 import { Home as HomeIcon } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { PrintFooter, PrintHeader } from "./Letterhead";
@@ -43,15 +44,6 @@ const CASHIER_SUB = [
 ];
 const SUBS: Record<string, typeof WHOLESALE_SUB> = { "/wholesale": WHOLESALE_SUB, "/cashier": CASHIER_SUB };
 /** Urdu next to the English in the short menus (salesman, wholesale officer, cashier). */
-const NAV_UR: Record<string, string> = {
-  "/": "ڈیش بورڈ", "/reports": "رپورٹس", "/sales-history": "سیل کی تاریخ", "/insights": "مالک کی نظر", "/owner-report": "ماہانہ رپورٹ", "/discounts-report": "رعایتیں", "/other-entries": "متفرق آمدن/خرچہ", "/investors": "سرمایہ کار",
-  "/margins": "مارجن و ہدف", "/profit": "منافع کی وضاحت", "/suggestions": "تجاویز", "/inbox": "واٹس ایپ",
-  "/pos": "سیل", "/shifts": "شفٹ", "/customers": "گاہک", "/khata": "کھاتہ", "/prepaid": "کوپن و والٹ", "/card-pending": "کارڈ پینڈنگ", "/bookings": "بکنگ",
-  "/wholesale": "ہول سیل", "/carriage": "کرایہ", "/cashier": "کیشیئر", "/expenses": "خرچے", "/cash": "کیش بک", "/accounts": "اکاؤنٹس و ٹیکس", "/suppliers": "سپلائر", "/property": "جائیداد و کرایہ",
-  "/orders": "آرڈر", "/complaints": "شکایات", "/campaigns": "مہم", "/stock": "ٹینک و اسٹاک", "/dip-charts": "ڈپ چارٹ", "/register": "اسٹاک رجسٹر", "/shop": "شاپ", "/prices": "ریٹ", "/alerts": "الرٹ",
-  "/automations": "آٹومیشن", "/staff": "عملہ کھاتہ", "/kiosk": "حاضری", "/roster": "ڈیوٹی روسٹر", "/team": "ریٹنگ و کمیشن", "/checklist": "روزانہ چیک", "/compliance": "لائسنس",
-  "/machines": "مشینیں", "/my-account": "میرا حساب", "/help": "رہنمائی", "/users": "صارفین", "/audit": "آڈٹ لاگ", "/security": "سیکیورٹی اسکور", "/corrections": "درستگی", "/opening-balances": "پرانا حساب", "/go-live": "گو لائیو چیک لسٹ", "/lists": "لسٹیں", "/settings": "سیٹنگز",
-};
 /** Pages of the POS (counter sale) module — hidden when a pump has it switched off. */
 const POS_PAGES = ["/pos", "/bookings"];
 

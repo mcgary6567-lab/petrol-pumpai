@@ -10,7 +10,7 @@
 import { Router, type Request } from "express";
 import { unshiftClientFuel } from "./clientFuel.js";
 import { z } from "zod";
-import { all, get, run, tx, now, pkDate, pkStart, pkEnd, pkDayStart, type Row } from "../db.js";
+import { dmy, all, get, run, tx, now, pkDate, pkStart, pkEnd, pkDayStart, type Row } from "../db.js";
 import { h, parse, tid, requirePerm, can, modulesOf } from "../auth.js";
 import { AppError, round2, pkr, createAlert, khataEntry, audit } from "../services.js";
 import { closeApproval } from "./approvals.js";
@@ -613,14 +613,14 @@ cashier.post("/cashier/cheques/:id/:action", requirePerm("cheques.manage"), h(as
 
   if (action === "deposit") {
     if (q.status !== "in_hand") throw new AppError(400, "Only a cheque in hand can be deposited");
-    if (q.cheque_date > pkDate()) throw new AppError(400, `This cheque is dated ${q.cheque_date} — deposit it on or after that day`);
+    if (q.cheque_date > pkDate()) throw new AppError(400, `This cheque is dated ${dmy(q.cheque_date)} — deposit it on or after that day`);
     const acc = bankAccountFor(t, b.account_id ?? q.account_id, "cheque");
     if (!acc) throw new AppError(400, "Choose the bank account it is deposited in");
     set("status='deposited', account_id=?, deposited_at=?", acc, stamp);
   } else if (action === "clear") {
     const acc = bankAccountFor(t, b.account_id ?? q.account_id, "cheque");
     if (!acc) throw new AppError(400, "Choose the bank account");
-    const note = `${q.bank} cheque ${q.cheque_no} dated ${q.cheque_date} — cleared`;
+    const note = `${q.bank} cheque ${q.cheque_no} dated ${dmy(q.cheque_date)} — cleared`;
     tx(() => {
       let ref: string;
       if (q.direction === "in" && q.party_type === "khata" && q.party_id) {
@@ -654,7 +654,7 @@ cashier.post("/cashier/cheques/:id/:action", requirePerm("cheques.manage"), h(as
     const ours = q.direction === "out";
     createAlert(t, { type: "cheque_bounced", severity: "critical",
       title: ours ? `Our cheque bounced — ${q.party_name} ${pkr(q.amount)}` : `Cheque bounced — ${q.party_name} ${pkr(q.amount)}`,
-      body: `${q.bank} cheque ${q.cheque_no} dated ${q.cheque_date}${b.reason ? `. Reason: ${b.reason}` : ""}. Marked by ${req.user!.name}.` });
+      body: `${q.bank} cheque ${q.cheque_no} dated ${dmy(q.cheque_date)}${b.reason ? `. Reason: ${b.reason}` : ""}. Marked by ${req.user!.name}.` });
     await notify(t, staff(t, ["admin"], req.user!.id), { type: "cheque_bounced", title: `⚠️ Cheque bounced — ${q.party_name}`, body: `${q.bank} ${q.cheque_no} · ${pkr(q.amount)}${b.reason ? ` · ${b.reason}` : ""}` });
     if (!ours && q.party_type === "khata" && q.party_id) {
       const c = get("SELECT name, phone, balance FROM customers WHERE id=?", q.party_id)!;
@@ -939,8 +939,8 @@ cashier.get("/cashier/desk", requirePerm("cashier.desk"), h((req) => {
     const bal = banks?.accounts.find((a) => a.id === q.account_id)?.balance;
     const short = bal != null && bal < q.amount;
     tips.push({ key: `iss-${q.id}`, tone: short ? "red" : "amber", tab: "cheques",
-      en: `Our cheque to ${q.party_name} ${pkr(q.amount)} is due ${q.cheque_date}${short ? ` — only ${pkr(bal!)} in ${q.account_name}` : ""}`,
-      ur: `${q.party_name} کو دیا گیا چیک ${L(pkr(q.amount))} تاریخ ${L(q.cheque_date)} کو کیش ہوگا${short ? " — بینک میں رقم کم ہے" : ""}` });
+      en: `Our cheque to ${q.party_name} ${pkr(q.amount)} is due ${dmy(q.cheque_date)}${short ? ` — only ${pkr(bal!)} in ${q.account_name}` : ""}`,
+      ur: `${q.party_name} کو دیا گیا چیک ${L(pkr(q.amount))} تاریخ ${L(dmy(q.cheque_date))} کو کیش ہوگا${short ? " — بینک میں رقم کم ہے" : ""}` });
   }
   if (ct.bounced.n) tips.push({ key: "bounced", tone: "red", tab: "cheques", en: `${many(ct.bounced.n, "cheque")} bounced this month — ${pkr(ct.bounced.amount)}`, ur: `اس مہینے ${L(ct.bounced.n)} چیک واپس آئے — ${L(pkr(ct.bounced.amount))}` });
   for (const p of promised.filter((x) => x.state === "today")) tips.push({ key: `pr-${p.client_id}`, tone: "blue", tab: "receive",

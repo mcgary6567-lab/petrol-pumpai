@@ -8,7 +8,7 @@ import { WhatsAppDoc } from "./WhatsAppDoc";
 import { Badge, CnicInput, Empty, Field, ListTools, Loading, Modal, Pager, PhoneInput, useAction, usePaged } from "./ui";
 import { supplierOpts } from "./SupplierSelect";
 import { BypassDeliveryForm } from "../pages/Bypass";
-import { PRODUCTS, d, dt, num, phone, pkr, nowLocal } from "../lib/format";
+import { dOnly, PRODUCTS, d, dt, num, phone, pkr, nowLocal } from "../lib/format";
 import { useAuth } from "../App";
 
 const today = () => new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 10);
@@ -41,7 +41,7 @@ export function FleetPicker({ f, setF }: { f: any; setF: (f: any) => void }) {
         </select>
       </Field>
       {f.tanker_id === "other" && <Field label="Vehicle no."><input className="input uppercase" required value={f.vehicle_no ?? ""} onChange={(e) => setF({ ...f, vehicle_no: e.target.value })} /></Field>}
-      {driver?.licence_expired && <p className="text-xs font-medium text-red-600 sm:col-span-2">⚠ {driver.name}'s licence expired on {driver.licence_expiry}.</p>}
+      {driver?.licence_expired && <p className="text-xs font-medium text-red-600 sm:col-span-2">⚠ {driver.name}'s licence expired on {dOnly(driver.licence_expiry)}.</p>}
       {!fleet.data?.tankers?.length && fleet.data && <p className="text-xs text-slate-500 sm:col-span-2">Add your tankers and drivers once under Wholesale → Tankers & drivers; then just pick them here.</p>}
     </>
   );
@@ -169,7 +169,7 @@ export function TripForm({ onClose, onDone }: { onClose: () => void; onDone: (tr
                     const free = drops.findIndex((x) => !x.client_id && !x.litres);
                     setDrops(free >= 0 ? drops.map((x, j) => (j === free ? d : x)) : [...drops, d]);
                   }}>
-                  <b>{o.client_name}</b> · {PRODUCTS[o.product]} {num(o.litres)} L<span className="block text-xs text-slate-500">{o.late ? "late · " : o.today ? "today · " : ""}{o.needed_on}{o.location ? ` · ${o.location}` : ""}</span>
+                  <b>{o.client_name}</b> · {PRODUCTS[o.product]} {num(o.litres)} L<span className="block text-xs text-slate-500">{o.late ? "late · " : o.today ? "today · " : ""}{dOnly(o.needed_on)}{o.location ? ` · ${o.location}` : ""}</span>
                 </button>))}</div>
             </div>
           );
@@ -425,7 +425,7 @@ export function FleetTab({ start }: { start?: "tanker" | "driver" | null }) {
             <div className="min-w-0 flex-1">
               <div className="font-medium">{x.name}{x.phone && <span className="ml-2 text-xs font-normal text-slate-500">{phone(x.phone)}</span>}</div>
               <div className="text-xs text-slate-500">CNIC {x.cnic ?? "—"} · Licence {x.licence_no ?? "—"}</div>
-              {x.licence_expiry && <div className={`text-xs ${x.licence_expired ? "font-semibold text-red-600" : "text-slate-500"}`}>{x.licence_expired ? "Licence expired · لائسنس ختم " : "Valid till "}{x.licence_expiry}</div>}
+              {x.licence_expiry && <div className={`text-xs ${x.licence_expired ? "font-semibold text-red-600" : "text-slate-500"}`}>{x.licence_expired ? "Licence expired · لائسنس ختم " : "Valid till "}{dOnly(x.licence_expiry)}</div>}
               <div className="text-[11px] text-slate-400">Last trip {x.last_trip ? d(x.last_trip) : "—"}</div>
             </div>
             {edit && <button className="p-1 text-slate-400" onClick={() => setDr(x)} aria-label={`Edit ${x.name}`}><Pencil size={16} /></button>}
@@ -435,7 +435,7 @@ export function FleetTab({ start }: { start?: "tanker" | "driver" | null }) {
           <tbody>{data.drivers.map((x: any) => (
             <tr key={x.id} className={x.active ? "" : "opacity-50"}><td className="td font-medium">{x.name}{x.phone && <div className="text-xs text-slate-500">{phone(x.phone)}</div>}</td>
               <td className="td text-xs">{x.cnic ?? "—"}</td>
-              <td className="td text-xs">{x.licence_no ?? "—"}{x.licence_expiry && <div className={x.licence_expired ? "font-semibold text-red-600" : "text-slate-500"}>{x.licence_expired ? "expired " : "till "}{x.licence_expiry}</div>}</td>
+              <td className="td text-xs">{x.licence_no ?? "—"}{x.licence_expiry && <div className={x.licence_expired ? "font-semibold text-red-600" : "text-slate-500"}>{x.licence_expired ? "expired " : "till "}{dOnly(x.licence_expiry)}</div>}</td>
               <td className="td text-xs text-slate-500">{x.last_trip ? d(x.last_trip) : "—"}</td>
               <td className="td">{edit && <button className="text-slate-400 hover:text-slate-700" onClick={() => setDr(x)} aria-label={`Edit ${x.name}`}><Pencil size={14} /></button>}</td></tr>
           ))}</tbody></table>

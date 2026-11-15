@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Wrench, Plus, AlertTriangle, CheckCircle2, Clock, ShieldCheck } from "lucide-react";
 import { api, useApi } from "../lib/api";
 import { Badge, Empty, Field, Loading, Modal, PageHeader, PhoneInput, SearchBar, Stat, matchQuery, useAction } from "../components/ui";
-import { pkr } from "../lib/format";
+import { dOnly, pkr } from "../lib/format";
 import { useAuth } from "../App";
 import { labelMap } from "../lib/lookups";
 import { PhotoButton, PhotoThumb } from "../components/Capture";
@@ -19,7 +19,7 @@ function DueBadge({ m }: { m: any }) {
   const d = m.due;
   if (d.service === "overdue") return <Badge tone="red">Service {d.hours_left != null && d.hours_left < 0 ? `${-d.hours_left} h` : `${-d.days_to_service} days`} late</Badge>;
   if (d.service === "due_soon") return <Badge tone="amber">Service {d.hours_left != null && d.hours_left <= 25 ? `in ${d.hours_left} h` : d.days_to_service === 0 ? "today" : `in ${d.days_to_service} days`}</Badge>;
-  if (d.service === "ok") return <span className="text-xs text-slate-500">Next service {m.next_service_on ?? "—"}{d.hours_left != null ? ` / ${d.hours_left} h` : ""}</span>;
+  if (d.service === "ok") return <span className="text-xs text-slate-500">Next service {dOnly(m.next_service_on)}{d.hours_left != null ? ` / ${d.hours_left} h` : ""}</span>;
   return null;
 }
 
@@ -169,7 +169,7 @@ function MachineDetail({ id, manager, onEdit, onClose }: { id: number; manager: 
       <ul className="mt-4 max-h-80 divide-y divide-slate-100 overflow-y-auto text-sm">
         {data.logs.map((l: any) => (
           <li key={l.id} className="flex items-start gap-3 py-2">
-            <span className="w-24 shrink-0 text-xs text-slate-500">{l.day}</span>
+            <span className="w-24 shrink-0 text-xs text-slate-500">{dOnly(l.day)}</span>
             <Badge tone={LOG[l.kind]?.tone}>{LOG[l.kind]?.label}</Badge>
             <span className="flex-1">{l.description}<span className="block text-xs text-slate-500">{[l.done_by, l.hours != null && `${l.hours} h`, l.downtime_hours && `down ${l.downtime_hours} h`, l.kind === "fault" && (l.resolved_at ? "fixed" : "open"), l.created_by && `by ${l.created_by}`].filter(Boolean).join(" · ")}</span></span>
             {l.photo_id ? <PhotoThumb id={l.photo_id} size={8} /> : null}

@@ -5,7 +5,7 @@ import { api, useApi } from "../lib/api";
 import { Field, ListTools, Loading, Modal, Pager, PageHeader, Stat, pkDay, useAction, useListFilter, usePaged } from "../components/ui";
 import { AccountPicker } from "../components/BankParts";
 import { Ur } from "../components/VoiceShell";
-import { pkr, num, dt } from "../lib/format";
+import { dOnly, pkr, num, dt } from "../lib/format";
 import { TrendingUp, TrendingDown, Percent, Trash2, Pencil, Search, Banknote, Landmark, Smartphone, ArrowLeftRight } from "lucide-react";
 
 /** Payment methods with icons — same set the cashier uses. Cash → note count; anything else → a bank/wallet account. */
@@ -68,7 +68,7 @@ export default function OtherEntries() {
       {!report ? <Loading /> : (
         <>
           <div className="my-3 grid grid-cols-2 gap-3">
-            <Stat label={`${meta.en} (${report.from} → ${report.to})`} value={pkr(report.total)} tone={meta.tone} />
+            <Stat label={`${meta.en} (${dOnly(report.from)} → ${dOnly(report.to)})`} value={pkr(report.total)} tone={meta.tone} />
             <Stat label="Entries" value={report.count} />
           </div>
           {report.by_party.length === 0 ? <p className="card p-4 text-center text-sm text-slate-500">Is arsay me koi {meta.short.toLowerCase()} nahi.</p> : (

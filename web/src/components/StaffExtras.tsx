@@ -3,7 +3,7 @@ import { GraduationCap, HandCoins, FileText, MessageSquareHeart, Send, RefreshCw
 import { api, useApi } from "../lib/api";
 import { Badge, Empty, Field, Loading, PageHeader, useAction } from "./ui";
 import { WhatsAppDoc } from "./WhatsAppDoc";
-import { num, pkr } from "../lib/format";
+import { dOnly, num, pkr } from "../lib/format";
 import { ProofPhotos } from "./Capture";
 
 const STATUS: Record<string, { label: string; cls: string }> = {
@@ -74,7 +74,7 @@ export function TrainingTab() {
                 <td className="px-3 py-2 font-medium">{u.name}<div className="text-xs capitalize text-slate-500">{u.role}</div></td>
                 {data.topics.map((t: any) => { const r = u.records[t.topic]; const st = STATUS[r.status]; return (
                   <td key={t.topic} className="px-2 py-2"><span className={`inline-block rounded px-1.5 py-0.5 text-xs font-semibold ${st.cls}`}>{st.label}</span>
-                    {r.done_on && <div className="text-[11px] text-slate-500">done {r.done_on}{r.next_due ? <><br />next {r.next_due}</> : null}</div>}</td>); })}
+                    {r.done_on && <div className="text-[11px] text-slate-500">done {dOnly(r.done_on)}{r.next_due ? <><br />next {dOnly(r.next_due)}</> : null}</div>}</td>); })}
               </tr>
             ))}
           </tbody>

@@ -93,6 +93,13 @@ export const now = () => new Date().toISOString();
 export const METER = "('No.' || n.meter_no || ' · ' || n.label)";
 export const meterName = (n: { meter_no?: number | null; label: string }) => (n.meter_no ? `No.${n.meter_no} · ${n.label}` : n.label);
 export const pkDate = (ms = Date.now()) => new Date(ms + 5 * 3600_000).toISOString().slice(0, 10);
+const MON3 = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+/** A day as people read it, the same everywhere: "2026-11-17" (or a timestamp) → "17-Nov-2026". For text shown to people
+ *  (alerts, notes, messages) — never for storing or comparing. */
+export const dmy = (v: unknown): string => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(v ?? ""));
+  return m ? `${m[3]}-${MON3[Number(m[2]) - 1] ?? m[2]}-${m[1]}` : String(v ?? "");
+};
 /** Timestamp for a dated entry: no date or today → right now (so "Aaj" totals pick it up at once); an earlier day → noon of
  *  that day in Pakistan (never a future stamp: an entry stamped at noon but made at 10am would hide from "today" till noon). */
 export const stampFor = (d?: string | null) => {

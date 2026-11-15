@@ -7,7 +7,7 @@ import { AccountPicker, BankNamePicker } from "../components/BankParts";
 import { PortalCard } from "../components/PortalCard";
 import { PrintListButton } from "../components/PrintList";
 import { Ur } from "../components/VoiceShell";
-import { pkr, num, dt, PRODUCTS, activeProducts } from "../lib/format";
+import { dOnly, pkr, num, dt, PRODUCTS, activeProducts } from "../lib/format";
 import { Plus, Pencil, Trash2, ArrowDownCircle, ArrowUpCircle, Fuel, CheckCircle2, Ban, ChevronLeft, Power, BookOpen, Percent, ArrowLeftRight, Search, X } from "lucide-react";
 
 /**
@@ -224,7 +224,7 @@ function InvestorDetail({ id, onBack, onEdit, form, setForm }: { id: number; onB
               <thead><tr><th className="th">#</th><th className="th">Tareekh</th><th className="th">Fuel</th><th className="th text-right">Litre</th><th className="th text-right">Khareed</th><th className="th text-right">Becha</th><th className="th text-right">Kharche</th><th className="th text-right">Munafa</th><th className="th text-right">Hamara</th><th className="th text-right">Investor</th><th className="th"></th></tr></thead>
               <tbody>{data.deals.map((d: any) => (
                 <tr key={d.id} className="border-t">
-                  <td className="td">{d.id}</td><td className="td whitespace-nowrap text-xs">{d.deal_date}{d.supplier ? <div className="text-slate-500">{d.supplier}</div> : null}</td>
+                  <td className="td">{d.id}</td><td className="td whitespace-nowrap text-xs">{dOnly(d.deal_date)}{d.supplier ? <div className="text-slate-500">{d.supplier}</div> : null}</td>
                   <td className="td">{PRODUCTS[d.product] ?? d.product}{d.ref ? <div className="text-xs text-slate-500">{d.ref}</div> : null}</td>
                   <td className="td text-right tabular-nums">{num(d.litres)} L{d.status === "closed" && d.sold_litres < d.litres ? <div className="text-[11px] text-amber-700">bika {num(d.sold_litres)} L</div> : null}</td>
                   <td className="td text-right tabular-nums">{pkr(d.cost_amount)}<div className="text-[11px] text-slate-500">@ {num(d.cost_rate, 2)}</div></td>
@@ -280,7 +280,7 @@ function InvestorDetail({ id, onBack, onEdit, form, setForm }: { id: number; onB
               const [lbl, cls] = st[q.status] ?? [q.status, "bg-slate-100"];
               return (
                 <li key={q.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
-                  <span>{q.direction === "in" ? "Investor ka cheque" : `Hamara cheque (${q.purpose === "capital" ? "asal raqam wapas" : "munafa"})`} · {q.bank} #{q.cheque_no} · dated {q.cheque_date}{q.note ? <span className="text-xs text-slate-500"> · {q.note}</span> : null}</span>
+                  <span>{q.direction === "in" ? "Investor ka cheque" : `Hamara cheque (${q.purpose === "capital" ? "asal raqam wapas" : "munafa"})`} · {q.bank} #{q.cheque_no} · dated {dOnly(q.cheque_date)}{q.note ? <span className="text-xs text-slate-500"> · {q.note}</span> : null}</span>
                   <span className="flex items-center gap-2"><span className={`rounded-md px-1.5 py-0.5 text-[11px] font-semibold ${cls}`}>{lbl}</span><b className="tabular-nums">{pkr(q.amount)}</b></span>
                 </li>
               );

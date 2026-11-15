@@ -1,14 +1,18 @@
 import { matchRow, SEARCH_HELP } from "../lib/search";
+import { NAV_UR } from "../lib/navUr";
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode, type InputHTMLAttributes } from "react";
 import { PrintFooter, PrintHeader } from "./Letterhead";
 import { createPortal } from "react-dom";
 import { X, CheckCircle2, AlertTriangle, Search } from "lucide-react";
 
 export function PageHeader({ title, subtitle, actions }: { title: ReactNode; subtitle?: ReactNode; actions?: ReactNode }) {
+  // every page heading is bilingual: a title written in English only gets the page's Urdu name from the menu
+  const path = typeof window !== "undefined" ? "/" + (window.location.pathname.split("/")[1] ?? "") : "";
+  const ur = typeof title === "string" && !/[\u0600-\u06FF]/.test(title) ? NAV_UR[path] : null;
   return (
     <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
       <div>
-        <h1 className="text-xl font-semibold text-slate-900">{title}</h1>
+        <h1 className="text-xl font-semibold text-slate-900">{title}{ur ? <span lang="ur" dir="rtl" className="font-urdu font-normal text-slate-600"> · {ur}</span> : null}</h1>
         {subtitle && <p className="mt-0.5 text-sm text-slate-500">{subtitle}</p>}
       </div>
       {actions && <div className="flex flex-wrap gap-2">{actions}</div>}

@@ -6,7 +6,7 @@
 import { Router, type Request } from "express";
 import { fuelCostPerL } from "../fuelCost.js";
 import { z } from "zod";
-import { all, get, run, tx, now, pkDayStart, pkDate, pkStart, pkEnd, type Row, pkStamp } from "../db.js";
+import { dmy, all, get, run, tx, now, pkDayStart, pkDate, pkStart, pkEnd, type Row, pkStamp } from "../db.js";
 import { h, parse, tid, requirePerm, requireAny, can } from "../auth.js";
 import { AppError, assertNoDuplicateParty, createAlert, normalizePhone, round2, pkr, currentPrices, audit, partyBalance, partyBalanceAll } from "../services.js";
 import { productSchema } from "../products.js";
@@ -357,7 +357,7 @@ wholesale.get("/wholesale/dashboard", h((req) => {
   }
   // fleet
   for (const d of all("SELECT name, licence_expiry FROM drivers WHERE tenant_id=? AND active=1 AND licence_expiry IS NOT NULL AND licence_expiry <= ?", t, new Date(nowMs + 30 * DAYMS).toISOString().slice(0, 10)))
-    sug.push({ level: d.licence_expiry < today ? "critical" : "warning", title: `Driver ${d.name}: licence ${d.licence_expiry < today ? "expired" : "expires"} ${d.licence_expiry}`, ur: `ڈرائیور ${d.name} کا لائسنس ${d.licence_expiry < today ? "ختم ہو گیا" : "ختم ہونے والا ہے"}`, detail: "Do not send this driver on a trip until the licence is renewed.", action: { kind: "fleet", label: "Drivers" } });
+    sug.push({ level: d.licence_expiry < today ? "critical" : "warning", title: `Driver ${d.name}: licence ${d.licence_expiry < today ? "expired" : "expires"} ${dmy(d.licence_expiry)}`, ur: `ڈرائیور ${d.name} کا لائسنس ${d.licence_expiry < today ? "ختم ہو گیا" : "ختم ہونے والا ہے"}`, detail: "Do not send this driver on a trip until the licence is renewed.", action: { kind: "fleet", label: "Drivers" } });
   const fill = get(`SELECT AVG(tr.litres / tk.capacity_l) f, COUNT(*) n FROM wholesale_trips tr JOIN tankers tk ON tk.id=tr.tanker_id
     WHERE tr.tenant_id=? AND tk.capacity_l > 0 AND tr.trip_date >= ?`, t, new Date(nowMs - 30 * DAYMS).toISOString())!;
   if (fill.n >= 3 && fill.f < 0.6)

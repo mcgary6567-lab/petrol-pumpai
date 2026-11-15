@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Printer, Download } from "lucide-react";
 import { useApi, linkToken } from "../lib/api";
 import { Loading, PageHeader, ErrorBox } from "../components/ui";
-import { num } from "../lib/format";
+import { dOnly, num } from "../lib/format";
 
 const today = () => new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 10);
 const daysAgo = (n: number) => new Date(Date.now() + 5 * 3600_000 - n * 86_400_000).toISOString().slice(0, 10);
@@ -47,8 +47,8 @@ export default function Register() {
           <div className="border-b-2 border-slate-800 pb-2 text-center">
             <h1 className="text-xl font-bold uppercase tracking-wide">{f.mode === "month" ? "Monthly stock return" : "Daily stock register"} — petroleum products</h1>
             <div className="text-sm"><b>{d.tenant?.name}</b> · {d.station.name}{d.station.address ? `, ${d.station.address}` : ""}</div>
-            <div className="text-sm">Period: <b>{d.from}</b> to <b>{d.to}</b></div>
-            {d.licences.length > 0 && <div className="mt-1 text-xs text-slate-600">{d.licences.map((l: any) => `${l.name}${l.number ? ` No. ${l.number}` : ""}${l.authority ? ` (${l.authority})` : ""}, valid till ${l.expires_on}`).join(" · ")}</div>}
+            <div className="text-sm">Period: <b>{dOnly(d.from)}</b> to <b>{dOnly(d.to)}</b></div>
+            {d.licences.length > 0 && <div className="mt-1 text-xs text-slate-600">{d.licences.map((l: any) => `${l.name}${l.number ? ` No. ${l.number}` : ""}${l.authority ? ` (${l.authority})` : ""}, valid till ${dOnly(l.expires_on)}`).join(" · ")}</div>}
           </div>
           {f.mode === "month" && (<>
             {/* phone: one card per product */}
@@ -79,7 +79,7 @@ export default function Register() {
               <ul className="mt-1 divide-y divide-slate-200 rounded-lg border border-slate-300 sm:hidden print:hidden">
                 {p.days.map((x: any) => (
                   <li key={x.day} className="px-3 py-2">
-                    <div className="flex items-start justify-between gap-2"><span className="min-w-0 text-sm font-medium">{x.day}</span><span className="shrink-0 text-right"><span className="block font-semibold tabular-nums">{L(x.closing)} L</span><span className="text-[11px] text-slate-500">closing c/f</span></span></div>
+                    <div className="flex items-start justify-between gap-2"><span className="min-w-0 text-sm font-medium">{dOnly(x.day)}</span><span className="shrink-0 text-right"><span className="block font-semibold tabular-nums">{L(x.closing)} L</span><span className="text-[11px] text-slate-500">closing c/f</span></span></div>
                     <div className="text-xs text-slate-500">Opening <b className="tabular-nums text-slate-700">{L(x.opening)}</b>{x.receipts ? <> · received <b className="tabular-nums text-slate-700">{L(x.receipts)}</b></> : null} · sold <b className="tabular-nums text-slate-700">{L(x.sales)}</b>{x.wholesale ? <> · wholesale <b className="tabular-nums text-slate-700">{L(x.wholesale)}</b></> : null}</div>
                     <div className="text-xs text-slate-500">Book <b className="tabular-nums text-slate-700">{L(x.book_closing)}</b> · dip <b className="tabular-nums text-slate-700">{L(x.dip_closing)}</b>{x.dip_at ? <span className="text-slate-400"> at {at(x.dip_at)}</span> : null}{x.gain_loss ? <> · gain / loss <b className={`tabular-nums ${x.gain_loss < 0 ? "text-red-700" : "text-slate-700"}`}>{L(x.gain_loss)}</b></> : null}</div>
                     {x.receipts ? <div className="break-words text-[11px] text-slate-400">{x.receipt_lines.map((rl: any) => `${rl.tanker_no ?? ""} inv ${L(rl.invoice_l)}`).join("; ")}</div> : null}
@@ -95,7 +95,7 @@ export default function Register() {
                   <tbody className="tabular-nums">
                     {p.days.map((x: any) => (
                       <tr key={x.day}>
-                        <td className="border border-slate-300 px-1.5 py-1 whitespace-nowrap">{x.day}</td>
+                        <td className="border border-slate-300 px-1.5 py-1 whitespace-nowrap">{dOnly(x.day)}</td>
                         <td className="border border-slate-300 px-1.5 text-right">{L(x.opening)}</td>
                         <td className="border border-slate-300 px-1.5">{x.receipts ? <>{L(x.receipts)}<span className="block text-[10px] text-slate-500">{x.receipt_lines.map((rl: any) => <span key={rl.tanker_no + rl.invoice_l} className="block whitespace-nowrap">{`${rl.tanker_no ?? ""} inv ${L(rl.invoice_l)}`}</span>)}</span></> : "—"}</td>
                         <td className="border border-slate-300 px-1.5 text-right">{L(x.total)}</td>

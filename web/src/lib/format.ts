@@ -45,7 +45,20 @@ export const ago = (iso?: string | null) => {
   return `${Math.floor(s / 86400)}d ago`;
 };
 export const dt = (iso?: string | null) => (iso ? new Date(iso).toLocaleString("en-PK", { dateStyle: "medium", timeStyle: "short" }) : "—");
-export const d = (iso?: string | null) => (iso ? new Date(iso).toLocaleDateString("en-PK", { day: "numeric", month: "short" }) : "—");
+const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+/** One date format for the whole app: 17-Nov-2026 (same as the date part of `dt`). A bare "2026-11-17" is read as that
+ *  calendar day (no time-zone shift); a full timestamp is shown as its day in Pakistan time. */
+export const d = (iso?: string | null) => {
+  if (!iso) return "—";
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso).trim());
+  if (m) return `${m[3]}-${MON[Number(m[2]) - 1] ?? m[2]}-${m[1]}`;
+  const t = new Date(iso);
+  if (isNaN(t.getTime())) return String(iso);
+  const p = new Date(t.getTime() + 5 * 3600_000);
+  return `${String(p.getUTCDate()).padStart(2, "0")}-${MON[p.getUTCMonth()]}-${p.getUTCFullYear()}`;
+};
+/** A date that may arrive as a bare day, a timestamp or nothing — for labels and sentences ("dated 17-Nov-2026"). */
+export const dOnly = (v?: string | null) => (v ? d(String(v).length > 10 && !/T/.test(String(v)) ? String(v).slice(0, 10) : String(v)) : "—");
 export const phone = (p: string) => (p?.startsWith("92") ? `+92 ${p.slice(2, 5)} ${p.slice(5)}` : p);
 
 /** Current wall-clock time as a `datetime-local` value ("YYYY-MM-DDTHH:MM"); the server treats it as Pakistan time. */

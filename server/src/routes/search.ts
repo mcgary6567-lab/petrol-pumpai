@@ -4,7 +4,7 @@
  * permission its page needs, so a salesman only sees what he may open anyway.
  */
 import { Router } from "express";
-import { all, get } from "../db.js";
+import { dmy, all, get } from "../db.js";
 import { h, tid, requireAuth, can } from "../auth.js";
 import { round2 } from "../services.js";
 import { clientDue } from "./wholesale.js";
@@ -54,6 +54,8 @@ search.get("/search", requireAuth, h((req) => {
       if (r) push([{ kind: "entry", label: `DLV-${r.id} · Tanker delivery · ${r.received_l} L → ${r.tank}`, sub: `${day(r.created_at)} · ${r.supplier ?? ""}`, to: "/stock" }]); }
     if (pre === "DIP") { const r = one(can(u, "stock.manage"), "SELECT d.id, d.measured_l, d.created_at, tk.name tank FROM dip_readings d JOIN tanks tk ON tk.id=d.tank_id JOIN stations st ON st.id=tk.station_id WHERE d.id=? AND st.tenant_id=?", n, t);
       if (r) push([{ kind: "entry", label: `DIP-${r.id} · Dip · ${r.measured_l} L · ${r.tank}`, sub: day(r.created_at), to: "/stock" }]); }
+    if (pre === "WL") { const r = one(can(u, "khata.manage"), "SELECT w.id, w.type, w.amount, w.created_at, c.id cid, c.name FROM wallet_ledger w JOIN customers c ON c.id=w.customer_id WHERE w.id=? AND w.tenant_id=?", n, t);
+      if (r) push([{ kind: "entry", label: `WL-${r.id} · Wallet ${r.type} · ${r.name}`, sub: day(r.created_at), amount: r.amount, to: `/customers/${r.cid}` }]); }
     if (pre === "BK") { const r = one(can(u, "bank.view"), "SELECT x.id, x.kind, x.amount, x.txn_date, x.account_id, x.note FROM bank_txns x WHERE x.id=? AND x.tenant_id=?", n, t);
       if (r) push([{ kind: "entry", label: `BK-${r.id} · Bank ${r.kind}${r.note ? ` · ${r.note}` : ""}`, sub: day(r.txn_date), amount: r.amount, to: "/cash" }]); }
     if (pre === "DEP") { const r = one(can(u, "bank.view"), "SELECT x.id, x.amount, x.created_at, x.slip_ref FROM bank_deposits x WHERE x.id=? AND x.tenant_id=?", n, t);
@@ -74,6 +76,12 @@ search.get("/search", requireAuth, h((req) => {
       if (pre === "TRIP") { const r = get("SELECT id, litres, product, amount, trip_date FROM wholesale_trips WHERE id=? AND tenant_id=?", n, t);
         if (r) push([{ kind: "entry", label: `TRIP-${r.id} · Tanker trip · ${r.litres} L ${r.product}`, sub: day(r.trip_date), amount: r.amount, to: "/wholesale?tab=trips" }]); }
     }
+  }
+  // a coupon book by its number as the bank book shows it: "CPN-<book>" (the book name is text, not a plain number)
+  const cm = /^CPN[-\s]?(.+)$/i.exec(raw);
+  if (cm && can(u, "khata.manage")) {
+    const b = get("SELECT batch, buyer, COUNT(*) n, SUM(value) v, MIN(sold_at) sold_at FROM fuel_coupons WHERE tenant_id=? AND LOWER(batch)=LOWER(?) GROUP BY batch", t, cm[1].trim());
+    if (b) push([{ kind: "entry", label: `CPN-${b.batch} · Coupon book · ${b.n} coupons${b.buyer ? ` · ${b.buyer}` : ""}`, sub: String(b.sold_at ?? "").slice(0, 10), amount: round2(b.v as number), to: `/coupons/${encodeURIComponent(b.batch as string)}` }]);
   }
   if (can(u, "customers.view")) {
     push(all(`SELECT id, name, phone, balance FROM customers WHERE tenant_id=? AND (name LIKE ? OR COALESCE(phone,'') LIKE ?) ORDER BY (balance<>0) DESC, name LIMIT 8`, t, q, q)
@@ -98,7 +106,7 @@ search.get("/search", requireAuth, h((req) => {
   // wholesale clients' cheques live in their own register but show in the same cheque list
   if (can(u, "cheques.manage")) push(all(`SELECT q.id, q.amount, q.bank, q.cheque_no, q.cheque_date, q.status, c.name party_name FROM wholesale_cheques q JOIN wholesale_clients c ON c.id=q.client_id
       WHERE q.tenant_id=? AND (q.cheque_no LIKE ? OR c.name LIKE ?) ORDER BY q.id DESC LIMIT 5`, t, q, q)
-    .map((c) => ({ kind: "cheque", label: `Cheque ${c.cheque_no} · ${c.bank}`, sub: `received from ${c.party_name} (wholesale) · ${c.status} · ${c.cheque_date}`, amount: c.amount, to: "/cashier?tab=cheques" })));
+    .map((c) => ({ kind: "cheque", label: `Cheque ${c.cheque_no} · ${c.bank}`, sub: `received from ${c.party_name} (wholesale) · ${c.status} · ${dmy(c.cheque_date)}`, amount: c.amount, to: "/cashier?tab=cheques" })));
   if (can(u, "sales.create")) push(all(`SELECT id, name, type, serial_no, status FROM machines WHERE tenant_id=? AND (name LIKE ? OR COALESCE(serial_no,'') LIKE ? OR COALESCE(make,'') LIKE ?) LIMIT 4`, t, q, q, q)
     .map((m) => ({ kind: "machine", label: m.name, sub: `${m.type} · ${m.status}${m.serial_no ? ` · ${m.serial_no}` : ""}`, to: `/machines?q=${encodeURIComponent(m.name)}` })));
   // the forecourt itself: stations, tanks and meters → Settings → Stations, tanks & meters

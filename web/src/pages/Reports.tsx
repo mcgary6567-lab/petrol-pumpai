@@ -6,7 +6,7 @@ import { api, useApi } from "../lib/api";
 import { Badge, Empty, ErrorBox, Loading, SearchBar, Stat, matchQuery, useAction } from "../components/ui";
 import { Ur } from "../components/VoiceShell";
 import { ErpBar } from "../components/WholesaleErp";
-import { PRODUCTS, PRODUCT_COLORS, ago, dt, num, pkr, pkrShort } from "../lib/format";
+import { dOnly, PRODUCTS, PRODUCT_COLORS, ago, dt, num, pkr, pkrShort } from "../lib/format";
 
 /** English + Urdu together, bank-app style. Urdu sits under or beside the English. */
 const Lbl = ({ en, ur, block }: { en: string; ur: string; block?: boolean }) =>
@@ -125,7 +125,7 @@ function Table({ title, rows, cols }: TableDef) {
         <div className="hidden max-h-[480px] overflow-auto sm:block print:block print:max-h-none">
           <table className="w-full tabular-nums">
             <thead className="sticky top-0"><tr className="border-b border-slate-300 bg-slate-100">{cols.map((c) => <th key={c.h} className={`px-3 py-2 text-xs font-bold text-slate-700 ${c.right ? "text-right" : "text-left"}`}><Th h={c.h} /></th>)}</tr></thead>
-            <tbody>{shown.map((r, i) => <tr key={i} className="border-b border-slate-100 hover:bg-slate-50">{cols.map((c) => <td key={c.h} className={`px-3 py-1.5 text-sm ${c.right || c.h === "Date" ? "whitespace-nowrap" : ""} ${c.right ? "text-right" : ""}`}>{c.v(r)}</td>)}</tr>)}</tbody>
+            <tbody>{shown.map((r, i) => <tr key={i} className="border-b border-slate-100 hover:bg-slate-50">{cols.map((c) => <td key={c.h} className={`px-3 py-1.5 text-sm ${c.right || c.h === "Date" ? "whitespace-nowrap" : ""} ${c.right ? "text-right" : ""}`}>{isoDay(c.v(r))}</td>)}</tr>)}</tbody>
             {totals && <tfoot><tr className="border-t-2 border-slate-800 bg-slate-50 font-bold">{cols.map((c, i) => <td key={c.h} className={`px-3 py-2 text-sm ${c.right ? "text-right" : ""}`}>{i === 0 ? `Total (${shown.length})` : totals[c.h] != null ? fmtTotal(c, totals[c.h]!) : ""}</td>)}</tr></tfoot>}
           </table>
         </div>
@@ -153,6 +153,8 @@ function downloadCsv(name: string, tables: TableDef[]) {
 const money = (k: string): Col => ({ h: "", v: (r) => pkr(r[k]), csv: (r) => Math.round(r[k] ?? 0), right: true });
 const m = (h: string, k: string): Col => ({ ...money(k), h });
 const l = (h: string, k: string): Col => ({ h, v: (r) => num(r[k]), csv: (r) => Math.round(r[k] ?? 0), right: true });
+/** On screen a bare "2026-11-15" reads 15-Nov-2026 like everywhere else (the CSV keeps the raw value for Excel). */
+const isoDay = (v: any) => (typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) ? dOnly(v) : v);
 const txt = (h: string, k: string | ((r: any) => string)): Col => ({ h, v: (r) => (typeof k === "function" ? k(r) : r[k]) ?? "—" });
 
 const localInput = (iso: string) => new Date(Date.parse(iso) + 5 * 3600_000).toISOString().slice(0, 16); // Pakistan time for <input type=datetime-local>

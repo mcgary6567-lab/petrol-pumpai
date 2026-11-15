@@ -4,7 +4,7 @@
  */
 import { Router } from "express";
 import { z } from "zod";
-import { all, get, pkDate, pkDayStart } from "../db.js";
+import { dmy, all, get, pkDate, pkDayStart } from "../db.js";
 import { h, parse, tid, requirePerm } from "../auth.js";
 import { round2, pkr } from "../services.js";
 import { PRODUCTS } from "../config.js";
@@ -57,10 +57,10 @@ wholesaleVoice.post("/wholesale/ai/command", requirePerm("wholesale.view"), h(as
       const lastDays = last ? Math.floor((Date.now() - Date.parse(last)) / 86_400_000) : null;
       answer = {
         en: `${c.name} owes ${pkr(due)}${c.credit_limit ? ` (limit ${pkr(c.credit_limit)})` : ""}. Last payment ${lastDays == null ? "never" : lastDays === 0 ? "today" : `${lastDays} days ago`}.` +
-          (ch.length ? ` Cheques not cleared: ${pkr(ch.reduce((a, q) => a + q.amount, 0))}.` : "") + (pr ? ` Promise: ${pkr(pr.amount)} on ${pr.promised_on} (${pr.state}).` : "") +
-          (ord.length ? ` Open orders: ${ord.map((o) => `${n(o.litres)} L ${PRODUCTS[o.product]} for ${o.needed_on}`).join(", ")}.` : ""),
+          (ch.length ? ` Cheques not cleared: ${pkr(ch.reduce((a, q) => a + q.amount, 0))}.` : "") + (pr ? ` Promise: ${pkr(pr.amount)} on ${dmy(pr.promised_on)} (${pr.state}).` : "") +
+          (ord.length ? ` Open orders: ${ord.map((o) => `${n(o.litres)} L ${PRODUCTS[o.product]} for ${dmy(o.needed_on)}`).join(", ")}.` : ""),
         ur: `${c.name} کے ذمے ${n(due)} روپے ہیں۔ آخری ادائیگی ${lastDays == null ? "کبھی نہیں" : lastDays === 0 ? "آج" : `${lastDays} دن پہلے`}۔` +
-          (ch.length ? ` ${n(ch.reduce((a, q) => a + q.amount, 0))} روپے کے چیک ابھی کلیئر نہیں ہوئے۔` : "") + (pr ? ` ${n(pr.amount)} روپے کا وعدہ ${pr.promised_on} کا ہے۔` : "") +
+          (ch.length ? ` ${n(ch.reduce((a, q) => a + q.amount, 0))} روپے کے چیک ابھی کلیئر نہیں ہوئے۔` : "") + (pr ? ` ${n(pr.amount)} روپے کا وعدہ ${dmy(pr.promised_on)} کا ہے۔` : "") +
           (ord.length ? ` ${ord.length} آرڈر باقی ہیں۔` : ""),
       };
     }

@@ -7,7 +7,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { randomBytes, randomInt } from "node:crypto";
-import { all, get, run, now, pkDate } from "../db.js";
+import { dmy, all, get, run, now, pkDate } from "../db.js";
 import { h, parse, tid, requirePerm, requireAny, can, scopedStation } from "../auth.js";
 import { AppError, round2, createAlert, audit } from "../services.js";
 import { faceMatch } from "../ai/vision.js";
@@ -65,7 +65,7 @@ export async function licenceWatch(t: number) {
     if (!due) continue;
     const title = d < 0 ? `⛔ ${l.name} expired ${-d} days ago` : d === 0 ? `⛔ ${l.name} expires TODAY` : `⏰ ${l.name} expires in ${d} day${d === 1 ? "" : "s"}`;
     const a = createAlert(t, { station_id: l.station_id, type: "licence_expiry", severity: d <= 7 ? "critical" : "warning", title,
-      body: `${l.station_name ? `${l.station_name} · ` : ""}${l.number ? `No. ${l.number} · ` : ""}${l.authority ?? ""} — expiry ${l.expires_on}. Renew it and update the date.`, dedupe_key: `lic-${l.id}-${d}` });
+      body: `${l.station_name ? `${l.station_name} · ` : ""}${l.number ? `No. ${l.number} · ` : ""}${l.authority ?? ""} — expiry ${dmy(l.expires_on)}. Renew it and update the date.`, dedupe_key: `lic-${l.id}-${d}` });
     if (!a) continue;
     n++;
     await notify(t, staff(t, ["admin", "manager"]), { type: "licence_expiry", title, body: a.body ?? "" });

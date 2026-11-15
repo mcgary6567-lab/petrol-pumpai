@@ -9,7 +9,7 @@ import { Download, Printer, Send } from "lucide-react";
 import { api, linkToken, useApi } from "../lib/api";
 import { ErrorBox, Loading, Pager, useAction, usePaged } from "../components/ui";
 import { ErpBar, ErpSearch, Ur } from "../components/WholesaleErp";
-import { num, pkr } from "../lib/format";
+import { dOnly, num, pkr } from "../lib/format";
 
 const monthEnd = (m: string) => { const [y, mo] = m.split("-").map(Number); return `${m}-${String(new Date(Date.UTC(y, mo, 0)).getUTCDate()).padStart(2, "0")}`; };
 const prevMonth = (m: string) => { const [y, mo] = m.split("-").map(Number); return mo === 1 ? `${y - 1}-12` : `${y}-${String(mo - 1).padStart(2, "0")}`; };
@@ -113,7 +113,7 @@ function ProfitLoss({ p, q, month }: { p: any; q?: any; month: string }) {
             <div className="text-xs text-slate-500">{sub ?? ""}{qv != null && <span className={`ml-1 ${((v - qv > 0) !== !!low) ? "text-emerald-700" : "text-red-700"}`}>{pct(v, qv)} vs last month</span>}</div></div>
         ))}
       </div>
-      <Sec title="Statement of Profit & Loss" ur="نفع و نقصان" right={<span className="text-xs text-slate-500">Rupees · {p.from?.slice(0, 10)} to {p.to?.slice(0, 10)}</span>}>
+      <Sec title="Statement of Profit & Loss" ur="نفع و نقصان" right={<span className="text-xs text-slate-500">Rupees · {dOnly(p.from)} to {dOnly(p.to)}</span>}>
         <div className="overflow-x-auto"><table className="w-full text-sm">
           <Head cols={["Particulars", ...cmp.map((c): [string, boolean] => [c, true])]} />
           <tbody>
@@ -190,7 +190,7 @@ export function TrialBalance({ d }: { d: any }) {
   const rows = (d.trial_balance as any[]).filter((a) => !q || a.account.toLowerCase().includes(q.toLowerCase()));
   const dr = rows.reduce((a, x) => a + x.debit, 0), cr = rows.reduce((a, x) => a + x.credit, 0);
   return (
-    <Sec title="Trial Balance" ur="ٹرائل بیلنس" right={<span className="text-xs text-slate-500">{d.from} to {d.to} · {d.voucher_count ?? d.vouchers.length} vouchers</span>}>
+    <Sec title="Trial Balance" ur="ٹرائل بیلنس" right={<span className="text-xs text-slate-500">{dOnly(d.from)} to {dOnly(d.to)} · {d.voucher_count ?? d.vouchers.length} vouchers</span>}>
       <div className="px-4 py-2 print:hidden"><ErpSearch value={q} onChange={setQ} placeholder="Account… · کھاتہ" className="w-full sm:w-72" /></div>
       <div className="overflow-x-auto"><table className="w-full text-sm tabular-nums">
         <Head cols={["Account", ["Debit", true], ["Credit", true], ["Balance Dr / (Cr)", true]]} />
@@ -215,7 +215,7 @@ export function Journal({ d }: { d: any }) {
   const paged = usePaged(rows, 10);
   useEffect(() => { paged.setPage(1); }, [needle, acct]);
   return (
-    <Sec title="Journal" ur="جرنل" right={<span className="text-xs text-slate-500">{d.from} to {d.to} · {all.length} vouchers</span>}>
+    <Sec title="Journal" ur="جرنل" right={<span className="text-xs text-slate-500">{dOnly(d.from)} to {dOnly(d.to)} · {all.length} vouchers</span>}>
       <div className="flex flex-wrap gap-2 px-4 py-2 print:hidden">
         <ErpSearch value={q} onChange={setQ} placeholder="Voucher no, narration, account, raqam… · تلاش" className="w-full sm:w-80" />
         <select className="input w-auto" value={acct} onChange={(e) => setAcct(e.target.value)} aria-label="Account"><option value="">All accounts</option>{accounts.map((a) => <option key={a} value={a}>{a}</option>)}</select>
@@ -225,7 +225,7 @@ export function Journal({ d }: { d: any }) {
         <tbody>
           {(paged.slice as any[]).map((v) => (
             <Fragment key={v.no}>
-              <tr className="border-t border-slate-200 bg-slate-50/60"><td className={`${TD} whitespace-nowrap font-medium`}>{v.date}</td><td className={`${TD} whitespace-nowrap font-semibold text-brand-800`}>{v.no}</td><td className={`${TD} text-slate-700`} colSpan={3}><span className="mr-2 rounded bg-slate-200 px-1.5 py-0.5 text-[10px] font-bold uppercase text-slate-600">{v.type}</span>{v.narration}</td></tr>
+              <tr className="border-t border-slate-200 bg-slate-50/60"><td className={`${TD} whitespace-nowrap font-medium`}>{dOnly(v.date)}</td><td className={`${TD} whitespace-nowrap font-semibold text-brand-800`}>{v.no}</td><td className={`${TD} text-slate-700`} colSpan={3}><span className="mr-2 rounded bg-slate-200 px-1.5 py-0.5 text-[10px] font-bold uppercase text-slate-600">{v.type}</span>{v.narration}</td></tr>
               {v.lines.map((l: any, i: number) => (
                 <tr key={i} className={`border-b border-slate-100 ${acct && l.account === acct ? "bg-amber-50" : ""}`}><td /><td /><td className={TD} style={{ paddingLeft: l.credit ? 40 : 12 }}>{l.credit ? "To " : ""}{l.account}</td><td className={`${TD} text-right tabular-nums`}>{l.debit ? num(l.debit) : ""}</td><td className={`${TD} text-right tabular-nums`}>{l.credit ? num(l.credit) : ""}</td></tr>
               ))}

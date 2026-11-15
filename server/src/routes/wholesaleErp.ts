@@ -5,7 +5,7 @@
  */
 import { Router } from "express";
 import { z } from "zod";
-import { all, get, pkDate, pkStart, pkEnd, type Row } from "../db.js";
+import { dmy, all, get, pkDate, pkStart, pkEnd, type Row } from "../db.js";
 import { h, parse, tid, requirePerm } from "../auth.js";
 import { wholesaleBillMessage } from "../billing.js";
 import { AppError, round2 } from "../services.js";
@@ -183,11 +183,11 @@ wholesaleErp.get("/wholesale/clients/:id/360", h((req) => {
         : x.type === "return" ? `Return · ${Math.round(x.litres ?? 0)} L ${P(x.product)}`
         : x.type === "carriage" ? `Kiraya ${x.inv_no}` : x.ref === "refund:" ? "Advance returned" : `Adjustment${x.note ? ` · ${x.note}` : ""}` });
   for (const o of all("SELECT * FROM wholesale_orders WHERE client_id=? AND tenant_id=? ORDER BY id DESC LIMIT 15", c.id, t))
-    ev.push({ at: o.created_at, who: o.created_by, kind: "order", text: `Order SO-${o.id} · ${Math.round(o.litres).toLocaleString("en-PK")} L ${P(o.product)} for ${o.needed_on}${o.status === "done" ? " · delivered" : o.status === "open" ? " · open" : ` · ${o.status}`}` });
+    ev.push({ at: o.created_at, who: o.created_by, kind: "order", text: `Order SO-${o.id} · ${Math.round(o.litres).toLocaleString("en-PK")} L ${P(o.product)} for ${dmy(o.needed_on)}${o.status === "done" ? " · delivered" : o.status === "open" ? " · open" : ` · ${o.status}`}` });
   for (const p of all("SELECT * FROM wholesale_promises WHERE client_id=? AND tenant_id=? ORDER BY id DESC LIMIT 10", c.id, t))
-    ev.push({ at: p.created_at, who: p.created_by, kind: "promise", amount: p.amount, text: `Promised to pay on ${p.promised_on}${p.note ? ` · ${p.note}` : ""}` });
+    ev.push({ at: p.created_at, who: p.created_by, kind: "promise", amount: p.amount, text: `Promised to pay on ${dmy(p.promised_on)}${p.note ? ` · ${p.note}` : ""}` });
   for (const q of all("SELECT * FROM wholesale_cheques WHERE client_id=? AND tenant_id=? ORDER BY id DESC LIMIT 10", c.id, t))
-    ev.push({ at: q.created_at, who: q.created_by, kind: "cheque", amount: q.amount, text: `Cheque ${q.bank} #${q.cheque_no} dated ${q.cheque_date} · ${String(q.status).replace("_", " ")}` });
+    ev.push({ at: q.created_at, who: q.created_by, kind: "cheque", amount: q.amount, text: `Cheque ${q.bank} #${q.cheque_no} dated ${dmy(q.cheque_date)} · ${String(q.status).replace("_", " ")}` });
   for (const r of clientRequests(t, c.id, true).slice(0, 10))
     ev.push({ at: r.created_at, who: "Client (portal)", kind: "request", text: `Asked for ${Math.round(r.litres).toLocaleString("en-PK")} L ${P(r.product)} on ${r.want_date} · ${r.status}${r.decided_by ? ` by ${r.decided_by}` : ""}` });
   ev.sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));

@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { CheckCircle2, Plus, X } from "lucide-react";
 import { api, useApi } from "../lib/api";
 import { ErrorBox, Loading, Modal, useAction } from "./ui";
-import { PRODUCTS, num, pkr, nowLocal } from "../lib/format";
+import { dOnly, PRODUCTS, num, pkr, nowLocal } from "../lib/format";
 import { useAuth } from "../App";
 import { ProofPhotos } from "./Capture";
 import { FleetPicker, fleetBody } from "./WholesaleFleet";
@@ -112,7 +112,7 @@ export function SupplyVoucher() {
               <label><span className="label">Against order</span>
                 <select className="input" value={f.order_id} onChange={(e) => setF({ ...f, order_id: e.target.value })} disabled={!orders.length}>
                   <option value="">{orders.length ? "— none —" : "No open order"}</option>
-                  {orders.map((o: any) => <option key={o.id} value={o.id}>SO-{o.id} · {num(o.litres)} L {PRODUCTS[o.product] ?? o.product}{o.needed_on ? ` · ${o.needed_on}` : ""}</option>)}
+                  {orders.map((o: any) => <option key={o.id} value={o.id}>SO-{o.id} · {num(o.litres)} L {PRODUCTS[o.product] ?? o.product}{o.needed_on ? ` · ${dOnly(o.needed_on)}` : ""}</option>)}
                 </select></label>
               <label className="sm:col-span-2"><span className="label">Drop location</span><input className="input" value={f.location} onChange={(e) => setF({ ...f, location: e.target.value })} /></label>
             </div>

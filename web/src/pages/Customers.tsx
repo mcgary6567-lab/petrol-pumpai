@@ -12,7 +12,7 @@ import { PartyAdmin } from "../components/PartyAdmin";
 
 import { api, useApi } from "../lib/api";
 import { IdTag, Badge, CnicInput, Empty, ErrorBox, Field, ListTools, Loading, Modal, PageHeader, Pager, PhoneInput, Stat, statusTone, useAction, useListFilter, usePaged } from "../components/ui";
-import { PRODUCTS, ago, d, dt, num, phone, pkr } from "../lib/format";
+import { dOnly, PRODUCTS, ago, d, dt, num, phone, pkr } from "../lib/format";
 import { useAuth } from "../App";
 import { OpeningBalanceField, type AdvanceReceipt } from "../components/OpeningBalanceField";
 import { useLookups } from "../lib/lookups";
@@ -427,7 +427,7 @@ function GuaranteeSection({ customerId, canEdit }: { customerId: number; canEdit
           <li key={g.id} className="flex items-center gap-2 rounded-lg bg-slate-50 px-2 py-1.5">
             <span className="flex-1 min-w-0">
               {g.kind === "cheque"
-                ? <><b>Cheque {g.cheque_no}</b>{g.bank ? ` · ${g.bank}` : ""}{g.amount ? ` · ${pkr(g.amount)}` : ""}{g.cheque_date ? ` · ${g.cheque_date}` : ""}</>
+                ? <><b>Cheque {g.cheque_no}</b>{g.bank ? ` · ${g.bank}` : ""}{g.amount ? ` · ${pkr(g.amount)}` : ""}{g.cheque_date ? ` · ${dOnly(g.cheque_date)}` : ""}</>
                 : <><b>{g.guarantor_name}</b>{g.guarantor_phone ? ` · ${g.guarantor_phone}` : ""}{g.guarantor_cnic ? ` · ${g.guarantor_cnic}` : ""}</>}
               {g.note ? <span className="block text-xs text-slate-500">{g.note}</span> : null}
             </span>

@@ -7,7 +7,7 @@
 import { Router } from "express";
 import crypto from "node:crypto";
 import { z } from "zod";
-import { all, get, run, now, pkDate, tx, type Row } from "../db.js";
+import { dmy, all, get, run, now, pkDate, tx, type Row } from "../db.js";
 import { h, parse, tid, requirePerm } from "../auth.js";
 import { bankAccountFor, accountIdField, otherMoney } from "./banks.js";
 import { AppError, round2, pkr, audit } from "../services.js";
@@ -97,7 +97,7 @@ prepaid.get("/pos/coupon/:code", requirePerm("sales.create"), h((req) => {
   if (!c) throw new AppError(404, "Coupon not found · کوپن نہیں ملا");
   if (c.status === "used") throw new AppError(400, `Already used on ${c.used_at.slice(0, 10)} · یہ کوپن استعمال ہو چکا ہے`);
   if (c.status === "void") throw new AppError(400, "This coupon was cancelled · یہ کوپن منسوخ ہے");
-  if (c.expires_on && c.expires_on < pkDate()) throw new AppError(400, `Expired on ${c.expires_on} · میعاد ختم`);
+  if (c.expires_on && c.expires_on < pkDate()) throw new AppError(400, `Expired on ${dmy(c.expires_on)} · میعاد ختم`);
   return c;
 }));
 

@@ -1,4 +1,4 @@
-import { all, get, run, tx, now, getSetting, type Row } from "./db.js";
+import { dmy, all, get, run, tx, now, getSetting, type Row } from "./db.js";
 import { config } from "./config.js";
 import { digitalMethods } from "./routes/lookups.js";
 
@@ -216,7 +216,7 @@ export function recordSale(tenantId: number, s: SaleInput): Row {
   if (s.payment_method === "coupon") {
     if (!coupon) throw new AppError(400, "Coupon not found. Scan it again or type the code.");
     if (coupon.status !== "active") throw new AppError(400, `Coupon ${coupon.code} is ${coupon.status === "used" ? `already used (${coupon.used_at?.slice(0, 10)})` : "cancelled"}`);
-    if (coupon.expires_on && coupon.expires_on < new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 10)) throw new AppError(400, `Coupon ${coupon.code} expired on ${coupon.expires_on}`);
+    if (coupon.expires_on && coupon.expires_on < new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 10)) throw new AppError(400, `Coupon ${coupon.code} expired on ${dmy(coupon.expires_on)}`);
     if (coupon.product && coupon.product !== s.product) throw new AppError(400, `Coupon ${coupon.code} is only for ${coupon.product}`);
   }
   // never divide an amount by a zero/blank rate — it would make Infinity litres and a NaN sale slip past the litres>0 guard
