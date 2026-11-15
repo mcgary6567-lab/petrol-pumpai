@@ -59,7 +59,7 @@ export const PERMISSIONS = {
   "wholesale.view": WHOLESALE,
   "wholesale.manage": WHOLESALE, // add clients, supplies, returns, payments
   "wholesale.rates": ADMIN, // set each client's per-litre rates, credit limits
-  "wholesale.void": ADMIN, // cancel a wrong entry (stock is reversed)
+  "wholesale.void": WHOLESALE, // cancel a wrong entry / a whole voucher (stock is reversed) — the wholesale officer too
   "carriage.view": WHOLESALE, // carriage / kiraya (bypass on our depot ID), run with thekedars
   "carriage.manage": WHOLESALE, // add thekedars, bill kiraya, record fuel money, take payments
   "carriage.void": ADMIN, // cancel a wrong carriage / fuel entry

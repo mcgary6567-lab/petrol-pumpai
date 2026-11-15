@@ -11,6 +11,7 @@ import { PartyAdmin } from "../components/PartyAdmin";
 import { DayFeed } from "../components/DayFeed";
 
 import { VoucherSlip } from "./Cashier";
+import { VoucherVoidModal } from "../components/VoucherVoid";
 import { api, linkToken, useApi } from "../lib/api";
 import { ProofPhotos, ProofThumbs } from "../components/Capture";
 import { AccountPicker } from "../components/BankParts";
@@ -388,7 +389,7 @@ function SupplierDetail({ id, onClose, onChanged, depots, onDepots }: { id: numb
                   <td className="td whitespace-nowrap text-xs">{t.product ? PRODUCTS[t.product] ?? t.product : ""}</td>
                   <td className="td whitespace-nowrap text-right text-xs tabular-nums">{t.litres ? `${num(t.litres, t.litres % 1 ? 2 : 0)} L` : ""}</td>
                   <td className="td whitespace-nowrap text-right text-xs tabular-nums">{t.rate ? `Rs ${num(t.rate, 2)}` : ""}</td>
-                  <td className="td min-w-[180px] text-xs">{t.type === "payment" && t.method ? <span className="font-medium">{t.method}{t.account_name ? ` · ${t.account_name}` : ""}</span> : null} <span className="text-slate-500">{[t.ref !== t.vehicle_no ? t.ref : null, t.note].filter(Boolean).join(" · ")}</span> <ProofThumbs ids={t.proof_ids} /></td>
+                  <td className="td min-w-[180px] text-xs">{t.source === "bypass" ? <span className="mr-1.5 whitespace-nowrap font-mono text-[11px] font-semibold text-brand-700" title="Entry ID — Wholesale → ID se dhoondein">{t.type === "purchase" ? (t.voucher_id ? `BYP-${t.voucher_id}` : `BP-${String(t.id).replace(/^b/, "")}`) : `SP-${String(t.id).replace(/^b/, "").replace(/^p/, "")}`}</span> : null}{t.type === "payment" && t.method ? <span className="font-medium">{t.method}{t.account_name ? ` · ${t.account_name}` : ""}</span> : null} <span className="text-slate-500">{[t.ref !== t.vehicle_no ? t.ref : null, t.note].filter(Boolean).join(" · ")}</span> <ProofThumbs ids={t.proof_ids} /></td>
                   <td className="td whitespace-nowrap text-right tabular-nums text-rose-700">{t.debit ? pkr(t.debit) : ""}</td>
                   <td className="td whitespace-nowrap text-right tabular-nums text-emerald-700">{t.credit ? pkr(t.credit) : ""}</td>
                   <td className="td whitespace-nowrap text-right font-medium tabular-nums">{pkr(t.balance)}</td>
@@ -418,6 +419,9 @@ function VoidLine({ t, supplier, onClose, onDone }: { t: any; supplier: string; 
   const { busy, run } = useAction();
   const isBypass = t.source === "bypass";
   const rawId = String(t.id).replace(/^b/, "");
+  // a bypass bill written on a voucher: the whole voucher goes back together — the bill, every client drop and tank
+  // unload made from that fuel (also under later vouchers), so the books stay tallied
+  if (isBypass && t.type === "purchase" && t.voucher_id) return <VoucherVoidModal kind="bypass" id={t.voucher_id} onClose={onClose} onDone={onDone} />;
   const url = isBypass ? (t.type === "purchase" ? `/bypass/purchases/${rawId}/void` : `/bypass/payments/${rawId}/void`) : `/corrections/supplier-txn/${t.id}/void`;
   const what = `${t.type}${isBypass ? " (bypass)" : ""} · ${t.product ? `${num(t.litres)} L ${PRODUCTS[t.product]} · ` : ""}${pkr(t.amount)}`;
   return <CancelForm title={`Entry mansookh karein — ${supplier}`} busy={busy} onClose={onClose}

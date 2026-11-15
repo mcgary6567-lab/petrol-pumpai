@@ -364,7 +364,7 @@ test("Suppliers page payment settles the bypass account first; the pump ↔ bypa
   assert.match(txt, /Pump → bypass account transfer/);
 });
 
-test("whole-voucher reversal: plan lists every leg; blockers (stock sold on, cashier voucher, tank short) stop it; void takes all legs back; trip too", async () => {
+test("whole-voucher reversal: plan lists every leg; fuel sold on under a later voucher goes with it; blockers (cashier voucher, tank short) stop it; void takes all legs back; trip too", async () => {
   const sups = ok(await call("wholesale", "GET", "/api/bypass/suppliers"), "suppliers").filter((x: any) => !x.client_id);
   const S = sups[0];
   const clients = ok(await call("admin", "GET", "/api/wholesale/clients"), "clients");
@@ -376,19 +376,20 @@ test("whole-voucher reversal: plan lists every leg; blockers (stock sold on, cas
   // voucher: buy 2,000 L, drop 1,200 to the client, 300 into our tank → 500 L stays in bypass stock
   const del = ok(await call("admin", "POST", "/api/bypass/deliveries", { station_id: st, purchases: [{ supplier_id: S.id, product: "HSD", litres: 2_000, cost_rate: 250 }],
     drops: [{ client_id: W.id, product: "HSD", litres: 1_200, override_limit: true }], to_tank: [{ tank_id: tank.id, product: "HSD", litres: 300 }] }), "voucher");
-  assert.equal((await call("wholesale", "GET", `/api/vouchers/bypass/${del.id}/plan`)).status, 403, "officer cannot");
+  assert.equal((await call("wholesale", "GET", `/api/vouchers/bypass/${del.id}/plan`)).status, 200, "the wholesale officer may (wholesale.void)");
+  assert.equal((await call("manager", "GET", `/api/vouchers/bypass/${del.id}/plan`)).status, 403, "outside wholesale: no");
   const plan = ok(await call("admin", "GET", `/api/vouchers/bypass/${del.id}/plan`), "plan");
   assert.equal(plan.ok, true); assert.equal(plan.summary.clients, 1);
   assert.ok(plan.legs.some((l: any) => l.tone === "supplier" && Math.abs(l.amount + 500_000) < 0.01), "supplier bill leg");
   assert.ok(plan.legs.some((l: any) => l.tone === "khata" && l.litres === 1_200), "client drop leg");
   assert.ok(plan.legs.some((l: any) => l.tone === "tank" && l.litres === -300), "tank leg");
-  // blocker 1: a later voucher sells the 500 L left from this bill → cannot reverse
+  // a later voucher sells the 500 L left from this bill: that drop is part of the reversal now (not a blocker)
   const later = ok(await call("admin", "POST", "/api/bypass/deliveries", { station_id: st, drops: [{ client_id: W.id, product: "HSD", litres: Math.round(stock0) + 500, override_limit: true }] }), "later sale from stock");
   const p2 = ok(await call("admin", "GET", `/api/vouchers/bypass/${del.id}/plan`), "plan 2");
-  assert.equal(p2.ok, false); assert.match(p2.blockers.join(" "), /baad ke (is|in) voucher/);
+  assert.equal(p2.ok, true, JSON.stringify(p2.blockers));
+  assert.ok(p2.cascade.some((c: any) => c.delivery_id === later.id), "the later voucher's drop goes with it");
+  assert.ok(p2.legs.some((l: any) => String(l.what).startsWith(`BYP-${later.id} bhi`)), "and is listed as a leg");
   assert.ok(p2.links.some((l: any) => l.kind === "bypass" && l.id === later.id), "the later voucher is named, tappable");
-  assert.equal((await call("admin", "POST", `/api/vouchers/bypass/${del.id}/void`, { reason: "galat entry" })).status, 400, "refused while blocked");
-  ok(await call("admin", "POST", `/api/vouchers/bypass/${later.id}/void`, { reason: "test undo" }), "void the later one");
   // blocker 2: a cashier receipt against the drop
   const wtx = db.get("SELECT wtx_id FROM bypass_drops WHERE delivery_id=? AND tank_id IS NULL AND voided=0", del.id)!.wtx_id;
   db.run("INSERT INTO cashier_vouchers (tenant_id,direction,party_type,party_id,party_name,amount,method,src,created_by,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)", t, "in", "wholesale", W.id, W.name, 1000, "Cash", `wtx:${wtx}`, "test", new Date().toISOString());
@@ -403,6 +404,8 @@ test("whole-voucher reversal: plan lists every leg; blockers (stock sold on, cas
   near(ok(await call("wholesale", "GET", "/api/bypass/stock"), "stock").by_product.find((x: any) => x.product === "HSD")?.litres ?? 0, stock0, "bypass stock back");
   near(db.get("SELECT current_l FROM tanks WHERE id=?", tank.id)!.current_l as number, tank.current_l, "tank back");
   assert.equal(db.get("SELECT voided FROM bypass_deliveries WHERE id=?", del.id)!.voided, 1);
+  assert.equal(db.get("SELECT voided FROM bypass_deliveries WHERE id=?", later.id)!.voided, 1, "the later voucher has nothing live left: voided too");
+  assert.equal(db.get("SELECT COUNT(*) n FROM bypass_drops WHERE delivery_id=? AND voided=0", later.id)!.n, 0);
   assert.equal(ok(await call("admin", "GET", `/api/vouchers/bypass/${del.id}/plan`), "plan 4").voided, true);
   assert.equal((await call("admin", "POST", `/api/vouchers/bypass/${del.id}/void`, { reason: "dobara" })).status, 400, "already void");
   await books();

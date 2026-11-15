@@ -16,14 +16,14 @@ import { all, get, run, tx, now } from "../db.js";
 import { h, parse, tid, requirePerm } from "../auth.js";
 import { AppError, round2, audit, createAlert, pkr } from "../services.js";
 import { PRODUCTS } from "../config.js";
-import { bypassStock } from "./bypass.js";
+import { bypassStock, bypassLotState, closeEmptyVoucher } from "./bypass.js";
 
 export const vouchers = Router();
 type Kind = "trip" | "bypass";
 export type Leg = { what: string; party?: string | null; amount?: number | null; litres?: number | null; tone: "khata" | "supplier" | "stock" | "tank" | "cash" | "other" };
 /** A later voucher that holds this one's stock — shown as a tappable #number under the blocker it explains. */
 export type BlockLink = { blocker: number; kind: "bypass" | "unload"; id: number; label: string; litres: number; date: string };
-export type Plan = { kind: Kind; id: number; title: string; date: string; legs: Leg[]; blockers: string[]; links?: BlockLink[]; ok: boolean; voided: boolean; summary: { clients: number; suppliers: number; litres: number } };
+export type Plan = { kind: Kind; id: number; title: string; date: string; legs: Leg[]; blockers: string[]; links?: BlockLink[]; cascade?: { drop_id: number; delivery_id: number | null; label: string }[]; ok: boolean; voided: boolean; summary: { clients: number; suppliers: number; litres: number } };
 
 const fuel = (p: string | null | undefined) => (p ? PRODUCTS[p] ?? p : "");
 
@@ -54,42 +54,43 @@ function bypassPlan(t: number, id: number): Plan {
       if (x.wtx && get("SELECT 1 x FROM cashier_vouchers WHERE tenant_id=? AND src=? AND voided=0", t, `wtx:${x.wtx}`)) blockers.push(`${x.client} ke drop par cashier voucher bana hua hai — pehle wo void karein.`);
     }
   }
+  // This voucher's fuel that went out LATER under other vouchers (held stock delivered to a client, or put in our tank):
+  // those lines go with it — voiding the supplier's bill takes back every drop made from it, in one go.
+  const taken = new Map<number, number>();
+  for (const k of bypassLotState(t).takes) if (k.lot_delivery === id && k.out_delivery !== id) taken.set(k.out_id, round2((taken.get(k.out_id) ?? 0) + k.litres));
+  const cascade: { drop_id: number; delivery_id: number | null; label: string }[] = [];
+  for (const [dropId] of taken) {
+    const x = get(`SELECT x.*, c.name client, w.amount sale_amount, w.id wtx FROM bypass_drops x LEFT JOIN wholesale_clients c ON c.id=x.client_id LEFT JOIN wholesale_txns w ON w.id=x.wtx_id WHERE x.id=? AND x.voided=0`, dropId);
+    if (!x) continue;
+    const label = x.delivery_id ? `BYP-${x.delivery_id}` : `Unload #${x.id}`;
+    outL[x.product] = round2((outL[x.product] ?? 0) + x.litres);
+    cascade.push({ drop_id: x.id, delivery_id: x.delivery_id ?? null, label });
+    links.push({ blocker: -1, kind: x.delivery_id ? "bypass" : "unload", id: x.delivery_id ?? x.id, label, litres: x.litres, date: x.txn_date });
+    if (x.tank_id) {
+      const tank = get("SELECT name, current_l FROM tanks WHERE id=?", x.tank_id);
+      legs.push({ what: `${label} bhi: apne tank se wapas — ${x.litres} L ${fuel(x.product)} (${tank?.name ?? "tank"}) — isi khareed ka maal tha`, party: null, litres: -x.litres, tone: "tank" });
+      if (tank && tank.current_l < x.litres - 0.01) blockers.push(`${label}: ${tank.name} me ab sirf ${Math.round(tank.current_l)} L hai — is khareed ke ${x.litres} L wahan se bik chuke hain. Pehle wo sale theek karein.`);
+    } else {
+      legs.push({ what: `${label} bhi: client drop mansookh — ${x.litres} L ${fuel(x.product)} (bill ${pkr(x.sale_amount ?? 0)}) — isi khareed ka maal tha`, party: x.client, amount: -(x.sale_amount ?? 0), litres: x.litres, tone: "khata" });
+      if (x.wtx && get("SELECT 1 x FROM cashier_vouchers WHERE tenant_id=? AND src=? AND voided=0", t, `wtx:${x.wtx}`)) blockers.push(`${label}: ${x.client} ke drop par cashier voucher bana hua hai — pehle wo void karein.`);
+    }
+  }
   for (const p of new Set([...Object.keys(inL), ...Object.keys(outL)])) {
     const after = round2(bypassStock(t, p).litres - (inL[p] ?? 0) + (outL[p] ?? 0));
-    if (after < -0.01) {
-      // the outs made after this voucher, newest first, until they cover the shortfall: those are the vouchers to fix
-      const need = Math.abs(after), at = blockers.length, found: BlockLink[] = [];
-      let got = 0;
-      const later = all(`SELECT x.delivery_id, x.id, x.litres, x.txn_date, x.tank_id, c.name client FROM bypass_drops x LEFT JOIN wholesale_clients c ON c.id=x.client_id
-        WHERE x.tenant_id=? AND x.voided=0 AND x.product=? AND COALESCE(x.delivery_id,0)<>? AND (x.delivery_id > ? OR (x.delivery_id IS NULL AND x.created_at > ?))
-        ORDER BY x.txn_date DESC, x.id DESC`, t, p, id, id, d.created_at);
-      const byVoucher = new Map<string, BlockLink>();
-      for (const x of later) {
-        if (got >= need - 0.01) break;
-        got = round2(got + x.litres);
-        const key = x.delivery_id ? `b${x.delivery_id}` : `u${x.id}`;
-        const cur = byVoucher.get(key);
-        if (cur) { cur.litres = round2(cur.litres + x.litres); continue; }
-        const link: BlockLink = x.delivery_id
-          ? { blocker: at, kind: "bypass", id: x.delivery_id, label: `BYP-${x.delivery_id}`, litres: x.litres, date: x.txn_date }
-          : { blocker: at, kind: "unload", id: x.id, label: `Tank unload #${x.id}`, litres: x.litres, date: x.txn_date };
-        byVoucher.set(key, link); found.push(link);
-      }
-      const names = found.map((l) => l.label).join(", ");
-      blockers.push(`${fuel(p)}: is bill ka ${Math.abs(after).toLocaleString()} L maal baad ke ${found.length > 1 ? "in vouchers" : "is voucher"} me nikal chuka hai${names ? ` (${names})` : ""} — pehle ${found.length > 1 ? "wo vouchers" : "wo voucher"} theek karein.`);
-      links.push(...found);
-    }
+    if (after < -0.01) blockers.push(`${fuel(p)}: is voucher ke baghair bypass stock ${Math.abs(after).toLocaleString()} L minus ho jata hai — Baqi stock tab me "zyada nikla" entries pehle theek karein.`);
     else if (inL[p]) legs.push({ what: `Bypass stock ${fuel(p)}: ${after.toLocaleString()} L reh jayega`, litres: round2((outL[p] ?? 0) - (inL[p] ?? 0)), tone: "stock" });
   }
   if (!purchases.length && !drops.length) blockers.push("Is voucher me koi zinda line nahi (sab pehle hi mansookh).");
   const clients = new Set(drops.filter((x) => !x.tank_id).map((x) => x.client_id)).size, suppliers = new Set(purchases.map((p) => p.supplier_id)).size;
-  return { kind: "bypass", id, title: `Bypass delivery #${id}`, date: d.txn_date, legs, blockers, links, ok: !d.voided && !blockers.length, voided: !!d.voided,
+  return { kind: "bypass", id, title: `Voucher BYP-${id}`, date: d.txn_date, legs, blockers, links, cascade, ok: !d.voided && !blockers.length, voided: !!d.voided,
     summary: { clients, suppliers, litres: round2(Object.values(outL).reduce((a, v) => a + v, 0)) } };
 }
-function bypassReverse(t: number, by: string, id: number, reason: string) {
+function bypassReverse(t: number, by: string, id: number, reason: string, cascade: { drop_id: number; delivery_id: number | null }[] = []) {
   const purchases = all("SELECT * FROM bypass_purchases WHERE delivery_id=? AND voided=0", id);
   const drops = all("SELECT * FROM bypass_drops WHERE delivery_id=? AND voided=0", id);
-  const tag = ` [voucher void: ${reason}]`;
+  // the later drops / unloads made from this voucher's fuel go with it
+  for (const c of cascade) { const x = get("SELECT * FROM bypass_drops WHERE id=? AND tenant_id=? AND voided=0", c.drop_id, t); if (x) drops.push(x); }
+  const tag = ` [voucher void BYP-${id}: ${reason}]`;
   for (const x of drops) {
     run("UPDATE bypass_drops SET voided=1, note=COALESCE(note,'') || ? WHERE id=?", tag, x.id);
     if (x.tank_id) { if (x.to_delivery_id) run("DELETE FROM deliveries WHERE id=?", x.to_delivery_id); run("UPDATE tanks SET current_l = current_l - ? WHERE id=?", x.litres, x.tank_id); }
@@ -106,6 +107,7 @@ function bypassReverse(t: number, by: string, id: number, reason: string) {
     }
   }
   run("UPDATE bypass_deliveries SET voided=1, note=COALESCE(note,'') || ? WHERE id=?", tag, id);
+  for (const c of cascade) if (c.delivery_id && c.delivery_id !== id) closeEmptyVoucher(c.delivery_id, tag);
 }
 
 /* ------------------------------------------------------------------ tanker trip ------------------------------------------------------------------ */
@@ -162,8 +164,55 @@ vouchers.post("/vouchers/:kind/:id/void", requirePerm("wholesale.void"), h((req)
   const plan = voucherPlan(t, kind, id);
   if (plan.voided) throw new AppError(400, "Ye voucher pehle hi mansookh hai");
   if (!plan.ok) throw new AppError(400, `Mansookh nahi ho sakta: ${plan.blockers[0]}`);
-  tx(() => { if (kind === "trip") tripReverse(t, req.user!.name, id, reason); else bypassReverse(t, req.user!.name, id, reason); });
+  tx(() => { if (kind === "trip") tripReverse(t, req.user!.name, id, reason); else bypassReverse(t, req.user!.name, id, reason, plan.cascade ?? []); });
   audit(t, req.user!, "voucher_void", `${kind}:${id}`, { reason, legs: plan.legs.length, summary: plan.summary });
   createAlert(t, { type: "wholesale_void", severity: "info", title: `${plan.title} poora mansookh — ${req.user!.name}`, body: `${plan.summary.clients} client, ${plan.summary.litres.toLocaleString()} L. Wajah: ${reason}` });
   return { ok: true, plan };
+}));
+
+/* ------------------------------------------------------------------ find by ID ------------------------------------------------------------------ */
+/** Every wholesale entry has a number; type it and get the entry: BYP-185 (depot / balance-stock / unload voucher),
+ *  WS- / RV- / CN- / JV- (a client's supply, receipt, return, journal), TRIP-12 (tanker trip from our tank),
+ *  BP-40 (one supplier bill line), SP-7 (a payment to a bypass supplier). A bare number is tried against all of them.
+ *  Mansookh entries are found too (marked voided) — nothing disappears. */
+vouchers.get("/vouchers/find", requirePerm("wholesale.manage"), h((req) => {
+  const t = tid(req);
+  const raw = parse(z.object({ q: z.string().trim().min(1).max(40) }), req.query).q.replace(/^#/, "").toUpperCase().replace(/\s+/g, "");
+  const m = raw.match(/^([A-Z]+)?-?(\d+)$/);
+  if (!m) return { q: raw, results: [] };
+  const pre = m[1] ?? "", n = Number(m[2]);
+  const want = (...p: string[]) => !pre || p.includes(pre);
+  const out: { kind: string; id: number; no: string; title: string; date: string; voided: boolean; amount?: number | null; litres?: number | null; party?: string | null; open: { type: "bypass" | "trip" | "wtx" | "supplier"; id: number; client_id?: number; supplier_id?: number } }[] = [];
+  if (want("BYP", "DEL", "UNL")) {
+    const d = get(`SELECT d.*, (SELECT COALESCE(SUM(litres),0) FROM bypass_purchases WHERE delivery_id=d.id) bought, (SELECT COALESCE(SUM(litres),0) FROM bypass_drops WHERE delivery_id=d.id AND tank_id IS NULL) dropped,
+        (SELECT COALESCE(SUM(litres),0) FROM bypass_drops WHERE delivery_id=d.id AND tank_id IS NOT NULL) unloaded,
+        (SELECT GROUP_CONCAT(DISTINCT c.name) FROM bypass_drops x JOIN wholesale_clients c ON c.id=x.client_id WHERE x.delivery_id=d.id) clients,
+        (SELECT GROUP_CONCAT(DISTINCT s.name) FROM bypass_purchases p JOIN suppliers s ON s.id=p.supplier_id WHERE p.delivery_id=d.id) sups
+      FROM bypass_deliveries d WHERE d.id=? AND d.tenant_id=?`, n, t);
+    if (d) out.push({ kind: d.kind === "unload" ? "Tank unload" : d.bought > 0 ? "Depot bypass" : "Balance stock delivery", id: d.id, no: `BYP-${d.id}`, date: d.txn_date, voided: !!d.voided,
+      title: [d.bought ? `khareeda ${d.bought} L` : "", d.dropped ? `client ko ${d.dropped} L` : "", d.unloaded ? `apne tank ${d.unloaded} L` : "", d.vehicle_no].filter(Boolean).join(" · "),
+      litres: d.bought || d.dropped || d.unloaded, party: [d.sups, d.clients].filter(Boolean).join(" → ") || null, open: { type: "bypass", id: d.id } });
+  }
+  if (want("WS", "RV", "CN", "JV")) {
+    for (const w of all(`SELECT w.*, c.name client FROM wholesale_txns w JOIN wholesale_clients c ON c.id=w.client_id WHERE w.tenant_id=? AND (w.id=? OR w.voucher_no=?) ORDER BY w.id LIMIT 12`, t, n, `${pre || "WS"}-${n}`)) {
+      const no = (w.voucher_no as string | null) ?? `${w.type === "supply" ? "WS" : w.type === "payment" ? "RV" : w.type === "return" ? "CN" : "JV"}-${w.id}`;
+      if (pre && !no.startsWith(pre + "-")) continue;
+      out.push({ kind: w.type === "supply" ? "Client supply" : w.type === "payment" ? "Client payment" : w.type === "return" ? "Return" : w.type === "carriage" ? "Kiraya" : "Adjustment", id: w.id, no, date: w.txn_date, voided: !!w.voided,
+        title: [w.litres ? `${w.litres} L ${fuel(w.product)}` : "", w.method, w.vehicle_no, w.ref].filter(Boolean).join(" · "), amount: w.amount, litres: w.litres, party: w.client, open: { type: "wtx", id: w.id, client_id: w.client_id } });
+    }
+  }
+  if (want("TRIP", "T")) {
+    const tr = get("SELECT * FROM wholesale_trips WHERE id=? AND tenant_id=?", n, t);
+    if (tr) out.push({ kind: "Tanker trip", id: tr.id, no: `TRIP-${tr.id}`, date: tr.trip_date, voided: !!tr.voided, title: [`${tr.litres} L ${fuel(tr.product)}`, `${tr.drops} drop`, tr.vehicle_no].filter(Boolean).join(" · "), amount: tr.amount, litres: tr.litres, party: null, open: { type: "trip", id: tr.id } });
+  }
+  if (want("BP")) {
+    const p = get("SELECT p.*, s.name supplier FROM bypass_purchases p JOIN suppliers s ON s.id=p.supplier_id WHERE p.id=? AND p.tenant_id=?", n, t);
+    if (p) out.push({ kind: "Supplier bill (bypass)", id: p.id, no: `BP-${p.id}`, date: p.txn_date, voided: !!p.voided, title: `${p.litres} L ${fuel(p.product)} @ ${p.cost_rate}${p.delivery_id ? ` · BYP-${p.delivery_id}` : ""}`, amount: p.amount, litres: p.litres, party: p.supplier,
+      open: p.delivery_id ? { type: "bypass", id: p.delivery_id } : { type: "supplier", id: p.id, supplier_id: p.supplier_id } });
+  }
+  if (want("SP")) {
+    const p = get("SELECT p.*, s.name supplier FROM bypass_supplier_payments p JOIN suppliers s ON s.id=p.supplier_id WHERE p.id=? AND p.tenant_id=?", n, t);
+    if (p) out.push({ kind: "Supplier payment (bypass)", id: p.id, no: `SP-${p.id}`, date: p.txn_date, voided: !!p.voided, title: [p.mode, p.method, p.ref].filter(Boolean).join(" · "), amount: p.amount, party: p.supplier, open: { type: "supplier", id: p.id, supplier_id: p.supplier_id } });
+  }
+  return { q: raw, results: out };
 }));

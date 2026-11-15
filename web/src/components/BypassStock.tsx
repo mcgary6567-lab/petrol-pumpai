@@ -129,25 +129,33 @@ function LotToTank({ lot, onClose, onDone }: { lot: any; onClose: () => void; on
   const quote = useApi<any>(litres > 0 ? `/bypass/to-tank/quote?product=${lot.product}&litres=${litres}${vehicle ? `&tanker_no=${encodeURIComponent(vehicle)}` : ""}` : null);
   const tankId = f.tank_id || String(tanks[0]?.id ?? "");
   const { busy, run } = useAction();
+  const tank = tanks.find((t: any) => String(t.id) === String(tankId));
+  const free = tank ? Math.max(0, Math.floor(Number(tank.capacity_l) - Number(tank.current_l))) : 0;
+  const noRoom = !!tank && litres > free + 0.5;
   return (
     <Modal open onClose={onClose} title={`Apne tank mein · ${PRODUCTS[lot.product] ?? lot.product}${vehicle ? ` · ${vehicle}` : ""}`}>
       <form className="space-y-3" onSubmit={async (e) => {
         e.preventDefault();
         const r = await run(() => api("/bypass/to-tank", { body: { product: lot.product, litres, tank_id: Number(tankId), note: f.note || null, txn_date: f.txn_date, tanker_no: vehicle || null } }),
-          (x: any) => `${num(x.litres)} L tank mein — Rs ${num(x.unit_cost, 2)}/L · ${pkr(x.cost)}`);
+          (x: any) => `${x.voucher_no ?? "Saved"}: ${num(x.litres)} L tank mein — Rs ${num(x.unit_cost, 2)}/L · ${pkr(x.cost)}`);
         if (r) onDone();
       }}>
         <p className="rounded-lg bg-slate-50 p-2 text-xs text-slate-700">Lot BYP-{lot.delivery_id ?? "—"} · {lot.supplier} · baqi <b>{num(lot.left)} L</b> @ Rs {num(lot.cost_rate, 2)}. Poora daala to ye line Baqi stock se hat jayegi.</p>
         <Field label="Litres · لیٹر"><input className="input py-3 text-2xl" type="number" inputMode="decimal" min={1} step="1" required value={f.litres} onChange={(e) => setF({ ...f, litres: e.target.value })} /></Field>
         <Field label="Kis tank mein · کون سا ٹینک"><select className="input" required value={tankId} onChange={(e) => setF({ ...f, tank_id: e.target.value })}>
           {!tanks.length && <option value="">— is fuel ka tank nahi —</option>}
-          {tanks.map((t: any) => <option key={t.id} value={t.id}>{t.name} · {t.station} · {num(t.current_l)} / {num(t.capacity_l)} L</option>)}</select></Field>
+          {tanks.map((t: any) => <option key={t.id} value={t.id}>{t.name} · {t.station} · jagah {num(Math.max(0, Math.floor(t.capacity_l - t.current_l)))} L</option>)}</select></Field>
+        {tank && <div className={`flex flex-wrap items-center gap-2 rounded-lg px-3 py-2 text-sm ${noRoom ? "bg-rose-50 text-rose-800 ring-1 ring-rose-200" : "bg-slate-50 text-slate-700"}`}>
+          <span>{tank.name} mein jagah: <b className="tabular-nums">{num(free)} L</b>{noRoom ? <> — {num(litres)} L nahi samata. Entry tab tak save nahi hogi.</> : null}</span>
+          {noRoom && free > 0 && <button type="button" className="btn-secondary min-h-10 !py-1 text-sm" onClick={() => setF({ ...f, litres: String(free) })}>Jitni jagah hai utna daalein ({num(free)} L)</button>}
+          {noRoom && <span className="w-full text-xs">Baqi {num(Math.max(0, litres - free))} L Baqi stock mein hi rahega — doosre tank mein alag se daal sakte hain.</span>}
+        </div>}
         <div className="grid grid-cols-2 gap-2">
           <Field label="Date"><input className="input" type="date" value={f.txn_date} onChange={(e) => setF({ ...f, txn_date: e.target.value })} /></Field>
           <Field label="Note (optional)"><input className="input" value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} /></Field>
         </div>
         {litres > 0 && quote.data && <div className="rounded-xl bg-emerald-50 p-3 text-sm"><div className="flex justify-between"><span>Pump stock</span><b>+{num(litres)} L</b></div><div className="flex justify-between"><span>Cost (lot ka asal rate)</span><span className="tabular-nums">{num(litres)} × {num(quote.data.unit, 2)} = <b>{pkr(quote.data.cost)}</b></span></div></div>}
-        <div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={onClose}>Cancel</button><button className="btn-primary" disabled={busy || !tankId || !(litres > 0)}>Tank mein daalein · <Ur>محفوظ</Ur></button></div>
+        <div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={onClose}>Cancel</button><button className="btn-primary" disabled={busy || !tankId || !(litres > 0) || noRoom}>Tank mein daalein · <Ur>محفوظ</Ur></button></div>
       </form>
     </Modal>
   );

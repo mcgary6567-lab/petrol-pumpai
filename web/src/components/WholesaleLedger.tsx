@@ -52,7 +52,9 @@ export function PartyLedger() {
   const [page, setPage] = useState(1);
   const [showFleet, setShowFleet] = useState(true);
   const [showVoid, setShowVoid] = useState(false);
-  useEffect(() => { const t = setTimeout(() => { setDq(q.trim()); setPage(1); }, 300); return () => clearTimeout(t); }, [q]);
+  // back to page 1 only when the search text really changed (the timer used to reset the page 0.3 s after the screen
+  // opened, undoing a quick tap on "Agla")
+  useEffect(() => { const t = setTimeout(() => { const v = q.trim(); setDq((old) => { if (old !== v) setPage(1); return v; }); }, 300); return () => clearTimeout(t); }, [q]);
   useEffect(() => { setPage(1); }, [clientId, from, to, showVoid]);
   const qs = new URLSearchParams(Object.entries({ from, to, page: String(page), size: "10", newest: "1", q: dq, voided: showVoid ? "true" : "" }).filter(([, v]) => v)).toString();
   // one page of lines + running balances + period totals + months, computed server-side (a 5-year client never ships 20k rows)

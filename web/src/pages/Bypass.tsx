@@ -1,6 +1,6 @@
 import { BypassPnl } from "../components/BypassPnl";
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { askCancel, pinHeader } from "../components/CancelEntry";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell } from "recharts";
 import { Plus, Truck, Fuel, Factory, Download, Printer, HandCoins, Ban, Pencil } from "lucide-react";
@@ -28,7 +28,8 @@ export function BypassPanel({ section = "all" }: { section?: BypassSection }) {
   const [dRange, setDRange] = useState({ from: "", to: "" });
   const [dLimit, setDLimit] = useState(60);
   useEffect(() => { const t = setTimeout(() => setDqDebounced(dq.trim()), 300); return () => clearTimeout(t); }, [dq]);
-  const delsQs = new URLSearchParams({ ...(dqDebounced ? { q: dqDebounced } : {}), ...(dRange.from ? { from: dRange.from } : {}), ...(dRange.to ? { to: dRange.to } : {}), limit: String(dLimit) }).toString();
+  const [dVoid, setDVoid] = useState(false); // also list mansookh vouchers (struck through)
+  const delsQs = new URLSearchParams({ ...(dVoid ? { voided: "1" } : {}), ...(dqDebounced ? { q: dqDebounced } : {}), ...(dRange.from ? { from: dRange.from } : {}), ...(dRange.to ? { to: dRange.to } : {}), limit: String(dLimit) }).toString();
   const dels = useApi<any[]>(`/bypass/deliveries?${delsQs}`);
   const delsPaged = usePaged((dels.data ?? []) as any[], 10);
   const delsFiltered = Boolean(dqDebounced || dRange.from || dRange.to);
@@ -121,6 +122,8 @@ export function BypassPanel({ section = "all" }: { section?: BypassSection }) {
         <h2 className="border-b p-4 font-semibold">{section === "deliveries" ? "Bypass deliveries" : "Recent deliveries"} · <Ur>حالیہ</Ur></h2>
         <div className="px-4 pt-3"><ListTools q={dq} onQ={setDq} placeholder="Tanker / client / supplier / fuel… · تلاش" from={dRange.from} to={dRange.to} onFrom={(v) => setDRange({ ...dRange, from: v })} onTo={(v) => setDRange({ ...dRange, to: v })}
           right={delsFiltered ? <button type="button" className="text-xs text-brand-700 hover:underline" onClick={() => { setDq(""); setDRange({ from: "", to: "" }); }}>Clear</button> : null} /></div>
+        <div className="flex flex-wrap items-center justify-between gap-2 px-4 pt-2"><FindById onVoucher={setVoucher} />
+          <label className="flex min-h-9 items-center gap-1.5 text-sm text-slate-700"><input type="checkbox" className="h-4 w-4" checked={dVoid} onChange={(e) => setDVoid(e.target.checked)} /> Mansookh bhi dikhayein · <Ur>منسوخ</Ur></label></div>
         {dels.loading && !dels.data ? <Loading /> : !(dels.data ?? []).length ? <Empty>{delsFiltered ? "Kuch nahi mila · کچھ نہیں ملا" : "Abhi tak koi delivery nahi."}</Empty> : (
           <div className="overflow-x-auto">
             <table className="w-full min-w-[1000px] text-sm">
@@ -130,18 +133,18 @@ export function BypassPanel({ section = "all" }: { section?: BypassSection }) {
                   const tankers: any[] = (() => { try { return d.tankers ? JSON.parse(d.tankers) : []; } catch { return []; } })();
                   const who = tankers.length ? tankers.map((x) => [x.vehicle_no, x.driver_name].filter(Boolean).join(" · ")).join(" + ") : [d.vehicle_no, d.driver_name].filter(Boolean).join(" · ");
                   return (
-                    <tr key={d.id} className="border-t border-slate-100">
+                    <tr key={d.id} className={`border-t border-slate-100 ${d.voided ? "bg-rose-50/40 text-slate-400 line-through" : ""}`}>
                       <td className="td whitespace-nowrap text-xs">{dt(d.txn_date)}</td>
-                      <td className="td whitespace-nowrap"><button className="font-mono text-xs text-brand-700 underline" onClick={() => setVoucher(d.id)}>BYP-{d.id}</button>{d.note ? <div className="max-w-[160px] truncate text-xs text-slate-500" title={d.note}>{d.note}</div> : null}</td>
+                      <td className="td whitespace-nowrap"><button className="font-mono text-xs font-semibold text-brand-700 underline" onClick={() => setVoucher(d.id)}>BYP-{d.id}</button>{d.voided ? <span className="ml-1 rounded bg-rose-100 px-1 text-[10px] font-bold text-rose-800 no-underline">VOID</span> : d.kind === "unload" ? <span className="ml-1 rounded bg-sky-100 px-1 text-[10px] font-semibold text-sky-800">tank unload</span> : null}{d.note ? <div className="max-w-[160px] truncate text-xs text-slate-500" title={d.note}>{d.note}</div> : null}</td>
                       <td className="td text-xs">{who || "—"}</td>
-                      <td className="td text-right">{d.litres ? `${num(d.litres)} L` : <span className="text-amber-700">—</span>}</td>
+                      <td className="td text-right">{d.litres ? `${num(d.litres)} L` : d.kind === "unload" || d.voided ? "" : <span className="text-amber-700">—</span>}</td>
                       <td className="td text-right">{d.drop_litres ? `${num(d.drop_litres)} L` : ""}</td>
                       <td className="td text-right">{d.to_tank_litres ? `${num(d.to_tank_litres)} L` : ""}</td>
-                      <td className="td text-right">{d.cost ? pkr(d.cost) : <span className="text-amber-700" title="Is delivery me supplier wali khareed darj nahi">cost nahi</span>}</td>
+                      <td className="td text-right">{d.cost ? pkr(d.cost) : d.kind === "unload" || d.voided ? "" : <span className="text-amber-700" title="Is delivery me supplier wali khareed darj nahi">cost nahi</span>}</td>
                       <td className="td text-right">{d.billed ? pkr(d.billed) : ""}</td>
                       <td className={`td text-right font-semibold ${d.margin == null ? "text-amber-700" : d.margin > 0 ? "text-emerald-700" : d.margin < 0 ? "text-rose-700" : "text-slate-500"}`}>{d.margin == null ? "—" : pkr(d.margin)}</td>
                       <td className="td"><ProofThumbs ids={d.proof_ids} onChanged={() => dels.reload()} /></td>
-                      <td className="td text-right">{d.drop_litres > 0 && <button className="btn-secondary !px-2 !py-1" title="Voucher / challan" onClick={() => setVoucher(d.id)}><Printer size={14} /></button>}</td>
+                      <td className="td text-right"><button className="btn-secondary !px-2 !py-1" title="Voucher kholein" onClick={() => setVoucher(d.id)}><Printer size={14} /></button></td>
                     </tr>
                   );
                 })}
@@ -184,16 +187,26 @@ export function BypassVoucher({ id, onClose }: { id: number; onClose: () => void
         .map((tk: any) => [tk.tanker_no ? `🚛 ${tk.tanker_no}` : "", tk.driver_name ? `👤 ${tk.driver_name}` : ""].filter(Boolean).join(" ")).filter(Boolean).join(" · ") || "—"
     : "—";
   return (
-    <Modal open onClose={onClose} title={`Bypass delivery #${id} · voucher`} wide>
+    <Modal open onClose={onClose} title={`Voucher BYP-${id}${data?.kind === "unload" ? " · apne tank mein unload" : ""}${data?.voided ? " · MANSOOKH" : ""}`} wide>
       {error ? (
         <div className="space-y-3 py-4 text-center text-sm"><p className="text-red-600">Could not open this delivery: {error}</p><button className="btn-secondary" onClick={reload}>Try again</button></div>
       ) : !data ? <Loading /> : (
         <div className="space-y-3 text-sm">
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            <div><b>{dt(data.trip_date)}</b> · 🏭 depot se seedha client ko{data.supplier_name ? <> · from <b>{data.supplier_name}</b></> : ""}{data.depot_ref ? ` (${data.depot_ref})` : ""} · {data.station_name}'s books</div>
+            <div><b>{dt(data.trip_date)}</b> · {data.kind === "unload" ? "⛽ bacha hua maal apne tank mein" : data.purchases?.length ? "🏭 depot se seedha client ko" : "📦 balance stock se"}{data.created_by ? <span className="text-slate-500"> · {data.created_by}</span> : null}{data.supplier_name ? <> · from <b>{data.supplier_name}</b></> : ""}{data.depot_ref ? ` (${data.depot_ref})` : ""} · {data.station_name}'s books</div>
             <div>{vehicle}</div>
           </div>
 
+          {data.voided && <p className="rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 font-semibold text-rose-900">Ye voucher mansookh hai — iski har line wapas ho chuki hai. Record ke liye yahan rehta hai. · <Ur>منسوخ</Ur></p>}
+          {data.purchases?.length > 0 && <div className="rounded-lg bg-sky-50/60 p-3 ring-1 ring-sky-100">
+            <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-sky-900">Khareed (supplier se) · <Ur>خریداری</Ur></div>
+            <ul className="space-y-0.5 tabular-nums">{data.purchases.map((p: any, i: number) => <li key={i} className="flex flex-wrap justify-between gap-2"><span><b>{p.supplier_name}</b> · {num(p.litres, 2)} L {PRODUCTS[p.product] ?? p.product} @ Rs {num(p.rate, 2)}{p.ref ? ` · ${p.ref}` : ""}</span><b>{pkr(p.amount)}</b></li>)}</ul>
+          </div>}
+          {data.unloads?.length > 0 && <div className="rounded-lg bg-emerald-50/60 p-3 ring-1 ring-emerald-100">
+            <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-emerald-900">Apne tank mein · <Ur>اپنے ٹینک میں</Ur></div>
+            <ul className="space-y-0.5 tabular-nums">{data.unloads.map((u: any) => <li key={u.id} className={`flex flex-wrap justify-between gap-2 ${u.voided ? "text-slate-400 line-through" : ""}`}><span><b>{u.tank}</b> ({u.station}) · {num(u.litres, 2)} L {PRODUCTS[u.product] ?? u.product} @ Rs {num(u.unit_cost, 2)}{u.note ? ` · ${u.note}` : ""}</span><b>{pkr(u.cost_amount)}</b></li>)}</ul>
+          </div>}
+          {data.drops.length === 0 ? null : <>
           {/* phone: one card per drop */}
           <ul className="divide-y divide-slate-100 rounded-lg ring-1 ring-slate-200 sm:hidden print:hidden">
             {data.drops.map((x: any, i: number) => (
@@ -223,19 +236,61 @@ export function BypassVoucher({ id, onClose }: { id: number; onClose: () => void
             <tfoot><tr className="font-semibold"><td className="td" colSpan={3}>Total ({data.drops.filter((x: any) => !x.voided).length} drops)</td><td className="td text-right tabular-nums">{num(data.delivered_l, 2)} L</td><td className="td" /><td className="td text-right tabular-nums">{pkr(data.billed)}</td><td className="td" colSpan={2} /></tr></tfoot>
           </table></div>
 
-          <p className="rounded-lg bg-sky-50 px-3 py-2 text-xs text-sky-900">Har client ka rate uske apne rate card (jo CEO ne set kiya) se liya gaya hai — litre × rate = amount, aur yeh us client ke khata me chadh gaya. <Ur className="block">ہر کلائنٹ کا اپنا ریٹ · CEO کا مقرر کردہ</Ur></p>
+          </>}
+          <p className={`rounded-lg bg-sky-50 px-3 py-2 text-xs text-sky-900 ${data.drops.length ? "" : "hidden"}`}>Har client ka rate uske apne rate card (jo CEO ne set kiya) se liya gaya hai — litre × rate = amount, aur yeh us client ke khata me chadh gaya. <Ur className="block">ہر کلائنٹ کا اپنا ریٹ · CEO کا مقرر کردہ</Ur></p>
           {data.note && <p className="text-slate-600">Note: {data.note}</p>}
           {data.proof_ids && <div className="flex items-center gap-2 text-slate-600">Photos: <ProofThumbs ids={data.proof_ids} /></div>}
 
           <div className="flex flex-wrap justify-end gap-2 print:hidden">
             <VoucherVoidButton kind="bypass" id={data.id} voided={!!data.voided} onDone={() => { reload(); onClose(); }} />
-            <button className="btn-secondary" onClick={() => printPages(`Bypass ${data.id} sheet`, tripSheetPage(data), data.business?.color)}><Printer size={15} /> Delivery sheet (driver)</button>
-            <button className="btn-primary" disabled={!data.drops.some((x: any) => !x.voided)} onClick={() => printPages(`Bypass ${data.id} vouchers`, challanPages(data), data.business?.color)}><Printer size={15} /> Print client vouchers · چالان</button>
+            {data.drops.length > 0 && <button className="btn-secondary" onClick={() => printPages(`Bypass ${data.id} sheet`, tripSheetPage(data), data.business?.color)}><Printer size={15} /> Delivery sheet (driver)</button>}
+            <button className={`btn-primary ${data.drops.length ? "" : "hidden"}`} disabled={!data.drops.some((x: any) => !x.voided)} onClick={() => printPages(`Bypass ${data.id} vouchers`, challanPages(data), data.business?.color)}><Printer size={15} /> Print client vouchers · چالان</button>
           </div>
-          <p className="text-xs text-slate-500 print:hidden">Client voucher: har client ke liye ek page — upar wali copy client rakhta hai, neeche wali signed wapas aati hai. Humari cost aur munafa client ko kabhi print nahi hota.</p>
+          <p className={`text-xs text-slate-500 print:hidden ${data.drops.length ? "" : "hidden"}`}>Client voucher: har client ke liye ek page — upar wali copy client rakhta hai, neeche wali signed wapas aati hai. Humari cost aur munafa client ko kabhi print nahi hota.</p>
         </div>
       )}
     </Modal>
+  );
+}
+
+/** "ID se dhoondein": type any entry number (BYP-185, WS-91, RV-89, CN-90, JV-12, TRIP-4, BP-40, SP-7 or just the digits)
+ *  and open that entry — live or mansookh. */
+export function FindById({ onVoucher }: { onVoucher: (id: number) => void }) {
+  const nav = useNavigate();
+  const [q, setQ] = useState("");
+  const [res, setRes] = useState<any[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const open = (r: any) => {
+    setRes(null); setQ("");
+    if (r.open.type === "bypass") onVoucher(r.open.id);
+    else if (r.open.type === "wtx") nav(`/wholesale/${r.open.client_id}?tab=statement`);
+    else if (r.open.type === "trip") nav(`/wholesale?tab=trips`);
+    else nav(`/suppliers`);
+  };
+  const find = async (e?: React.FormEvent) => {
+    e?.preventDefault(); if (!q.trim()) return;
+    setBusy(true);
+    try { const r: any = await api(`/vouchers/find?q=${encodeURIComponent(q.trim())}`); if (r.results.length === 1 && r.results[0].open.type === "bypass") open(r.results[0]); else setRes(r.results); }
+    catch { setRes([]); } finally { setBusy(false); }
+  };
+  return (
+    <div className="relative">
+      <form onSubmit={find} className="flex items-center gap-1.5">
+        <label className="relative block"><span className="sr-only">ID se dhoondein</span>
+          <input className="input h-10 w-56 pl-8 font-mono text-sm" placeholder="ID: BYP-185, RV-89…" value={q} onChange={(e) => { setQ(e.target.value); setRes(null); }} aria-label="Entry ID se dhoondein" />
+          <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400">#</span></label>
+        <button className="btn-secondary h-10" disabled={busy || !q.trim()}>Dhoondein · <Ur>تلاش</Ur></button>
+      </form>
+      {res && <div className="absolute left-0 top-11 z-20 w-[min(92vw,460px)] rounded-xl bg-white p-2 text-sm shadow-xl ring-1 ring-slate-200">
+        {res.length === 0 ? <p className="p-2 text-slate-600">Is number ki koi entry nahi mili. Misaal: BYP-185 (voucher), WS-91 (supply), RV-89 (payment), CN-90 (return), SP-7 (supplier payment).</p>
+          : <ul className="divide-y divide-slate-100">{res.map((r) => (
+            <li key={`${r.no}`}><button type="button" className="flex w-full items-start justify-between gap-3 rounded-lg p-2 text-left hover:bg-slate-50" onClick={() => open(r)}>
+              <span className="min-w-0"><b className="font-mono text-brand-700">{r.no}</b> <span className="text-slate-500">· {r.kind}</span>{r.voided ? <span className="ml-1 rounded bg-rose-100 px-1 text-[10px] font-bold text-rose-800">VOID</span> : null}
+                <span className="block truncate text-xs text-slate-600">{[r.party, r.title].filter(Boolean).join(" · ")}</span></span>
+              <span className="shrink-0 text-right text-xs tabular-nums text-slate-600">{dt(r.date).slice(0, 11)}{r.amount ? <span className="block font-semibold text-slate-800">{pkr(r.amount)}</span> : null}</span>
+            </button></li>))}</ul>}
+      </div>}
+    </div>
   );
 }
 
@@ -344,7 +399,16 @@ export function BypassDeliveryForm({ onClose, onDone, fromHeld = false, fromClie
   const tankOf = (id: any) => stTanks.find((tk: any) => String(tk.id) === String(id));
   const validToTank = toTank.filter((r) => r.tank_id && Number(r.litres) > 0 && tankOf(r.tank_id)?.product === r.product);
   const badTank = toTank.filter((r) => r.tank_id && Number(r.litres) > 0 && tankOf(r.tank_id) && tankOf(r.tank_id).product !== r.product);
-  const valid = !!station && (validBuys.length > 0 || validDrops.length > 0 || validToTank.length > 0) && overBy.length === 0 && noRate.length === 0 && badTank.length === 0;
+  // a half-filled line is never dropped silently (it used to vanish on Save: "entry ghaib"): Save waits until it is complete or removed
+  const halfDrops = drops.filter((d) => (Number(d.litres) > 0) !== Boolean(d.client_id && d.client_id !== "__new__") && (Number(d.litres) > 0 || d.client_id));
+  const halfTank = toTank.filter((r) => !(r.tank_id && Number(r.litres) > 0));
+  const halfBuys = buys.filter((b) => (b.supplier_id || Number(b.litres) > 0 || Number(b.amount) > 0) && !(b.supplier_id && Number(b.litres) > 0 && Number(b.amount) > 0));
+  // room in each chosen tank (this voucher's lines for the same tank add up)
+  const room = (tk: any) => Math.max(0, Math.floor(Number(tk?.capacity_l ?? 0) - Number(tk?.current_l ?? 0)));
+  const tankLoad = (id: any) => toTank.filter((r) => String(r.tank_id) === String(id)).reduce((a, r) => a + (Number(r.litres) || 0), 0);
+  const noRoom = toTank.filter((r) => r.tank_id && tankOf(r.tank_id) && tankLoad(r.tank_id) > room(tankOf(r.tank_id)) + 0.5);
+  const valid = !!station && (validBuys.length > 0 || validDrops.length > 0 || validToTank.length > 0) && overBy.length === 0 && noRate.length === 0 && badTank.length === 0
+    && halfDrops.length === 0 && halfTank.length === 0 && halfBuys.length === 0 && noRoom.length === 0;
 
   return (
     <>
@@ -528,6 +592,14 @@ export function BypassDeliveryForm({ onClose, onDone, fromHeld = false, fromClie
                     : Number(r.litres) > 0 && lineCosts.tank[i] > 0 ? `Amount khali chhoden to cost Rs ${num(Math.round((lineCosts.tank[i] / Number(r.litres)) * 100) / 100, 2)}/L lagegi — ye stock hai, loss nahi` : ""}</span>
                   <button type="button" className="text-xs text-red-600" onClick={() => setToTank(toTank.filter((_, j) => j !== i))}>Remove</button>
                 </div>
+                {/* how much room the chosen tank has — and one tap to put in only what fits (the rest stays in Baqi stock) */}
+                {tk && !bad && (() => { const free = room(tk), over = tankLoad(r.tank_id) > free + 0.5; return (
+                  <div className={`col-span-12 -mt-1 flex flex-wrap items-center gap-2 rounded-lg px-2 py-1.5 text-xs ${over ? "bg-rose-50 text-rose-800 ring-1 ring-rose-200" : "text-slate-600"}`}>
+                    <span>{tk.name} mein jagah: <b className="tabular-nums">{num(free)} L</b>{over ? <> — {num(tankLoad(r.tank_id))} L nahi samata</> : null}</span>
+                    {over && free > 0 && <button type="button" className="btn-secondary min-h-9 !px-2 !py-1 text-xs" onClick={() => setToTank(toTank.map((x, j) => j === i ? { ...x, litres: String(Math.max(0, free - (tankLoad(r.tank_id) - (Number(r.litres) || 0)))), amount: "" } : x))}>Jitni jagah hai utna daalein</button>}
+                    {over && <button type="button" className="btn-secondary min-h-9 !px-2 !py-1 text-xs" onClick={() => setToTank(toTank.map((x, j) => j === i ? { ...x, tank_id: "" } : x))}>Doosra tank chunein</button>}
+                  </div>); })()}
+                {!r.tank_id && <div className="col-span-12 -mt-1 text-xs font-medium text-amber-700">Tank chunein — warna ye line save nahi hogi</div>}
               </div>
             ); })}
           </div>
@@ -552,6 +624,14 @@ export function BypassDeliveryForm({ onClose, onDone, fromHeld = false, fromClie
 
         <Field label="Note"><input className="input" value={note} onChange={(e) => setNote(e.target.value)} /></Field>
         <ProofPhotos value={photos} onChange={setPhotos} hint="depot invoice / bilty" />
+        {(halfDrops.length > 0 || halfTank.length > 0 || halfBuys.length > 0 || noRoom.length > 0 || (!station && (validBuys.length + validDrops.length + validToTank.length) > 0)) && (
+          <ul className="list-disc space-y-0.5 rounded-lg bg-amber-50 px-3 py-2 pl-7 text-sm font-medium text-amber-900 ring-1 ring-amber-200">
+            {!station && <li>Station chunein (upar) — kis ki books mein jayega</li>}
+            {halfBuys.length > 0 && <li>Khareed ki {halfBuys.length} line adhoori hai — supplier, litre aur amount teeno likhein, ya line hata dein</li>}
+            {halfDrops.length > 0 && <li>Drop ki {halfDrops.length} line adhoori hai — client aur litre dono likhein, ya line hata dein</li>}
+            {halfTank.length > 0 && <li>"Apne tank mein" ki {halfTank.length} line adhoori hai — tank aur litre dono likhein, ya line hata dein</li>}
+            {noRoom.length > 0 && <li>Tank mein jagah kam hai — litre kam karein ya doosra tank chunein (jo na samaye wo Baqi stock mein rehta hai)</li>}
+          </ul>)}
         <div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={onClose}>Cancel</button><button className="btn-primary" disabled={busy || !valid}><Truck size={15} /> Save delivery</button></div>
       </form>
       {lotVoucher != null && <BypassVoucher id={lotVoucher} onClose={() => setLotVoucher(null)} />}

@@ -767,6 +767,7 @@ export function migrate() {
     note TEXT, voided INTEGER NOT NULL DEFAULT 0, created_by TEXT, txn_date TEXT NOT NULL, created_at TEXT NOT NULL)`);
   // one bypass trip can carry two or more tanker+driver pairs (fuel lifted from 2+ depots) — stored as JSON
   addColumn("bypass_deliveries", "tankers", "TEXT");
+  addColumn("bypass_deliveries", "kind", "TEXT"); // 'unload' = a stand-alone "apne tank mein" voucher (no client, no purchase)
   db.exec(`CREATE TABLE IF NOT EXISTS bypass_purchases (
     id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, delivery_id INTEGER, supplier_id INTEGER NOT NULL,
     product TEXT NOT NULL, litres REAL NOT NULL, cost_rate REAL NOT NULL, amount REAL NOT NULL,
@@ -784,6 +785,14 @@ export function migrate() {
   addColumn("bypass_drops", "to_delivery_id", "INTEGER");
   addColumn("bypass_drops", "note", "TEXT");
   addColumn("deliveries", "bypass_drop_id", "INTEGER"); // this delivery came from bypass stock, not a fresh supplier bill
+  // every stand-alone own-tank unload gets its own voucher (BYP-n): the old ones had no number and could not be found.
+  // Runs once per row (only unloads still without a voucher); litres, cost and stock are untouched.
+  for (const x of db.prepare(`SELECT x.id, x.tenant_id, x.txn_date, x.created_at, x.created_by, x.note, x.voided, tk.station_id, dl.tanker_no
+      FROM bypass_drops x JOIN tanks tk ON tk.id=x.tank_id LEFT JOIN deliveries dl ON dl.id=x.to_delivery_id WHERE x.tank_id IS NOT NULL AND x.delivery_id IS NULL ORDER BY x.id`).all() as any[]) {
+    const v = db.prepare("INSERT INTO bypass_deliveries (tenant_id,station_id,vehicle_no,note,voided,created_by,txn_date,created_at,kind) VALUES (?,?,?,?,?,?,?,?,'unload')")
+      .run(x.tenant_id, x.station_id, x.tanker_no ?? null, x.note ?? null, x.voided ? 1 : 0, x.created_by ?? null, x.txn_date, x.created_at);
+    db.prepare("UPDATE bypass_drops SET delivery_id=? WHERE id=?").run(Number(v.lastInsertRowid), x.id);
+  }
   // what we pay the bypass supplier: we_pay (from our bank/cash), client_direct (client paid them for us),
   // through_us (client sent it to us, we forwarded) — the client legs also lower that client's due to us.
   db.exec(`CREATE TABLE IF NOT EXISTS bypass_supplier_payments (

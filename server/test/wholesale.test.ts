@@ -45,7 +45,7 @@ test("wholesale module access is separate", async () => {
   // wholesale officer sees nothing else
   for (const url of ["/api/dashboard", "/api/customers", "/api/expenses", "/api/users", "/api/sales", "/api/shifts", "/api/prices", "/api/orders"]) assert.equal((await call("wholesale", "GET", url)).status, 403, url);
   const me = (await call("wholesale", "GET", "/api/me")).data;
-  assert.deepEqual(me.permissions.sort(), ["carriage.manage", "carriage.view", "wholesale.manage", "wholesale.view"]);
+  assert.deepEqual(me.permissions.sort(), ["carriage.manage", "carriage.view", "wholesale.manage", "wholesale.view", "wholesale.void"]);
 });
 
 test("only admin sets per-client rates and credit limits", async () => {
@@ -107,7 +107,7 @@ test("admin voids a wrong supply: due and stock are reversed", async () => {
   const st = (await call("admin", "GET", "/api/stations")).data[0];
   const s = (await call("wholesale", "POST", `/api/wholesale/clients/${c.id}/supply`, { station_id: st.id, product: "PMG", litres: 100 })).data;
   assert.equal(s.due_after, 15000 + 24500);
-  assert.equal((await call("wholesale", "POST", `/api/wholesale/txns/${s.id}/void`, { reason: "wrong client" })).status, 403);
+  assert.equal((await call("manager", "POST", `/api/wholesale/txns/${s.id}/void`, { reason: "wrong client" })).status, 403); // outside wholesale: no; the officer may (wholesale.void)
   const tankMid = (await call("admin", "GET", "/api/stations")).data[0].tanks.find((t: any) => t.id === s.tank_id).current_l;
   const v = await call("admin", "POST", `/api/wholesale/txns/${s.id}/void`, { reason: "wrong client" });
   assert.equal(v.data.due_after, 15000);

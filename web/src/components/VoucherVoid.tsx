@@ -25,7 +25,7 @@ export function VoucherVoidButton({ kind, id, onDone, voided }: { kind: "trip" |
   );
 }
 
-function VoucherVoidModal({ kind, id, onClose, onDone }: { kind: "trip" | "bypass"; id: number; onClose: () => void; onDone: () => void }) {
+export function VoucherVoidModal({ kind, id, onClose, onDone }: { kind: "trip" | "bypass"; id: number; onClose: () => void; onDone: () => void }) {
   const { data: plan, error, reload } = useApi<any>(`/vouchers/${kind}/${id}/plan`);
   const { busy, run } = useAction();
   const [openVoucher, setOpenVoucher] = useState<number | null>(null); // a later voucher named in a blocker, opened in place
