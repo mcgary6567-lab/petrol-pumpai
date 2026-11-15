@@ -58,7 +58,7 @@ export function HealthCard({ compact }: { compact?: boolean }) {
   return (
     <div className="card p-4">
       <div className="flex items-center gap-4">
-        <div className={`text-5xl font-bold tabular-nums ${scoreTone(data.score)}`}>{data.score}<span className="text-lg text-slate-400">/100</span></div>
+        <div className={`text-3xl font-bold tabular-nums ${scoreTone(data.score)}`}>{data.score}<span className="text-lg text-slate-400">/100</span></div>
         <div><div className="font-semibold">Pump health · <span lang="ur" className="font-urdu">پمپ کی صحت</span></div><div className="text-sm capitalize text-slate-500">{data.level}</div></div>
       </div>
       <div className={`mt-3 grid gap-2 ${compact ? "sm:grid-cols-3 lg:grid-cols-6" : "sm:grid-cols-2"}`}>

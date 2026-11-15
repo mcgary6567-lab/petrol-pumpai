@@ -217,7 +217,7 @@ export function DayFeed({ title = "Aaj ki saari entries", scope = "all" }: { tit
                     {r.rate ? <> · <span className="font-medium text-slate-600">Rs {num(r.rate, 2)}/L</span></> : null}
                   </span>
                 </span>
-                {ws ? <span className={`shrink-0 text-right font-semibold tabular-nums ${r.side === "dr" ? "text-rose-700" : r.side === "cr" ? "text-emerald-700" : "text-slate-500"}`}>{pkr(r.amount)}<span className="block text-[10px] font-normal">{r.side === "dr" ? "Debit" : r.side === "cr" ? "Credit" : ""}</span></span>
+                {ws ? <span className={`shrink-0 text-right font-semibold tabular-nums ${r.side === "dr" ? "text-rose-700" : r.side === "cr" ? "text-emerald-700" : "text-slate-500"}`}>{pkr(r.amount)}<span className="block text-[11px] font-normal">{r.side === "dr" ? "Debit" : r.side === "cr" ? "Credit" : ""}</span></span>
                   : <span className={`shrink-0 font-semibold tabular-nums ${amtCls(r.dir)}`}>{sign(r.dir)}{pkr(r.amount)}</span>}
               </li>
             ))}

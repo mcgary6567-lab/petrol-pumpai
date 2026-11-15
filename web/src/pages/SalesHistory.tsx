@@ -50,10 +50,10 @@ export default function SalesHistory() {
       {!data ? <Loading /> : (
         <>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <div className="card p-3"><div className="text-xs text-slate-500">Sales · <Ur>سیلز</Ur></div><div className="text-lg font-bold tabular-nums">{rows.length}</div></div>
-            <div className="card p-3"><div className="text-xs text-slate-500">Litres</div><div className="text-lg font-bold tabular-nums">{num(shownL, 1)} L</div></div>
-            <div className="card p-3"><div className="text-xs text-slate-500">Amount · <Ur>رقم</Ur></div><div className="text-lg font-bold tabular-nums">{pkr(shownAmt)}</div></div>
-            <div className="card p-3"><div className="text-xs text-slate-500">Range total (server)</div><div className="text-lg font-bold tabular-nums">{pkr(data.totals.amount)}</div><div className="text-[11px] text-slate-500">{data.totals.n} sales · {num(data.totals.litres, 0)} L{data.rows.length >= data.limit ? ` · pehli ${data.limit} dikh rahi hain` : ""}</div></div>
+            <div className="card p-3"><div className="text-xs text-slate-500">Sales · <Ur>سیلز</Ur></div><div className="text-xl font-bold tabular-nums">{rows.length}</div></div>
+            <div className="card p-3"><div className="text-xs text-slate-500">Litres</div><div className="text-xl font-bold tabular-nums">{num(shownL, 1)} L</div></div>
+            <div className="card p-3"><div className="text-xs text-slate-500">Amount · <Ur>رقم</Ur></div><div className="text-xl font-bold tabular-nums">{pkr(shownAmt)}</div></div>
+            <div className="card p-3"><div className="text-xs text-slate-500">Range total (server)</div><div className="text-xl font-bold tabular-nums">{pkr(data.totals.amount)}</div><div className="text-[11px] text-slate-500">{data.totals.n} sales · {num(data.totals.litres, 0)} L{data.rows.length >= data.limit ? ` · pehli ${data.limit} dikh rahi hain` : ""}</div></div>
           </div>
           {data.totals.by_method?.length > 1 && <div className="flex flex-wrap gap-2 text-xs">{data.totals.by_method.map((m: any) => <span key={m.method} className="rounded-full bg-slate-100 px-2.5 py-1">{m.method}: <b className="tabular-nums">{pkr(m.amount)}</b> ({m.n})</span>)}</div>}
           {!rows.length ? <Empty>Is range me koi sale nahi mili · <Ur>کوئی سیل نہیں ملی</Ur></Empty> : (
@@ -84,10 +84,10 @@ export default function SalesHistory() {
                 <thead><tr><th className="th">Date</th><th className="th">ID</th><th className="th">Station</th><th className="th">Fuel</th><th className="th text-right">Litres</th><th className="th text-right">Rate</th><th className="th text-right">Amount</th><th className="th">Method</th><th className="th">Customer / gaari</th><th className="th">Slip</th><th className="th">Salesman</th></tr></thead>
                 <tbody>{paged.slice.map((r) => (
                   <tr key={r.id} className="border-t border-slate-100 hover:bg-slate-50">
-                    <td className="td whitespace-nowrap">{dt(r.created_at)}{r.at_close ? <span className="ml-1 rounded bg-slate-100 px-1 text-[10px]">close</span> : null}<LateBadge at={r.created_at} typed={r.entered_at} className="ml-1" /></td>
+                    <td className="td whitespace-nowrap">{dt(r.created_at)}{r.at_close ? <span className="ml-1 rounded bg-slate-100 px-1 text-[11px]">close</span> : null}<LateBadge at={r.created_at} typed={r.entered_at} className="ml-1" /></td>
                     <td className="td"><IdTag id={`S-${r.id}`} /></td><td className="td">{r.station_name}</td><td className="td">{PRODUCT[r.product] ?? r.product}</td>
                     <td className="td text-right tabular-nums">{num(r.litres, 2)}</td><td className="td text-right tabular-nums">{r.rate}</td>
-                    <td className="td text-right font-semibold tabular-nums">{pkr(r.amount)}{r.discount ? <span className="block text-[10px] font-normal text-rose-600">disc {pkr(r.discount)}</span> : null}</td>
+                    <td className="td text-right font-semibold tabular-nums">{pkr(r.amount)}{r.discount ? <span className="block text-[11px] font-normal text-rose-600">disc {pkr(r.discount)}</span> : null}</td>
                     <td className="td">{r.payment_method}</td>
                     <td className="td">{r.customer_id && can("customers.view") ? <Link className="text-brand-700 underline" to={`/customers/${r.customer_id}`}>{r.customer_name}</Link> : r.customer_name ?? ""}{r.vehicle_no ? <span className="block text-xs text-slate-500">{r.vehicle_no}</span> : null}</td>
                     <td className="td">{r.slip_no ?? ""}</td>

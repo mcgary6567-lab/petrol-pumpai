@@ -34,7 +34,7 @@ const MONTHS = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep
 const ErpKpi = ({ label, ur, value, sub, accent }: { label: string; ur?: string; value: string; sub?: React.ReactNode; accent?: string }) => (
   <div className="card h-full p-4">
     <div className="flex flex-wrap items-baseline justify-between gap-x-2 text-xs font-medium text-slate-500"><span>{label}</span>{ur && <Ur className="text-xs">{ur}</Ur>}</div>
-    <div className={`mt-1 whitespace-nowrap text-xl font-extrabold tabular-nums 2xl:text-2xl ${accent ?? "text-slate-900"}`}>{value}</div>
+    <div className={`mt-1 whitespace-nowrap text-xl font-bold tabular-nums 2xl:text-2xl ${accent ?? "text-slate-900"}`}>{value}</div>
     {sub && <div className="mt-1 text-xs text-slate-500">{sub}</div>}
   </div>
 );

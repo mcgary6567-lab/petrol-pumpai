@@ -400,7 +400,7 @@ function CloseShift({ id, onClose, onClosed }: { id: number; onClose: () => void
                   {preview.summary.shop_parchi?.n > 0 && <Row k="💵 Shop parchi cash (khata par, cash bag se)" v={rs(preview.summary.shop_parchi.cash)} />}
                   {preview.summary.khareed > 0 && <Row k="🟢 Khareed (munafa — cash nahi)" v={rs(preview.summary.khareed)} />}
                   {preview.summary.expenses_total > 0 && <Row k="− Expenses paid from the bag · خرچے" v={rs(preview.summary.expenses_total)} />}
-                  <div className="mt-1 flex items-baseline justify-between gap-2 border-t border-white/30 pt-1 text-lg font-bold"><span className="min-w-0">Should be in the bag · <Ur>تھیلے میں</Ur></span><span className="shrink-0 whitespace-nowrap tabular-nums">{rs(preview.cash_expected)}</span></div>
+                  <div className="mt-1 flex items-baseline justify-between gap-2 border-t border-white/30 pt-1 text-xl font-bold"><span className="min-w-0">Should be in the bag · <Ur>تھیلے میں</Ur></span><span className="shrink-0 whitespace-nowrap tabular-nums">{rs(preview.cash_expected)}</span></div>
                 </div>
               </div>
             )}
@@ -434,7 +434,7 @@ function CloseShift({ id, onClose, onClosed }: { id: number; onClose: () => void
         )}
         <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <button type="button" className="btn-secondary min-h-11" onClick={onClose}>Cancel · منسوخ</button>
-          <button className="min-h-12 rounded-xl bg-emerald-600 px-6 py-3 text-lg font-bold text-white shadow active:scale-[.98] disabled:bg-slate-300" disabled={busy || !preview || queued > 0 || (counted <= 0 && !nothingToHandIn)}>
+          <button className="min-h-12 rounded-xl bg-emerald-600 px-6 py-3 text-xl font-bold text-white shadow active:scale-[.98] disabled:bg-slate-300" disabled={busy || !preview || queued > 0 || (counted <= 0 && !nothingToHandIn)}>
             Close shift & hand in cash · <Ur>شفٹ بند کریں</Ur>
           </button>
         </div>

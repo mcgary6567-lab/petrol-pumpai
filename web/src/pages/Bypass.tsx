@@ -65,8 +65,8 @@ export function BypassPanel({ section = "all" }: { section?: BypassSection }) {
         // one compact strip (the old page had five tall cards here, then every section stacked below)
         return <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">{tiles.map((t) => (
           <div key={t.l} className="rounded-xl border border-slate-200 bg-white px-3 py-2">
-            <div className="truncate text-[10.5px] font-semibold uppercase tracking-wide text-slate-500" title={t.l}>{t.l}</div>
-            <div className={`text-lg font-bold tabular-nums ${t.cls ?? ""}`}>{t.v}</div>
+            <div className="truncate text-[11px] font-semibold uppercase tracking-wide text-slate-500" title={t.l}>{t.l}</div>
+            <div className={`text-xl font-bold tabular-nums ${t.cls ?? ""}`}>{t.v}</div>
             {t.h && <div className="truncate text-[11px] text-slate-500" title={t.h}>{t.h}</div>}
           </div>
         ))}</div>;
@@ -138,7 +138,7 @@ export function BypassPanel({ section = "all" }: { section?: BypassSection }) {
                   return (
                     <tr key={d.id} className={`border-t border-slate-100 ${d.voided ? "bg-rose-50/40 text-slate-400 line-through" : ""}`}>
                       <td className="td whitespace-nowrap text-xs">{dt(d.txn_date)}</td>
-                      <td className="td whitespace-nowrap"><button className="font-mono text-xs font-semibold text-brand-700 underline" onClick={() => setVoucher(d.id)}>BYP-{d.id}</button>{d.voided ? <span className="ml-1 rounded bg-rose-100 px-1 text-[10px] font-bold text-rose-800 no-underline">VOID</span> : d.kind === "unload" ? <span className="ml-1 rounded bg-sky-100 px-1 text-[10px] font-semibold text-sky-800">tank unload</span> : null}{d.note ? <div className="max-w-[160px] truncate text-xs text-slate-500" title={d.note}>{d.note}</div> : null}</td>
+                      <td className="td whitespace-nowrap"><button className="font-mono text-xs font-semibold text-brand-700 underline" onClick={() => setVoucher(d.id)}>BYP-{d.id}</button>{d.voided ? <span className="ml-1 rounded bg-rose-100 px-1 text-[11px] font-bold text-rose-800 no-underline">VOID</span> : d.kind === "unload" ? <span className="ml-1 rounded bg-sky-100 px-1 text-[11px] font-semibold text-sky-800">tank unload</span> : null}{d.note ? <div className="max-w-[160px] truncate text-xs text-slate-500" title={d.note}>{d.note}</div> : null}</td>
                       <td className="td text-xs">{who || "—"}</td>
                       <td className="td text-right">{d.litres ? `${num(d.litres)} L` : d.kind === "unload" || d.voided ? "" : <span className="text-amber-700">—</span>}</td>
                       <td className="td text-right">{d.drop_litres ? `${num(d.drop_litres)} L` : ""}</td>
@@ -288,7 +288,7 @@ export function FindById({ onVoucher }: { onVoucher: (id: number) => void }) {
         {res.length === 0 ? <p className="p-2 text-slate-600">Is number ki koi entry nahi mili. Misaal: BYP-185 (voucher), WS-91 (supply), WR-89 (payment), CN-90 (return), SP-7 (supplier payment).</p>
           : <ul className="divide-y divide-slate-100">{res.map((r) => (
             <li key={`${r.no}`}><button type="button" className="flex w-full items-start justify-between gap-3 rounded-lg p-2 text-left hover:bg-slate-50" onClick={() => open(r)}>
-              <span className="min-w-0"><b className="font-mono text-brand-700">{r.no}</b> <span className="text-slate-500">· {r.kind}</span>{r.voided ? <span className="ml-1 rounded bg-rose-100 px-1 text-[10px] font-bold text-rose-800">VOID</span> : null}
+              <span className="min-w-0"><b className="font-mono text-brand-700">{r.no}</b> <span className="text-slate-500">· {r.kind}</span>{r.voided ? <span className="ml-1 rounded bg-rose-100 px-1 text-[11px] font-bold text-rose-800">VOID</span> : null}
                 <span className="block truncate text-xs text-slate-600">{[r.party, r.title].filter(Boolean).join(" · ")}</span></span>
               <span className="shrink-0 text-right text-xs tabular-nums text-slate-600">{dt(r.date).slice(0, 11)}{r.amount ? <span className="block font-semibold text-slate-800">{pkr(r.amount)}</span> : null}</span>
             </button></li>))}</ul>}
@@ -456,11 +456,11 @@ export function BypassDeliveryForm({ onClose, onDone, fromHeld = false, fromClie
                             <button type="button" className="btn-secondary min-h-9 whitespace-nowrap !px-2 !py-1 text-[11px]" title="Is lot ka maal apne pump ke tank mein" onClick={() => pickLot(l, "tank")}><Fuel size={13} /> Apne tank mein</button>
                           </div></td>}
                           <td className="td font-semibold">{PRODUCTS[l.product] ?? l.product}</td>
-                          <td className="td whitespace-nowrap">{l.vehicle_no ? <>🚛 <b>{l.vehicle_no}</b></> : <span className="text-slate-400">—</span>}{l.driver_name ? <span className="block text-[10px] text-slate-500">{l.driver_name}</span> : null}</td>
+                          <td className="td whitespace-nowrap">{l.vehicle_no ? <>🚛 <b>{l.vehicle_no}</b></> : <span className="text-slate-400">—</span>}{l.driver_name ? <span className="block text-[11px] text-slate-500">{l.driver_name}</span> : null}</td>
                           <td className="td">{l.supplier}</td>
                           <td className="td whitespace-nowrap">{dOnly(l.txn_date)}</td>
                           <td className="td whitespace-nowrap">{l.delivery_id ? <button type="button" className="font-mono text-brand-700 underline" title="Bill / voucher kholein" onClick={() => setLotVoucher(l.delivery_id)}>BYP-{l.delivery_id}</button> : ""}{l.ref ? <span className="text-slate-500"> · {l.ref}</span> : ""}</td>
-                          <td className="td whitespace-nowrap text-right tabular-nums font-semibold">{num(l.left)} L<span className="block text-[10px] font-normal text-slate-400">/ {num(l.litres)}</span></td>
+                          <td className="td whitespace-nowrap text-right tabular-nums font-semibold">{num(l.left)} L<span className="block text-[11px] font-normal text-slate-400">/ {num(l.litres)}</span></td>
                           <td className="td text-right tabular-nums">{num(l.cost_rate, 2)}</td>
                           <td className="td text-right tabular-nums">{pkr(l.value_left)}</td>
                           <td className="td text-right tabular-nums">{l.days}</td>
@@ -481,7 +481,7 @@ export function BypassDeliveryForm({ onClose, onDone, fromHeld = false, fromClie
           <div className="mb-2 text-sm font-semibold">Tanker &amp; driver <span className="font-normal text-slate-400">— 2 jagah se maal to har tanker add karein</span> · <Ur>ٹینکر و ڈرائیور</Ur></div>
           <div className="space-y-3">
             {fleets.map((f, i) => (
-              <div key={i} className="rounded-lg border border-slate-200 bg-white p-2">
+              <div key={i} className="card p-2">
                 <div className="grid gap-3 sm:grid-cols-2"><FleetPicker f={f} setF={(nf: any) => setFleets(fleets.map((x, j) => j === i ? nf : x))} /></div>
                 {fleets.length > 1 && <button type="button" className="mt-1 text-xs text-red-600" onClick={() => setFleets(fleets.filter((_, j) => j !== i))}>Remove tanker</button>}
               </div>
@@ -687,7 +687,7 @@ function SupplierStatement({ id, onClose, onChanged }: { id: number; onClose: ()
         <div className="space-y-4">
           <div className="own-title hidden print:block">
             <div className="flex items-end justify-between border-b border-slate-300 pb-2">
-              <div><div className="text-lg font-bold">{[s.company, s.name].filter(Boolean).join(" — ")}</div><div className="text-xs text-slate-600">{[s.depot_name ? `Depot: ${s.depot_name}` : "", "Bypass supplier statement"].filter(Boolean).join(" · ")}</div></div>
+              <div><div className="text-xl font-bold">{[s.company, s.name].filter(Boolean).join(" — ")}</div><div className="text-xs text-slate-600">{[s.depot_name ? `Depot: ${s.depot_name}` : "", "Bypass supplier statement"].filter(Boolean).join(" · ")}</div></div>
               <div className="text-right text-sm">We owe: <b className="tabular-nums">{pkr(s.bypass_owed)}</b></div>
             </div>
           </div>

@@ -20,7 +20,7 @@ export default function Cards() {
     <div className="min-h-screen bg-slate-100 p-4 print:bg-white print:p-0">
       <div className="mx-auto mb-4 flex max-w-4xl flex-wrap items-center gap-2 print:hidden">
         <Link to="/khata" className="btn-secondary"><ArrowLeft size={15} /> Back</Link>
-        <h1 className="text-lg font-semibold">QR cards — {data.customer.name}</h1>
+        <h1 className="text-xl font-semibold text-slate-900">QR cards — {data.customer.name}</h1>
         <button className="btn-primary ml-auto" onClick={() => window.print()}><Printer size={15} /> Print cards</button>
       </div>
       <p className="mx-auto mb-3 max-w-4xl text-sm text-slate-600 print:hidden">Stick the vehicle card on the windscreen. At the pump the salesman taps <b>Scan card</b> and the account, vehicle and khata are filled in. Lost a card? Make a new one — the old card stops working.</p>
@@ -47,7 +47,7 @@ function QrCard({ business, name, type, title, plate, code }: { business: string
           <div className="mt-1 text-[11px] text-slate-500">{title}</div>
           <div className="text-base font-bold leading-tight">{TYPE_ICON[type] ?? "📒"} {name}</div>
         </div>
-        {plate && <div className="self-start rounded-md border-2 border-slate-800 px-2 py-0.5 font-mono text-lg font-bold tracking-wider">{plate}</div>}
+        {plate && <div className="self-start rounded-md border-2 border-slate-800 px-2 py-0.5 font-mono text-xl font-bold tracking-wider">{plate}</div>}
         <div className="font-mono text-xs text-slate-500">{code}</div>
       </div>
       <div className="flex w-[46%] items-center justify-center bg-white p-2" aria-label={`QR code ${code}`} dangerouslySetInnerHTML={{ __html: svg }} />

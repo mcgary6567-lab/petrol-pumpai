@@ -87,16 +87,16 @@ export function ExpenseStatement({ categories, stations, onVoucher }: { categori
         <>
           {/* ---- print header ---- */}
           <div className="hidden border-b border-slate-300 pb-2 print:block">
-            <div className="text-lg font-bold">Kharchon ki statement · {rangeText}</div>
+            <div className="text-xl font-bold">Kharchon ki statement · {rangeText}</div>
             <div className="text-xs text-slate-600">{cats.length ? `Categories: ${cats.map(catLabel).join(", ")}` : "Sab categories"}{pay !== "all" ? ` · ${pay === "cash" ? "Sirf cash" : "Bank / online"}` : ""}{station ? ` · ${stations.find((s: any) => String(s.id) === station)?.name ?? ""}` : ""}</div>
           </div>
 
           {/* ---- the two books side by side ---- */}
           {data.can_see_other && data.parts.other.included && (
             <div className="grid grid-cols-3 overflow-hidden rounded-xl ring-1 ring-slate-200">
-              <div className="bg-white p-3"><div className="text-xs text-slate-500">Kharche · <Ur>اخراجات</Ur></div><div className="text-lg font-bold tabular-nums">{pkr(data.parts.expenses.total)}</div><div className="text-[11px] text-slate-400">{data.parts.expenses.n} entries</div></div>
-              <div className="bg-violet-50 p-3"><div className="text-xs text-violet-700">+ Other kharche (CEO)</div><div className="text-lg font-bold tabular-nums text-violet-900">{pkr(data.parts.other.total)}</div><div className="text-[11px] text-violet-500">{data.parts.other.n} entries</div></div>
-              <div className="bg-rose-50 p-3"><div className="text-xs text-rose-700">= Kul kharcha · <Ur>کل</Ur></div><div className="text-lg font-bold tabular-nums text-rose-900">{pkr(data.total)}</div><div className="text-[11px] text-rose-500">{data.n} entries</div></div>
+              <div className="bg-white p-3"><div className="text-xs text-slate-500">Kharche · <Ur>اخراجات</Ur></div><div className="text-xl font-bold tabular-nums">{pkr(data.parts.expenses.total)}</div><div className="text-[11px] text-slate-400">{data.parts.expenses.n} entries</div></div>
+              <div className="bg-violet-50 p-3"><div className="text-xs text-violet-700">+ Other kharche (CEO)</div><div className="text-xl font-bold tabular-nums text-violet-900">{pkr(data.parts.other.total)}</div><div className="text-[11px] text-violet-500">{data.parts.other.n} entries</div></div>
+              <div className="bg-rose-50 p-3"><div className="text-xs text-rose-700">= Kul kharcha · <Ur>کل</Ur></div><div className="text-xl font-bold tabular-nums text-rose-900">{pkr(data.total)}</div><div className="text-[11px] text-rose-500">{data.n} entries</div></div>
             </div>
           )}
 
@@ -242,7 +242,7 @@ function CategoryPicker({ categories, withOther, value, onChange }: { categories
                   <button type="button" onClick={() => toggle(c)} className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm hover:bg-slate-50">
                     <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${on ? "border-brand-600 bg-brand-600 text-white" : "border-slate-300 bg-white"}`}>{on && <Check size={12} strokeWidth={3} />}</span>
                     <span className="min-w-0 flex-1 truncate">{catLabel(c)}</span>
-                    {c === OTHER && <span className="rounded bg-violet-50 px-1.5 py-0.5 text-[10px] font-semibold text-violet-700 ring-1 ring-violet-200">CEO</span>}
+                    {c === OTHER && <span className="rounded bg-violet-50 px-1.5 py-0.5 text-[11px] font-semibold text-violet-700 ring-1 ring-violet-200">CEO</span>}
                   </button>
                 </li>
               );

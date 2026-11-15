@@ -97,7 +97,7 @@ export function SupplyVoucher() {
 
       <div className="flex flex-wrap gap-4">
         <div className="flex min-w-0 flex-[999_1_620px] flex-col gap-4">
-          <section aria-label="Header" className="rounded-xl border border-slate-200 bg-white p-4">
+          <section aria-label="Header" className="card p-4">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <label className="sm:col-span-2"><span className="label">Client *</span>
                 <select className="input font-semibold" value={clientId} onChange={(e) => { setClientId(e.target.value); setF((x: any) => ({ ...x, order_id: "", location: "" })); }}>
@@ -162,12 +162,12 @@ export function SupplyVoucher() {
                 <div className="flex justify-between"><span className="text-slate-500">Litres</span><span>{num(preview?.litres ?? 0)} L</span></div>
                 <div className="flex justify-between"><span className="text-slate-500">Fuel sub total</span><span>{amt(preview?.fuel ?? 0)}</span></div>
                 <div className="flex justify-between"><span className="text-slate-500">Kiraya</span><span>{amt(preview?.carriage ?? 0)}</span></div>
-                <div className="flex justify-between border-t border-slate-200 pt-2 text-lg font-extrabold"><span>Total</span><span>{pkr(total)}</span></div>
+                <div className="flex justify-between border-t border-slate-200 pt-2 text-xl font-bold"><span>Total</span><span>{pkr(total)}</span></div>
               </div>
             </div>
           </section>
 
-          <section aria-label="Notes" className="grid grid-cols-1 gap-4 rounded-xl border border-slate-200 bg-white p-4 md:grid-cols-2">
+          <section aria-label="Notes" className="grid grid-cols-1 gap-4 card p-4 md:grid-cols-2">
             <label><span className="label">Narration</span><textarea className="input" rows={3} maxLength={300} placeholder="e.g. Delivered at depot. Seal no. …" value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} /></label>
             <ProofPhotos value={photos} onChange={setPhotos} label="Attachments" hint="bilty, seal, delivery slip" />
           </section>
@@ -176,7 +176,7 @@ export function SupplyVoucher() {
         <aside aria-label="Checks" className="flex flex-[1_1_300px] flex-col gap-4 lg:max-w-sm">
           {pvErr && <ErrorBox error={pvErr} />}
           {!!preview?.issues?.length && <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800"><b>Post se pehle theek karein:</b><ul className="mt-1 list-disc pl-5">{preview.issues.map((x: string) => <li key={x}>{x}</li>)}</ul></div>}
-          <section className="rounded-xl border border-slate-200 bg-white p-4 text-sm">
+          <section className="card p-4 text-sm">
             <div className="mb-2 font-bold">Credit check · <Ur className="font-normal">ادھار حد</Ur></div>
             {!preview ? <p className="text-slate-500">Client, station aur litres bharein — hisaab yahan khud aa jayega.</p> : <>
               <Row l="Current balance" v={`${num(preview.credit.due)} ${preview.credit.due >= 0 ? "Dr" : "Cr"}`} />
@@ -189,7 +189,7 @@ export function SupplyVoucher() {
               </> : <div className="mt-2 text-xs text-slate-500">No credit limit set</div>}
             </>}
           </section>
-          <section className="rounded-xl border border-slate-200 bg-white p-4 text-sm">
+          <section className="card p-4 text-sm">
             <div className="mb-2 font-bold">Posting preview · <Ur className="font-normal">کھاتے میں انٹری</Ur></div>
             {!preview ? <p className="text-slate-500">—</p> : <>
               <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-x-3 gap-y-1.5 text-xs tabular-nums">
@@ -199,7 +199,7 @@ export function SupplyVoucher() {
               <div className={`mt-2 text-xs ${preview.balanced ? "text-emerald-700" : "text-red-700"}`}>{preview.balanced ? "Balanced ✓" : "Not balanced"} · Dr {num(preview.dr)} = Cr {num(preview.cr)}</div>
             </>}
           </section>
-          <section className="rounded-xl border border-slate-200 bg-white p-4 text-sm">
+          <section className="card p-4 text-sm">
             <div className="mb-2 font-bold">Stock &amp; margin · <Ur className="font-normal">اسٹاک اور منافع</Ur></div>
             {!preview ? <p className="text-slate-500">—</p> : <>
               {preview.lines.map((l: any, i: number) => l.tank_name && <Row key={i} l={`${l.tank_name} after`} v={`${num(l.stock_after)} L`} warn={l.stock_after < 0} />)}

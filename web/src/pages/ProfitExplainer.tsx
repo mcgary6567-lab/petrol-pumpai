@@ -24,9 +24,9 @@ export default function ProfitExplainer() {
   const Row = ({ id, sign, label, ur, amount, tone, detail }: { id: string; sign: "+" | "−" | "="; label: string; ur: string; amount: number; tone?: "green" | "red" | "bold"; detail?: React.ReactNode }) => (
     <div className={`${sign === "=" ? "border-t-2 border-slate-300" : "border-t border-slate-100"}`}>
       <button type="button" onClick={() => detail && toggle(id)} className={`flex w-full items-center gap-3 px-4 py-3 text-left ${detail ? "hover:bg-slate-50" : "cursor-default"}`}>
-        <span className={`w-5 text-center text-lg font-bold ${sign === "−" ? "text-red-500" : sign === "+" ? "text-emerald-600" : "text-slate-400"}`}>{sign}</span>
+        <span className={`w-5 text-center text-xl font-bold ${sign === "−" ? "text-red-500" : sign === "+" ? "text-emerald-600" : "text-slate-400"}`}>{sign}</span>
         <span className={`flex-1 ${sign === "=" ? "text-base font-bold" : "font-medium"}`}>{label} <Ur className="text-sm font-normal text-slate-500">{ur}</Ur></span>
-        <span className={`tabular-nums ${sign === "=" ? "text-xl font-extrabold" : "font-semibold"} ${tone === "red" ? "text-red-600" : tone === "green" ? "text-emerald-700" : ""}`}>{pkr(amount)}</span>
+        <span className={`tabular-nums ${sign === "=" ? "text-xl font-bold" : "font-semibold"} ${tone === "red" ? "text-red-600" : tone === "green" ? "text-emerald-700" : ""}`}>{pkr(amount)}</span>
         {detail && <ChevronDown size={16} className={`shrink-0 text-slate-400 transition ${open === id ? "rotate-180" : ""}`} />}
       </button>
       {detail && open === id && <div className="bg-slate-50 px-4 pb-3 pt-1 text-sm">{detail}</div>}
@@ -45,7 +45,7 @@ export default function ProfitExplainer() {
       {/* hero */}
       <div className={`mb-4 rounded-2xl p-5 text-white ${p.net_profit >= 0 ? "bg-emerald-700" : "bg-rose-700"}`}>
         <div className="text-sm opacity-90">Is mahine ka net munafa · <Ur>خالص منافع</Ur></div>
-        <div className="text-4xl font-extrabold tabular-nums">{pkr(p.net_profit)}</div>
+        <div className="text-3xl font-bold tabular-nums">{pkr(p.net_profit)}</div>
         <div className="mt-1 text-sm opacity-90">Net margin {num(p.margin_pct, 1)}% · gross {num(p.gross_margin_pct ?? 0, 1)}% · {num(p.litres.retail + p.litres.wholesale, 0)} L bika · revenue {pkr(p.income.total)}</div>
       </div>
       {p.cost_note && (

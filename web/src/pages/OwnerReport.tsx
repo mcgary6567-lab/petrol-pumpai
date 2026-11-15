@@ -59,7 +59,7 @@ export default function OwnerReport() {
           <button key={k} onClick={() => set("tab", k)} className={`whitespace-nowrap border-b-2 px-3 py-2 text-sm leading-tight ${tab === k ? "border-brand-600 font-semibold text-brand-700" : "border-transparent text-slate-600"}`}>{l}<Ur className="block text-xs">{u}</Ur></button>
         ))}
       </div>
-      <div className="hidden print:block"><div className="text-lg font-bold">{title[1]}</div><div className="text-xs text-slate-600">{tab === "bs" ? `As at ${today()}` : `${monthName(month)} · ${from} to ${to}`}</div></div>
+      <div className="hidden print:block"><div className="text-xl font-bold">{title[1]}</div><div className="text-xs text-slate-600">{tab === "bs" ? `As at ${today()}` : `${monthName(month)} · ${from} to ${to}`}</div></div>
 
       {pl.error && <ErrorBox error={pl.error} />}
       {tab === "pl" && (pl.data ? <ProfitLoss p={pl.data.pl} q={plPrev.data?.pl} month={month} /> : <Loading />)}
@@ -83,7 +83,7 @@ function Sec({ title, ur, children, right }: { title: string; ur?: string; child
 }
 /** One statement line: label, this period, last period, change. `level` indents; `kind` styles sub-totals and totals. */
 function Line({ label, ur, v, q, level = 0, kind, neg }: { label: string; ur?: string; v: number; q?: number | null; level?: number; kind?: "sub" | "total" | "grand"; neg?: boolean }) {
-  const cls = kind === "grand" ? "bg-brand-50 font-extrabold text-brand-900" : kind === "total" ? "border-t border-slate-300 bg-slate-50 font-bold" : kind === "sub" ? "font-semibold" : "";
+  const cls = kind === "grand" ? "bg-brand-50 font-bold text-brand-900" : kind === "total" ? "border-t border-slate-300 bg-slate-50 font-bold" : kind === "sub" ? "font-semibold" : "";
   const tone = neg ? "text-red-700" : kind && v < 0 ? "text-red-700" : "";
   return (
     <tr className={`border-b border-slate-100 ${cls}`}>
@@ -109,7 +109,7 @@ function ProfitLoss({ p, q, month }: { p: any; q?: any; month: string }) {
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 print:hidden">
         {[["Revenue", p.income.total, q?.income.total], ["Gross profit", p.gross_profit, q?.gross_profit, `${num(p.gross_margin_pct, 1)}% margin`], ["Expenses", p.expenses.total, q?.expenses.total, null, true], ["Net profit", p.net_profit, q?.net_profit, `${num(p.margin_pct, 1)}% net margin`]].map(([l, v, qv, sub, low]: any) => (
-          <div key={l} className="rounded-xl border border-slate-200 bg-white p-4"><div className="text-xs text-slate-500">{l}</div><div className={`text-xl font-extrabold tabular-nums ${v < 0 ? "text-red-700" : ""}`}>{pkr(v)}</div>
+          <div key={l} className="card p-4"><div className="text-xs text-slate-500">{l}</div><div className={`text-xl font-bold tabular-nums ${v < 0 ? "text-red-700" : ""}`}>{pkr(v)}</div>
             <div className="text-xs text-slate-500">{sub ?? ""}{qv != null && <span className={`ml-1 ${((v - qv > 0) !== !!low) ? "text-emerald-700" : "text-red-700"}`}>{pct(v, qv)} vs last month</span>}</div></div>
         ))}
       </div>
@@ -172,7 +172,7 @@ function BalanceSheet({ bs, p }: { bs: any; p: any }) {
             <tr className="border-b border-slate-100"><td className={TD}>Owner's equity b/f</td><td className={`${TD} text-right tabular-nums`}>{acc(retained)}</td></tr>
             <tr className="border-b border-slate-100"><td className={TD}>Add: net profit this month</td><td className={`${TD} text-right tabular-nums ${p.net_profit < 0 ? "text-red-700" : ""}`}>{acc(p.net_profit)}</td></tr>
             <tr className="bg-slate-50 font-bold"><td className={TD}>Owner's equity (net worth)</td><td className={`${TD} text-right tabular-nums ${equity < 0 ? "text-red-700" : ""}`}>{acc(equity)}</td></tr>
-            <tr className="bg-brand-50 font-extrabold text-brand-900"><td className={TD}>Total liabilities & equity</td><td className={`${TD} text-right tabular-nums`}>{acc(bs.total_liabilities + equity)}</td></tr>
+            <tr className="bg-brand-50 font-bold text-brand-900"><td className={TD}>Total liabilities & equity</td><td className={`${TD} text-right tabular-nums`}>{acc(bs.total_liabilities + equity)}</td></tr>
           </tbody></table>
         </div>
       </div>
@@ -225,7 +225,7 @@ export function Journal({ d }: { d: any }) {
         <tbody>
           {(paged.slice as any[]).map((v) => (
             <Fragment key={v.no}>
-              <tr className="border-t border-slate-200 bg-slate-50/60"><td className={`${TD} whitespace-nowrap font-medium`}>{dOnly(v.date)}</td><td className={`${TD} whitespace-nowrap font-semibold text-brand-800`}>{v.no}</td><td className={`${TD} text-slate-700`} colSpan={3}><span className="mr-2 rounded bg-slate-200 px-1.5 py-0.5 text-[10px] font-bold uppercase text-slate-600">{v.type}</span>{v.narration}</td></tr>
+              <tr className="border-t border-slate-200 bg-slate-50/60"><td className={`${TD} whitespace-nowrap font-medium`}>{dOnly(v.date)}</td><td className={`${TD} whitespace-nowrap font-semibold text-brand-800`}>{v.no}</td><td className={`${TD} text-slate-700`} colSpan={3}><span className="mr-2 rounded bg-slate-200 px-1.5 py-0.5 text-[11px] font-bold uppercase text-slate-600">{v.type}</span>{v.narration}</td></tr>
               {v.lines.map((l: any, i: number) => (
                 <tr key={i} className={`border-b border-slate-100 ${acct && l.account === acct ? "bg-amber-50" : ""}`}><td /><td /><td className={TD} style={{ paddingLeft: l.credit ? 40 : 12 }}>{l.credit ? "To " : ""}{l.account}</td><td className={`${TD} text-right tabular-nums`}>{l.debit ? num(l.debit) : ""}</td><td className={`${TD} text-right tabular-nums`}>{l.credit ? num(l.credit) : ""}</td></tr>
               ))}
@@ -286,8 +286,8 @@ function MonthlyPack({ p, bs, a, w, gl, month }: { p: any; bs: any; a: any; w: a
   const lossTanks = ((gl?.tanks ?? []) as any[]).filter((t) => t.gain_loss_l < 0);
   const wsA = w?.ageing;
   return (
-    <div className="mx-auto max-w-4xl rounded-xl border border-slate-200 bg-white p-6 text-sm print:border-0 print:p-0">
-      <div className="mb-3 text-center"><div className="text-lg font-extrabold">Monthly financial pack — {monthName(month)}</div><div className="text-xs text-slate-500">Rupees · brackets = cost / loss · prepared by Petrol PumpAI</div></div>
+    <div className="mx-auto max-w-4xl card p-6 text-sm print:border-0 print:p-0">
+      <div className="mb-3 text-center"><div className="text-xl font-bold">Monthly financial pack — {monthName(month)}</div><div className="text-xs text-slate-500">Rupees · brackets = cost / loss · prepared by Petrol PumpAI</div></div>
       <div className="grid gap-6 sm:grid-cols-2">
         <section><h3 className="mb-1 border-b-2 border-brand-700 font-bold text-brand-800">Profit & Loss</h3>
           <R l="Fuel — retail" v={p.income.fuel_retail} /><R l="Fuel — wholesale" v={p.income.fuel_wholesale} /><R l="Shop & lubricants" v={p.income.shop} /><R l="Revenue" v={p.income.total} b />

@@ -32,7 +32,7 @@ function DateCell({ when }: { when?: string | null }) {
   return (
     <div className="w-[70px] shrink-0 text-right leading-tight">
       <div className="text-xs font-medium text-slate-600">{d.toLocaleDateString("en-PK", { day: "numeric", month: "short", year: "2-digit" })}</div>
-      <div className="text-[10px] text-slate-400">{d.toLocaleTimeString("en-PK", { hour: "numeric", minute: "2-digit" })}</div>
+      <div className="text-[11px] text-slate-400">{d.toLocaleTimeString("en-PK", { hour: "numeric", minute: "2-digit" })}</div>
     </div>
   );
 }

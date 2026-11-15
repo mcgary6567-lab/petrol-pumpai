@@ -62,7 +62,7 @@ export function VoiceShell({ endpoint, body, sub, examples, placeholder, compact
           {busy ? <Loader2 className="animate-spin" size={28} /> : listening ? <MicOff size={28} /> : <Mic size={30} />}
         </button>
         <div className="min-w-0 flex-1">
-          <div className="text-base font-bold leading-tight sm:text-lg"><Sparkles size={16} className="mr-1 inline" />{listening ? "Listening… speak now" : busy ? "Understanding…" : "Speak the entry"}</div>
+          <div className="text-base font-bold leading-tight sm:text-xl"><Sparkles size={16} className="mr-1 inline" />{listening ? "Listening… speak now" : busy ? "Understanding…" : "Speak the entry"}</div>
           <Ur className="block text-base leading-relaxed">{listening ? "بولیں" : "بول کر انٹری کریں — جو کام ہو بول دیں"}</Ur>
           <div className="hidden text-sm opacity-90 sm:block">{sub}</div>
         </div>

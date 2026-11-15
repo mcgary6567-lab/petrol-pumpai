@@ -362,7 +362,7 @@ function Statement({ acc, manage, onEdit, onClose, onChanged }: { acc: any; mana
         {!data ? <Loading /> : <>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             {[["Opening", data.opening, ""], ["Money in", data.money_in, "text-emerald-700"], ["Money out", data.money_out, "text-red-600"], ["Closing", data.closing, "font-bold"]].map(([l, v, c]) => (
-              <div key={l as string} className="min-w-0 rounded-xl bg-slate-50 p-3"><div className="text-xs text-slate-500">{l}</div><div className={`whitespace-nowrap text-base tabular-nums sm:text-lg ${c}`}>{pkr(v as number)}</div></div>
+              <div key={l as string} className="min-w-0 rounded-xl bg-slate-50 p-3"><div className="text-xs text-slate-500">{l}</div><div className={`whitespace-nowrap text-base tabular-nums sm:text-xl ${c}`}>{pkr(v as number)}</div></div>
             ))}
           </div>
           <ListTools q={q} onQ={setQ} placeholder="Party / ref / note / amount… · تلاش" chips={kindChips} chip={kind} onChip={setKind} shown={lines.length} total={allLines.length} />

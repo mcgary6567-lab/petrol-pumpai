@@ -143,7 +143,7 @@ function AgingCard({ onOpen }: { onOpen: (id: number) => void }) {
         {data.buckets.map((b: any, i: number) => (
           <div key={b.bucket} className="rounded-xl bg-slate-50 p-3 ring-1 ring-slate-200">
             <div className="text-xs text-slate-500">{b.bucket}</div>
-            <div className={`text-lg font-bold tabular-nums ${tone[i]}`}>{pkr(b.amount)}</div>
+            <div className={`text-xl font-bold tabular-nums ${tone[i]}`}>{pkr(b.amount)}</div>
           </div>
         ))}
       </div>

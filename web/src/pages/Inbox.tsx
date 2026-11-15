@@ -122,7 +122,7 @@ function Thread({ data, reload, onBack }: { data: any; reload: () => void; onBac
               {m.meta?.actions?.length > 0 && (
                 <div className="mt-1 flex flex-wrap gap-1">{m.meta.actions.map((a: string) => <Badge key={a} tone="violet">{a}</Badge>)}</div>
               )}
-              <div className="mt-0.5 flex items-center justify-end gap-1 text-[10px] text-slate-400">
+              <div className="mt-0.5 flex items-center justify-end gap-1 text-[11px] text-slate-400">
                 {new Date(m.created_at).toLocaleTimeString("en-PK", { hour: "2-digit", minute: "2-digit" })}
                 {m.direction === "out" && <CheckCheck size={12} className={m.meta?.delivery?.simulated ? "text-slate-400" : "text-sky-500"} />}
               </div>

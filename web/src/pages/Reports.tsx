@@ -62,7 +62,7 @@ const TH_UR: Record<string, string> = {
   "Cost": "لاگت", "Tanker": "ٹینکر", "Supplier": "سپلائر", "Invoice L": "انوائس لیٹر", "Rate": "ریٹ", "Opening": "ابتدائی",
 };
 /** English column header with its Urdu underneath (when known). */
-const Th = ({ h }: { h: string }) => (<>{h}{TH_UR[h] ? <Ur className="block text-[10px] font-normal opacity-60">{TH_UR[h]}</Ur> : null}</>);
+const Th = ({ h }: { h: string }) => (<>{h}{TH_UR[h] ? <Ur className="block text-[11px] font-normal opacity-60">{TH_UR[h]}</Ur> : null}</>);
 
 /** Dependency-free sparkline: a tiny trend line for a KPI card. */
 function Sparkline({ data, color = "#2a78d6", width = 108, height = 26 }: { data: number[]; color?: string; width?: number; height?: number }) {
@@ -314,7 +314,7 @@ function PerStation({ r }: { r: any }) {
       <div className="mt-1 overflow-x-auto">
         <table className="w-full text-sm">
           <thead><tr>{[["Pump", "پمپ", false], ["Litres", "لیٹر", true], ["Sales", "فروخت", true], ["Kharcha", "خرچ", true], ["Shifts", "شفٹیں", true], ["Cash farq", "کیش فرق", true], ["Stock now", "موجودہ اسٹاک", true]].map(([en, ur, right]: any) => (
-            <th key={en} className={`th ${right ? "text-right" : ""}`}>{en}<Ur className="block text-[10px] font-normal opacity-60">{ur}</Ur></th>
+            <th key={en} className={`th ${right ? "text-right" : ""}`}>{en}<Ur className="block text-[11px] font-normal opacity-60">{ur}</Ur></th>
           ))}</tr></thead>
           <tbody>{rows.map((r2: any) => (
             <tr key={r2.station}>
@@ -347,11 +347,11 @@ function Overview({ r }: { r: any }) {
   return (
     <>
       {/* bank-statement style account band: the period's bottom line at a glance, with last-period comparison */}
-      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white p-4 sm:p-5 print:hidden">
+      <div className="overflow-hidden card p-4 sm:p-5 print:hidden">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Net profit (est.) · <Ur>خالص منافع</Ur></div>
-            <div className={`mt-1 text-3xl font-extrabold tabular-nums sm:text-4xl ${est && s.net_profit_estimate < 0 ? "text-red-700" : "text-slate-900"}`}>{est ? pkr(s.net_profit_estimate) : "—"}</div>
+            <div className={`mt-1 text-3xl font-bold tabular-nums sm:text-3xl ${est && s.net_profit_estimate < 0 ? "text-red-700" : "text-slate-900"}`}>{est ? pkr(s.net_profit_estimate) : "—"}</div>
             <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-slate-600">
               {prev && est && <span className="rounded-full bg-slate-100 px-2 py-0.5"><Delta now={s.net_profit_estimate} prev={prev.net_profit_estimate} /></span>}
               {margin != null && <span>Margin {margin.toFixed(1)}% · <Ur>مارجن</Ur></span>}
@@ -361,9 +361,9 @@ function Overview({ r }: { r: any }) {
             {[["Revenue", "آمدن", s.revenue, prev?.revenue, false], ["Expenses", "اخراجات", s.expenses, prev?.expenses, true], ["Gross profit", "مجموعی منافع", s.gross_profit_estimate, prev?.gross_profit_estimate, false]].map(([en, ur, now, pv, low]: any) => (
               <div key={en}>
                 <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{en}</div>
-                <div className="text-sm font-bold tabular-nums sm:text-lg">{now != null ? pkrShort(now) : "—"}</div>
-                <Ur className="block text-[10px] text-slate-400">{ur}</Ur>
-                {prev && now != null && <div className="mt-0.5 break-words text-[10px] leading-tight sm:text-[11px]"><Delta now={now} prev={pv} lowerIsBetter={low} money={false} /></div>}
+                <div className="text-sm font-bold tabular-nums sm:text-xl">{now != null ? pkrShort(now) : "—"}</div>
+                <Ur className="block text-[11px] text-slate-400">{ur}</Ur>
+                {prev && now != null && <div className="mt-0.5 break-words text-[11px] leading-tight sm:text-[11px]"><Delta now={now} prev={pv} lowerIsBetter={low} money={false} /></div>}
               </div>
             ))}
           </div>
@@ -372,7 +372,7 @@ function Overview({ r }: { r: any }) {
       </div>
 
       {/* plain-language one-liner: what this period looks like, both scripts */}
-      <div className="rounded-xl border border-slate-200 bg-white p-3 text-sm">
+      <div className="card p-3 text-sm">
         <span className="mr-1 font-semibold text-slate-700">Khulasa:</span>{summ.en}
         {summ.ur && <Ur className="mt-0.5 block text-xs text-slate-500">{summ.ur}</Ur>}
       </div>
@@ -625,7 +625,7 @@ function tablesFor(tab: Tab, r: any): TableDef[] {
       ];
     case "shifts":
       return [{ title: "By attendant", rows: r.shifts.by_attendant, cols: [
-        { h: "Attendant", v: (x) => <>{x.attendant}<span className="block text-[10px] text-slate-500">{x.station}</span></>, csv: (x) => `${x.attendant} (${x.station})` },
+        { h: "Attendant", v: (x) => <>{x.attendant}<span className="block text-[11px] text-slate-500">{x.station}</span></>, csv: (x) => `${x.attendant} (${x.station})` },
         l("Shifts", "shifts"), l("Litres", "litres"), m("Expected", "expected"), m("Counted", "counted"),
         { h: "Variance", v: (x) => <span className={x.variance < -500 ? "font-semibold text-red-600" : ""}>{pkr(x.variance)}</span>, csv: (x) => x.variance, right: true }, m("Worst", "worst")] }];
   }

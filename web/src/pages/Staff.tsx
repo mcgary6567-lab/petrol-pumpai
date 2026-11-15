@@ -132,7 +132,7 @@ function StaffCalendar() {
               <tr>
                 <th className="sticky left-0 z-10 bg-white px-3 py-2 text-left text-xs font-semibold text-slate-500">Staff</th>
                 {data.days.map((d: string) => { const dow = new Date(`${d}T12:00:00+05:00`).getUTCDay(); return (
-                  <th key={d} className={`px-0 pb-1 pt-2 text-center text-[10px] font-medium ${dow === 0 || dow === 5 ? "text-amber-600" : "text-slate-400"}`} style={{ minWidth: 26 }}>
+                  <th key={d} className={`px-0 pb-1 pt-2 text-center text-[11px] font-medium ${dow === 0 || dow === 5 ? "text-amber-600" : "text-slate-400"}`} style={{ minWidth: 26 }}>
                     <span className="block leading-none">{WD[dow]}</span><span className="block leading-tight">{Number(d.slice(8))}</span></th>); })}
                 <th className="px-2 text-right text-xs font-semibold text-slate-500">P / A</th>
               </tr>
@@ -147,7 +147,7 @@ function StaffCalendar() {
                   {data.days.map((d: string) => { const st = s.marks[d]; const cell = DAY_STATUS[st]; const tap = st !== "future" && st !== "before"; return (
                     <td key={d} className="p-0 text-center">
                       <button type="button" disabled={!tap} onClick={() => toggle(s.id, d, st)} title={`${d}: ${cell?.label ?? st}`}
-                        className={`m-px h-6 w-6 rounded-sm align-middle text-[10px] font-semibold text-white ${cell?.cls ?? "bg-slate-50"} ${tap ? "cursor-pointer hover:ring-2 hover:ring-slate-400" : "cursor-default"} ${st === "off" || st === "future" || st === "before" ? "!text-slate-400" : ""}`}>
+                        className={`m-px h-6 w-6 rounded-sm align-middle text-[11px] font-semibold text-white ${cell?.cls ?? "bg-slate-50"} ${tap ? "cursor-pointer hover:ring-2 hover:ring-slate-400" : "cursor-default"} ${st === "off" || st === "future" || st === "before" ? "!text-slate-400" : ""}`}>
                         {st === "present" || st === "late" ? "✓" : st === "absent" ? "" : ""}</button>
                     </td>); })}
                   <td className="whitespace-nowrap px-2 text-right text-xs tabular-nums"><b className="text-emerald-600">{s.present}</b> / <b className={s.absent ? "text-red-600" : "text-slate-400"}>{s.absent}</b></td>

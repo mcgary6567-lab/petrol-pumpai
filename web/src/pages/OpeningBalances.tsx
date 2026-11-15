@@ -83,7 +83,7 @@ function KhataTab({ data, reload }: { data: any; reload: () => void }) {
             const v = vals[c.id] ?? String(c.opening || "");
             return (
               <li key={c.id} className="grid grid-cols-[1fr_auto] items-center gap-2 px-3 py-2 sm:grid-cols-[1fr_8rem_10rem]">
-                <div className="min-w-0"><div className="truncate font-medium">{c.name} {c.credit_limit > 0 && <span className="ml-1 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">KHATA</span>}</div><div className="truncate text-xs text-slate-500">{c.phone}{c.city ? ` · ${c.city}` : ""} · now {pkr(c.balance)}</div></div>
+                <div className="min-w-0"><div className="truncate font-medium">{c.name} {c.credit_limit > 0 && <span className="ml-1 rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-semibold text-amber-800">KHATA</span>}</div><div className="truncate text-xs text-slate-500">{c.phone}{c.city ? ` · ${c.city}` : ""} · now {pkr(c.balance)}</div></div>
                 <div className="hidden text-right text-xs text-slate-500 sm:block">opening {pkr(c.opening ?? 0)}</div>
                 <input className="input min-h-10 w-28 text-right tabular-nums sm:w-full" type="number" inputMode="numeric" step="1" placeholder="Rs" value={v} onChange={(e) => setVals({ ...vals, [c.id]: e.target.value })} aria-label={`${c.name} opening balance`} />
               </li>

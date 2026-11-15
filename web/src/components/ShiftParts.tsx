@@ -216,7 +216,7 @@ export function StartShiftSheet({ stationId, attendant, onStarted, big }: { stat
 /** Round "No." badge so each meter is easy to spot (No.1, No.2 …). */
 export const MeterNo = ({ n, small }: { n?: number | null; small?: boolean }) => n ? (
   <span className={`inline-flex shrink-0 flex-col items-center justify-center rounded-lg bg-slate-800 font-bold leading-none text-white ${small ? "h-7 w-7 text-xs" : "h-11 w-11 text-lg"}`} title={`Meter No.${n}`}>
-    {!small && <span className="text-[9px] font-medium opacity-70">No.</span>}{n}
+    {!small && <span className="text-[11px] font-medium opacity-70">No.</span>}{n}
   </span>
 ) : null;
 
@@ -335,7 +335,7 @@ function ReportBody({ r }: { r: any }) {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap justify-between gap-2 text-sm">
-        <div><div className="text-lg font-bold">{sh.attendant}</div><div className="text-slate-600">{sh.station_name}</div></div>
+        <div><div className="text-xl font-bold">{sh.attendant}</div><div className="text-slate-600">{sh.station_name}</div></div>
         <div className="text-right text-slate-600"><div>{dt(sh.opened_at)} → {closed ? dt(sh.closed_at) : "still open"}</div><div>{Math.floor(hours)}h {Math.round((hours % 1) * 60)}m</div></div>
       </div>
       {/* exact: green; a small short / over: amber; short by more than Rs 500: red */}

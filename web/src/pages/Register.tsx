@@ -97,12 +97,12 @@ export default function Register() {
                       <tr key={x.day}>
                         <td className="border border-slate-300 px-1.5 py-1 whitespace-nowrap">{dOnly(x.day)}</td>
                         <td className="border border-slate-300 px-1.5 text-right">{L(x.opening)}</td>
-                        <td className="border border-slate-300 px-1.5">{x.receipts ? <>{L(x.receipts)}<span className="block text-[10px] text-slate-500">{x.receipt_lines.map((rl: any) => <span key={rl.tanker_no + rl.invoice_l} className="block whitespace-nowrap">{`${rl.tanker_no ?? ""} inv ${L(rl.invoice_l)}`}</span>)}</span></> : "—"}</td>
+                        <td className="border border-slate-300 px-1.5">{x.receipts ? <>{L(x.receipts)}<span className="block text-[11px] text-slate-500">{x.receipt_lines.map((rl: any) => <span key={rl.tanker_no + rl.invoice_l} className="block whitespace-nowrap">{`${rl.tanker_no ?? ""} inv ${L(rl.invoice_l)}`}</span>)}</span></> : "—"}</td>
                         <td className="border border-slate-300 px-1.5 text-right">{L(x.total)}</td>
                         <td className="border border-slate-300 px-1.5 text-right">{L(x.sales)}</td>
                         <td className="border border-slate-300 px-1.5 text-right">{x.wholesale ? L(x.wholesale) : "—"}</td>
                         <td className="border border-slate-300 px-1.5 text-right">{L(x.book_closing)}</td>
-                        <td className="border border-slate-300 px-1.5 text-right">{L(x.dip_closing)}{x.dip_at ? <span className="block whitespace-nowrap text-[10px] text-slate-500">{at(x.dip_at)}</span> : null}</td>
+                        <td className="border border-slate-300 px-1.5 text-right">{L(x.dip_closing)}{x.dip_at ? <span className="block whitespace-nowrap text-[11px] text-slate-500">{at(x.dip_at)}</span> : null}</td>
                         <td className={`border border-slate-300 px-1.5 text-right ${x.gain_loss < 0 ? "text-red-700" : ""}`}>{x.gain_loss ? L(x.gain_loss) : "—"}</td>
                         <td className="border border-slate-300 px-1.5 text-right font-semibold">{L(x.closing)}</td>
                         <td className="border border-slate-300 px-1.5 w-16" />

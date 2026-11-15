@@ -80,7 +80,7 @@ export default function Cash() {
           <h2 className="mb-2 font-semibold">Cash movement since the last count</h2>
           {Object.entries(IN).filter(([k]) => k in data.ins).map(([k, l]) => <Line key={k} k={`+ ${l}`} v={data.ins[k]} />)}
           {Object.entries(OUT).filter(([k]) => k in data.outs).map(([k, l]) => <Line key={k} k={`− ${l}`} v={data.outs[k]} neg />)}
-          <div className="mt-2 flex justify-between border-t-2 border-slate-800 pt-2 text-lg font-bold"><span>Cash in hand</span><span className="tabular-nums">{pkr(data.cash_in_hand)}</span></div>
+          <div className="mt-2 flex justify-between border-t-2 border-slate-800 pt-2 text-xl font-bold"><span>Cash in hand</span><span className="tabular-nums">{pkr(data.cash_in_hand)}</span></div>
         </div>
         <div className="card p-4">
           <h2 className="mb-2 font-semibold">Bank deposits</h2>
@@ -159,7 +159,7 @@ export function DepositSlip({ d, onClose }: { d: any; onClose: () => void }) {
       <div className="text-center">
         <div className="font-semibold">Cash deposit slip · <Ur>بینک جمع پرچی</Ur></div>
         <div className="text-xs text-slate-500">DS-{String(d.id).padStart(5, "0")} · {dt(d.created_at)}</div>
-        <span className="mt-1 hidden rounded border border-slate-800 px-2 text-[10px] font-bold uppercase tracking-wide print:inline-block">{copy}</span>
+        <span className="mt-1 hidden rounded border border-slate-800 px-2 text-[11px] font-bold uppercase tracking-wide print:inline-block">{copy}</span>
       </div>
       <dl className="grid grid-cols-[auto,1fr] gap-x-4 gap-y-1 print:gap-y-0.5">
         <dt className="text-slate-500">Bank</dt><dd className="font-medium">{d.acc_bank ?? d.bank}{d.acc_branch ? ` · ${d.acc_branch}` : ""}</dd>
@@ -189,7 +189,7 @@ export function DepositSlip({ d, onClose }: { d: any; onClose: () => void }) {
     <Modal open onClose={onClose} title={`Deposit slip DS-${String(d.id).padStart(5, "0")}`}>
       <div className="voucher-2up">
         <div className="print:break-inside-avoid"><PrintHeader />{body("Bank copy · بینک کی کاپی")}<PrintFooter /></div>
-        <div className="my-3 hidden border-t-2 border-dashed border-slate-400 pt-1 text-center text-[10px] text-slate-500 print:block">✂ cut here · یہاں سے کاٹیں</div>
+        <div className="my-3 hidden border-t-2 border-dashed border-slate-400 pt-1 text-center text-[11px] text-slate-500 print:block">✂ cut here · یہاں سے کاٹیں</div>
         <div className="hidden print:block print:break-inside-avoid"><PrintHeader />{body("Our copy · ہماری کاپی")}<PrintFooter /></div>
       </div>
       <div className="mt-4 flex justify-end gap-2 print:hidden">

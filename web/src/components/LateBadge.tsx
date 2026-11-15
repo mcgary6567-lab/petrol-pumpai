@@ -8,7 +8,7 @@ export function LateBadge({ at, typed, className = "" }: { at?: string | null; t
   if (!(gap > 60 * 60_000)) return null;
   const days = Math.floor(gap / 86_400_000), hrs = Math.floor((gap % 86_400_000) / 3_600_000);
   return (
-    <span className={`inline-flex items-center rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-amber-900 ring-1 ring-amber-200 ${className}`}
+    <span className={`inline-flex items-center rounded-full bg-amber-100 px-1.5 py-0.5 text-[11px] font-semibold leading-none text-amber-900 ring-1 ring-amber-200 ${className}`}
       title={`Baad mein darj hui · likhi gayi: ${dt(typed)} (${days ? `${days} din ` : ""}${hrs} ghante baad)`}>⏱ Baad mein darj</span>
   );
 }

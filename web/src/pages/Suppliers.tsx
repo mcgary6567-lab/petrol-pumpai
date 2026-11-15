@@ -296,7 +296,7 @@ function SupplierDetail({ id, onClose, onChanged, depots, onDepots }: { id: numb
           {/* on paper: the supplier's account, newest entry first (same as the screen), opening balance at the bottom */}
           <div className="own-title hidden print:block">
             <div className="flex items-end justify-between border-b border-slate-300 pb-2">
-              <div><div className="text-lg font-bold">{label(s)}</div><div className="text-xs text-slate-600">{[s.depot_name ? `Depot: ${s.depot_name}${s.depot_address ? `, ${s.depot_address}` : ""}` : "", s.phone ? phone(s.phone) : "", "Supplier account statement"].filter(Boolean).join(" · ")}</div></div>
+              <div><div className="text-xl font-bold">{label(s)}</div><div className="text-xs text-slate-600">{[s.depot_name ? `Depot: ${s.depot_name}${s.depot_address ? `, ${s.depot_address}` : ""}` : "", s.phone ? phone(s.phone) : "", "Supplier account statement"].filter(Boolean).join(" · ")}</div></div>
               <div className="text-right text-sm">We owe: <b className="tabular-nums">{pkr(s.total_owed ?? s.owed)}</b><div className="text-xs text-slate-500">{Math.abs(s.bypass_owed ?? 0) > 0.5 ? `pump ${pkr(s.owed)} · bypass ${pkr(s.bypass_owed)} · ` : ""}as on {dt(new Date().toISOString())}</div></div>
             </div>
             <table className="mt-2 w-full">
@@ -305,11 +305,11 @@ function SupplierDetail({ id, onClose, onChanged, depots, onDepots }: { id: numb
                 {s.lines.map((t: any) => ( /* newest first, like the screen */
                   <tr key={t.id}>
                     <td className="td whitespace-nowrap">{d(t.txn_date)}</td><td className="td whitespace-nowrap">{supId(t)}</td><td className="td capitalize">{t.type}{t.source === "bypass" ? " (bypass)" : ""}</td>
-                    <td className="td whitespace-nowrap">{t.vehicle_no ?? ""}{t.driver_name ? <span className="block text-[10px] text-slate-500">{t.driver_name}</span> : null}</td>
+                    <td className="td whitespace-nowrap">{t.vehicle_no ?? ""}{t.driver_name ? <span className="block text-[11px] text-slate-500">{t.driver_name}</span> : null}</td>
                     <td className="td">{t.product ? PRODUCTS[t.product] ?? t.product : ""}</td>
                     <td className="td whitespace-nowrap text-right tabular-nums">{t.litres ? num(t.litres, t.litres % 1 ? 2 : 0) : ""}</td>
                     <td className="td whitespace-nowrap text-right tabular-nums">{t.rate ? num(t.rate, 2) : ""}</td>
-                    <td className="td">{t.type === "payment" ? t.method : ""}<span className="text-[10px] text-slate-500">{[t.ref !== t.vehicle_no ? t.ref : null, t.note].filter(Boolean).map((x) => ` · ${x}`).join("")}</span></td>
+                    <td className="td">{t.type === "payment" ? t.method : ""}<span className="text-[11px] text-slate-500">{[t.ref !== t.vehicle_no ? t.ref : null, t.note].filter(Boolean).map((x) => ` · ${x}`).join("")}</span></td>
                     <td className="td whitespace-nowrap text-right tabular-nums text-rose-700">{t.debit ? pkr(t.debit) : ""}</td>
                     <td className="td whitespace-nowrap text-right tabular-nums text-emerald-700">{t.credit ? pkr(t.credit) : ""}</td>
                     <td className="td whitespace-nowrap text-right tabular-nums">{pkr(t.balance)}</td>

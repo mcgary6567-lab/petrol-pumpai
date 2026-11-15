@@ -60,7 +60,7 @@ export function SupplyInvoices() {
       {list.error && <ErrorBox error={list.error} />}
       {data && <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-slate-200 bg-slate-100 sm:grid-cols-5 print:hidden">
         {[["Billed", pkr(data.totals.billed), ""], ["Collected", pkr(data.totals.collected), "text-emerald-700"], ["Unpaid", pkr(data.totals.unpaid), "text-sky-800"], ["Overdue > 30 days", pkr(data.totals.overdue), data.totals.overdue > 0 ? "text-red-700" : ""], ["Litres", `${num(data.totals.litres)} L`, ""]].map(([l, v, c]) => (
-          <div key={l} className="bg-white px-4 py-3"><div className="text-xs text-slate-500">{l}</div><div className={`text-lg font-bold tabular-nums ${c}`}>{v}</div></div>
+          <div key={l} className="bg-white px-4 py-3"><div className="text-xs text-slate-500">{l}</div><div className={`text-xl font-bold tabular-nums ${c}`}>{v}</div></div>
         ))}
       </div>}
 
@@ -118,11 +118,11 @@ export function InvoiceView({ no, onChanged }: { no: string; onChanged?: () => v
         }}><Ban size={15} /> Void</button>}
       </div>
 
-      <article className="rounded-xl border border-slate-200 bg-white p-6 print:border-0 print:p-0">
-        <div className="hidden text-center text-lg font-extrabold tracking-wide print:block">SUPPLY INVOICE · {i.no}</div>
+      <article className="card p-6 print:border-0 print:p-0">
+        <div className="hidden text-center text-xl font-bold tracking-wide print:block">SUPPLY INVOICE · {i.no}</div>
         <div className="flex flex-wrap items-start justify-between gap-4 border-b-2 border-brand-600 pb-3 print:hidden">
-          <div><div className="text-lg font-extrabold">{biz?.name ?? ""}</div><div className="text-xs text-slate-500">{[biz?.place, biz?.biz_phone || biz?.owner_phone].filter(Boolean).join(" · ")}</div></div>
-          <div className="text-right"><div className="text-xl font-extrabold tracking-wide text-slate-800">SUPPLY INVOICE</div><div className="text-sm text-slate-600">{i.no}</div></div>
+          <div><div className="text-xl font-bold">{biz?.name ?? ""}</div><div className="text-xs text-slate-500">{[biz?.place, biz?.biz_phone || biz?.owner_phone].filter(Boolean).join(" · ")}</div></div>
+          <div className="text-right"><div className="text-xl font-bold tracking-wide text-slate-800">SUPPLY INVOICE</div><div className="text-sm text-slate-600">{i.no}</div></div>
         </div>
         <div className="mt-4 grid grid-cols-2 gap-4 text-sm">
           <div><div className="text-xs font-semibold uppercase text-slate-500">Bill to</div><div className="font-bold">{c.name}</div><div className="text-slate-600">{[c.business_name, c.address || c.city, c.phone].filter(Boolean).join(" · ")}</div></div>
@@ -148,7 +148,7 @@ export function InvoiceView({ no, onChanged }: { no: string; onChanged?: () => v
             <div className="flex justify-between"><span className="text-slate-500">Litres</span><span>{num(i.litres)} L</span></div>
             <div className="flex justify-between border-t border-slate-200 pt-1 text-base font-bold"><span>Total</span><span>{pkr(i.amount)}</span></div>
             <div className="flex justify-between text-emerald-700"><span>Paid against this bill</span><span>{pkr(i.amount - i.unpaid)}</span></div>
-            <div className={`flex justify-between rounded-md px-2 py-1 font-extrabold ${i.unpaid > 0.5 ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-700"}`}><span>Balance due</span><span>{pkr(i.unpaid)}</span></div>
+            <div className={`flex justify-between rounded-md px-2 py-1 font-bold ${i.unpaid > 0.5 ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-700"}`}><span>Balance due</span><span>{pkr(i.unpaid)}</span></div>
             <div className="flex justify-between text-xs text-slate-500"><span>Client's total balance</span><span>{pkr(c.due)}</span></div>
           </div>
         </div>
@@ -157,7 +157,7 @@ export function InvoiceView({ no, onChanged }: { no: string; onChanged?: () => v
       </article>
 
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2 print:hidden">
-        <section className="rounded-xl border border-slate-200 bg-white p-4 text-sm">
+        <section className="card p-4 text-sm">
           <div className="mb-2 font-bold">Journal entry · <Ur className="font-normal">کھاتے میں انٹری</Ur></div>
           <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-x-3 gap-y-1 text-xs tabular-nums">
             <span className="font-semibold text-slate-500">Account</span><span className="text-right font-semibold text-slate-500">Dr</span><span className="text-right font-semibold text-slate-500">Cr</span>
@@ -165,7 +165,7 @@ export function InvoiceView({ no, onChanged }: { no: string; onChanged?: () => v
           </div>
           {!i.posting.length && <p className="text-slate-500">Void — kuch post nahi</p>}
         </section>
-        <section className="rounded-xl border border-slate-200 bg-white p-4 text-sm">
+        <section className="card p-4 text-sm">
           <div className="mb-2 font-bold">Activity</div>
           <ul className="space-y-1.5">{i.activity.map((a: any, n: number) => <li key={n} className="text-xs"><span className="text-slate-700">{a.text}</span>{a.who && <span className="text-slate-500"> · {a.who}</span>}{a.at && <span className="text-slate-400"> · {new Date(a.at).toLocaleString("en-PK", { dateStyle: "medium", timeStyle: "short" })}</span>}</li>)}</ul>
         </section>

@@ -84,7 +84,7 @@ export function PartyLedger() {
   const limitPct = c?.credit_limit > 0 ? Math.round((s.due_now / c.credit_limit) * 100) : null;
   const csvUrl = `/api/wholesale/clients/${clientId}/statement.csv?${qs}&token=${linkToken()}`;
   const cols = showFleet ? 9 : 6;
-  const Bal = ({ n, strong }: { n: number; strong?: boolean }) => <span className={`whitespace-nowrap tabular-nums ${n < -0.5 ? "text-emerald-700" : ""} ${strong ? "font-extrabold" : ""}`}>{bal(n)}</span>;
+  const Bal = ({ n, strong }: { n: number; strong?: boolean }) => <span className={`whitespace-nowrap tabular-nums ${n < -0.5 ? "text-emerald-700" : ""} ${strong ? "font-bold" : ""}`}>{bal(n)}</span>;
 
   return (
     <div className="space-y-4">
@@ -109,7 +109,7 @@ export function PartyLedger() {
       {stmt.error && <ErrorBox error={stmt.error} />}
       {!s ? <Loading /> : <>
         <div className="hidden print:block">
-          <div className="text-lg font-bold">Statement of account — {c.name}</div>
+          <div className="text-xl font-bold">Statement of account — {c.name}</div>
           <div className="text-xs text-slate-600">{[c.business_name, c.city, c.phone].filter(Boolean).join(" · ")} · Period {from || "start"} to {to || "today"}</div>
         </div>
         {/* summary strip */}
@@ -120,7 +120,7 @@ export function PartyLedger() {
           <Cell label={s.closing_balance < -0.5 ? "Closing · advance with us" : "Closing · client owes"} value={<Bal n={s.closing_balance} strong />} tint />
           <div className="border-b border-r border-slate-100 p-4">
             <div className="text-xs text-slate-500">Credit limit</div>
-            <div className="text-lg font-bold tabular-nums">{c.credit_limit > 0 ? amt(c.credit_limit) : "No limit"}</div>
+            <div className="text-xl font-bold tabular-nums">{c.credit_limit > 0 ? amt(c.credit_limit) : "No limit"}</div>
             {limitPct != null && <><div className="mt-1.5 h-1.5 rounded bg-slate-100"><div className="h-full rounded" style={{ width: `${Math.min(100, Math.max(0, limitPct))}%`, background: limitPct >= 90 ? "#dc2626" : limitPct >= 75 ? "#f59e0b" : "#0b6e4f" }} /></div><div className="mt-1 text-xs text-slate-500">{limitPct}% used (today)</div></>}
           </div>
           <div className="border-b border-r border-slate-100 p-4">
@@ -240,7 +240,7 @@ function Cell({ label, value, cls = "", tint }: { label: string; value: React.Re
   return (
     <div className={`border-b border-r border-slate-100 p-4 ${tint ? "bg-amber-50/60" : ""}`}>
       <div className="text-xs text-slate-500">{label}</div>
-      <div className={`text-lg font-bold tabular-nums ${cls}`}>{value}</div>
+      <div className={`text-xl font-bold tabular-nums ${cls}`}>{value}</div>
     </div>
   );
 }

@@ -151,7 +151,7 @@ function NavMenu({ items, grouped, badges, onGo }: { items: NavItem[]; grouped: 
   };
   const pinSection = (label: string, ur: string, tos: string[]) => tos.length ? (
     <div key={label} className="pt-1">
-      <div className="flex items-center justify-between px-3 pb-0.5 pt-1 text-[11px] font-semibold uppercase tracking-wide text-emerald-200/60"><span>{label}</span><span lang="ur" dir="rtl" className="font-urdu text-[13px] normal-case tracking-normal">{ur}</span></div>
+      <div className="flex items-center justify-between px-3 pb-0.5 pt-1 text-[11px] font-semibold uppercase tracking-wide text-emerald-200/60"><span>{label}</span><span lang="ur" dir="rtl" className="font-urdu text-sm normal-case tracking-normal">{ur}</span></div>
       {tos.map(pinEntry)}
     </div>
   ) : null;
@@ -187,7 +187,7 @@ function NavMenu({ items, grouped, badges, onGo }: { items: NavItem[]; grouped: 
             <button type="button" onClick={() => toggle(g.key)} aria-expanded={open}
               className={`pressable flex w-full items-center gap-3 rounded-lg px-3 py-1.5 text-left text-sm transition ${active ? "bg-white/10 text-white" : "text-emerald-100/90"} hover:bg-white/10`}>
               <g.icon size={17} className="shrink-0" />
-              <span className="min-w-0 flex-1 leading-tight"><span className="block truncate font-medium">{g.label}</span><span lang="ur" dir="rtl" className="font-urdu block truncate text-left text-[13px] leading-5 opacity-80">{g.ur}</span></span>
+              <span className="min-w-0 flex-1 leading-tight"><span className="block truncate font-medium">{g.label}</span><span lang="ur" dir="rtl" className="font-urdu block truncate text-left text-sm leading-5 opacity-80">{g.ur}</span></span>
               {!open && <Badge n={count} />}
               <ChevronDown size={15} className={`opacity-70 transition ${open ? "rotate-180" : ""}`} />
             </button>
@@ -392,7 +392,7 @@ export default function Layout() {
           sideHits.length ? sideHits.map((hit, idx) => (
             <div key={hit.to + hit.label + idx}>
               {(idx === 0 || hit.rec !== sideHits[idx - 1].rec) && (
-                <div className="px-3 pb-0.5 pt-2 text-[10px] font-semibold uppercase tracking-wide text-emerald-200/60">{hit.rec ? "Records · ریکارڈ" : "Pages & settings · صفحات"}</div>
+                <div className="px-3 pb-0.5 pt-2 text-[11px] font-semibold uppercase tracking-wide text-emerald-200/60">{hit.rec ? "Records · ریکارڈ" : "Pages & settings · صفحات"}</div>
               )}
               <button type="button" onMouseEnter={() => setSi(idx)} onClick={() => goSide(hit.to)}
                 className={`flex w-full items-center gap-3 rounded-lg px-3 py-1.5 text-left text-sm transition ${idx === si ? "bg-white/15 text-white" : "text-emerald-100/90 hover:bg-white/10"}`}>
@@ -408,7 +408,7 @@ export default function Layout() {
         ) : (
           <>
             {asaan && !can("dashboard.view") && (
-              <NavLink to="/" end onClick={() => setOpen(false)} className={({ isActive }) => `mb-2 flex min-h-tap items-center gap-3 rounded-xl px-3 text-lg font-bold ${isActive ? "bg-white text-ink" : "bg-white/10 text-white hover:bg-white/15"}`}>
+              <NavLink to="/" end onClick={() => setOpen(false)} className={({ isActive }) => `mb-2 flex min-h-tap items-center gap-3 rounded-xl px-3 text-xl font-bold ${isActive ? "bg-white text-ink" : "bg-white/10 text-white hover:bg-white/15"}`}>
                 <HomeIcon size={24} /> Ghar <span lang="ur" dir="rtl" className="font-urdu ml-auto text-base font-normal">گھر</span>
               </NavLink>
             )}
@@ -446,7 +446,7 @@ export default function Layout() {
                 onKeyDown={(e) => { if (e.key === "ArrowDown") { e.preventDefault(); setCi((x) => Math.min(x + 1, cmdHits.length - 1)); } else if (e.key === "ArrowUp") { e.preventDefault(); setCi((x) => Math.max(x - 1, 0)); } else if (e.key === "Enter" && cmdHits[ci]) { e.preventDefault(); goCmd(cmdHits[ci].to); } }}
                 placeholder="Page, customer, gaari number, client, supplier, voucher no… sab yahan dhoondein" aria-label="Command palette"
                 className="w-full bg-transparent py-3 text-sm outline-none" />
-              <kbd className="mr-1 hidden shrink-0 rounded border border-slate-200 px-1.5 py-0.5 text-[10px] text-slate-400 sm:block">ESC</kbd>
+              <kbd className="mr-1 hidden shrink-0 rounded border border-slate-200 px-1.5 py-0.5 text-[11px] text-slate-400 sm:block">ESC</kbd>
             </div>
             <ul className="max-h-[52vh] overflow-y-auto py-1">
               {cmdHits.map((it, idx) => (

@@ -44,9 +44,9 @@ export function Client360({ c, refreshKey, onAction, onTab }: { c: any; refreshK
             </button>
           ))}
         </nav>
-        <section className="rounded-xl border border-slate-200 bg-white p-5">
+        <section className="card p-5">
           <div className="mb-3 flex flex-wrap items-center gap-4">
-            <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-50 text-xl font-extrabold text-brand-800">{initials(c.name)}</span>
+            <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-50 text-xl font-bold text-brand-800">{initials(c.name)}</span>
             <div className="min-w-0 flex-1">
               <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Client profile · <Ur className="normal-case">کلائنٹ پروفائل</Ur></div>
               <div className="mt-1 flex flex-wrap gap-1.5">
@@ -76,13 +76,13 @@ export function Client360({ c, refreshKey, onAction, onTab }: { c: any; refreshK
         </section>
       </div>
 
-      <aside aria-label="Activity" className="flex max-h-[560px] flex-[1_1_300px] flex-col gap-2 overflow-y-auto rounded-xl border border-slate-200 bg-white p-4 lg:max-w-sm print:hidden">
+      <aside aria-label="Activity" className="flex max-h-[560px] flex-[1_1_300px] flex-col gap-2 overflow-y-auto card p-4 lg:max-w-sm print:hidden">
         <div className="flex items-baseline justify-between"><b>Activity · <Ur className="font-normal">سرگرمی</Ur></b><span className="text-xs text-slate-500">{data.activity.length} latest</span></div>
         {!data.activity.length && <p className="text-sm text-slate-500">Abhi koi entry nahi</p>}
         <ol className="space-y-2.5">
           {data.activity.map((e: any, i: number) => (
             <li key={i} className={`flex gap-2.5 text-sm ${e.voided ? "opacity-50" : ""}`}>
-              <span className={`mt-0.5 h-fit shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-bold uppercase ${KIND[e.kind] ?? KIND.adjustment}`}>{e.kind}</span>
+              <span className={`mt-0.5 h-fit shrink-0 rounded-md px-1.5 py-0.5 text-[11px] font-bold uppercase ${KIND[e.kind] ?? KIND.adjustment}`}>{e.kind}</span>
               <div className="min-w-0">
                 <div className={e.voided ? "line-through" : ""}>{e.text}{e.amount != null && e.kind !== "order" && e.kind !== "request" ? <b className="tabular-nums"> · {pkr(e.amount)}</b> : null}</div>
                 <div className="text-xs text-slate-500">{e.who ?? ""}{e.who ? " · " : ""}{new Date(e.at).toLocaleString("en-PK", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}{e.voided ? " · VOID" : ""}</div>

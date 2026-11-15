@@ -30,7 +30,7 @@ export function Stat({ label, value, hint, icon, tone = "slate" }: { label: Reac
         <span className="text-xs font-medium uppercase tracking-wide text-slate-500">{label}</span>
         {icon && <span className={`rounded-lg p-1.5 ${tones[tone]}`}>{icon}</span>}
       </div>
-      <div className={`mt-2 break-words font-semibold tabular-nums text-slate-900 sm:text-2xl ${statSize(value)}`}>{typeof value === "number" ? <CountUp value={value} /> : value}</div>
+      <div className={`mt-2 break-words font-bold tabular-nums text-slate-900 sm:text-2xl ${statSize(value)}`}>{typeof value === "number" ? <CountUp value={value} /> : value}</div>
       {hint && <div className="mt-1 text-xs text-slate-500">{hint}</div>}
     </div>
   );

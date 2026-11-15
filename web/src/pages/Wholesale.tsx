@@ -640,7 +640,7 @@ function LedgerTable({ rows: allRows, running, showClient, tools, onVoid, onEdit
                   {r.type === "fuel_note" ? <div>Fuel <b>{pkr(r.amount)}</b> · {fuelLabel(r)}</div> : r.type === "carriage" ? <div>Kiraya</div> : null}
                   {r.method && <div className="font-medium">{r.method}</div>}
                   <ProofThumbs ids={r.proof_ids} />
-                  <div className="text-slate-500 print:text-[10px] print:leading-tight">{[r.station_name, r.location && `📍 ${r.location}`, r.trip_id && `trip #${r.trip_id}`, r.ref !== r.vehicle_no ? r.ref : null, r.note, r.voided && r.void_reason].filter(Boolean).join(" · ")}</div>
+                  <div className="text-slate-500 print:text-[11px] print:leading-tight">{[r.station_name, r.location && `📍 ${r.location}`, r.trip_id && `trip #${r.trip_id}`, r.ref !== r.vehicle_no ? r.ref : null, r.note, r.voided && r.void_reason].filter(Boolean).join(" · ")}</div>
                 </td>
                 <td className="td whitespace-nowrap text-right tabular-nums text-rose-700">{debit ? pkr(debit) : ""}</td>
                 <td className="td whitespace-nowrap text-right tabular-nums text-emerald-700">{credit ? pkr(credit) : ""}</td>
@@ -898,7 +898,7 @@ function RateCardEditor({ draft, setDraft, pump }: { draft: RateDraft; setDraft:
         const price = pump?.[p]?.price;
         const eff = r.mode === "discount" && price != null && r.value !== "" ? price - Number(r.value) : r.mode === "fixed" ? Number(r.value) : null;
         return (
-          <div key={p} className="rounded-lg border border-slate-200 bg-white p-2.5">
+          <div key={p} className="card p-2.5">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <span className="text-sm font-medium">{PRODUCTS[p]} <span className="text-xs font-normal text-slate-500">pump Rs {price?.toFixed(2) ?? "—"}</span></span>
               <div className="flex rounded-lg border border-slate-200 p-0.5" role="group" aria-label={`${PRODUCTS[p]} rate type`}>

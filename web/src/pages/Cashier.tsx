@@ -134,7 +134,7 @@ function Desk({ go, onSlip }: { go: (k: string, extra?: Record<string, string>) 
     <div className="space-y-5">
       <div className="overflow-hidden rounded-2xl bg-gradient-to-br from-brand-700 to-brand-600 p-4 text-white shadow">
         <div className="flex items-center gap-1.5 text-sm opacity-90"><Banknote size={16} /> Cash in hand · <Ur>ہاتھ میں نقد</Ur></div>
-        <div className="text-3xl font-bold tabular-nums sm:text-4xl">{pkr(data.cash.in_hand)}</div>
+        <div className="text-3xl font-bold tabular-nums sm:text-3xl">{pkr(data.cash.in_hand)}</div>
         <div className="mt-1 text-xs opacity-80">{data.cash.last_count ? <>Last counted {pkr(data.cash.last_count.amount)} by {data.cash.last_count.by}, {ago(data.cash.last_count.at)}</> : "Not counted yet — count the cash once to start the book"}</div>
         <div className="mt-3 grid grid-cols-3 gap-2 text-sm">
           <div className="rounded-xl bg-white/10 p-2"><div className="text-xs opacity-80">Came in · <Ur>آیا</Ur></div><Amt v={data.today.in_cash + data.today.in_bank} /></div>
@@ -162,7 +162,7 @@ function Desk({ go, onSlip }: { go: (k: string, extra?: Record<string, string>) 
               <li key={t.key}><button onClick={() => go(t.tab === "count" || t.tab === "bank" ? "bank" : t.tab, t.tab === "count" ? { do: "count" } : t.tab === "bank" ? { do: "deposit" } : {})}
                 className="flex w-full items-start gap-3 px-4 py-2.5 text-left hover:bg-slate-50">
                 <span className={`mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full ${TONE[t.tone]}`} />
-                <span className="min-w-0 flex-1 text-sm">{t.en}<Ur className="block text-[13px] text-slate-500">{t.ur}</Ur></span>
+                <span className="min-w-0 flex-1 text-sm">{t.en}<Ur className="block text-sm text-slate-500">{t.ur}</Ur></span>
               </button></li>
             ))}
           </ul>
@@ -363,7 +363,7 @@ const Amt = ({ v }: { v: number }) => (
 const Mini = ({ label, ur, n, v, tone = "", onClick }: { label: string; ur: string; n: number; v: number; tone?: string; onClick: () => void }) => (
   <button onClick={onClick} className="card min-w-0 p-3 text-left hover:bg-slate-50">
     <div className="text-xs text-slate-500">{label}<Ur className="block">{ur}</Ur></div>
-    <div className={`truncate text-lg font-bold tabular-nums ${tone}`}>{pkr(v)}</div><div className="text-xs text-slate-500">{n} cheque{n === 1 ? "" : "s"}</div>
+    <div className={`truncate text-xl font-bold tabular-nums ${tone}`}>{pkr(v)}</div><div className="text-xs text-slate-500">{n} cheque{n === 1 ? "" : "s"}</div>
   </button>
 );
 
@@ -510,7 +510,7 @@ function MoneyForm({ dir, preset, onDone }: { dir: "in" | "out"; preset: Record<
       <ProofPhotos value={photos} onChange={setPhotos} required={cheque} hint={cheque ? "photo of the cheque" : depot ? "depot's deposit slip / receipt" : "receipt / slip / screenshot"} />
       {dir === "in" && type === "khata" && <label className="flex items-center gap-2 py-1 text-sm"><input type="checkbox" className="h-5 w-5 shrink-0" checked={f.notify} onChange={(e) => set("notify", e.target.checked)} /> Send the receipt on WhatsApp · <Ur>رسید واٹس ایپ پر</Ur></label>}
 
-      <button className={`flex w-full items-center justify-center gap-2 rounded-xl px-6 py-3.5 text-lg font-bold text-white shadow active:scale-[.98] disabled:bg-slate-300 ${dir === "in" ? "bg-emerald-600" : "bg-rose-600"}`}
+      <button className={`flex w-full items-center justify-center gap-2 rounded-xl px-6 py-3.5 text-xl font-bold text-white shadow active:scale-[.98] disabled:bg-slate-300 ${dir === "in" ? "bg-emerald-600" : "bg-rose-600"}`}
         disabled={busy || !amount || (needsParty && !party) || (cheque && !photos.length) || (depot && !depotId)}>
         <Check size={22} /> {dir === "in" ? <>Save receipt · <Ur>محفوظ</Ur></> : <>Save payment · <Ur>محفوظ</Ur></>}
       </button>
@@ -591,7 +591,7 @@ export function VoucherSlip({ r, onClose }: { r: any; onClose: () => void }) {
       {/* on paper: two copies on one page, each with the letterhead — the top one for the party, the bottom one stays in the office */}
       <div className="voucher-2up">
         <div className="print:break-inside-avoid"><PrintHeader /><VoucherBody r={r} copy={isIn ? "Party copy · گاہک کی کاپی" : "Payee copy · وصول کنندہ کی کاپی"} /><PrintFooter /></div>
-        <div className="my-3 hidden border-t-2 border-dashed border-slate-400 pt-1 text-center text-[10px] text-slate-500 print:block">✂ cut here · یہاں سے کاٹیں</div>
+        <div className="my-3 hidden border-t-2 border-dashed border-slate-400 pt-1 text-center text-[11px] text-slate-500 print:block">✂ cut here · یہاں سے کاٹیں</div>
         <div className="hidden print:block print:break-inside-avoid"><PrintHeader /><VoucherBody r={r} copy="Office copy · دفتر کی کاپی" /><PrintFooter /></div>
       </div>
       <div className="mt-4 flex justify-end gap-2 print:hidden">
@@ -630,10 +630,10 @@ function VoucherBody({ r, copy }: { r: any; copy: string }) {
   return (
       <div className="space-y-3 text-sm print:space-y-1.5">
         <div className="text-center">
-          <div className="text-lg font-bold print:hidden">{tenant?.name}</div>
+          <div className="text-xl font-bold print:hidden">{tenant?.name}</div>
           <div className="font-semibold">{isIn ? <>Receipt voucher · <Ur>رسید</Ur></> : <>Payment voucher · <Ur>ادائیگی واؤچر</Ur></>}</div>
           <div className="text-xs text-slate-500">{v.no} · {dt(v.created_at)}</div>
-          <span className="mt-1 hidden rounded border border-slate-800 px-2 text-[10px] font-bold uppercase tracking-wide print:inline-block">{copy}</span>
+          <span className="mt-1 hidden rounded border border-slate-800 px-2 text-[11px] font-bold uppercase tracking-wide print:inline-block">{copy}</span>
         </div>
         <div className={`rounded-xl p-3 text-center print:px-2 print:py-1 ${isIn ? "bg-emerald-50" : "bg-rose-50"}`}>
           <div className="text-3xl font-bold tabular-nums print:text-xl">{pkr(v.amount)}</div><div className="text-xs text-slate-600">{toWords(v.amount)}</div>
@@ -1000,7 +1000,7 @@ function DayBook() {
             {data.totals.deposited > 0 && <Line sign="−" k="Put in bank" ur="بینک میں جمع" v={data.totals.deposited} tone="text-sky-700" />}
             {data.totals.withdrawn > 0 && <Line sign="+" k="Taken from bank" ur="بینک سے نکالا" v={data.totals.withdrawn} tone="text-sky-700" />}
             {Math.abs(data.totals.counted ?? 0) >= 1 && <Line sign={data.totals.counted < 0 ? "−" : "+"} k={data.totals.counted < 0 ? "Short at cash count" : "Over at cash count"} ur="گنتی میں فرق" v={Math.abs(data.totals.counted)} tone="text-amber-700" />}
-            <div className="mt-1 flex items-baseline justify-between gap-3 border-t-2 border-slate-800 pt-1.5"><span className="min-w-0 font-semibold">= {isToday ? "Cash now" : "Closing cash"} · <Ur>آخر میں</Ur></span><span className="shrink-0 whitespace-nowrap text-lg font-bold tabular-nums">{data.cash.closing != null ? pkr(data.cash.closing) : "—"}</span></div>
+            <div className="mt-1 flex items-baseline justify-between gap-3 border-t-2 border-slate-800 pt-1.5"><span className="min-w-0 font-semibold">= {isToday ? "Cash now" : "Closing cash"} · <Ur>آخر میں</Ur></span><span className="shrink-0 whitespace-nowrap text-xl font-bold tabular-nums">{data.cash.closing != null ? pkr(data.cash.closing) : "—"}</span></div>
           </div>
           <div className="card p-4">
             <h3 className="mb-1 font-semibold">Bank / digital · <Ur>بینک</Ur></h3>
@@ -1011,9 +1011,9 @@ function DayBook() {
         </div>
         {data.summary && (data.summary.sales_tax > 0 || data.summary.discount > 0 || data.summary.card_fee > 0) && (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <div className="card p-3"><div className="text-xs text-slate-500">Sales tax collected · <Ur>ٹیکس</Ur></div><div className="text-lg font-bold tabular-nums">{pkr(data.summary.sales_tax)}</div></div>
-            <div className="card p-3"><div className="text-xs text-slate-500">Khata discount given · <Ur>رعایت</Ur></div><div className="text-lg font-bold tabular-nums text-amber-700">{pkr(data.summary.discount)}</div></div>
-            <div className="card p-3"><div className="text-xs text-slate-500">Bank card fee (MDR) · <Ur>بینک کمیشن</Ur></div><div className="text-lg font-bold tabular-nums text-rose-700">{pkr(data.summary.card_fee)}</div></div>
+            <div className="card p-3"><div className="text-xs text-slate-500">Sales tax collected · <Ur>ٹیکس</Ur></div><div className="text-xl font-bold tabular-nums">{pkr(data.summary.sales_tax)}</div></div>
+            <div className="card p-3"><div className="text-xs text-slate-500">Khata discount given · <Ur>رعایت</Ur></div><div className="text-xl font-bold tabular-nums text-amber-700">{pkr(data.summary.discount)}</div></div>
+            <div className="card p-3"><div className="text-xs text-slate-500">Bank card fee (MDR) · <Ur>بینک کمیشن</Ur></div><div className="text-xl font-bold tabular-nums text-rose-700">{pkr(data.summary.card_fee)}</div></div>
           </div>
         )}
         <div className="card">

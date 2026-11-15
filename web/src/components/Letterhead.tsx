@@ -36,7 +36,7 @@ export function PrintHeader() {
       <div className="flex items-center justify-between gap-4 border-b-[3px] border-brand-600 pb-2.5">
         <div className="flex min-w-0 items-center gap-3">
           {b.logo_url && <img src={b.logo_url} alt="" className="h-12 max-w-[150px] object-contain" />}
-          <div className="min-w-0"><div className="text-xl font-extrabold leading-tight text-slate-900">{b.name}</div>
+          <div className="min-w-0"><div className="text-xl font-bold leading-tight text-slate-900">{b.name}</div>
             {b.omc && <div className="text-[11px] text-slate-600">{b.omc} dealer</div>}</div>
         </div>
         <div className="text-right text-[11px] leading-relaxed text-slate-700">
@@ -45,7 +45,7 @@ export function PrintHeader() {
           {(b.ntn || b.strn) && <div>{b.ntn && `NTN ${b.ntn}`}{b.ntn && b.strn && " · "}{b.strn && `STRN ${b.strn}`}</div>}
         </div>
       </div>
-      <div className="mb-3 mt-1 flex justify-between text-[10px] text-slate-500"><span>{document.title.replace(/ · PumpAI$/, "")}</span>
+      <div className="mb-3 mt-1 flex justify-between text-[11px] text-slate-500"><span>{document.title.replace(/ · PumpAI$/, "")}</span>
         <span>Printed {new Date().toLocaleString("en-PK", { dateStyle: "medium", timeStyle: "short" })}{user ? ` by ${user.name}` : ""}</span></div>
     </div>
   );
@@ -57,7 +57,7 @@ export function PrintFooter() {
   const line = [b.place, b.biz_email, b.website].filter(Boolean).join(" · ");
   const soc = SOCIALS.filter((s) => b[s.key]);
   return (
-    <div className="print-foot mt-5 hidden border-t border-slate-300 pt-2 text-center text-[10.5px] leading-relaxed text-slate-600 print:block">
+    <div className="print-foot mt-5 hidden border-t border-slate-300 pt-2 text-center text-[11px] leading-relaxed text-slate-600 print:block">
       {line && <div>{line}</div>}
       {soc.length > 0 && <div className="mt-0.5 flex flex-wrap justify-center gap-x-4 gap-y-1">{soc.map((s) => (
         <span key={s.key} className="inline-flex items-center gap-1">

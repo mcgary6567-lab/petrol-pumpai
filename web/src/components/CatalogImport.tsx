@@ -62,7 +62,7 @@ function CatalogImportModal({ stationId, onClose, onDone }: { stationId: number;
                   <input type="checkbox" className="h-5 w-5" disabled={x.in_shop} checked={!!sel[x.id] && !x.in_shop} onChange={(e) => setSel({ ...sel, [x.id]: e.target.checked })} aria-label={x.name} />
                   <div className="min-w-0 flex-1"><div className="truncate font-medium">{x.name}</div><div className="text-[11px] text-slate-500">{[x.category, x.brand, x.sku].filter(Boolean).join(" · ")}{x.in_shop ? " · pehle se shop me" : x.cost ? ` · cost ${pkr(x.cost)}` : ""}</div></div>
                   <div className="relative"><input className={`input min-h-9 w-28 pr-9 text-right tabular-nums ${sel[x.id] && priceOf(x) <= 0 ? "!border-rose-400" : ""}`} type="number" inputMode="decimal" min={0} disabled={x.in_shop} value={price[x.id] ?? (x.price || "")} placeholder="price" onChange={(e) => setPrice({ ...price, [x.id]: e.target.value })} aria-label={`${x.name} price`} />
-                    <span className="pointer-events-none absolute inset-y-0 right-2 flex items-center text-[10px] text-slate-400">Rs</span></div>
+                    <span className="pointer-events-none absolute inset-y-0 right-2 flex items-center text-[11px] text-slate-400">Rs</span></div>
                 </li>
               ))}
               {shown.length === 0 && <li className="p-4 text-slate-500">Kuch nahi mila</li>}

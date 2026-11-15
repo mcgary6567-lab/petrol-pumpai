@@ -97,7 +97,7 @@ function PriceChangeGate() {
                 <div className="font-semibold">{PRODUCTS[c.product]}</div>
                 <div className="text-sm text-slate-600">{c.old != null && <>Rs {c.old.toFixed(2)} → </>}<b>Rs {c.new.toFixed(2)}</b> / L</div>
               </div>
-              {c.diff != null && <div className={`flex items-center gap-1 text-lg font-bold ${c.diff > 0 ? "text-red-700" : "text-emerald-700"}`}>
+              {c.diff != null && <div className={`flex items-center gap-1 text-xl font-bold ${c.diff > 0 ? "text-red-700" : "text-emerald-700"}`}>
                 {c.diff > 0 ? <TrendingUp size={18} /> : <TrendingDown size={18} />}{c.diff > 0 ? "+" : "−"}Rs {Math.abs(c.diff).toFixed(2)}
               </div>}
             </div>

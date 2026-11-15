@@ -55,7 +55,7 @@ export function BypassStockTab() {
         <section key={f.product} className="card overflow-hidden" aria-label={`${PRODUCTS[f.product] ?? f.product} stock`}>
           <div className="grid grid-cols-2 gap-px border-b bg-slate-100 sm:grid-cols-4">
             {[["Khareeda (bought)", f.bought, ""], ["Client ko diya", f.delivered, "text-slate-700"], ["Apne tank me", f.unloaded, "text-slate-700"], ["Baqi", f.balance, f.balance < -0.01 ? "text-rose-700" : "text-emerald-700"]].map(([l, v, c]) => (
-              <div key={String(l)} className="bg-white p-3"><div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{PRODUCTS[f.product] ?? f.product} · {l}</div><div className={`text-lg font-bold tabular-nums ${c}`}>{num(v as number)} L</div></div>
+              <div key={String(l)} className="bg-white p-3"><div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{PRODUCTS[f.product] ?? f.product} · {l}</div><div className={`text-xl font-bold tabular-nums ${c}`}>{num(v as number)} L</div></div>
             ))}
           </div>
           {f.balance < -0.01 && (

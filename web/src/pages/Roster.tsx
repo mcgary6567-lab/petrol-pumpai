@@ -47,7 +47,7 @@ export default function Roster() {
                     <td key={wd} className="td text-center">
                       <button onClick={() => setEdit({ user: u, weekday: wd, cur: c })}
                         className={`min-h-8 w-full rounded-lg px-1 py-1 text-xs ${c ? "bg-brand-50 font-medium text-brand-800 ring-1 ring-brand-200" : "text-slate-300 hover:bg-slate-50"}`}>
-                        {c ? <>{c.slot || "On"}{c.station_id ? <span className="block text-[10px] text-slate-500">{stationName(c.station_id)}</span> : null}</> : "+"}
+                        {c ? <>{c.slot || "On"}{c.station_id ? <span className="block text-[11px] text-slate-500">{stationName(c.station_id)}</span> : null}</> : "+"}
                       </button>
                     </td>
                   );

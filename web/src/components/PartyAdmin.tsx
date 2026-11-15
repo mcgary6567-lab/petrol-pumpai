@@ -97,7 +97,7 @@ function MergeModal({ kind, id, name, onClose, onDone }: { kind: PartyKind; id: 
             {rows.map((r) => (
               <li key={r.id}><button type="button" className={`flex w-full items-center justify-between px-3 py-2 text-left hover:bg-slate-50 ${pick?.id === r.id ? "bg-brand-50 ring-1 ring-inset ring-brand-400" : ""}`} onClick={() => setPick(r)}>
                 <span><span className="font-medium">{r.name}</span>{r.sub && <span className="ml-1 text-xs text-slate-500">{r.sub}</span>}</span>
-                {!r.active && <span className="text-[10px] uppercase text-slate-400">archived</span>}
+                {!r.active && <span className="text-[11px] uppercase text-slate-400">archived</span>}
               </button></li>
             ))}
           </ul>

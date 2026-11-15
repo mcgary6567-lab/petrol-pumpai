@@ -63,7 +63,7 @@ export function OrderToCash() {
               </div>
               {!items.length && <div className="rounded-lg border border-dashed border-slate-300 p-3 text-center text-xs text-slate-500">Khaali</div>}
               {items.slice(0, shown).map((x: any) => (
-                <article key={`${c.key}${x.id ?? x.no}`} className="flex flex-col gap-1 rounded-lg border border-slate-200 bg-white p-3 text-sm shadow-sm">
+                <article key={`${c.key}${x.id ?? x.no}`} className="flex flex-col gap-1 card p-3 text-sm shadow-sm">
                   <button className="inline-flex min-h-6 items-center text-left font-semibold hover:underline" onClick={() => nav(`/wholesale/${x.client_id}`)}>{x.client_name}</button>
                   {c.key === "requests" && <>
                     <span>{PRODUCTS[x.product] ?? x.product} · {num(x.litres)} L</span>

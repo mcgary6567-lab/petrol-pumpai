@@ -82,10 +82,10 @@ function CollectionList() {
       <h2 className="mb-1 flex items-center gap-2 font-semibold"><Truck size={16} className="text-rose-500" /> Wasooli list · <Ur>کرایہ وصولی</Ur></h2>
       <p className="mb-3 text-xs text-slate-500">Jin thekedaron ka kiraya baqaya hai. {data.threshold_days}+ din se payment nahi to roz WhatsApp reminder khud chala jata hai (5 din me ek baar).</p>
       <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <div className="rounded-xl bg-rose-50 p-2.5"><div className="text-[11px] text-rose-800">Kul baqaya</div><div className="text-lg font-bold tabular-nums">{pkr(data.totals.due)}</div></div>
-        <div className="rounded-xl bg-amber-50 p-2.5"><div className="text-[11px] text-amber-800">Overdue ({data.threshold_days}+ din)</div><div className="text-lg font-bold tabular-nums">{pkr(data.totals.overdue)}</div></div>
-        <div className="rounded-xl bg-slate-50 p-2.5"><div className="text-[11px] text-slate-600">31–60 din</div><div className="text-lg font-bold tabular-nums">{pkr(data.totals.d31_60)}</div></div>
-        <div className="rounded-xl bg-slate-50 p-2.5"><div className="text-[11px] text-slate-600">60+ din</div><div className="text-lg font-bold tabular-nums">{pkr(data.totals.d60)}</div></div>
+        <div className="rounded-xl bg-rose-50 p-2.5"><div className="text-[11px] text-rose-800">Kul baqaya</div><div className="text-xl font-bold tabular-nums">{pkr(data.totals.due)}</div></div>
+        <div className="rounded-xl bg-amber-50 p-2.5"><div className="text-[11px] text-amber-800">Overdue ({data.threshold_days}+ din)</div><div className="text-xl font-bold tabular-nums">{pkr(data.totals.overdue)}</div></div>
+        <div className="rounded-xl bg-slate-50 p-2.5"><div className="text-[11px] text-slate-600">31–60 din</div><div className="text-xl font-bold tabular-nums">{pkr(data.totals.d31_60)}</div></div>
+        <div className="rounded-xl bg-slate-50 p-2.5"><div className="text-[11px] text-slate-600">60+ din</div><div className="text-xl font-bold tabular-nums">{pkr(data.totals.d60)}</div></div>
       </div>
       <ul className="divide-y divide-slate-100 text-sm">
         {data.thekedars.slice(0, 8).map((k: any) => (
@@ -143,7 +143,7 @@ function ThekedarDetail({ id }: { id: number }) {
       <div className="card p-4">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div>
-            <h1 className="text-lg font-bold">{k.name}{k.active ? "" : <Badge tone="gray">closed</Badge>}</h1>
+            <h1 className="text-xl font-bold">{k.name}{k.active ? "" : <Badge tone="gray">closed</Badge>}</h1>
             <div className="text-sm text-slate-500">{[k.city, k.phone].filter(Boolean).join(" · ") || "—"}</div>
           </div>
           <div className="text-right">

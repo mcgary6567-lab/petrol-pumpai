@@ -71,9 +71,9 @@ export function FullEditEntry({ kind, id, onClose, onDone }: { kind: FullEditKin
         {data.bypass_drop && <div className="rounded-xl bg-blue-50 p-2.5 text-xs text-blue-900">Ye <b>Bypass delivery #{data.bypass_drop.delivery_id}</b> ki drop hai — client, tareekh, litre, rate, gaari sab yahin se badlein. Fuel aur kism nahi badalti. Litre badhane ki gunjaish: bypass stock me {data.bypass_drop.stock_litres} L.</div>}
         {/* before → after */}
         <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs">
-          <div className="text-slate-500"><b className="block text-[13px] text-slate-700">Pehle</b>{e.party_name} · {typeLabel(e.type)} · {pkr(e.amount)}<br />{dayLabel(e.day)}{e.method ? ` · ${e.method}` : ""}{e.ref ? ` · ref ${e.ref}` : ""}</div>
+          <div className="text-slate-500"><b className="block text-sm text-slate-700">Pehle</b>{e.party_name} · {typeLabel(e.type)} · {pkr(e.amount)}<br />{dayLabel(e.day)}{e.method ? ` · ${e.method}` : ""}{e.ref ? ` · ref ${e.ref}` : ""}</div>
           <div className="text-lg text-slate-400">→</div>
-          <div className="text-emerald-800"><b className="block text-[13px]">Ab</b>{party?.name ?? "—"} · {typeLabel(f.type)} · {pkr(amount)}<br />{dayLabel(f.day)}{moneyRow ? ` · ${f.method}` : ""}{f.ref ? ` · ref ${f.ref}` : ""}</div>
+          <div className="text-emerald-800"><b className="block text-sm">Ab</b>{party?.name ?? "—"} · {typeLabel(f.type)} · {pkr(amount)}<br />{dayLabel(f.day)}{moneyRow ? ` · ${f.method}` : ""}{f.ref ? ` · ref ${f.ref}` : ""}</div>
         </div>
         {/* party */}
         <Field label={`${data.party_label} (kis ke khate me) · کس کے کھاتے میں`}>

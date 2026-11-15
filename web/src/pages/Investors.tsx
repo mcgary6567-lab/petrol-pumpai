@@ -86,7 +86,7 @@ export default function Investors() {
               </tr></thead>
               <tbody>{paged.slice.map((i: any) => (
                 <tr key={i.id} className={`cursor-pointer hover:bg-slate-50 ${i.active ? "" : "opacity-60"}`} onClick={() => setSp({ id: String(i.id) })}>
-                  <td className="td"><div className="font-medium">{i.name}{!i.active && <span className="ml-1 rounded bg-slate-200 px-1.5 text-[10px]">band</span>}{i.pending_requests > 0 && <span className="ml-1 rounded-full bg-amber-500 px-1.5 text-[10px] text-white">{i.pending_requests} request</span>}</div><div className="text-xs text-slate-500">{[i.phone, i.city].filter(Boolean).join(" · ")}</div></td>
+                  <td className="td"><div className="font-medium">{i.name}{!i.active && <span className="ml-1 rounded bg-slate-200 px-1.5 text-[11px]">band</span>}{i.pending_requests > 0 && <span className="ml-1 rounded-full bg-amber-500 px-1.5 text-[11px] text-white">{i.pending_requests} request</span>}</div><div className="text-xs text-slate-500">{[i.phone, i.city].filter(Boolean).join(" · ")}</div></td>
                   <td className="td text-right tabular-nums">{pkr(i.capital_in)}</td>
                   <td className="td text-right tabular-nums">{i.in_deals ? pkr(i.in_deals) : "—"}{i.open_deals ? <div className="text-[11px] text-amber-700">{i.open_deals} deal chal rahi</div> : null}</td>
                   <td className="td text-right tabular-nums text-emerald-700">{pkr(i.profit_share - i.loss_share)}</td>

@@ -342,7 +342,7 @@ export default function Pos() {
             { k: "end", i: Power, en: "End shift", ur: "شفٹ ختم", to: "/shifts", warn: shiftOpen && d.shift.hours_open >= 12 },
           ].map((b) => {
             const cls = `flex flex-col items-center justify-center gap-0.5 rounded-xl px-2 py-2 text-sm font-semibold active:scale-95 ${b.on ? "bg-amber-400 text-amber-950" : b.warn ? "bg-red-600 text-white" : "bg-white/10 text-white hover:bg-white/15"}`;
-            const body = <><b.i size={30} aria-hidden className="mb-1" /><span className="whitespace-nowrap text-[13px] leading-tight sm:text-sm">{b.en}</span><Ur className="text-xs font-normal opacity-90">{b.ur}</Ur></>;
+            const body = <><b.i size={30} aria-hidden className="mb-1" /><span className="whitespace-nowrap text-sm leading-tight sm:text-sm">{b.en}</span><Ur className="text-xs font-normal opacity-90">{b.ur}</Ur></>;
             return b.to ? <Link key={b.k} to={b.to} className={cls}>{body}</Link> : <button key={b.k} type="button" onClick={b.go} className={cls}>{body}</button>;
           })}
         </div>

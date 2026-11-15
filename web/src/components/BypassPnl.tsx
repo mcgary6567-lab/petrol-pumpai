@@ -51,10 +51,10 @@ export function BypassPnl() {
       </div>
 
       {error ? <p className="text-sm text-rose-700">{String(error)}</p> : !data ? <Loading /> : <>
-        <div className="hidden print:block"><h2 className="text-lg font-bold">Bypass munafa · {mLabel(from)} – {mLabel(to)}</h2></div>
+        <div className="hidden print:block"><h2 className="text-xl font-bold">Bypass munafa · {mLabel(from)} – {mLabel(to)}</h2></div>
         <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-slate-200 bg-slate-200 sm:grid-cols-3 lg:grid-cols-6">
           {[["Sale (client ko bill)", pkr(T.sale), ""], ["Cost (delivered)", pkr(T.cost), ""], ["Munafa", pkr(T.profit), tone(T.profit)], ["Margin", pct(T.margin_pct), tone(T.profit)], ["Munafa / litre", T.per_litre == null ? "—" : `Rs ${num(T.per_litre, 2)}`, tone(T.profit)], ["Litre · drops", `${num(T.litres)} L · ${T.drops}`, ""]].map(([l, v, c]) => (
-            <div key={l} className="bg-white p-3"><div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{l}</div><div className={`mt-0.5 text-lg font-bold tabular-nums ${c}`}>{v}</div></div>
+            <div key={l} className="bg-white p-3"><div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{l}</div><div className={`mt-0.5 text-xl font-bold tabular-nums ${c}`}>{v}</div></div>
           ))}
         </div>
 

@@ -32,7 +32,7 @@ export default function SecurityScore() {
               strokeDasharray={circ} strokeDashoffset={circ * (1 - score / 100)} style={{ transition: "stroke-dashoffset .6s ease" }} />
           </svg>
           <div className="absolute inset-0 flex flex-col items-center justify-center">
-            <span className="text-3xl font-extrabold tabular-nums" style={{ color: ring }}>{score}</span>
+            <span className="text-3xl font-bold tabular-nums" style={{ color: ring }}>{score}</span>
             <span className="text-xs text-slate-500">/ 100</span>
           </div>
         </div>

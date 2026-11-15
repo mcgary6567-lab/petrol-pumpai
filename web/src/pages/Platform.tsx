@@ -37,7 +37,7 @@ function PlatformLogin({ onDone }: { onDone: () => void }) {
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-900 p-4">
       <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
-        <h1 className="text-center text-lg font-bold">Petrol PumpAI — Platform</h1>
+        <h1 className="text-center text-xl font-bold">Petrol PumpAI — Platform</h1>
         <p className="mb-4 text-center text-xs text-slate-500">Owner (super-admin) login</p>
         <input className="input mb-2 w-full" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} />
         <input className="input w-full" type="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} />
@@ -199,9 +199,9 @@ function Panel({ onLogout }: { onLogout: () => void }) {
               <div className="flex h-24 items-end gap-1.5">
                 {ov.months.map((m: any) => (
                   <div key={m.month} className="flex flex-1 flex-col items-center gap-0.5">
-                    <div className="text-[10px] tabular-nums text-slate-600">{m.signups}</div>
+                    <div className="text-[11px] tabular-nums text-slate-600">{m.signups}</div>
                     <div className="w-full rounded-t bg-emerald-500/80" style={{ height: `${Math.max(3, (m.signups / maxSign) * 64)}px` }} />
-                    <div className="text-[10px] text-slate-400">{new Date(m.month + "-01").toLocaleString("en", { month: "short" })}</div>
+                    <div className="text-[11px] text-slate-400">{new Date(m.month + "-01").toLocaleString("en", { month: "short" })}</div>
                   </div>
                 ))}
               </div>
@@ -250,10 +250,10 @@ function Panel({ onLogout }: { onLogout: () => void }) {
                   {paged.slice.map((t) => (
                     <tr key={t.id} className={`border-t border-slate-100 ${attentionIds.has(t.id) ? "bg-amber-50/40" : ""}`}>
                       <td className="p-2"><div className="font-medium">{t.name}</div><div className="text-xs text-slate-400">{t.admin_email} · {t.stations} station · banaya {String(t.created_at).slice(0, 10)}</div>
-                        {t.pump_url && <div className="mt-0.5 flex items-center gap-1 text-[11px]"><a className="font-mono text-brand-700 underline" href={t.pump_url} target="_blank" rel="noreferrer">/p/{t.slug}</a><button type="button" className="rounded border border-slate-200 px-1 text-[10px]" onClick={() => navigator.clipboard?.writeText(t.pump_url)}>copy</button></div>}</td>
+                        {t.pump_url && <div className="mt-0.5 flex items-center gap-1 text-[11px]"><a className="font-mono text-brand-700 underline" href={t.pump_url} target="_blank" rel="noreferrer">/p/{t.slug}</a><button type="button" className="rounded border border-slate-200 px-1 text-[11px]" onClick={() => navigator.clipboard?.writeText(t.pump_url)}>copy</button></div>}</td>
                       <td className="text-xs">{t.owner_name}<div className="text-slate-400">{t.owner_phone}</div></td>
                       <td><span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${planTone(t)}`}>{planText(t)}</span>{t.note && <div className="max-w-[12rem] truncate text-[11px] text-slate-400" title={t.note}>{t.note}</div>}</td>
-                      <td className="text-right tabular-nums">{t.users}{t.online ? <span className="ml-1 text-[10px] text-emerald-600">●{t.online}</span> : null}</td>
+                      <td className="text-right tabular-nums">{t.users}{t.online ? <span className="ml-1 text-[11px] text-emerald-600">●{t.online}</span> : null}</td>
                       <td className="text-right tabular-nums">{rs(t.sales_30d)}</td>
                       <td className="text-right tabular-nums">{rs(t.sales_today)}</td>
                       <td className="text-xs text-slate-500">{agoShort(t.last_activity)}</td>
@@ -533,7 +533,7 @@ function ServerTab() {
             {logs.map((l) => (
               <li key={l.id} className="py-1.5">
                 <button className="flex w-full flex-wrap items-start gap-2 text-left" onClick={() => setOpen(open === l.id ? null : l.id)}>
-                  <span className={`mt-0.5 shrink-0 rounded px-1.5 text-[10px] font-bold uppercase ${l.level === "error" ? "bg-rose-100 text-rose-700" : "bg-amber-100 text-amber-700"}`}>{l.level}</span>
+                  <span className={`mt-0.5 shrink-0 rounded px-1.5 text-[11px] font-bold uppercase ${l.level === "error" ? "bg-rose-100 text-rose-700" : "bg-amber-100 text-amber-700"}`}>{l.level}</span>
                   <span className="min-w-0 flex-1 break-words font-mono text-xs">{l.message}</span>
                   <span className="shrink-0 text-[11px] text-slate-500">{l.method ? `${l.method} ${l.path}${l.status ? ` → ${l.status}` : ""} · ` : ""}{new Date(l.created_at).toLocaleString("en-PK", { dateStyle: "short", timeStyle: "medium" })}</span>
                 </button>

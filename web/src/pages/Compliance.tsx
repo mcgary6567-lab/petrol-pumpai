@@ -206,14 +206,14 @@ function CheckRow({ i, stationId, onDone, canRedo }: { i: any; stationId: number
           {i.kind === "number" && (i.min_ok != null || i.max_ok != null) && <div className="text-xs text-slate-500">OK range: {i.min_ok ?? "…"} to {i.max_ok ?? "…"} {i.unit}</div>}
         </div>
         {e && !canRedo ? (
-          <div className={`text-lg font-bold ${e.ok ? "text-emerald-700" : "text-red-700"}`}>{e.ok ? "✓ Done" : "✗ Problem"}{e.value != null && ` · ${e.value} ${i.unit ?? ""}`}<div className="text-xs font-normal text-slate-500">{e.done_by}</div></div>
+          <div className={`text-xl font-bold ${e.ok ? "text-emerald-700" : "text-red-700"}`}>{e.ok ? "✓ Done" : "✗ Problem"}{e.value != null && ` · ${e.value} ${i.unit ?? ""}`}<div className="text-xs font-normal text-slate-500">{e.done_by}</div></div>
         ) : (
           <div className="flex flex-wrap items-center gap-2">
             {e && <span className="text-sm text-slate-600">{e.ok ? "✓" : "✗"} {e.value != null && `${e.value} ${i.unit ?? ""}`} by {e.done_by}</span>}
             {i.kind === "number" && <input className="input w-28 py-3 text-xl" type="number" step="any" inputMode="decimal" placeholder={i.unit ?? ""} value={value} onChange={(x) => setValue(x.target.value)} aria-label={`${i.title} reading`} />}
             {i.needs_photo ? <PhotoButton kind="proof" label={photo ? "📷 ✓" : "Photo"} big onRead={(_, id) => setPhoto(id)} /> : null}
-            <button disabled={busy || (i.needs_photo && !photo) || (i.kind === "number" && value === "")} onClick={() => send(true)} className="flex items-center gap-1 rounded-xl bg-emerald-600 px-5 py-3 text-lg font-bold text-white disabled:bg-slate-300"><Check /> OK</button>
-            {i.kind === "check" && <button disabled={busy || (i.needs_photo && !photo)} title={i.needs_photo && !photo ? "Pehle photo lein" : undefined} onClick={() => send(false)} className="flex items-center gap-1 rounded-xl bg-red-600 px-4 py-3 text-lg font-bold text-white disabled:bg-slate-300"><X /> Problem</button>}
+            <button disabled={busy || (i.needs_photo && !photo) || (i.kind === "number" && value === "")} onClick={() => send(true)} className="flex items-center gap-1 rounded-xl bg-emerald-600 px-5 py-3 text-xl font-bold text-white disabled:bg-slate-300"><Check /> OK</button>
+            {i.kind === "check" && <button disabled={busy || (i.needs_photo && !photo)} title={i.needs_photo && !photo ? "Pehle photo lein" : undefined} onClick={() => send(false)} className="flex items-center gap-1 rounded-xl bg-red-600 px-4 py-3 text-xl font-bold text-white disabled:bg-slate-300"><X /> Problem</button>}
           </div>
         )}
       </div>

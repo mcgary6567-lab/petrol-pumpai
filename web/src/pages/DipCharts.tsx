@@ -227,7 +227,7 @@ function Editor({ id, tanks, onChanged, onDeleted }: { id: number; tanks: any[];
             {!look && <p className="text-sm text-slate-500">Dip ki lakdi par jo mm aaye wo likhein — litre foran aa jayenge. (cm ho to ×10 karein: 45 cm = 450 mm)</p>}
             {lookR?.error && <p className="text-sm font-medium text-red-600">{lookR.error}</p>}
             {lookR?.litres != null && <>
-              <div className="flex flex-wrap items-baseline gap-x-3"><span className="text-4xl font-bold tabular-nums text-slate-900">{num(lookR.litres)} L</span>{pct != null && <span className="text-lg font-semibold text-slate-500">{pct}% bhara</span>}</div>
+              <div className="flex flex-wrap items-baseline gap-x-3"><span className="text-3xl font-bold tabular-nums text-slate-900">{num(lookR.litres)} L</span>{pct != null && <span className="text-lg font-semibold text-slate-500">{pct}% bhara</span>}</div>
               {pct != null && <div className="mt-2 h-4 overflow-hidden rounded-full bg-slate-100 ring-1 ring-slate-200"><div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: fuelColor(meta.product) }} /></div>}
               <div className="mt-1 text-xs text-slate-500">{lookR.step_mm} mm kam = {lookR.down != null ? `${num(lookR.down)} L` : "—"} · {lookR.step_mm} mm zyada = {lookR.up != null ? `${num(lookR.up)} L` : "—"}{fullL ? ` · khali jagah ${num(Math.max(0, fullL - lookR.litres))} L` : ""}</div>
             </>}

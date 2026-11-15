@@ -106,7 +106,7 @@ function Result({ r, onClose, onSaved }: { r: any; onClose: () => void; onSaved:
       {money && <ProofPhotos value={photos} onChange={setPhotos} required={r.intent === "payment" && isCheque} hint={r.intent === "payment" ? "receipt / cheque / screenshot" : "bill / slip (optional)"} />}
       <div className="flex gap-2">
         <button className="btn-secondary flex-1 sm:flex-none" onClick={onClose}><X size={16} /> Cancel · <Ur>منسوخ</Ur></button>
-        <button className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-emerald-600 px-6 py-3 text-lg font-bold text-white shadow active:scale-95 disabled:bg-slate-300 sm:flex-none" disabled={busy || !ready} onClick={save}>
+        <button className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-emerald-600 px-6 py-3 text-xl font-bold text-white shadow active:scale-95 disabled:bg-slate-300 sm:flex-none" disabled={busy || !ready} onClick={save}>
           <Check size={22} /> {money ? <>Save · <Ur>محفوظ کریں</Ur></> : <>Send · <Ur>بھیجیں</Ur></>}
         </button>
       </div>

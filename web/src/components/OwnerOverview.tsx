@@ -33,7 +33,7 @@ export function OwnerOverview() {
       {/* where the money is */}
       <div className="overflow-hidden rounded-2xl bg-gradient-to-br from-slate-900 to-slate-700 p-4 text-white shadow">
         <div className="flex items-center gap-1.5 text-sm opacity-90"><Banknote size={16} /> Your money right now · <Ur>آپ کا پیسہ ابھی</Ur></div>
-        <div className="text-3xl font-bold tabular-nums sm:text-4xl"><CountUp value={m.total} format={pkr} /></div>
+        <div className="text-3xl font-bold tabular-nums sm:text-3xl"><CountUp value={m.total} format={pkr} /></div>
         <div className="mt-3 grid grid-cols-3 gap-2 text-sm">
           <Link to="/cash" className="rounded-xl bg-white/10 p-2 hover:bg-white/15"><div className="text-xs opacity-80">Office cash · <Ur>نقد</Ur></div><Amt v={m.office_cash} /></Link>
           <Link to="/shifts" className="rounded-xl bg-white/10 p-2 hover:bg-white/15"><div className="text-xs opacity-80">With salesmen · <Ur>سیلزمین</Ur></div><Amt v={m.with_salesmen} /></Link>
@@ -264,7 +264,7 @@ function InvestorsCard({ s }: { s: any }) {
       <div className="grid grid-cols-2 gap-2 text-sm lg:grid-cols-5">
         <div className="rounded-xl bg-blue-50 p-2"><div className="text-xs text-blue-800">Unka paisa (capital)</div><div className="font-semibold tabular-nums text-blue-900">{pkr(s.capital_in)}</div><div className="text-[11px] text-blue-700">deal me {pkrShort(s.in_deals)}</div></div>
         <div className="rounded-xl bg-emerald-50 p-2"><div className="text-xs text-emerald-800">Deals ka kul munafa</div><div className="font-semibold tabular-nums text-emerald-900">{pkr(s.deal_profit)}</div><div className="text-[11px] text-emerald-700">is mahine {pkrShort(s.month.profit)}</div></div>
-        <div className="rounded-xl bg-emerald-100 p-2"><div className="text-xs text-emerald-900">Hum ne kamaya</div><div className="text-lg font-bold tabular-nums text-emerald-900">{pkr(s.our_share)}</div><div className="text-[11px] text-emerald-800">is mahine {pkrShort(s.month.our_share)}</div></div>
+        <div className="rounded-xl bg-emerald-100 p-2"><div className="text-xs text-emerald-900">Hum ne kamaya</div><div className="text-xl font-bold tabular-nums text-emerald-900">{pkr(s.our_share)}</div><div className="text-[11px] text-emerald-800">is mahine {pkrShort(s.month.our_share)}</div></div>
         <div className="rounded-xl bg-slate-50 p-2"><div className="text-xs text-slate-600">Investors ka munafa</div><div className="font-semibold tabular-nums">{pkr(s.investor_share)}</div><div className="text-[11px] text-slate-500">diya {pkrShort(s.paid_out)}</div></div>
         <div className="rounded-xl bg-rose-50 p-2"><div className="text-xs text-rose-800">Unko dena (baqi)</div><div className="font-semibold tabular-nums text-rose-800">{pkr(s.owed)}</div><div className="text-[11px] text-rose-700">capital + munafa</div></div>
       </div>

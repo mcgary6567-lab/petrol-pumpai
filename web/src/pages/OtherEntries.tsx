@@ -94,8 +94,8 @@ export default function OtherEntries() {
                   <div key={e.id} className="flex items-center gap-2 rounded-lg border p-2 text-sm">
                     <div className="min-w-0 flex-1">
                       <div className="font-medium">{e.party_name} · <span className="font-semibold">{pkr(e.amount)}</span></div>
-                      <div className="truncate text-xs text-slate-500">{e.reason}{e.method ? ` · ${e.method}` : ""} · {dt(e.created_at)}{e.party_mode === "on_account" ? <span className="ml-1 rounded bg-violet-100 px-1.5 py-0.5 text-[10px] font-semibold text-violet-700">{e.kind === "expense" ? "Credit · khate se, bina cash" : "Debit · khate par, bina cash"}</span>
-                        : e.to_party ? <span className="ml-1 rounded bg-brand-100 px-1.5 py-0.5 text-[10px] font-semibold text-brand-700">{e.kind === "expense" ? "Debit · party ko diya" : "Credit · party se aaya"}</span> : null}</div>
+                      <div className="truncate text-xs text-slate-500">{e.reason}{e.method ? ` · ${e.method}` : ""} · {dt(e.created_at)}{e.party_mode === "on_account" ? <span className="ml-1 rounded bg-violet-100 px-1.5 py-0.5 text-[11px] font-semibold text-violet-700">{e.kind === "expense" ? "Credit · khate se, bina cash" : "Debit · khate par, bina cash"}</span>
+                        : e.to_party ? <span className="ml-1 rounded bg-brand-100 px-1.5 py-0.5 text-[11px] font-semibold text-brand-700">{e.kind === "expense" ? "Debit · party ko diya" : "Credit · party se aaya"}</span> : null}</div>
                     </div>
                     <button onClick={() => setEdit(e)} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-500 hover:bg-emerald-100 hover:text-emerald-700" aria-label="Edit"><Pencil size={15} /></button>
                     <button onClick={async () => { const a = await askCancel({ title: `${meta.en} undo karein`, needReason: false, button: "Undo karein", what: <><b>{pkr(e.amount)}</b> · {e.party_name}{e.reason ? ` · ${e.reason}` : ""}</> }); if (a) api(`/other-entries/${e.id}`, { method: "DELETE", headers: pinHeader(a) }).then(reload).catch((x) => alert(x.message)); }}
@@ -291,7 +291,7 @@ function PartyModePicker({ kind, name, amount, value, onChange }: { kind: string
               className={`rounded-xl border p-3 text-left transition ${on ? "border-brand-500 bg-brand-50 ring-2 ring-brand-500/30" : "border-slate-200 bg-white hover:border-slate-300"}`}>
               <div className="flex items-start justify-between gap-2">
                 <span className="text-sm font-semibold leading-snug">{o.title}</span>
-                <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold ${o.tone}`}>{o.tag}</span>
+                <span className={`shrink-0 rounded px-1.5 py-0.5 text-[11px] font-bold ${o.tone}`}>{o.tag}</span>
               </div>
               <Ur className="block text-xs text-slate-500">{o.ur}</Ur>
               <dl className="mt-2 space-y-0.5 text-[11px]">

@@ -26,7 +26,7 @@ export function Sessions() {
               {rows.map((s) => (
                 <tr key={s.id} className="border-t border-slate-100">
                   <td className="py-1.5 pr-2"><div className="font-medium">{s.name}</div><div className="text-xs text-slate-500">{(ROLE_LABEL as any)[s.role] ?? s.role}</div></td>
-                  <td className="pr-2">{s.device}{s.current && <span className="ml-1 rounded-full bg-emerald-100 px-1.5 text-[10px] font-semibold text-emerald-800">ye device</span>}</td>
+                  <td className="pr-2">{s.device}{s.current && <span className="ml-1 rounded-full bg-emerald-100 px-1.5 text-[11px] font-semibold text-emerald-800">ye device</span>}</td>
                   <td className="pr-2 font-mono text-xs text-slate-500">{s.ip ?? "—"}</td>
                   <td className="pr-2 text-xs text-slate-500">{ago(s.created_at)}{s.how ? ` · ${s.how}` : ""}</td>
                   <td className="pr-2 text-xs text-slate-500">{ago(s.last_seen_at)}</td>

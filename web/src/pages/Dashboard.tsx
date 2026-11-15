@@ -184,7 +184,7 @@ function BizProfit({ p }: { p: any }) {
       </div>
       <div className="mb-3 rounded-xl bg-emerald-50 p-3 text-center ring-1 ring-emerald-200">
         <div className="text-xs font-medium uppercase tracking-wide text-emerald-700">Total munafa · {win === "today" ? "aaj" : win === "week" ? "is hafte" : "is mahine"}</div>
-        <div className="text-3xl font-extrabold tabular-nums text-emerald-800"><CountUp value={w.total} format={pkr} /></div>
+        <div className="text-3xl font-bold tabular-nums text-emerald-800"><CountUp value={w.total} format={pkr} /></div>
       </div>
       <div className="space-y-2">
         {rows.map((r) => (
@@ -341,7 +341,7 @@ function AskAI() {
         {SUGGESTIONS.map((s) => <button key={s} onClick={() => ask(s)} className="rounded-full border border-violet-200 bg-white px-3 py-1 text-xs text-violet-700 hover:bg-violet-50">{s}</button>)}
       </div>
       {ans && (
-        <div className="mt-3 whitespace-pre-wrap rounded-lg border border-slate-200 bg-white p-3 text-sm leading-relaxed">
+        <div className="mt-3 whitespace-pre-wrap card p-3 text-sm leading-relaxed">
           {ans.answer}
           <div className="mt-2 text-xs text-slate-400">Answered by {ans.engine === "claude" ? "Claude AI" : ans.engine === "rules" ? "built-in analytics" : "—"}</div>
         </div>

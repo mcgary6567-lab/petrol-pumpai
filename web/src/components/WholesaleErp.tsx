@@ -12,7 +12,7 @@ export function ErpBar({ crumb, title, ur, children, root = "Wholesale", rootTo 
     <div className="sticky top-0 z-10 -mx-1 flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white/95 px-4 py-2.5 shadow-sm backdrop-blur print:hidden sm:gap-3">
       <div className="mr-auto min-w-0">
         <div className="text-[11px] text-slate-500"><Link to={rootTo} className="hover:underline">{root}</Link> › {crumb}</div>
-        <h1 className="truncate text-lg font-bold leading-tight sm:text-xl">{title} · <Ur className="text-base font-normal">{ur}</Ur></h1>
+        <h1 className="truncate text-xl font-semibold leading-tight text-slate-900">{title} · <Ur className="text-base font-normal">{ur}</Ur></h1>
       </div>
       {children}
     </div>

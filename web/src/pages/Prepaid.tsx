@@ -158,7 +158,7 @@ function CouponCard({ business, c }: { business: string; c: any }) {
           <div className="text-xs font-semibold uppercase tracking-wide text-amber-800">⛽ {business}</div>
           <div className="text-sm font-semibold">Fuel coupon · <span lang="ur" dir="rtl" className="font-urdu">فیول کوپن</span></div>
         </div>
-        <div className="text-4xl font-black tabular-nums">Rs {c.value.toLocaleString()}</div>
+        <div className="text-3xl font-bold tabular-nums">Rs {c.value.toLocaleString()}</div>
         <div className="text-[11px] leading-snug text-slate-600">
           {c.product ? `${PRODUCTS[c.product]} only · ` : ""}{c.expires_on ? `Valid till ${dOnly(c.expires_on)} · ` : ""}One time use<br />
           <span className="font-mono text-xs">{c.code}</span>
@@ -198,7 +198,7 @@ function Wallets() {
             <Wallet className={`shrink-0 ${w.low ? "text-amber-600" : "text-brand-600"}`} size={20} />
             <span className="min-w-0 flex-1"><b>{w.name}</b><span className="block text-xs text-slate-500">{w.last_deposit ? `Last deposit ${dt(w.last_deposit)}` : "No deposit yet"} · used {pkr(w.used_30d)} in 30 days{w.days_left != null ? ` · ~${w.days_left} days left` : ""}</span></span>
             {w.low && <span className="shrink-0"><Badge tone="amber">Low</Badge></span>}
-            <span className="shrink-0 text-right text-lg font-bold tabular-nums">{pkr(w.wallet_balance)}</span>
+            <span className="shrink-0 text-right text-xl font-bold tabular-nums">{pkr(w.wallet_balance)}</span>
           </button>
         ))}
         {!data.wallets.length && <Empty>No wallets yet. A fleet or company pays first (Raast / bank), every fill is taken from the wallet, and they get the balance on WhatsApp.</Empty>}
