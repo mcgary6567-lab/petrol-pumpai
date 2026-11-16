@@ -100,6 +100,7 @@ input, select, textarea { min-width: 0; max-width: 100%; }
   body:not(.print-purchase) .purchase-bill { display: none !important; }
   body.print-purchase .purchase-bill { display: block !important; }
   body.print-purchase [role="dialog"] .khata-main, body.print-purchase [role="dialog"] .modal-title { display: none !important; }
+  body.print-purchase .client-bill { display: none !important; }
   [role="dialog"] { position: static !important; inset: auto !important; background: none !important; padding: 0 !important; overflow: visible !important; display: block !important; }
   [role="dialog"] > .card { max-width: none !important; box-shadow: none !important; border: 0 !important; padding: 0 !important; border-radius: 0 !important; }
   /* a voucher prints its own two copies, each with the letterhead: no page letterhead or window title around them */

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { askCancel, pinHeader, } from "../components/CancelEntry";
 import { useMovable, ShiftPaymentButton, KhataLink } from "../components/PartyShift";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { Plus, Search, Truck, Wallet, Undo2, SlidersHorizontal, Download, Printer, Ban, ArrowLeft, Pencil, Send, Receipt, Eye } from "lucide-react";
+import { Plus, Search, Truck, Wallet, Undo2, SlidersHorizontal, Download, Printer, Ban, ArrowLeft, Pencil, Send, Receipt, ReceiptText, Eye } from "lucide-react";
 import { ImportExport } from "../components/ImportExport";
 import { PrintListButton } from "../components/PrintList";
 import { PartyAdmin } from "../components/PartyAdmin";
@@ -483,10 +483,14 @@ function ClientDetail({ id }: { id: string }) {
           <Field label="To"><input className="input" type="date" value={range.to} onChange={(e) => setRange({ ...range, to: e.target.value })} /></Field>
           <a className="btn-secondary" href={csvUrl}><Download size={15} /> Excel / CSV</a>
           <WhatsAppDoc kind="wholesale" id={Number(id)} from={range.from || undefined} to={range.to || undefined} />
-          <button className="btn-secondary" onClick={() => printNow()}><Printer size={15} /> Print</button>
+          <button className="btn-secondary" disabled={!stmt.data} title="Sirf jo client ne khareeda — litre × rate = raqam, har cheez ka total. Payment aur balance nahi."
+            onClick={() => { document.body.classList.add("print-purchase"); printNow({ title: `Purchase bill — ${c.name}`, pdf: `/api/docs/wholesale_bill/${id}/pdf?${qs ? `${qs}&` : ""}token=${linkToken()}` }); if (!window.matchMedia("(pointer: coarse)").matches && window.innerWidth >= 768) document.body.classList.remove("print-purchase"); }}>
+            <ReceiptText size={15} /> Purchase bill · <Ur>خریداری بل</Ur></button>
+          <button className="btn-secondary" onClick={() => { document.body.classList.remove("print-purchase"); printNow(); }}><Printer size={15} /> Print</button>
         </div>
         
         {stmt.data && <ClientBillPrint client={c} s={stmt.data} from={range.from} to={range.to} />}
+        {stmt.data && <ClientPurchasePrint client={c} s={stmt.data} from={range.from} to={range.to} />}
         {stmt.data ? (
           <div className="print:hidden">
             <div className="flex justify-between bg-slate-50 px-4 py-2 text-sm font-semibold"><span>{stmt.data.closing_balance < -0.5 ? "Closing — advance with us" : "Closing balance (due)"}</span><span className="tabular-nums">{pkr(Math.abs(stmt.data.closing_balance))}</span></div>
@@ -563,6 +567,55 @@ function ClientBillPrint({ client, s, from, to }: { client: any; s: any; from?: 
           <tr className="font-bold"><td colSpan={3}>{s.closing_balance < -0.5 ? "Advance with us" : "Balance due"}</td><td colSpan={3} className="due text-right tabular-nums">Rs {bal(s.closing_balance)}</td></tr>
         </tbody>
       </table>
+    </div>
+  );
+}
+
+/** Purchase bill for a wholesale client, on paper only: the fuel supplied (a return as minus) and the kiraya billed with
+ *  it, litres × rate = amount on every line, newest first, a total per item and the total bill. No payments, no balance. */
+function ClientPurchasePrint({ client, s, from, to }: { client: any; s: any; from?: string; to?: string }) {
+  useEffect(() => () => document.body.classList.remove("print-purchase"), []);
+  const rows = newestFirst((s.lines as any[]).filter((l) => !l.voided && ["supply", "return", "carriage"].includes(l.type)))
+    .map((l: any) => ({ ...l, amt: l.type === "return" ? -Number(l.credit || l.amount || 0) : Number(l.debit || l.amount || 0), lit: l.type === "carriage" ? 0 : (l.type === "return" ? -1 : 1) * Number(l.litres || 0) }));
+  const item = (l: any) => (l.type === "carriage" ? "Kiraya / carriage" : PRODUCTS[l.product] ?? l.product ?? "Other");
+  const by = Object.values(rows.reduce((m: Record<string, any>, l: any) => { const k = item(l); m[k] ??= { item: k, n: 0, litres: 0, amount: 0 }; m[k].n++; m[k].litres += l.lit; m[k].amount += l.amt; return m; }, {})) as any[];
+  const total = by.reduce((a, x) => a + x.amount, 0);
+  const day = (iso: string) => new Date(iso).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "Asia/Karachi" });
+  const asOf = to || new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 10);
+  return (
+    <div className="purchase-bill hidden">
+      <div className="mb-2 flex flex-wrap items-end justify-between gap-2 border-b border-slate-300 pb-2">
+        <div>
+          <div className="text-xl font-bold">Purchase bill · <span lang="ur" className="font-urdu font-normal">خریداری بل</span></div>
+          <div className="text-lg font-semibold">{client.name}{client.business_name ? ` · ${client.business_name}` : ""}</div>
+          {(client.phone || client.city) && <div className="text-sm text-slate-600">{[client.phone, client.city].filter(Boolean).join(" · ")}</div>}
+        </div>
+        <div className="text-right text-sm text-slate-600"><div>{from ? `${day(from + "T12:00:00+05:00")} to ${day(asOf + "T12:00:00+05:00")}` : `Up to ${day(asOf + "T12:00:00+05:00")}`}</div><div>{rows.length} entries</div></div>
+      </div>
+      <table className="w-full">
+        <thead><tr>{["Date", "No.", "Vehicle", "Item", "Litres × Rate", "Amount"].map((h) => <th key={h} className={`th whitespace-nowrap ${["Litres × Rate", "Amount"].includes(h) ? "text-right" : ""}`}>{h}</th>)}</tr></thead>
+        <tbody>
+          {rows.map((l: any) => (
+            <tr key={`${l.type}-${l.id}`}>
+              <td className="td whitespace-nowrap text-xs">{day(l.txn_date)}</td>
+              <td className="td whitespace-nowrap text-xs">{voucherNo(l)}</td>
+              <td className="td text-xs">{l.vehicle_no ?? ""}</td>
+              <td className="td text-sm">{l.type === "return" ? "Return · " : ""}{item(l)}{l.location ? <div className="text-xs text-slate-500">{l.location}</div> : null}</td>
+              <td className="td whitespace-nowrap text-right tabular-nums">{l.type !== "carriage" && l.litres ? `${num(l.lit, 2)} L × Rs ${num(Number(l.rate ?? Math.abs(l.amt / l.lit)), 2)}` : l.litres ? `${num(l.litres, 0)} L` : ""}</td>
+              <td className="td whitespace-nowrap text-right font-medium tabular-nums">{pkr(l.amt)}</td>
+            </tr>
+          ))}
+          {!rows.length && <tr><td className="td text-center text-slate-500" colSpan={6}>Is muddat mein koi khareedari nahi</td></tr>}
+        </tbody>
+      </table>
+      <table className="mt-3 w-full">
+        <thead><tr>{["Item", "Entries", "Litres", "Avg rate", "Amount"].map((h) => <th key={h} className={`th ${h === "Item" ? "" : "text-right"}`}>{h}</th>)}</tr></thead>
+        <tbody>{by.map((x) => (
+          <tr key={x.item}><td className="td font-medium">{x.item}</td><td className="td text-right tabular-nums">{x.n}</td><td className="td text-right tabular-nums">{x.litres ? num(x.litres, 2) : ""}</td>
+            <td className="td text-right tabular-nums">{x.litres > 0 ? `Rs ${num(x.amount / x.litres, 2)}` : ""}</td><td className="td text-right tabular-nums">{pkr(x.amount)}</td></tr>))}</tbody>
+        <tfoot><tr><td className="td" colSpan={4}>Kul bill · Total</td><td className="td text-right tabular-nums">{pkr(total)}</td></tr></tfoot>
+      </table>
+      <div className="mt-10 grid grid-cols-2 gap-10 text-center text-xs text-slate-500"><div className="border-t border-slate-400 pt-1">Prepared by</div><div className="border-t border-slate-400 pt-1">Client</div></div>
     </div>
   );
 }

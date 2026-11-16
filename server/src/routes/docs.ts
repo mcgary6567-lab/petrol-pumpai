@@ -20,7 +20,7 @@ function allow(req: Request, kind: DocKind, id: number) {
   const u = req.user!;
   const anyOf = (...p: Parameters<typeof can>[1][]) => p.some((x) => can(u, x));
   const okByKind: Record<DocKind, boolean> = {
-    voucher: anyOf("cashier.desk", "cash.receive", "cash.pay"), khata: anyOf("khata.manage", "customers.edit"), khata_bill: anyOf("khata.manage", "customers.edit"), wholesale: anyOf("wholesale.view"), carriage: anyOf("carriage.view"),
+    voucher: anyOf("cashier.desk", "cash.receive", "cash.pay"), khata: anyOf("khata.manage", "customers.edit"), khata_bill: anyOf("khata.manage", "customers.edit"), wholesale: anyOf("wholesale.view"), wholesale_bill: anyOf("wholesale.view"), carriage: anyOf("carriage.view"),
     supplier: anyOf("suppliers.manage"), shift: anyOf("shifts.manage"), receipt: anyOf("sales.view", "sales.create"), slip: anyOf("staff.manage"),
     customer_list: anyOf("khata.manage", "customers.edit"), client_list: anyOf("wholesale.view"), supplier_list: anyOf("suppliers.manage"), trip_list: anyOf("wholesale.view"),
   };

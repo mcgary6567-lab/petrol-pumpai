@@ -21,7 +21,7 @@ import { AppError, round2, normalizePhone } from "./services.js";
 import { sendDocumentToPhone, sendWhatsApp } from "./whatsapp/cloud.js";
 import { slipUrl } from "./routes/people.js";
 
-export const DOC_KINDS = ["voucher", "khata", "khata_bill", "wholesale", "carriage", "supplier", "shift", "receipt", "slip", "customer_list", "client_list", "supplier_list", "trip_list"] as const;
+export const DOC_KINDS = ["voucher", "khata", "khata_bill", "wholesale_bill", "wholesale", "carriage", "supplier", "shift", "receipt", "slip", "customer_list", "client_list", "supplier_list", "trip_list"] as const;
 export type DocKind = (typeof DOC_KINDS)[number];
 export type DocOpts = { from?: string; to?: string; vehicle?: string };
 export type Doc = { title: string; filename: string; pdf?: Buffer; party: { phone: string | null; name: string; customer_id?: number } | null; caption: string; link?: string };
@@ -211,6 +211,42 @@ function wholesaleDoc(t: number, id: number, o: DocOpts): Doc {
   return { title: `Statement — ${c.name}`, filename: `statement-${c.name.replace(/[^\w-]+/g, "_")}.pdf`, pdf: pg.done(`Statement ${c.name}`), party: { phone: c.phone, name: c.name },
     caption: `${c.name}: account statement (${period(o)}). Due ${money(s.closing_balance)}.` };
 }
+/** Wholesale purchase bill: the fuel supplied to the client (a return goes in as minus) and the kiraya billed with it —
+ *  no payments, no adjustments, no balance. Newest first. */
+export function wholesalePurchaseRows(lines: any[], vehicle?: string) {
+  return lines.filter((l) => !l.voided && ["supply", "return", "carriage"].includes(l.type) && (!vehicle || l.vehicle_no === vehicle))
+    .map((l) => ({ ...l, bill_amount: l.type === "return" ? -Number(l.credit || l.amount || 0) : Number(l.debit || l.amount || 0), bill_litres: l.type === "return" ? -Number(l.litres || 0) : Number(l.litres || 0) }))
+    .sort((a, b) => String(b.txn_date).localeCompare(String(a.txn_date)) || b.id - a.id);
+}
+export function wholesalePurchaseTotals(rows: any[]) {
+  const m: Record<string, { item: string; litres: number; amount: number; n: number }> = {};
+  for (const l of rows) {
+    const item = l.type === "carriage" ? "Kiraya / carriage" : (PRODUCTS[l.product] ?? l.product ?? "Other");
+    m[item] ??= { item, litres: 0, amount: 0, n: 0 };
+    if (l.type !== "carriage") m[item].litres += l.bill_litres;
+    m[item].amount += l.bill_amount; m[item].n++;
+  }
+  return Object.values(m).map((x) => ({ ...x, litres: Math.round(x.litres * 1000) / 1000, amount: Math.round(x.amount * 100) / 100, avg: x.litres > 0 ? x.amount / x.litres : null }));
+}
+function wholesaleBillDoc(t: number, id: number, o: DocOpts): Doc {
+  const s = wholesaleStatement(t, id, o.from, o.to);
+  const c = s.client;
+  const rows = wholesalePurchaseRows(s.lines, o.vehicle);
+  const tot = wholesalePurchaseTotals(rows);
+  const grand = tot.reduce((a, x) => a + x.amount, 0);
+  const pg = page(t, "Purchase bill", `${c.name}${c.business_name ? ` · ${c.business_name}` : ""}${c.phone ? ` · ${c.phone}` : ""}`, period(o), o.vehicle ? `Vehicle ${o.vehicle}` : "");
+  const label = (l: any) => l.type === "carriage" ? "Kiraya" : `${l.type === "return" ? "Return " : ""}${PRODUCTS[l.product] ?? l.product ?? ""}`;
+  table(pg, [{ k: "d", w: 1.9, label: "Date" }, { k: "no", w: 1.3, label: "No." }, { k: "v", w: 1.5, label: "Vehicle" }, { k: "p", w: 2.4, label: "Item" }, { k: "c", w: 3.6, label: "Litres x Rate", align: "right" }, { k: "a", w: 1.9, label: "Amount", align: "right" }],
+    rows.map((l) => ({ d: dateOf(l.txn_date), no: l.voucher_no ?? `${l.type === "supply" ? "WS" : l.type === "return" ? "CN" : "JV"}-${l.id}`, v: l.vehicle_no ?? "", p: label(l),
+      c: l.litres && l.type !== "carriage" ? `${l.bill_litres.toFixed(2)} L x Rs ${Number(l.rate ?? Math.abs(l.bill_amount / l.bill_litres)).toFixed(2)}` : l.litres ? `${Number(l.litres).toFixed(0)} L` : "", a: money(l.bill_amount) })));
+  pg.need(16); pg.pdf.text(L, pg.y + 10, "Total by item", 9, { bold: true }); pg.y += 14;
+  table(pg, [{ k: "p", w: 3, label: "Item" }, { k: "n", w: 1, label: "Entries", align: "right" }, { k: "l", w: 2, label: "Litres", align: "right" }, { k: "r", w: 2, label: "Avg rate", align: "right" }, { k: "a", w: 2.2, label: "Amount", align: "right" }],
+    tot.map((x) => ({ p: x.item, n: x.n, l: x.litres ? x.litres.toFixed(2) : "", r: x.avg != null ? `Rs ${x.avg.toFixed(2)}` : "", a: money(x.amount) }))
+      .concat([{ __bold: true, p: "Total bill", n: rows.length, a: money(grand) } as any]));
+  sig(pg, ["Prepared by", "Client"]);
+  return { title: `Purchase bill — ${c.name}`, filename: `bill-${c.name.replace(/[^\w-]+/g, "_")}.pdf`, pdf: pg.done(`Purchase bill ${c.name}`), party: { phone: c.phone, name: c.name },
+    caption: `${c.name}: purchase bill (${period(o)}) — ${rows.length} entries, total ${money(grand)}.` };
+}
 function carriageDoc(t: number, id: number, o: DocOpts): Doc {
   const s = carriageStatement(t, id, o.from, o.to);
   const k = s.thekedar;
@@ -339,6 +375,7 @@ export function renderDoc(t: number, kind: DocKind, id: number, o: DocOpts = {})
     case "khata": return khataDoc(t, id, o);
     case "khata_bill": return khataBillDoc(t, id, o);
     case "wholesale": return wholesaleDoc(t, id, o);
+    case "wholesale_bill": return wholesaleBillDoc(t, id, o);
     case "carriage": return carriageDoc(t, id, o);
     case "supplier": return supplierDoc(t, id, o);
     case "shift": return shiftDoc(t, id);
