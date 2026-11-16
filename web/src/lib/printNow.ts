@@ -40,6 +40,9 @@ function paperHtml(title: string): string {
   if (!src) return "";
   const c = src.cloneNode(true) as HTMLElement;
   c.querySelectorAll('[class*="print:hidden"], button, [role="group"], input[type="search"]').forEach((n) => n.remove());
+  // a page can hold two papers (khata: statement / purchase bill): keep the one asked for
+  if (document.body.classList.contains("print-purchase")) { c.querySelectorAll(".khata-main, .modal-title").forEach((n) => n.remove()); c.querySelectorAll(".purchase-bill").forEach((n) => n.classList.remove("hidden")); }
+  else c.querySelectorAll(".purchase-bill").forEach((n) => n.remove());
   c.querySelectorAll<HTMLElement>('[class*="print:block"], [class*="print:table"], [class*="print:flex"]').forEach((n) => n.classList.remove("hidden"));
   c.querySelectorAll<HTMLElement>('[class*="max-h-"]').forEach((n) => { n.style.maxHeight = "none"; n.style.overflow = "visible"; });
   const styles = [...document.querySelectorAll('link[rel="stylesheet"], style')].map((n) => n.outerHTML).join("");

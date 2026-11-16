@@ -11,7 +11,7 @@ import { config } from "./config.js";
 import { Pdf } from "./pdf.js";
 import { brandLines } from "./brandPrint.js";
 import { logoJpeg } from "./routes/setup.js";
-import { khataStatement } from "./routes/crm.js";
+import { khataStatement, isBilledDebit } from "./routes/crm.js";
 import { statement as wholesaleStatement, clientDue, clientDueAll } from "./routes/wholesale.js";
 import { statement as carriageStatement } from "./routes/carriage.js";
 import { supplierOwed, supplierOwedAll } from "./routes/suppliers.js";
@@ -21,9 +21,9 @@ import { AppError, round2, normalizePhone } from "./services.js";
 import { sendDocumentToPhone, sendWhatsApp } from "./whatsapp/cloud.js";
 import { slipUrl } from "./routes/people.js";
 
-export const DOC_KINDS = ["voucher", "khata", "wholesale", "carriage", "supplier", "shift", "receipt", "slip", "customer_list", "client_list", "supplier_list", "trip_list"] as const;
+export const DOC_KINDS = ["voucher", "khata", "khata_bill", "wholesale", "carriage", "supplier", "shift", "receipt", "slip", "customer_list", "client_list", "supplier_list", "trip_list"] as const;
 export type DocKind = (typeof DOC_KINDS)[number];
-export type DocOpts = { from?: string; to?: string };
+export type DocOpts = { from?: string; to?: string; vehicle?: string };
 export type Doc = { title: string; filename: string; pdf?: Buffer; party: { phone: string | null; name: string; customer_id?: number } | null; caption: string; link?: string };
 
 const money = (n: number) => `Rs ${Math.round(n ?? 0).toLocaleString("en-PK")}`;
@@ -165,6 +165,39 @@ function khataDoc(t: number, id: number, o: DocOpts): Doc {
   return { title: `Khata statement — ${c.name}`, filename: `khata-${c.name.replace(/[^\w-]+/g, "_")}.pdf`, pdf: pg.done(`Khata statement ${c.name}`), party: { phone: c.phone, name: c.name, customer_id: c.id },
     caption: `${c.name}: khata statement (${period(o)}). Balance ${money(s.closing_balance)}.` };
 }
+/** Purchase bill: only what the khata customer bought (fuel, shop goods, slips) with litres x rate = amount on every
+ *  line and a total per item — no payments, no balance. Newest first, like every paper. */
+export function purchaseLines(lines: any[], vehicle?: string) {
+  return lines.filter((l) => l.type === "debit" && isBilledDebit(l.ref) && (!vehicle || l.vehicle_no === vehicle))
+    .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)) || b.id - a.id);
+}
+export function purchaseTotals(rows: any[]) {
+  const m: Record<string, { item: string; litres: number; amount: number; n: number }> = {};
+  for (const l of rows) {
+    const item = l.product ? (PRODUCTS[l.product] ?? l.product) : "Shop / other";
+    m[item] ??= { item, litres: 0, amount: 0, n: 0 };
+    m[item].litres += Number(l.litres ?? 0); m[item].amount += Number(l.amount); m[item].n++;
+  }
+  return Object.values(m).map((x) => ({ ...x, litres: Math.round(x.litres * 1000) / 1000, amount: Math.round(x.amount * 100) / 100, avg: x.litres > 0 ? x.amount / x.litres : null }));
+}
+function khataBillDoc(t: number, id: number, o: DocOpts): Doc {
+  const s = khataStatement(t, id, o.from, o.to);
+  const c = s.customer;
+  const rows = purchaseLines(s.lines, o.vehicle);
+  const tot = purchaseTotals(rows);
+  const grand = tot.reduce((a, x) => a + x.amount, 0);
+  const pg = page(t, "Purchase bill", `${c.name}${c.phone ? ` · ${c.phone}` : ""}${c.city ? ` · ${c.city}` : ""}`, period(o), o.vehicle ? `Vehicle ${o.vehicle}` : "");
+  table(pg, [{ k: "d", w: 2.1, label: "Date" }, { k: "s", w: 1.3, label: "Slip" }, { k: "v", w: 1.5, label: "Vehicle" }, { k: "p", w: 2.6, label: "Item" }, { k: "c", w: 3.6, label: "Litres x Rate", align: "right" }, { k: "a", w: 1.8, label: "Amount", align: "right" }],
+    rows.map((l) => ({ d: dateOf(l.created_at), s: l.slip_no ?? "", v: l.vehicle_no ?? "", p: l.product ? (PRODUCTS[l.product] ?? l.product) : (l.note || "Charge"),
+      c: l.litres ? `${Number(l.litres).toFixed(2)} L x Rs ${Number(l.rate ?? (l.amount / l.litres)).toFixed(2)}` : "", a: money(l.amount) })));
+  pg.need(16); pg.pdf.text(L, pg.y + 10, "Total by item", 9, { bold: true }); pg.y += 14;
+  table(pg, [{ k: "p", w: 3, label: "Item" }, { k: "n", w: 1, label: "Entries", align: "right" }, { k: "l", w: 2, label: "Litres", align: "right" }, { k: "r", w: 2, label: "Avg rate", align: "right" }, { k: "a", w: 2.2, label: "Amount", align: "right" }],
+    tot.map((x) => ({ p: x.item, n: x.n, l: x.litres ? x.litres.toFixed(2) : "", r: x.avg != null ? `Rs ${x.avg.toFixed(2)}` : "", a: money(x.amount) }))
+      .concat([{ __bold: true, p: "Total bill", n: rows.length, a: money(grand) } as any]));
+  sig(pg, ["Prepared by", "Customer"]);
+  return { title: `Purchase bill — ${c.name}`, filename: `bill-${c.name.replace(/[^\w-]+/g, "_")}.pdf`, pdf: pg.done(`Purchase bill ${c.name}`), party: { phone: c.phone, name: c.name, customer_id: c.id },
+    caption: `${c.name}: purchase bill (${period(o)}) — ${rows.length} entries, total ${money(grand)}.` };
+}
 function wholesaleDoc(t: number, id: number, o: DocOpts): Doc {
   const s = wholesaleStatement(t, id, o.from, o.to);
   const c = s.client;
@@ -304,6 +337,7 @@ export function renderDoc(t: number, kind: DocKind, id: number, o: DocOpts = {})
     case "supplier_list": return supplierListDoc(t);
     case "voucher": return voucherDoc(t, id);
     case "khata": return khataDoc(t, id, o);
+    case "khata_bill": return khataBillDoc(t, id, o);
     case "wholesale": return wholesaleDoc(t, id, o);
     case "carriage": return carriageDoc(t, id, o);
     case "supplier": return supplierDoc(t, id, o);
@@ -316,13 +350,13 @@ export function renderDoc(t: number, kind: DocKind, id: number, o: DocOpts = {})
 export function docLink(t: number, kind: DocKind, id: number, o: DocOpts = {}) {
   if (kind === "slip") return renderDoc(t, kind, id).link!;
   const days = Number(get("SELECT value FROM settings WHERE tenant_id=? AND key='doc_link_days'", t)?.value ?? 365) || 365;
-  return `${config.publicUrl}/doc/${jwt.sign({ d: kind, t, id, f: o.from ?? null, to: o.to ?? null }, config.jwtSecret, { expiresIn: `${days}d` })}.pdf`;
+  return `${config.publicUrl}/doc/${jwt.sign({ d: kind, t, id, f: o.from ?? null, to: o.to ?? null, v: o.vehicle ?? null }, config.jwtSecret, { expiresIn: `${days}d` })}.pdf`;
 }
 export function docFromToken(token: string): Doc | null {
-  let p: { d: DocKind; t: number; id: number; f?: string | null; to?: string | null };
+  let p: { d: DocKind; t: number; id: number; f?: string | null; to?: string | null; v?: string | null };
   try { p = jwt.verify(token.replace(/\.pdf$/, ""), config.jwtSecret) as typeof p; } catch { return null; }
   if (!(DOC_KINDS as readonly string[]).includes(p.d) || typeof p.id !== "number") return null;
-  try { return renderDoc(p.t, p.d, p.id, { from: p.f ?? undefined, to: p.to ?? undefined }); } catch { return null; }
+  try { return renderDoc(p.t, p.d, p.id, { from: p.f ?? undefined, to: p.to ?? undefined, vehicle: p.v ?? undefined }); } catch { return null; }
 }
 
 /** Who this document would usually go to: the party, the pump's own people (owner, managers, cashiers…), recent numbers. */

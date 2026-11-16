@@ -13,14 +13,14 @@ import { DOC_KINDS, renderDoc, docLink, docContacts, sendDoc, type DocKind, type
 
 export const docs = Router();
 const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
-const q = z.object({ from: day.optional(), to: day.optional() });
+const q = z.object({ from: day.optional(), to: day.optional(), vehicle: z.string().max(30).optional() });
 
 /** The page's own permission, and a salesman only his own shift / sales. */
 function allow(req: Request, kind: DocKind, id: number) {
   const u = req.user!;
   const anyOf = (...p: Parameters<typeof can>[1][]) => p.some((x) => can(u, x));
   const okByKind: Record<DocKind, boolean> = {
-    voucher: anyOf("cashier.desk", "cash.receive", "cash.pay"), khata: anyOf("khata.manage", "customers.edit"), wholesale: anyOf("wholesale.view"), carriage: anyOf("carriage.view"),
+    voucher: anyOf("cashier.desk", "cash.receive", "cash.pay"), khata: anyOf("khata.manage", "customers.edit"), khata_bill: anyOf("khata.manage", "customers.edit"), wholesale: anyOf("wholesale.view"), carriage: anyOf("carriage.view"),
     supplier: anyOf("suppliers.manage"), shift: anyOf("shifts.manage"), receipt: anyOf("sales.view", "sales.create"), slip: anyOf("staff.manage"),
     customer_list: anyOf("khata.manage", "customers.edit"), client_list: anyOf("wholesale.view"), supplier_list: anyOf("suppliers.manage"), trip_list: anyOf("wholesale.view"),
   };

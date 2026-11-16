@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Download, Printer, Send, QrCode, ExternalLink } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Download, Printer, Send, QrCode, ExternalLink, ReceiptText } from "lucide-react";
 import { api, linkToken, useApi } from "../lib/api";
 import { ProofThumbs } from "./Capture";
 import { PortalCard } from "./PortalCard";
@@ -32,6 +32,28 @@ export default function KhataStatement({ customerId, onClose }: { customerId: nu
   const cols = { vehicle: Boolean(s?.lines?.some((l: any) => l.vehicle_no)), slip: Boolean(s?.lines?.some((l: any) => l.slip_no || l.type === "credit")) };
   const csv = `/api/customers/${customerId}/statement.csv?${qs}&token=${linkToken()}`;
   const { busy, run } = useAction();
+  // Purchase bill: only what was bought (fuel / shop / slips), litres x rate = amount on every line, total per item —
+  // no payments and no balance. Same dates and vehicle filter as on screen; newest first like every paper.
+  const buys = useMemo(() => ((s?.lines ?? []) as any[])
+    .filter((l) => l.type === "debit" && !/^(refund:|xfer:|open:)/i.test(String(l.ref ?? "").trim()) && (!veh || l.vehicle_no === veh))
+    .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)) || b.id - a.id), [s, veh]);
+  const byItem = useMemo(() => Object.values(buys.reduce((m: Record<string, any>, l: any) => {
+    const item = l.product ? PRODUCTS[l.product] ?? l.product : "Shop / other";
+    m[item] ??= { item, litres: 0, amount: 0, n: 0 };
+    m[item].litres += Number(l.litres ?? 0); m[item].amount += Number(l.amount); m[item].n++;
+    return m;
+  }, {})) as { item: string; litres: number; amount: number; n: number }[], [buys]);
+  const buyTotal = byItem.reduce((a, x) => a + x.amount, 0);
+  const lineRate = (l: any) => Number(l.rate ?? (l.litres ? l.amount / l.litres : 0));
+  // which paper the Print / PDF makes: the whole statement, or the purchase bill
+  useEffect(() => () => document.body.classList.remove("print-purchase"), []);
+  const printStatement = () => { document.body.classList.remove("print-purchase"); printNow({ title: `Khata bill — ${s?.customer?.name ?? ""}`, pdf: `/api/docs/khata/${customerId}/pdf?${qs ? `${qs}&` : ""}token=${linkToken()}` }); };
+  const printPurchase = () => {
+    document.body.classList.add("print-purchase");
+    printNow({ title: `Purchase bill — ${s?.customer?.name ?? ""}`, pdf: `/api/docs/khata_bill/${customerId}/pdf?${qs ? `${qs}&` : ""}${veh ? `vehicle=${encodeURIComponent(veh)}&` : ""}token=${linkToken()}` });
+    // a computer prints at once; the class stays only for this one paper
+    if (!window.matchMedia("(pointer: coarse)").matches && window.innerWidth >= 768) document.body.classList.remove("print-purchase");
+  };
   const month = (range.from || pkToday()).slice(0, 7);
   // open the tab at the tap (phones block a tab opened after waiting for the server), then point it at the bill
   const openBill = async () => {
@@ -58,11 +80,12 @@ export default function KhataStatement({ customerId, onClose }: { customerId: nu
           <a className="btn-secondary" href={`/cards/${customerId}`} target="_blank" rel="noreferrer"><QrCode size={15} /> QR cards</a>
           <a className="btn-secondary" href={csv}><Download size={15} /> Excel</a>
           <WhatsAppDoc kind="khata" id={customerId} from={range.from || undefined} to={range.to || undefined} label="WhatsApp PDF" />
-          <button className="btn-primary" onClick={() => printNow({ title: `Khata bill — ${s?.customer?.name ?? ""}`, pdf: `/api/docs/khata/${customerId}/pdf?${qs ? `${qs}&` : ""}token=${linkToken()}` })}><Printer size={15} /> Print bill · پرنٹ</button>
+          <button className="btn-secondary" onClick={printPurchase} disabled={!s} title="Sirf jo customer ne khareeda — litre × rate = raqam, har cheez ka total. Payment aur balance nahi."><ReceiptText size={15} /> Purchase bill · خریداری بل</button>
+          <button className="btn-primary" onClick={printStatement}><Printer size={15} /> Print bill · پرنٹ</button>
         </div>
       </div>
       {!s ? <Loading /> : (
-        <div className="mt-4 space-y-3 print:mt-0">
+        <div className="khata-main mt-4 space-y-3 print:mt-0">
           <div className="flex flex-wrap justify-between gap-2 border-b border-slate-200 pb-3">
             <div>
               <div className="text-xl font-bold">{s.customer.name}</div>
@@ -144,6 +167,47 @@ export default function KhataStatement({ customerId, onClose }: { customerId: nu
             </table>
             {!lines.length && <div className="p-6 text-center text-sm text-slate-500">{narrowed ? "No entries match this filter" : "No entries in this period"}</div>}
           </div>
+        </div>
+      )}
+      {s && (
+        <div className="purchase-bill hidden">
+          <div className="mb-2 flex flex-wrap items-end justify-between gap-2 border-b border-slate-300 pb-2">
+            <div>
+              <div className="text-xl font-bold">Purchase bill · <span lang="ur" className="font-urdu font-normal">خریداری بل</span></div>
+              <div className="text-lg font-semibold">{s.customer.name}</div>
+              {(s.customer.phone || s.customer.city) && <div className="text-sm text-slate-600">{[s.customer.phone ? phone(String(s.customer.phone)) : "", s.customer.city].filter(Boolean).join(" · ")}</div>}
+            </div>
+            <div className="text-right text-sm text-slate-600">
+              <div>{s.from ?? "start"} to {s.to ?? "today"}</div>
+              {veh && <div>Vehicle: <b>{veh}</b></div>}
+              <div>{buys.length} entries</div>
+            </div>
+          </div>
+          <table className="w-full">
+            <thead><tr>{["Date", "ID", "Slip", "Vehicle", "Item", "Litres × Rate", "Amount"].map((h) => <th key={h} className={`th whitespace-nowrap ${["Litres × Rate", "Amount"].includes(h) ? "text-right" : ""}`}>{h}</th>)}</tr></thead>
+            <tbody>
+              {buys.map((l: any) => (
+                <tr key={l.id}>
+                  <td className="td whitespace-nowrap text-xs">{new Date(l.created_at).toLocaleString("en-PK", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}</td>
+                  <td className="td"><IdTag id={`K-${l.id}`} /></td>
+                  <td className="td text-xs">{l.slip_no ?? ""}</td>
+                  <td className="td text-xs">{l.vehicle_no ?? ""}</td>
+                  <td className="td text-sm">{l.product ? PRODUCTS[l.product] : l.note || "Charge"}</td>
+                  <td className="td whitespace-nowrap text-right tabular-nums">{l.litres != null ? `${num(l.litres, 2)} L × Rs ${lineRate(l).toFixed(2)}` : ""}</td>
+                  <td className="td whitespace-nowrap text-right font-medium tabular-nums">{pkr(l.amount)}</td>
+                </tr>
+              ))}
+              {!buys.length && <tr><td className="td text-center text-slate-500" colSpan={7}>Is muddat mein koi khareedari nahi</td></tr>}
+            </tbody>
+          </table>
+          <table className="mt-3 w-full">
+            <thead><tr>{["Item", "Entries", "Litres", "Avg rate", "Amount"].map((h) => <th key={h} className={`th ${h === "Item" ? "" : "text-right"}`}>{h}</th>)}</tr></thead>
+            <tbody>{byItem.map((x) => (
+              <tr key={x.item}><td className="td font-medium">{x.item}</td><td className="td text-right tabular-nums">{x.n}</td><td className="td text-right tabular-nums">{x.litres ? num(x.litres, 2) : ""}</td>
+                <td className="td text-right tabular-nums">{x.litres ? `Rs ${(x.amount / x.litres).toFixed(2)}` : ""}</td><td className="td text-right tabular-nums">{pkr(x.amount)}</td></tr>))}</tbody>
+            <tfoot><tr><td className="td" colSpan={4}>Kul bill · Total</td><td className="td text-right tabular-nums">{pkr(buyTotal)}</td></tr></tfoot>
+          </table>
+          <div className="mt-10 grid grid-cols-2 gap-10 text-center text-xs text-slate-500"><div className="border-t border-slate-400 pt-1">Prepared by</div><div className="border-t border-slate-400 pt-1">Customer</div></div>
         </div>
       )}
     </Modal>
