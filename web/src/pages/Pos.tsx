@@ -1223,8 +1223,10 @@ function ShopPos({ d, disabled, training, onSaved }: { d: any; disabled: boolean
     if (!parchi && (c[i.id] ?? 0) + n > i.stock) toast("err", `Only ${i.stock} ${i.unit} of ${i.name} in stock`);
     return next;
   });
-  const lines = Object.entries(cart).map(([id, qty]) => ({ i: byId[Number(id)], qty })).filter((l) => l.i);
-  const total = lines.reduce((a, l) => a + l.qty * l.i.price, 0);
+  // shop goods are bargained: the rate charged to THIS customer can be typed on the line (empty = the list price)
+  const [rates, setRates] = useState<Record<number, string>>({});
+  const lines = Object.entries(cart).map(([id, qty]) => ({ i: byId[Number(id)], qty })).filter((l) => l.i).map((l) => ({ ...l, price: Number(rates[l.i.id]) > 0 ? Number(rates[l.i.id]) : Number(l.i.price) }));
+  const total = lines.reduce((a, l) => a + l.qty * l.price, 0);
   const parchiOn = pay === "khata" && parchi;
   const cashAmt = parchiOn ? (cashDi === "" ? total : Math.max(0, Number(cashDi) || 0)) : 0;
   const khareed = parchiOn ? Math.round((total - cashAmt) * 100) / 100 : 0;
@@ -1237,15 +1239,15 @@ function ShopPos({ d, disabled, training, onSaved }: { d: any; disabled: boolean
   const save = async () => {
     if (!lines.length || !pay || (pay === "khata" && !khata) || saving || parchiBad) return;
     if (training) {
-      setCart({}); setPay(null); setKhata(null); setParchi(false); setCashDi(""); setSlip("");
+      setCart({}); setRates({}); setPay(null); setKhata(null); setParchi(false); setCashDi(""); setSlip("");
       onSaved({ training: true, total, payment_method: pay, lines: lines.map((l) => ({ qty: l.qty, name: l.i.name })) });
       return;
     }
     setSaving(true);
     try {
-      const r = await api("/shop/sales", { body: { station_id: d.station.id, payment_method: pay, customer_id: khata?.account.id ?? null, client_uid: newUid(), lines: lines.map((l) => ({ item_id: l.i.id, qty: l.qty })),
+      const r = await api("/shop/sales", { body: { station_id: d.station.id, payment_method: pay, customer_id: khata?.account.id ?? null, client_uid: newUid(), lines: lines.map((l) => ({ item_id: l.i.id, qty: l.qty, ...(l.price !== Number(l.i.price) ? { price: l.price } : {}) })),
         ...(parchiOn ? { parchi_cash: true, cash_back: cashAmt, slip_no: slip || null } : {}) } });
-      setCart({}); setPay(null); setKhata(null); setParchi(false); setCashDi(""); setSlip(""); reload();
+      setCart({}); setRates({}); setPay(null); setKhata(null); setParchi(false); setCashDi(""); setSlip(""); reload();
       onSaved({ ...r, khata_name: khata?.account.name });
     } catch (e: any) { toast("err", isOffline(e) ? "Shop sale needs internet" : e.message); }
     finally { setSaving(false); }
@@ -1307,6 +1309,7 @@ function ShopPos({ d, disabled, training, onSaved }: { d: any; disabled: boolean
         )}
       </section>
       <div className="sticky bottom-0 z-10 rounded-2xl bg-white p-3 shadow-lg ring-1 ring-slate-200">
+        {lines.length > 0 && <div className="mb-1 flex justify-end gap-2 pr-0.5 text-[11px] text-slate-500"><span className="w-24 text-right">Rate (badal sakte hain) · <Ur>ریٹ</Ur></span><span className="w-24 text-right">Raqam</span></div>}
         {lines.length > 0 && <ul className="mb-2 max-h-40 space-y-1 overflow-auto">
           {lines.map((l) => (
             <li key={l.i.id} className="flex items-center gap-2">
@@ -1314,13 +1317,15 @@ function ShopPos({ d, disabled, training, onSaved }: { d: any; disabled: boolean
               <button onClick={() => add(l.i, -1)} className="rounded-lg bg-slate-100 p-1.5" aria-label={`One less ${l.i.name}`}><Minus size={16} /></button>
               <span className="w-8 text-center font-bold tabular-nums">{l.qty}</span>
               <button onClick={() => add(l.i, 1)} className="rounded-lg bg-slate-100 p-1.5" aria-label={`One more ${l.i.name}`}><Plus size={16} /></button>
-              <span className="w-24 text-right tabular-nums">{pkr(l.qty * l.i.price)}</span>
+              <input className={`input !w-24 !px-2 !py-1.5 text-right tabular-nums ${l.price < Number(l.i.cost ?? 0) ? "!border-rose-400 !text-rose-700" : ""}`} type="number" inputMode="decimal" min={0} step="0.01" aria-label={`${l.i.name} ka rate`} title={l.price < Number(l.i.cost ?? 0) ? "Lagat se kam — nuqsan par" : "Is customer ka rate"}
+                placeholder={String(l.i.price)} value={rates[l.i.id] ?? ""} onChange={(e) => setRates({ ...rates, [l.i.id]: e.target.value })} />
+              <span className="w-24 text-right tabular-nums">{pkr(l.qty * l.price)}</span>
             </li>
           ))}
         </ul>}
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex-1 text-lg">{lines.length ? <>Total <b className="text-2xl">{pkr(total)}</b></> : <span className="text-slate-500">Tap items to add · <Ur>چیزیں چنیں</Ur></span>}</div>
-          <button onClick={() => { setCart({}); setPay(null); setKhata(null); setParchi(false); setCashDi(""); setSlip(""); }} className="rounded-xl bg-slate-200 px-5 py-4 text-lg font-semibold text-slate-700"><X className="inline" size={20} /> Clear</button>
+          <button onClick={() => { setCart({}); setRates({}); setPay(null); setKhata(null); setParchi(false); setCashDi(""); setSlip(""); }} className="rounded-xl bg-slate-200 px-5 py-4 text-lg font-semibold text-slate-700"><X className="inline" size={20} /> Clear</button>
           <button onClick={save} disabled={disabled || saving || !lines.length || !pay || (pay === "khata" && !khata) || parchiBad}
             className="flex items-center gap-2 rounded-xl bg-emerald-600 px-8 py-4 text-xl font-bold text-white shadow active:scale-95 disabled:bg-slate-300"><Check size={26} /> Save · <Ur>محفوظ</Ur></button>
         </div>

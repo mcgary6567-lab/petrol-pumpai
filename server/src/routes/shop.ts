@@ -164,7 +164,8 @@ shop.get("/shop/items/:id/moves", requirePerm("stock.manage"), h((req) => {
 shop.post("/shop/sales", requirePerm("sales.create"), h(async (req) => {
   const t = tid(req);
   const b = parse(z.object({
-    station_id: z.number(), lines: z.array(z.object({ item_id: z.number(), qty: z.number().positive().max(10_000) })).min(1).max(50),
+    station_id: z.number(), // price: the rate this customer was actually charged (shop goods are bargained — oil filter to one man at 900, to another at 850, sometimes below cost). Empty = the item's list price.
+    lines: z.array(z.object({ item_id: z.number(), qty: z.number().positive().max(10_000), price: z.number().positive().max(10_000_000).optional() })).min(1).max(50),
     payment_method: z.string().max(40), customer_id: z.number().nullable().optional(), // money method (Settings → Lists) or khata
     client_uid: z.string().min(8).max(64).nullable().optional(),
     // khata parchi, saman nahi diya, cash diya: items only name the parchi; stock untouched; cash_back out of the bag
@@ -184,9 +185,9 @@ shop.post("/shop/sales", requirePerm("sales.create"), h(async (req) => {
     const i = get("SELECT * FROM shop_items WHERE id=? AND tenant_id=? AND station_id=? AND active=1", l.item_id, t, stationId);
     if (!i) throw new AppError(400, "Item not found at this station");
     if (!parchi && i.stock < l.qty) throw new AppError(400, `Only ${i.stock} ${i.unit} of ${i.name} in stock`);
-    return { i, qty: l.qty };
+    return { i, qty: l.qty, price: round2(l.price ?? i.price) };
   });
-  const total = round2(items.reduce((a, x) => a + x.qty * x.i.price, 0));
+  const total = round2(items.reduce((a, x) => a + x.qty * x.price, 0));
   const cost = parchi ? 0 : round2(items.reduce((a, x) => a + x.qty * x.i.cost, 0)); // no goods leave the shelf on a parchi
   const cashBack = parchi ? round2(b.cash_back ?? total) : 0;
   if (parchi && cashBack > total + 0.005) throw new AppError(400, `Cash di parchi ki value (${pkr(total)}) se zyada nahi ho sakti`);
@@ -205,8 +206,8 @@ shop.post("/shop/sales", requirePerm("sales.create"), h(async (req) => {
   const id = tx(() => {
     const { id } = run("INSERT INTO shop_sales (tenant_id,station_id,shift_id,customer_id,payment_method,total,cost_total,client_uid,created_by,created_at,kind,cash_back,khareed,slip_no) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
       t, stationId, shift?.id ?? null, customer?.id ?? null, b.payment_method, total, cost, b.client_uid ?? null, req.user!.id, now(), parchi ? "parchi_cash" : null, parchi ? cashBack : null, parchi ? khareed : null, b.slip_no || null);
-    for (const { i, qty } of items) {
-      run("INSERT INTO shop_sale_lines (sale_id,item_id,qty,price,cost) VALUES (?,?,?,?,?)", id, i.id, qty, i.price, parchi ? 0 : i.cost);
+    for (const { i, qty, price } of items) {
+      run("INSERT INTO shop_sale_lines (sale_id,item_id,qty,price,cost) VALUES (?,?,?,?,?)", id, i.id, qty, price, parchi ? 0 : i.cost);
       if (parchi) continue; // the parchi names the goods; nothing leaves the shelf
       run("UPDATE shop_items SET stock = stock - ? WHERE id=?", qty, i.id);
       run("INSERT INTO shop_moves (item_id,type,qty,cost,ref,created_by,created_at) VALUES (?,?,?,?,?,?,?)", i.id, "sale", -qty, i.cost, `shop:${id}`, req.user!.name, now());
@@ -228,6 +229,11 @@ shop.post("/shop/sales", requirePerm("sales.create"), h(async (req) => {
     const owner = get("SELECT owner_phone FROM tenants WHERE id=?", t);
     if (owner?.owner_phone) setImmediate(() => { sendToPhone(owner.owner_phone, `⚠️ ${title}\n${body}`).catch((e: Error) => console.error("[parchi notify]", e.message)); });
   }
+  // sold below what it cost us: allowed (the owner's call), but the owner always hears of it
+  const loss = parchi ? [] : items.filter((x) => x.i.cost > 0 && x.price < x.i.cost - 0.005);
+  if (loss.length) createAlert(t, { station_id: stationId, type: "shop_below_cost", severity: "warning",
+    title: `Shop: lagat se kam par becha — ${loss.map((x) => x.i.name).join(", ")}`,
+    body: `${req.user!.name}: ${loss.map((x) => `${x.qty} × ${x.i.name} @ ${pkr(x.price)} (lagat ${pkr(x.i.cost)}, nuqsan ${pkr(round2((x.i.cost - x.price) * x.qty))})`).join("; ")}. Sale SHOP-${id}.` });
   if (low.length) {
     const a = createAlert(t, { station_id: stationId, type: "shop_low_stock", severity: "warning", title: `Shop stock low: ${low.join(", ")}`, dedupe_key: `shoplow-${stationId}-${low.join("|")}` });
     if (a) await notify(t, staff(t, ["manager", "admin"]), { type: "shop_low_stock", title: a.title, body: "Order more from the supplier." });
