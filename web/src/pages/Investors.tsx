@@ -395,11 +395,11 @@ function ProfitForm({ i, onClose, onDone }: { i: any; onClose: () => void; onDon
         <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Kism"><Pill on={kind === "profit"} onClick={() => setKind("profit")}>Munafa</Pill><Pill on={kind === "loss"} onClick={() => setKind("loss")}>Nuqsan</Pill></div>
         <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Tareeqa"><Pill on={mode === "amount"} onClick={() => setMode("amount")}>Rs raqam</Pill><Pill on={mode === "percent"} onClick={() => setMode("percent")}>% se hisab</Pill></div>
         {mode === "amount" ? (
-          <Field label="Raqam (Rs)"><input className="input text-lg font-semibold" type="number" inputMode="decimal" autoFocus value={amount} onChange={(e) => setAmount(e.target.value)} /></Field>
+          <Field label="Raqam (Rs)"><input className="input text-lg font-semibold" type="number" inputMode="decimal" step="any" autoFocus value={amount} onChange={(e) => setAmount(e.target.value)} /></Field>
         ) : (
           <div className="grid grid-cols-2 gap-2">
             <Field label="Fisad (%)"><input className="input text-lg font-semibold" type="number" inputMode="decimal" step="0.1" autoFocus value={pct} onChange={(e) => setPct(e.target.value)} placeholder={fixed ? "" : "e.g. 2.5"} /></Field>
-            <Field label="Kis raqam par (base)"><input className="input" type="number" inputMode="decimal" value={base} onChange={(e) => setBase(e.target.value)} /></Field>
+            <Field label="Kis raqam par (base)"><input className="input" type="number" inputMode="decimal" step="any" value={base} onChange={(e) => setBase(e.target.value)} /></Field>
             <p className="col-span-2 -mt-1 text-xs text-slate-500">Base pehle se = capital jo abhi hamare paas hai ({pkr(i.capital_net ?? 0)}). Pump ke mahine ke munafe par % dena ho to base me woh raqam likhein.</p>
           </div>
         )}
@@ -433,9 +433,9 @@ function OpeningForm({ i, onClose, onDone }: { i: any; onClose: () => void; onDo
       <div className="space-y-3">
         <p className="rounded-xl bg-amber-50 p-2.5 text-sm text-amber-900">Purana investor: software se <b>pehle</b> ka hisab yahan likhein. Cash / bank nahi hilta — sirf investor ka khata <b>Credit</b> hota hai (go-live opening ke muqabil). Aaj se aage ka sab kuch "Paisa aaya / diya" aur deals se chalega.</p>
         <Field label="Kis tareekh tak ka hisab (as of)"><input type="date" className="input w-auto" max={today} value={asOf} onChange={(e) => setAsOf(e.target.value)} /></Field>
-        <Field label="Capital jo pump ke paas hai (Rs)"><input className="input text-lg font-semibold" type="number" inputMode="decimal" autoFocus value={capital} onChange={(e) => setCapital(e.target.value)} /></Field>
+        <Field label="Capital jo pump ke paas hai (Rs)"><input className="input text-lg font-semibold" type="number" inputMode="decimal" step="any" autoFocus value={capital} onChange={(e) => setCapital(e.target.value)} /></Field>
         <p className="-mt-2 text-xs text-slate-500">Nakad ho ya pehle se fuel me laga ho — kul asal raqam. Jo fuel abhi bika nahi, uski deal baad me purani tareekh se banayen.</p>
-        <Field label="Munafa jo banta hai magar diya nahi (Rs)"><input className="input" type="number" inputMode="decimal" value={profit} onChange={(e) => setProfit(e.target.value)} /></Field>
+        <Field label="Munafa jo banta hai magar diya nahi (Rs)"><input className="input" type="number" inputMode="decimal" step="any" value={profit} onChange={(e) => setProfit(e.target.value)} /></Field>
         <Field label="Note"><input className="input" value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. purane register ke mutabiq" /></Field>
         <div className="rounded-xl bg-slate-50 p-2.5 text-sm">Khate me credit: <b>{pkr(cap + pr)}</b></div>
         <div className="flex justify-end gap-2"><button className="btn-secondary" onClick={onClose}>Cancel</button>
@@ -518,7 +518,7 @@ function TransferForm({ i, onClose, onDone, preset }: { i: any; onClose: () => v
         <XferPartyPicker kind={kind} value={party} onChange={setParty} />
         {dir === "investor_to_client" && <div className="flex gap-1.5">{(["capital", "profit"] as const).map((p) => <button key={p} type="button" onClick={() => setPurpose(p)} className={`rounded-full px-3 py-1 text-xs font-semibold ${purpose === p ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-600"}`}>{p === "capital" ? "Capital (asal raqam)" : "Munafa"}</button>)}<span className="self-center text-xs text-slate-500">· free {pkr(i.free)}</span></div>}
         <div className="grid grid-cols-2 gap-2">
-          <Field label="Amount (Rs)"><input className="input text-lg font-semibold" type="number" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} /></Field>
+          <Field label="Amount (Rs)"><input className="input text-lg font-semibold" type="number" inputMode="decimal" step="any" value={amount} onChange={(e) => setAmount(e.target.value)} /></Field>
           <Field label="Tareekh"><input className="input" type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
         </div>
         {party && !withCash && <p className="text-xs text-slate-500">Bina cash zyada se zyada <b>{pkr(cap)}</b> transfer ho sakta hai (party ka balance). Zyada chahiye to "Cash ke saath" chunein.</p>}
@@ -569,7 +569,7 @@ function MoneyForm({ i, dir, onClose, onDone }: { i: any; dir: "in" | "out"; onC
             <button key={p} onClick={() => setPurpose(p)} className={`rounded-full px-3 py-1 text-xs font-semibold ${purpose === p ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-600"}`}>{p === "profit" ? "Munafa diya" : "Asal raqam wapas"}</button>
           ))}</div>
         )}
-        <Field label="Amount (Rs)"><input className="input text-lg font-semibold" type="number" inputMode="decimal" autoFocus value={amount} onChange={(e) => setAmount(e.target.value)} /></Field>
+        <Field label="Amount (Rs)"><input className="input text-lg font-semibold" type="number" inputMode="decimal" step="any" autoFocus value={amount} onChange={(e) => setAmount(e.target.value)} /></Field>
         {tooMuch && <p className="text-sm text-rose-700">Free balance se zyada nahi de sakte.</p>}
         <Field label="Kaise · طریقہ"><div className="flex flex-wrap gap-1.5">{PAY.map((m) => <button key={m} onClick={() => setMethod(m)} className={`rounded-full px-3 py-1 text-xs font-semibold ${method === m ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-600"}`}>{m}</button>)}</div></Field>
         {!(cheque && dir === "in") && <AccountPicker value={account} onChange={setAccount} method={cheque ? "bank" : method} required label={cheque ? "Cheque hamare kis account ka hai? · کس اکاؤنٹ کا چیک" : undefined} />}
@@ -608,8 +608,8 @@ function DealForm({ i, d, onClose, onDone }: { i: any; d: any; onClose: () => vo
       <div className="grid gap-3 sm:grid-cols-2">
         <Field label="Fuel"><select className="input" value={f.product} onChange={(e) => setF({ ...f, product: e.target.value })}>{activeProducts.map((p) => <option key={p.code} value={p.code}>{p.name}</option>)}</select></Field>
         <Field label="Supplier (optional)"><select className="input" value={f.supplier_id} onChange={(e) => setF({ ...f, supplier_id: e.target.value })}><option value="">—</option>{list.map((s: any) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></Field>
-        <Field label="Litre"><input className="input" type="number" inputMode="decimal" value={f.litres} onChange={(e) => setF({ ...f, litres: e.target.value })} /></Field>
-        <Field label="Khareed rate (Rs/litre)"><input className="input" type="number" inputMode="decimal" step="0.01" value={f.cost_rate} onChange={(e) => setF({ ...f, cost_rate: e.target.value })} /></Field>
+        <Field label="Litre"><input className="input" type="number" inputMode="decimal" step="any" value={f.litres} onChange={(e) => setF({ ...f, litres: e.target.value })} /></Field>
+        <Field label="Khareed rate (Rs/litre)"><input className="input" type="number" inputMode="decimal" step="any" value={f.cost_rate} onChange={(e) => setF({ ...f, cost_rate: e.target.value })} /></Field>
         <Field label="Bilty / ref"><input className="input" value={f.ref} onChange={(e) => setF({ ...f, ref: e.target.value })} /></Field>
         <Field label="Tareekh"><input className="input" type="date" value={f.deal_date} onChange={(e) => setF({ ...f, deal_date: e.target.value })} /></Field>
       </div>
@@ -639,7 +639,7 @@ function CloseDeal({ i, d, onClose, onDone }: { i: any; d: any; onClose: () => v
     <Modal open wide title={`Deal #${d.id} band karein — ${num(d.litres)} L ${PRODUCTS[d.product] ?? d.product}`} onClose={onClose}>
       <div className="grid gap-3 sm:grid-cols-2">
         <Field label={`Kitna bika (litre) — deal ${num(d.litres)} L`}><input className="input" type="number" value={f.sold_litres} onChange={(e) => setF({ ...f, sold_litres: e.target.value })} /></Field>
-        <Field label="Sale rate (Rs/litre)"><input className="input" type="number" step="0.01" value={f.sale_rate} onChange={(e) => setF({ ...f, sale_rate: e.target.value })} />
+        <Field label="Sale rate (Rs/litre)"><input className="input" type="number" step="any" value={f.sale_rate} onChange={(e) => setF({ ...f, sale_rate: e.target.value })} />
           {sug && <span className="mt-1 block text-xs text-slate-500">{sug.from_sales ? `Deal ke baad ${PRODUCTS[d.product] ?? d.product} ki average sale rate` : "Aaj ka rate"}: Rs {num(sug.sale_rate ?? 0, 2)}</span>}</Field>
         <Field label="Kiraya / carriage (Rs)"><input className="input" type="number" value={f.exp_carriage} onChange={(e) => setF({ ...f, exp_carriage: e.target.value })} /></Field>
         <Field label="Staff / bijli ka hissa (Rs)"><input className="input" type="number" value={f.exp_overhead} onChange={(e) => setF({ ...f, exp_overhead: e.target.value })} /></Field>

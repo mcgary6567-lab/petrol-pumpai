@@ -6,6 +6,7 @@ import { api } from "../lib/api";
 import { useAuth } from "../App";
 import { ErrorBox, Loading, PhoneInput } from "../components/ui";
 import { applyBrand, loadBranding, useBranding } from "../lib/brand";
+import { printNow } from "../lib/printNow";
 
 const FUELS: Record<string, string> = { PMG: "Petrol", HOBC: "Hi-Octane", HSD: "Diesel" };
 const OMCS = ["PSO", "Shell", "TotalEnergies", "Attock (APL)", "GO", "Hascol", "Byco / Cnergyico", "Puma", "Other"];
@@ -303,7 +304,7 @@ export default function Setup({ signup = false }: { signup?: boolean }) {
                             <div key={j} className="grid grid-cols-[auto_1fr_1.25fr] items-center gap-2">
                               <span className="w-12 rounded-lg bg-slate-100 py-2 text-center text-xs font-bold text-slate-600">No.{no}</span>
                               <input className="input" value={m.label} onChange={(e) => setMeter(i, k, j, { label: e.target.value })} placeholder="name" aria-label={`Meter ${no} name`} />
-                              <input className="input tabular-nums" type="number" inputMode="decimal" min={0} step="0.01" value={m.totalizer} onChange={(e) => setMeter(i, k, j, { totalizer: e.target.value })} placeholder="reading" aria-label={`Meter ${no} reading`} />
+                              <input className="input tabular-nums" type="number" inputMode="decimal" min={0} step="any" value={m.totalizer} onChange={(e) => setMeter(i, k, j, { totalizer: e.target.value })} placeholder="reading" aria-label={`Meter ${no} reading`} />
                             </div>); })}
                         </div>
                       ) : <p className="text-xs text-slate-400">No meters on this tank.</p>}
@@ -318,7 +319,7 @@ export default function Setup({ signup = false }: { signup?: boolean }) {
           {key === "prices" && <>
             <p className="text-sm text-slate-600">Today's selling price per litre (from the latest OGRA notification). Change it any time on the Prices page.</p>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">{used.map((p, i) => (
-              <F key={p} label={`${FUELS[p]} — Rs / litre *`}><input className="input py-3 text-2xl tabular-nums" type="number" inputMode="decimal" step="0.01" min={1} value={prices[p]} onChange={(e) => setPrices({ ...prices, [p]: e.target.value })} autoFocus={i === 0} /></F>))}</div>
+              <F key={p} label={`${FUELS[p]} — Rs / litre *`}><input className="input py-3 text-2xl tabular-nums" type="number" inputMode="decimal" step="any" min={1} value={prices[p]} onChange={(e) => setPrices({ ...prices, [p]: e.target.value })} autoFocus={i === 0} /></F>))}</div>
           </>}
 
           {key === "brand" && <>
@@ -404,7 +405,7 @@ function PumpReady({ url, name, onGo }: { url: string; name: string; onGo: () =>
         </div>
         <div className="mt-3 flex flex-wrap justify-center gap-2">
           <a className="btn-secondary" href={wa} target="_blank" rel="noreferrer">WhatsApp par bhejein</a>
-          <button className="btn-secondary" onClick={() => window.print()}>Print</button>
+          <button className="btn-secondary" onClick={() => printNow()}>Print</button>
         </div>
         <p className="mt-3 text-xs text-slate-500">Bhool jayein to Settings → Business profile me dobara mil jayega. Staff PIN se sign in kare to pehle ek dafa is link par email/phone se login zaroori hai (device link).</p>
         <button className="btn-primary mt-5 w-full py-3 text-base" onClick={onGo}>Dashboard kholen →</button>

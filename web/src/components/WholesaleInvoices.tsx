@@ -8,6 +8,7 @@ import { PRODUCTS, num, pkr } from "../lib/format";
 import { useAuth } from "../App";
 import { useBusiness } from "./Letterhead";
 import { askCancel, pinHeader } from "./CancelEntry";
+import { printNow } from "../lib/printNow";
 
 const day = (iso: string) => new Date(Date.parse(iso)).toLocaleDateString("en-PK", { day: "2-digit", month: "short", year: "numeric" });
 const amt = (n: number) => num(Math.round(n * 100) / 100, 0);
@@ -106,7 +107,7 @@ export function InvoiceView({ no, onChanged }: { no: string; onChanged?: () => v
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap gap-2 print:hidden">
-        <button className="btn-secondary" onClick={() => window.print()}><Printer size={15} /> Print / PDF</button>
+        <button className="btn-secondary" onClick={() => printNow()}><Printer size={15} /> Print / PDF</button>
         {can("wholesale.manage") && c.phone && i.status !== "void" && <button className="btn-secondary" disabled={busy} onClick={() => run(() => api(`/wholesale/invoices/${i.no}/whatsapp`, { body: {} }), "Poora bill WhatsApp par bhej diya")}><Send size={15} /> WhatsApp</button>}
         {can("wholesale.manage") && i.unpaid > 0.5 && <button className="btn-secondary !border-brand-600 !text-brand-700" onClick={() => nav(`/wholesale/${c.id}?do=payment`)}><Wallet size={15} /> Record payment</button>}
         <button className="btn-secondary" onClick={() => nav(`/wholesale/ledger?client=${c.id}`)}><BookOpen size={15} /> Ledger</button>

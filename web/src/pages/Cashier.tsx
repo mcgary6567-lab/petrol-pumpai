@@ -20,6 +20,7 @@ import { CashForm, DepositSlip } from "./Cash";
 import { OnlineToday } from "../components/OnlineMoney";
 import { DayFeed } from "../components/DayFeed";
 import { useAuth } from "../App";
+import { printNow } from "../lib/printNow";
 
 const today = () => new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 10);
 const TABS = [
@@ -597,7 +598,7 @@ export function VoucherSlip({ r, onClose }: { r: any; onClose: () => void }) {
       <div className="mt-4 flex justify-end gap-2 print:hidden">
         <button className="btn-secondary" onClick={onClose}>Close · <Ur>بند</Ur></button>
         {v.id && <WhatsAppDoc kind="voucher" id={v.id} />}
-        <button className="btn-primary" onClick={() => window.print()}><Printer size={15} /> Print 2 copies · <Ur>پرنٹ</Ur></button>
+        <button className="btn-primary" onClick={() => printNow()}><Printer size={15} /> Print 2 copies · <Ur>پرنٹ</Ur></button>
       </div>
     </Modal>
   );
@@ -707,7 +708,7 @@ function Cheques({ go }: { go: (k: string, extra?: Record<string, string>) => vo
         <div className="flex flex-1 justify-end gap-2">
           {can("cash.receive") && <button className="btn-secondary !px-3 text-sm" onClick={() => go("receive", { method: "Cheque" })}>+ Received · <Ur>وصول</Ur></button>}
           {can("cash.pay") && <button className="btn-secondary !px-3 text-sm" onClick={() => go("pay", { method: "Cheque" })}>+ Issue · <Ur>جاری</Ur></button>}
-          <button className="btn-secondary min-h-10 !px-3" aria-label="Print" disabled={!list.length} onClick={() => window.print()}><Printer size={15} /><span className="hidden sm:inline"> Print · <Ur>پرنٹ</Ur></span></button>
+          <button className="btn-secondary min-h-10 !px-3" aria-label="Print" disabled={!list.length} onClick={() => printNow()}><Printer size={15} /><span className="hidden sm:inline"> Print · <Ur>پرنٹ</Ur></span></button>
         </div>
       </div>
       <ListTools q={q} onQ={setQ} placeholder="Cheque no, party, bank, raqam… · چیک نمبر، پارٹی، بینک" from={from} to={to} onFrom={setFrom} onTo={setTo} shown={list.length} total={cheques.length} />
@@ -985,7 +986,7 @@ function DayBook() {
         </div>
         {!isToday && <button className="btn-secondary min-h-10 !px-3 text-sm" onClick={() => setDate(today())}>Today<span className="hidden sm:inline"> · <Ur>آج</Ur></span></button>}
         <a className="btn-secondary min-h-10 !px-3 sm:ml-auto" href={`/api/cashier/daybook.csv?date=${date}&token=${linkToken()}`}><Download size={15} /><span className="hidden sm:inline"> Excel / CSV</span></a>
-        <button className="btn-secondary min-h-10 !px-3" aria-label="Print" onClick={() => window.print()}><Printer size={15} /><span className="hidden sm:inline"> Print · <Ur>پرنٹ</Ur></span></button>
+        <button className="btn-secondary min-h-10 !px-3" aria-label="Print" onClick={() => printNow()}><Printer size={15} /><span className="hidden sm:inline"> Print · <Ur>پرنٹ</Ur></span></button>
       </div>
       {error && <ErrorBox error={error} />}
       {!data ? <Loading /> : <>
@@ -1104,7 +1105,7 @@ function CountCash({ inHand, onClose, onDone }: { inHand: number; onClose: () =>
             </label>
           ))}
           <label className="flex items-center gap-2 rounded-xl bg-slate-50 px-2 py-1.5"><span className="w-14 shrink-0 text-right text-sm font-semibold">Coins</span><span className="text-slate-400">=</span>
-            <input className="input !py-1.5 text-center" type="number" inputMode="decimal" min={0} value={coins} onChange={(e) => setCoins(e.target.value)} aria-label="Coins" /></label>
+            <input className="input !py-1.5 text-center" type="number" inputMode="decimal" step="any" min={0} value={coins} onChange={(e) => setCoins(e.target.value)} aria-label="Coins" /></label>
         </div>
         <div className="rounded-xl bg-slate-800 p-3 text-white">
           <div className="flex justify-between text-sm opacity-80"><span>Book says · <Ur>حساب کے مطابق</Ur></span><span className="tabular-nums">{pkr(inHand)}</span></div>

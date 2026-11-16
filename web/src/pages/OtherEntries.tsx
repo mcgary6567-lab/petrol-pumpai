@@ -132,7 +132,7 @@ function EditOther({ e, meta, onClose, onDone }: { e: any; meta: { en: string };
   return (
     <Modal open title={`Edit ${meta.en.toLowerCase()} — ${e.party_name}`} onClose={onClose}>
       <div className="space-y-3">
-        <Field label="Amount (Rs)"><input className="input" type="number" inputMode="decimal" value={amount} onChange={(ev) => setAmount(ev.target.value)} /></Field>
+        <Field label="Amount (Rs)"><input className="input" type="number" inputMode="decimal" step="any" value={amount} onChange={(ev) => setAmount(ev.target.value)} /></Field>
         {realParty && <PartyModePicker kind={e.kind} name={e.party_name} amount={Number(amount) || 0} value={mode} onChange={setMode} />}
         {leaving && <p className="rounded-lg bg-amber-50 p-2 text-xs text-amber-800">Ab paisa <b>cash</b> se maana jayega (cash in hand badlega).</p>}
         <p className="text-xs text-slate-500">Reason <b>{e.reason}</b>{e.method ? ` · ${e.method}` : ""} wahi rahega. {e.kind === "discount" ? "Party ka balance" : "Cash/bank"} naye amount par aa jayega.</p>
@@ -209,7 +209,7 @@ function EntryForm({ kind, meta, onSaved }: { kind: Kind; meta: { en: string; to
       )}
 
       <Field label="Kis cheez ka? (wajah) · وجہ"><input className="input" value={reason} onChange={(e) => setReason(e.target.value)} placeholder={kind === "income" ? "e.g. Generator kiraya" : kind === "expense" ? "e.g. Gate welding" : "e.g. Purani adjustment"} /></Field>
-      <Field label="Amount (Rs)"><input className="input text-lg font-semibold" type="number" inputMode="decimal" min={1} value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" /></Field>
+      <Field label="Amount (Rs)"><input className="input text-lg font-semibold" type="number" inputMode="decimal" step="any" min={1} value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" /></Field>
 
       {realParty && <PartyModePicker kind={kind} name={party?.name ?? "Party"} amount={Number(amount) || 0} value={mode} onChange={setMode} />}
 

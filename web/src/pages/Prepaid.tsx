@@ -8,6 +8,7 @@ import { Badge, Empty, ErrorBox, Field, ListTools, Loading, Modal, Pager, PageHe
 import { dOnly, dt, pkr, PRODUCTS } from "../lib/format";
 import { useAuth } from "../App";
 import { AccountPicker } from "../components/BankParts";
+import { printNow } from "../lib/printNow";
 
 const METHODS = ["cash", "bank", "raast", "easypaisa", "jazzcash", "cheque"];
 
@@ -139,7 +140,7 @@ export function CouponSheet() {
       <div className="mx-auto mb-4 flex max-w-4xl flex-wrap items-center gap-2 print:hidden">
         <Link to="/prepaid" className="btn-secondary"><ArrowLeft size={15} /> Back</Link>
         <h1 className="text-lg font-semibold">Coupon book {data.batch}</h1>
-        <button className="btn-primary ml-auto" onClick={() => window.print()}><Printer size={15} /> Print</button>
+        <button className="btn-primary ml-auto" onClick={() => printNow()}><Printer size={15} /> Print</button>
       </div>
       <div className="mx-auto grid grid-cols-1 max-w-4xl gap-3 sm:grid-cols-2 print:grid-cols-2 print:gap-2">
         {data.coupons.map((c: any) => <CouponCard key={c.code} business={data.tenant} c={c} />)}
@@ -220,7 +221,7 @@ function WalletModal({ w, onClose }: { w: any; onClose: () => void }) {
       {!data ? <Loading /> : <div className="space-y-4">
         <div className="flex flex-wrap items-center gap-3 rounded-xl bg-sky-50 p-3">
           <span className="flex-1 text-sm text-slate-600">Balance<b className="block text-3xl text-slate-900 tabular-nums">{pkr(data.wallet_balance)}</b></span>
-          <label className="text-sm">WhatsApp when below Rs<div className="flex gap-1"><input className="input w-28" type="number" inputMode="decimal" min={0} value={low} onChange={(e) => setLow(e.target.value)} />
+          <label className="text-sm">WhatsApp when below Rs<div className="flex gap-1"><input className="input w-28" type="number" inputMode="decimal" step="any" min={0} value={low} onChange={(e) => setLow(e.target.value)} />
             <button className="btn-secondary" onClick={() => run(() => api(`/customers/${w.id}/wallet`, { method: "PATCH", body: { wallet_low: Number(low) } }), "Saved").then(reload)}>Save</button></div></label>
         </div>
         <form className="grid grid-cols-1 gap-2 sm:grid-cols-5" onSubmit={async (e) => {
@@ -228,7 +229,7 @@ function WalletModal({ w, onClose }: { w: any; onClose: () => void }) {
           if (await run(() => api(`/customers/${w.id}/wallet/deposit`, { body: { amount: Number(f.amount), method: f.method, ref: f.ref || null, type: f.type, account_id: account } }), f.type === "deposit" ? "Deposit saved — customer told on WhatsApp" : "Saved")) { setF({ ...f, amount: "", ref: "" }); reload(); }
         }}>
           <select className="input" value={f.type} onChange={(e) => setF({ ...f, type: e.target.value })} aria-label="Type"><option value="deposit">Deposit</option><option value="refund">Refund (money back)</option></select>
-          <input className="input" type="number" inputMode="decimal" min={1} required placeholder="Amount Rs" value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} />
+          <input className="input" type="number" inputMode="decimal" step="any" min={1} required placeholder="Amount Rs" value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} />
           <select className="input" value={f.method} onChange={(e) => setF({ ...f, method: e.target.value })} aria-label="Method">{METHODS.map((m) => <option key={m}>{m}</option>)}</select>
           <input className="input" placeholder="Ref / TID" value={f.ref} onChange={(e) => setF({ ...f, ref: e.target.value })} />
           <button className="btn-primary" disabled={busy}>Save</button>

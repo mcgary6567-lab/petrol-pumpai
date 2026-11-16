@@ -29,9 +29,9 @@ export function EditBypassPurchase({ x, onClose, onDone }: { x: any; onClose: ()
       <div className="space-y-3">
         <p className="rounded-xl bg-amber-50 p-2.5 text-xs text-amber-900">Supplier ka "we owe" aur bypass stock is line se khud theek ho jayenge. Jo maal pehle hi clients ko ja chuka hai us se kam litres nahi ho sakte. Audit log me pehle / baad aur wajah rahegi.</p>
         <div className="grid grid-cols-3 gap-2">
-          <Field label="Litres"><input className="input" type="number" inputMode="decimal" value={litres} onChange={(e) => setLitres(e.target.value)} /></Field>
-          <Field label="Rate (Rs/L)"><input className="input" type="number" inputMode="decimal" step="0.01" value={last === "rate" ? rate : String(r)} onChange={(e) => { setRate(e.target.value); setLast("rate"); }} /></Field>
-          <Field label="Kul amount (Rs)"><input className="input" type="number" inputMode="decimal" value={last === "amount" ? amount : String(amt)} onChange={(e) => { setAmount(e.target.value); setLast("amount"); }} /></Field>
+          <Field label="Litres"><input className="input" type="number" inputMode="decimal" step="any" value={litres} onChange={(e) => setLitres(e.target.value)} /></Field>
+          <Field label="Rate (Rs/L)"><input className="input" type="number" inputMode="decimal" step="any" value={last === "rate" ? rate : String(r)} onChange={(e) => { setRate(e.target.value); setLast("rate"); }} /></Field>
+          <Field label="Kul amount (Rs)"><input className="input" type="number" inputMode="decimal" step="any" value={last === "amount" ? amount : String(amt)} onChange={(e) => { setAmount(e.target.value); setLast("amount"); }} /></Field>
         </div>
         <div className="grid grid-cols-2 gap-2">
           <Field label="Tareekh"><input className="input" type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
@@ -118,7 +118,7 @@ export function EditBypassPayment({ x, onClose, onDone }: { x: any; onClose: () 
     <Modal open title={`Bypass adaigi edit — #${x.id}`} onClose={onClose}>
       <div className="space-y-3">
         <p className="rounded-xl bg-amber-50 p-2.5 text-xs text-amber-900">Supplier ka "we owe" aur cash / bank book is line se khud theek ho jayenge. Audit log me pehle / baad aur wajah rahegi.</p>
-        <Field label="Amount (Rs)"><input className="input text-lg font-semibold" type="number" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} /></Field>
+        <Field label="Amount (Rs)"><input className="input text-lg font-semibold" type="number" inputMode="decimal" step="any" value={amount} onChange={(e) => setAmount(e.target.value)} /></Field>
         <Field label="Kaise"><div className="flex flex-wrap gap-1.5">{PAY.map((m) => <button key={m} type="button" onClick={() => { setMethod(m); if (isCash(m)) setAccount(null); }} className={`rounded-full px-3 py-1 text-xs font-semibold ${method === m ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-600"}`}>{m}</button>)}</div></Field>
         {!isCash(method) && <AccountPicker value={account} onChange={setAccount} method={method} required />}
         <div className="grid grid-cols-2 gap-2">

@@ -5,6 +5,7 @@ import { Printer, ArrowLeft, RefreshCw } from "lucide-react";
 import { api, useApi } from "../lib/api";
 import { Loading, ErrorBox, useAction } from "../components/ui";
 import { TYPE_ICON } from "./Pos";
+import { printNow } from "../lib/printNow";
 
 /** Printable QR cards: one for the khata account, one sticker per vehicle. Scanned at the POS. */
 export default function Cards() {
@@ -21,7 +22,7 @@ export default function Cards() {
       <div className="mx-auto mb-4 flex max-w-4xl flex-wrap items-center gap-2 print:hidden">
         <Link to="/khata" className="btn-secondary"><ArrowLeft size={15} /> Back</Link>
         <h1 className="text-xl font-semibold text-slate-900">QR cards — {data.customer.name}</h1>
-        <button className="btn-primary ml-auto" onClick={() => window.print()}><Printer size={15} /> Print cards</button>
+        <button className="btn-primary ml-auto" onClick={() => printNow()}><Printer size={15} /> Print cards</button>
       </div>
       <p className="mx-auto mb-3 max-w-4xl text-sm text-slate-600 print:hidden">Stick the vehicle card on the windscreen. At the pump the salesman taps <b>Scan card</b> and the account, vehicle and khata are filled in. Lost a card? Make a new one — the old card stops working.</p>
       <div className="mx-auto grid grid-cols-1 max-w-4xl gap-4 sm:grid-cols-2 print:grid-cols-2 print:gap-2">

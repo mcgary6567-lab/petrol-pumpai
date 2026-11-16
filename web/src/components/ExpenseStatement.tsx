@@ -7,6 +7,7 @@ import { Empty, Field, Loading, Stat, useAction } from "./ui";
 import { d, newestFirst, pkr } from "../lib/format";
 import { PhotoThumb } from "./Capture";
 import { Ur } from "./VoiceShell";
+import { printNow } from "../lib/printNow";
 
 const pkDay = (offset = 0) => new Date(Date.now() + 5 * 3600_000 - offset * 86_400_000).toISOString().slice(0, 10);
 const monthStart = (m: string) => `${m}-01`;
@@ -110,7 +111,7 @@ export function ExpenseStatement({ categories, stations, onVoucher }: { categori
           </div>
 
           <div className="flex flex-wrap gap-2 print:hidden">
-            <button className="btn-secondary" onClick={() => window.print()}><Printer size={15} /> Print / PDF</button>
+            <button className="btn-secondary" onClick={() => printNow()}><Printer size={15} /> Print / PDF</button>
             <a className="btn-secondary" href={`/api/expenses/statement.csv?${qs}&token=${linkToken()}`}><Download size={15} /> Excel / CSV</a>
             <button className="btn-secondary" disabled={busy} onClick={() => run(() => api("/expenses/statement/whatsapp", { body: params }), "Khulasa owner ko WhatsApp par bhej diya")}><Send size={15} /> WhatsApp khulasa</button>
           </div>

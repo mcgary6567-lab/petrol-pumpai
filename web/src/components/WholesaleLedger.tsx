@@ -8,6 +8,7 @@ import { useAuth } from "../App";
 import { WholesaleEntryView } from "./EntryView";
 import { ErpBar, ErpSearch, Ur, bal } from "./WholesaleErp";
 import { LateBadge } from "./LateBadge";
+import { printNow } from "../lib/printNow";
 
 const pkToday = () => new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 10);
 const dayLabel = (iso: string) => new Date(Date.parse(iso)).toLocaleDateString("en-PK", { day: "2-digit", month: "short", year: "2-digit" });
@@ -99,7 +100,7 @@ export function PartyLedger() {
             <button key={l} className={`min-h-7 rounded-md border px-2 py-1 text-xs ${from === f && to === t ? "border-brand-600 bg-brand-50 font-semibold text-brand-700" : "border-slate-200 hover:bg-slate-50"}`} onClick={() => setRange(f, t)}>{l}</button>
           ))}
         </div>
-        <button className="btn-secondary" onClick={() => window.print()} title="Print"><Printer size={15} /><span className="hidden sm:inline"> Print</span></button>
+        <button className="btn-secondary" onClick={() => printNow()} title="Print"><Printer size={15} /><span className="hidden sm:inline"> Print</span></button>
         <a className="btn-secondary" href={csvUrl} title="Excel / CSV"><Download size={15} /><span className="hidden sm:inline"> Excel</span></a>
         {can("wholesale.manage") && c?.phone && <button className="btn-secondary" disabled={busy} title="WhatsApp statement" onClick={() => run(() => api(`/wholesale/clients/${clientId}/send-statement`, { body: { month: (to || pkToday()).slice(0, 7) } }), "Statement WhatsApp par bhej di")}><Send size={15} /><span className="hidden sm:inline"> WhatsApp</span></button>}
         {can("wholesale.manage") && <button className="btn-secondary !border-brand-600 !text-brand-700" onClick={() => nav(`/wholesale/${clientId}?do=payment`)}><Wallet size={15} /> Receipt</button>}

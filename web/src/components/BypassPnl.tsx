@@ -7,6 +7,7 @@ import { PRODUCTS, dt, num, pkr } from "../lib/format";
 import { Loading } from "./ui";
 import { Ur } from "./VoiceShell";
 import { BypassVoucher, MonthlyProfitChart } from "../pages/Bypass";
+import { printNow } from "../lib/printNow";
 
 const ym = (offset = 0) => { const d = new Date(Date.now() + 5 * 3600_000); d.setUTCDate(1); d.setUTCMonth(d.getUTCMonth() + offset); return d.toISOString().slice(0, 7); };
 const MON = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -46,7 +47,7 @@ export function BypassPnl() {
         <div className="flex flex-wrap items-end gap-3 px-4 py-3">
           <label className="block"><span className="label">Se (mahina)</span><input className="input" type="month" value={from} max={to} onChange={(e) => { setPreset("custom"); setRange([e.target.value || from, to]); setMonth(null); }} /></label>
           <label className="block"><span className="label">Tak (mahina)</span><input className="input" type="month" value={to} min={from} max={ym()} onChange={(e) => { setPreset("custom"); setRange([from, e.target.value || to]); setMonth(null); }} /></label>
-          <div className="ml-auto flex gap-2"><button className="btn-secondary" onClick={() => window.print()}><Printer size={15} /> Print / PDF</button><button className="btn-secondary" onClick={csv}><Download size={15} /> Excel / CSV</button></div>
+          <div className="ml-auto flex gap-2"><button className="btn-secondary" onClick={() => printNow()}><Printer size={15} /> Print / PDF</button><button className="btn-secondary" onClick={csv}><Download size={15} /> Excel / CSV</button></div>
         </div>
       </div>
 

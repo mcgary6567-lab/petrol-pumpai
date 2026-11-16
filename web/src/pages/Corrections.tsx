@@ -167,12 +167,12 @@ export function EditSupplierTxn({ x, url, onClose, onDone }: { x: any; url: stri
       fields={<>
         {isPurchase ? <>
           <div className="flex gap-2">
-            <Field label="Litres"><input className="input" type="number" inputMode="decimal" value={litres} onChange={(e) => setLitres(e.target.value)} /></Field>
-            <Field label="Rate (Rs/L)"><input className="input" type="number" inputMode="decimal" value={rate} onChange={(e) => setRate(e.target.value)} /></Field>
+            <Field label="Litres"><input className="input" type="number" inputMode="decimal" step="any" value={litres} onChange={(e) => setLitres(e.target.value)} /></Field>
+            <Field label="Rate (Rs/L)"><input className="input" type="number" inputMode="decimal" step="any" value={rate} onChange={(e) => setRate(e.target.value)} /></Field>
           </div>
           <p className="text-xs text-slate-500">Amount khud ban jayega: {pkr(lr || 0)}</p>
         </> : (
-          <Field label="Amount (Rs)"><input className="input" type="number" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} /></Field>
+          <Field label="Amount (Rs)"><input className="input" type="number" inputMode="decimal" step="any" value={amount} onChange={(e) => setAmount(e.target.value)} /></Field>
         )}
         <p className="text-xs text-slate-500">Method <b>{x.method ?? "—"}</b> wahi rahega. Supplier ka baqaya aur bank sab update honge.</p>
         <Field label="Reference (optional)"><input className="input" value={ref} onChange={(e) => setRef(e.target.value)} /></Field>
@@ -208,12 +208,12 @@ export function EditWholesaleTxn({ x, url, onClose, onDone }: { x: any; url: str
       fields={<>
         {isSupply ? <>
           <div className="flex gap-2">
-            <Field label="Litres"><input className="input" type="number" inputMode="decimal" value={litres} onChange={(e) => setLitres(e.target.value)} /></Field>
-            <Field label="Rate (Rs/L)"><input className="input" type="number" inputMode="decimal" value={rate} onChange={(e) => setRate(e.target.value)} /></Field>
+            <Field label="Litres"><input className="input" type="number" inputMode="decimal" step="any" value={litres} onChange={(e) => setLitres(e.target.value)} /></Field>
+            <Field label="Rate (Rs/L)"><input className="input" type="number" inputMode="decimal" step="any" value={rate} onChange={(e) => setRate(e.target.value)} /></Field>
           </div>
           <p className="text-xs text-slate-500">Amount: <b>{pkr(lr || 0)}</b> · stock {x.product} tank se adjust hoga, client ka khata bhi.</p>
         </> : <>
-          <Field label="Amount (Rs)"><input className="input" type="number" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} /></Field>
+          <Field label="Amount (Rs)"><input className="input" type="number" inputMode="decimal" step="any" value={amount} onChange={(e) => setAmount(e.target.value)} /></Field>
           <Field label="Method"><input className="input" value={method} onChange={(e) => setMethod(e.target.value)} placeholder="Cash / Online / …" /></Field>
         </>}
         <Field label="Note (optional)"><input className="input" value={note} onChange={(e) => setNote(e.target.value)} /></Field>
@@ -238,7 +238,7 @@ function EditRent({ p, url, onClose, onDone }: { p: any; url: string; onClose: (
     <EditModal title={`Edit rent — ${p.unit}`} onClose={onClose} onDone={onDone} url={url} canSave={Number(amount) > 0 && /^\d{4}-\d{2}$/.test(month)}
       body={() => ({ amount: Number(amount), for_month: month, note: note || null })}
       fields={<>
-        <Field label="Amount (Rs)"><input className="input" type="number" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} /></Field>
+        <Field label="Amount (Rs)"><input className="input" type="number" inputMode="decimal" step="any" value={amount} onChange={(e) => setAmount(e.target.value)} /></Field>
         <Field label="Mahina (YYYY-MM)"><input className="input" value={month} onChange={(e) => setMonth(e.target.value)} placeholder="2026-02" /></Field>
         <p className="text-xs text-slate-500">Method <b>{p.method}</b> wahi rahega. Cash book / bank aur rent income sab update honge.</p>
         <Field label="Note (optional)"><input className="input" value={note} onChange={(e) => setNote(e.target.value)} /></Field>
@@ -310,7 +310,7 @@ export function EditSale({ sale, onClose, onDone }: { sale: any; onClose: () => 
           <select className="input w-32" value={mode} onChange={(e) => { const m = e.target.value as "litres" | "amount"; setMode(m); setVal(String(m === "litres" ? num(sale.litres, 2) : sale.amount)); }}>
             <option value="litres">Litres</option><option value="amount">Amount (Rs)</option>
           </select>
-          <input className="input flex-1" type="number" inputMode="decimal" value={val} onChange={(e) => setVal(e.target.value)} />
+          <input className="input flex-1" type="number" inputMode="decimal" step="any" value={val} onChange={(e) => setVal(e.target.value)} />
         </div>
         <p className="text-xs text-slate-500">Rate wahi rahega ({pkr(sale.rate)}/L); {mode === "litres" ? "amount" : "litres"} khud ban jayega. Khata/cash/stock sab update honge. Shift band ho to bhi edit hoga: litres badhe to meter wala cash utna kam, ghate to utna zyada, aur salesman ka cash expected bhi usi hisaab se badlega.</p>
         <Field label="Vehicle no (optional)"><input className="input" value={vehicle} onChange={(e) => setVehicle(e.target.value)} /></Field>
@@ -319,7 +319,7 @@ export function EditSale({ sale, onClose, onDone }: { sale: any; onClose: () => 
           <div className="rounded-xl bg-amber-50/60 p-2.5 ring-1 ring-amber-200">
             <div className="mb-1.5 text-xs font-semibold text-amber-900">Baqi cash / shop saman</div>
             <div className="grid grid-cols-2 gap-2">
-              <Field label="Baqi/parchi litres"><input className="input" type="number" inputMode="decimal" value={baqiL} onChange={(e) => setBaqiL(e.target.value)} /></Field>
+              <Field label="Baqi/parchi litres"><input className="input" type="number" inputMode="decimal" step="any" value={baqiL} onChange={(e) => setBaqiL(e.target.value)} /></Field>
               <Field label={`Baqi value (auto · ${sale.rate}/L)`}><input className="input bg-slate-100 font-semibold" readOnly value={baqiVal ? pkr(baqiVal) : "—"} /></Field>
               <Field label="Cash di (Rs)"><input className="input" type="number" inputMode="numeric" value={cashDi} onChange={(e) => setCashDi(e.target.value)} /></Field>
               <Field label="Saman ki lagat (Rs)"><input className="input" type="number" inputMode="numeric" value={itemsCost} onChange={(e) => setItemsCost(e.target.value)} /></Field>
@@ -378,10 +378,10 @@ function EditDelivery({ d, onClose, onDone }: { d: any; onClose: () => void; onD
       body={() => ({ invoice_l: inv, received_l: rec, purchase_rate: rt, tanker_no: tanker || null })}
       fields={<>
         <div className="flex gap-2">
-          <Field label="Invoice litres"><input className="input" type="number" inputMode="decimal" value={invoice} onChange={(e) => setInvoice(e.target.value)} /></Field>
-          <Field label="Mile (received) litres"><input className="input" type="number" inputMode="decimal" value={received} onChange={(e) => setReceived(e.target.value)} /></Field>
+          <Field label="Invoice litres"><input className="input" type="number" inputMode="decimal" step="any" value={invoice} onChange={(e) => setInvoice(e.target.value)} /></Field>
+          <Field label="Mile (received) litres"><input className="input" type="number" inputMode="decimal" step="any" value={received} onChange={(e) => setReceived(e.target.value)} /></Field>
         </div>
-        <Field label="Rate (Rs/L)"><input className="input" type="number" inputMode="decimal" value={rate} onChange={(e) => setRate(e.target.value)} /></Field>
+        <Field label="Rate (Rs/L)"><input className="input" type="number" inputMode="decimal" step="any" value={rate} onChange={(e) => setRate(e.target.value)} /></Field>
         <p className="text-xs text-slate-500">Payable: <b>{pkr((inv || 0) * (rt || 0))}</b> · tank stock received litre se adjust hoga. Kami ho to shortage claim naya ban jayega.</p>
         <Field label="Tanker no (optional)"><input className="input" value={tanker} onChange={(e) => setTanker(e.target.value)} /></Field>
       </>} />
@@ -458,7 +458,7 @@ export function EditKhata({ entry, onClose, onDone }: { entry: any; onClose: () 
             <option value="debit">Charge (customer pe chadhao)</option><option value="credit">Payment (customer ne diya)</option>
           </select>
         </Field>
-        <Field label="Amount (Rs)"><input className="input" type="number" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} /></Field>
+        <Field label="Amount (Rs)"><input className="input" type="number" inputMode="decimal" step="any" value={amount} onChange={(e) => setAmount(e.target.value)} /></Field>
         <Field label="Note (optional)"><input className="input" value={note} onChange={(e) => setNote(e.target.value)} /></Field>
       </>} />
   );

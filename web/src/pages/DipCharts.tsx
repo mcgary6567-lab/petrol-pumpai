@@ -6,6 +6,7 @@ import { Badge, Empty, Field, Loading, Modal, PageHeader, useAction, useToast } 
 import { resizeImage } from "../components/Capture";
 import { Ur } from "../components/VoiceShell";
 import { PRODUCTS, PRODUCT_COLORS, PRODUCT_UR, num } from "../lib/format";
+import { printNow } from "../lib/printNow";
 
 type Row = { depth_mm: number; litres: number };
 type Chart = { id: number; name: string; product: string | null; capacity_l: number | null; length_mm: number | null; diameter_mm: number | null; source: string | null; notes: string | null; template_key: string | null; rows: number; min_mm: number; max_mm: number; max_l: number; updated_at: string; updated_by: string | null; tanks: { id: number; name: string; product: string; station: string }[] };
@@ -181,7 +182,7 @@ function Editor({ id, tanks, onChanged, onDeleted }: { id: number; tanks: any[];
           <div className="flex flex-wrap gap-2 print:hidden">
             <button className="btn-primary min-h-11" onClick={() => setAssign(true)}><Fuel size={16} /> Tank chunein ({c.tanks.length})</button>
             <a className="btn-secondary min-h-11" href={`/api/dip-charts/${id}/export.csv?token=${linkToken()}`} title="Excel / CSV"><Download size={16} /> Excel</a>
-            <button className="btn-secondary min-h-11" onClick={() => window.print()} title="Print"><Printer size={16} /> Print</button>
+            <button className="btn-secondary min-h-11" onClick={() => printNow()} title="Print"><Printer size={16} /> Print</button>
             <button className="btn-secondary min-h-11" onClick={copy} disabled={busy} title="Is chart ki copy banayein"><Copy size={16} /> Copy</button>
             <button className="btn-secondary min-h-11 text-red-600" onClick={remove} disabled={busy} title="Chart delete karein" aria-label="Delete chart"><Trash2 size={16} /></button>
           </div>
@@ -220,7 +221,7 @@ function Editor({ id, tanks, onChanged, onDeleted }: { id: number; tanks: any[];
         <div className="mb-2 flex items-center gap-2 font-semibold"><Ruler size={18} className="text-brand-600" /> Dip se litre nikalein · <Ur>ڈپ لکھیں، لیٹر دیکھیں</Ur></div>
         <div className="grid items-center gap-4 sm:grid-cols-[auto_1fr]">
           <label className="relative block">
-            <input className="input h-16 w-full py-3 pr-14 text-3xl font-bold tabular-nums sm:w-56" type="number" inputMode="decimal" placeholder="0" value={look} onChange={(e) => setLook(e.target.value)} aria-label="Dip in mm" />
+            <input className="input h-16 w-full py-3 pr-14 text-3xl font-bold tabular-nums sm:w-56" type="number" inputMode="decimal" step="any" placeholder="0" value={look} onChange={(e) => setLook(e.target.value)} aria-label="Dip in mm" />
             <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-lg font-semibold text-slate-400">mm</span>
           </label>
           <div className="min-w-0">
@@ -244,9 +245,9 @@ function Editor({ id, tanks, onChanged, onDeleted }: { id: number; tanks: any[];
         <div className="grid gap-3 border-t border-slate-100 p-4 md:grid-cols-3">
           <div className="md:col-span-2"><Field label="Chart ka naam"><input className="input" value={meta.name} onChange={(e) => setM("name", e.target.value)} /></Field></div>
           <Field label="Kis fuel ka"><select className="input" value={meta.product} onChange={(e) => setM("product", e.target.value)}><option value="">Koi bhi</option>{Object.entries(PRODUCTS).map(([k, v]) => <option key={k} value={k}>{v} ({k})</option>)}</select></Field>
-          <Field label="Tank size (litre)"><input className="input" type="number" inputMode="decimal" value={meta.capacity_l} onChange={(e) => setM("capacity_l", e.target.value)} /></Field>
-          <Field label="Andar ki lambai (mm)"><input className="input" type="number" inputMode="decimal" value={meta.length_mm} onChange={(e) => setM("length_mm", e.target.value)} /></Field>
-          <Field label="Andar ki golai / diameter (mm)"><input className="input" type="number" inputMode="decimal" value={meta.diameter_mm} onChange={(e) => setM("diameter_mm", e.target.value)} /></Field>
+          <Field label="Tank size (litre)"><input className="input" type="number" inputMode="decimal" step="any" value={meta.capacity_l} onChange={(e) => setM("capacity_l", e.target.value)} /></Field>
+          <Field label="Andar ki lambai (mm)"><input className="input" type="number" inputMode="decimal" step="any" value={meta.length_mm} onChange={(e) => setM("length_mm", e.target.value)} /></Field>
+          <Field label="Andar ki golai / diameter (mm)"><input className="input" type="number" inputMode="decimal" step="any" value={meta.diameter_mm} onChange={(e) => setM("diameter_mm", e.target.value)} /></Field>
           <div className="md:col-span-3"><Field label="Sheet kahan se (company, tareekh)"><input className="input" value={meta.source} onChange={(e) => setM("source", e.target.value)} /></Field></div>
           <div className="md:col-span-3"><Field label="Note"><textarea className="input min-h-[64px]" value={meta.notes} onChange={(e) => setM("notes", e.target.value)} /></Field></div>
         </div>
@@ -263,9 +264,9 @@ function Editor({ id, tanks, onChanged, onDeleted }: { id: number; tanks: any[];
           <button className="btn-primary" onClick={save} disabled={busy || !dirty}><Check size={15} /> Save{dirty ? " changes" : "d"}</button>
         </div>
         {addRange && <div className="mt-3 flex flex-wrap items-end gap-2 rounded-lg bg-slate-50 p-3 text-sm">
-          <Field label="From (mm)"><input className="input w-28" type="number" inputMode="decimal" value={addRange.from} onChange={(e) => setAddRange({ ...addRange, from: e.target.value })} /></Field>
-          <Field label="To (mm)"><input className="input w-28" type="number" inputMode="decimal" value={addRange.to} onChange={(e) => setAddRange({ ...addRange, to: e.target.value })} /></Field>
-          <Field label="Step (mm)"><input className="input w-24" type="number" inputMode="decimal" value={addRange.step} onChange={(e) => setAddRange({ ...addRange, step: e.target.value })} /></Field>
+          <Field label="From (mm)"><input className="input w-28" type="number" inputMode="decimal" step="any" value={addRange.from} onChange={(e) => setAddRange({ ...addRange, from: e.target.value })} /></Field>
+          <Field label="To (mm)"><input className="input w-28" type="number" inputMode="decimal" step="any" value={addRange.to} onChange={(e) => setAddRange({ ...addRange, to: e.target.value })} /></Field>
+          <Field label="Step (mm)"><input className="input w-24" type="number" inputMode="decimal" step="any" value={addRange.step} onChange={(e) => setAddRange({ ...addRange, step: e.target.value })} /></Field>
           <button className="btn-primary" onClick={addRows}>Add empty rows</button><button className="btn-secondary" onClick={() => setAddRange(null)}>Cancel</button>
         </div>}
         {check && (check.problems.length > 0 || check.gaps.length > 0 || check.jumps.length > 0) && <div className="mt-3 space-y-1 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 print:hidden">
@@ -286,7 +287,7 @@ function Editor({ id, tanks, onChanged, onDeleted }: { id: number; tanks: any[];
                     return (
                       <tr key={i} className={bad ? "bg-red-50" : warn ? "bg-amber-50" : ""} title={bad}>
                         <td className="py-0.5 pr-1"><input className="input px-2 py-1 tabular-nums print:border-0 print:p-0" type="number" inputMode="decimal" step="0.5" value={unit(r.depth_mm)} onChange={(e) => edit(i, "depth_mm", e.target.value)} /></td>
-                        <td className="py-0.5 pr-1"><input className={`input px-2 py-1 tabular-nums print:border-0 print:p-0 ${!Number.isFinite(r.litres) ? "border-amber-400" : ""}`} type="number" inputMode="decimal" value={unit(r.litres)} onChange={(e) => edit(i, "litres", e.target.value)} /></td>
+                        <td className="py-0.5 pr-1"><input className={`input px-2 py-1 tabular-nums print:border-0 print:p-0 ${!Number.isFinite(r.litres) ? "border-amber-400" : ""}`} type="number" inputMode="decimal" step="any" value={unit(r.litres)} onChange={(e) => edit(i, "litres", e.target.value)} /></td>
                         <td className="print:hidden"><button className="p-1 text-slate-300 hover:text-red-600" onClick={() => del(i)} aria-label="Remove row"><X size={14} /></button></td>
                       </tr>
                     );
@@ -391,9 +392,9 @@ function NewChart({ mode, setMode, templates, tanks, ai, presetTank, onClose, on
     <div className="grid gap-3 md:grid-cols-3">
       <div className="md:col-span-2"><Field label="Chart name"><input className="input" required value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. HSD U/G tank 14,370 L" /></Field></div>
       <Field label="Product"><select className="input" value={product} onChange={(e) => setProduct(e.target.value)}><option value="">Any</option>{Object.entries(PRODUCTS).map(([k, v]) => <option key={k} value={k}>{k} — {v}</option>)}</select></Field>
-      <Field label="Capacity (L)"><input className="input" type="number" inputMode="decimal" value={cap} onChange={(e) => setCap(e.target.value)} /></Field>
-      <Field label="Internal length (mm)"><input className="input" type="number" inputMode="decimal" value={len} onChange={(e) => setLen(e.target.value)} /></Field>
-      <Field label="Internal diameter (mm)"><input className="input" type="number" inputMode="decimal" value={dia} onChange={(e) => setDia(e.target.value)} /></Field>
+      <Field label="Capacity (L)"><input className="input" type="number" inputMode="decimal" step="any" value={cap} onChange={(e) => setCap(e.target.value)} /></Field>
+      <Field label="Internal length (mm)"><input className="input" type="number" inputMode="decimal" step="any" value={len} onChange={(e) => setLen(e.target.value)} /></Field>
+      <Field label="Internal diameter (mm)"><input className="input" type="number" inputMode="decimal" step="any" value={dia} onChange={(e) => setDia(e.target.value)} /></Field>
       <div className="md:col-span-3"><Field label="Source (which oil company sheet, date)"><input className="input" value={source} onChange={(e) => setSource(e.target.value)} /></Field></div>
       {tanks.length > 0 && <div className="md:col-span-3"><Field label="Use for these tanks (can change later)">
         <div className="flex flex-wrap gap-2">{tanks.map((t) => <label key={t.id} className={`flex cursor-pointer items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm ${assignIds.includes(t.id) ? "border-brand-500 bg-brand-50" : "border-slate-300"}`}><input type="checkbox" className="h-4 w-4" checked={assignIds.includes(t.id)} onChange={(e) => setAssignIds(e.target.checked ? [...assignIds, t.id] : assignIds.filter((x) => x !== t.id))} />{t.name} · {t.product}</label>)}</div>

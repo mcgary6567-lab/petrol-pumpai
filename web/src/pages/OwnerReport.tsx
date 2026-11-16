@@ -10,6 +10,7 @@ import { api, linkToken, useApi } from "../lib/api";
 import { ErrorBox, Loading, Pager, useAction, usePaged } from "../components/ui";
 import { ErpBar, ErpSearch, Ur } from "../components/WholesaleErp";
 import { dOnly, num, pkr } from "../lib/format";
+import { printNow } from "../lib/printNow";
 
 const monthEnd = (m: string) => { const [y, mo] = m.split("-").map(Number); return `${m}-${String(new Date(Date.UTC(y, mo, 0)).getUTCDate()).padStart(2, "0")}`; };
 const prevMonth = (m: string) => { const [y, mo] = m.split("-").map(Number); return mo === 1 ? `${y - 1}-12` : `${y}-${String(mo - 1).padStart(2, "0")}`; };
@@ -51,7 +52,7 @@ export default function OwnerReport() {
         {(tab === "tb" || tab === "journal") && <a className="btn-secondary" href={dl(`/ledger/tally.xml?from=${from}&to=${to}`)} title="Tally XML"><Download size={15} /><span className="hidden sm:inline"> Tally</span></a>}
         {tab === "pl" && <a className="btn-secondary" href={dl(`/analysis/pl.csv?month=${month}`)}><Download size={15} /><span className="hidden sm:inline"> Excel</span></a>}
         <button className="btn-secondary" disabled={wa.busy} onClick={() => wa.run(() => api("/reports/whatsapp", { body: { from: new Date(from + "T00:00:00+05:00").toISOString(), to: new Date(to + "T23:59:59+05:00").toISOString() } }), (x: any) => x.simulated ? "WhatsApp abhi set nahi — khulasa simulate hua" : "Report WhatsApp par bhej di")}><Send size={15} /><span className="hidden sm:inline"> WhatsApp</span></button>
-        <button className="btn-primary" onClick={() => window.print()}><Printer size={15} /> Print / PDF</button>
+        <button className="btn-primary" onClick={() => printNow()}><Printer size={15} /> Print / PDF</button>
       </ErpBar>
 
       <div className="flex gap-1 overflow-x-auto border-b border-slate-200 print:hidden">

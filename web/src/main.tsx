@@ -2,6 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
 import "./index.css";
+import { installSelectSearch } from "./lib/selectSearch";
 
 // the pump this browser belongs to (its /p/<slug> link, or the last sign-in): the install-app manifest must be that pump's from the first paint
 try {
@@ -26,10 +27,14 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
 // Number inputs, system-wide: phone keypad (inputmode) even for inputs built without it, and no value change by
 // mouse wheel or arrow keys — a figure typed into a money box must stay exactly as typed.
 const isNum = (el: Element | null): el is HTMLInputElement => el instanceof HTMLInputElement && el.type === "number";
-const keypad = (root: ParentNode) => root.querySelectorAll('input[type="number"]:not([inputmode])').forEach((el) => el.setAttribute("inputmode", "decimal"));
+// a decimal box takes as many decimals as typed (litres / rate like 12.345): a box with no step would refuse "12.5" on Save
+const anyStep = (el: Element) => { if (el.getAttribute("inputmode") === "decimal" && !el.hasAttribute("step")) el.setAttribute("step", "any"); };
+const keypad = (root: ParentNode) => { root.querySelectorAll('input[type="number"]:not([inputmode])').forEach((el) => el.setAttribute("inputmode", "decimal")); root.querySelectorAll('input[type="number"]').forEach(anyStep); };
 keypad(document);
-new MutationObserver((muts) => { for (const m of muts) for (const n of m.addedNodes) if (n instanceof HTMLElement) { if (isNum(n)) n.setAttribute("inputmode", "decimal"); else keypad(n); } })
+new MutationObserver((muts) => { for (const m of muts) for (const n of m.addedNodes) if (n instanceof HTMLElement) { if (isNum(n)) { n.setAttribute("inputmode", "decimal"); anyStep(n); } else keypad(n); } })
   .observe(document.documentElement, { childList: true, subtree: true });
+// long dropdowns (client, customer, supplier …) get a search box
+installSelectSearch();
 document.addEventListener("wheel", () => { if (isNum(document.activeElement)) document.activeElement.blur(); }, { passive: true });
 document.addEventListener("keydown", (e) => { if ((e.key === "ArrowUp" || e.key === "ArrowDown") && isNum(e.target as Element)) e.preventDefault(); });
 

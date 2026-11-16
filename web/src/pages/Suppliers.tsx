@@ -19,6 +19,7 @@ import { IdTag, Badge, Empty, Field, ListTools, Loading, Modal, PageHeader, Page
 import { WhatsAppDoc } from "../components/WhatsAppDoc";
 import { Ur } from "../components/VoiceShell";
 import { PRODUCTS, ago, d, dt, num, phone, pkr, pkrShort } from "../lib/format";
+import { printNow } from "../lib/printNow";
 
 const OIL_COMPANIES = ["PSO", "Shell", "Total PARCO", "Attock (APL)", "GO", "Hascol", "Byco / Puma", "Be Energy", "Askar", "Other"];
 /** "Shell — Kamran", or just the name when no company is set. */
@@ -189,7 +190,7 @@ function SupplierForm({ initial, depots, onClose, onSaved, onDepots }: { initial
         </div>
         {(f.company === "Other" || (!knownCompany && f.company !== "")) && <Field label="Write the company"><input className="input" value={f.company === "Other" ? f.companyOther : f.company} onChange={(e) => setF({ ...f, company: "Other", companyOther: e.target.value })} /></Field>}
         <Field label="Phone"><PhoneInput value={f.phone} onChange={(v) => setF({ ...f, phone: v })} /></Field>
-        {!initial && <Field label="Opening balance we owe (Rs)"><input className="input" type="number" inputMode="decimal" value={f.opening_balance} onChange={(e) => setF({ ...f, opening_balance: e.target.value })} /></Field>}
+        {!initial && <Field label="Opening balance we owe (Rs)"><input className="input" type="number" inputMode="decimal" step="any" value={f.opening_balance} onChange={(e) => setF({ ...f, opening_balance: e.target.value })} /></Field>}
         <Field label="Notes (optional)"><input className="input" value={f.notes} onChange={(e) => setF({ ...f, notes: e.target.value })} /></Field>
         <div className="flex items-center justify-end gap-2">
           {initial && <button type="button" className="btn-secondary mr-auto !text-amber-700" disabled={busy} onClick={() => run(() => api(`/suppliers/${initial.id}`, { method: "PATCH", body: { active: !initial.active } }), initial.active ? "Deactivated" : "Reactivated").then(onSaved)}>{initial.active ? "Deactivate" : "Reactivate"}</button>}
@@ -216,7 +217,7 @@ function SupplierRefund({ id, owed, onClose, onDone }: { id: number; owed: numbe
       }}>
         <p className="text-sm text-slate-600">Supplier ke paas hamara: <b>{pkr(over)}</b> (hum ne zyada diya tha)</p>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <Field label="Amount (Rs)"><input className="input" type="number" inputMode="decimal" min={1} required value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} /></Field>
+          <Field label="Amount (Rs)"><input className="input" type="number" inputMode="decimal" step="any" min={1} required value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} /></Field>
           <Field label="Method"><select className="input" value={f.method} onChange={(e) => { setF({ ...f, method: e.target.value }); setAccount(null); }}>{["Cash", "Bank transfer", "Online (1LINK)", "Raast", "JazzCash", "Easypaisa"].map((m) => <option key={m}>{m}</option>)}</select></Field>
         </div>
         {!isCash && <AccountPicker method={f.method} label="Kis account mein aaya?" value={account} onChange={setAccount} required />}
@@ -336,7 +337,7 @@ function SupplierDetail({ id, onClose, onChanged, depots, onDepots }: { id: numb
             <Stat label="We owe (pump + bypass)" value={pkr(s.total_owed ?? s.owed)} tone="red" hint={Math.abs(s.bypass_owed ?? 0) > 0.5 ? `pump ${pkr(s.owed)} · bypass ${pkr(s.bypass_owed)}` : undefined} />
             <a className="btn-secondary min-h-10" href={`/api/suppliers/${id}/statement.csv?token=${linkToken()}`}><Download size={15} /> Excel / CSV</a>
             <WhatsAppDoc kind="supplier" id={Number(id)} className="btn-secondary min-h-10" />
-            <button type="button" className="btn-secondary min-h-10" onClick={() => window.print()}><Printer size={15} /> Print statement · <Ur>پرنٹ</Ur></button>
+            <button type="button" className="btn-secondary min-h-10" onClick={() => printNow()}><Printer size={15} /> Print statement · <Ur>پرنٹ</Ur></button>
             {modules.investors && Number(s.total_owed) > 0.5 && <Link to={`/investors?transfer=supplier:${s.id}`} className="btn-secondary min-h-10 !text-violet-700" title="Baqaya investor capital banayein">⇄ Investor me transfer</Link>}
             {Number(s.owed) < -0.5 && <button type="button" className="btn-secondary min-h-10 !text-emerald-700" onClick={() => setRefund(true)}><Wallet size={15} /> Overpayment wapas · <Ur>ایڈوانس واپس</Ur></button>}
             <form className="grid w-full basis-full grid-cols-2 items-end gap-2 sm:flex sm:min-w-0 sm:flex-1 sm:basis-auto sm:flex-wrap" onSubmit={async (e) => {
@@ -345,10 +346,10 @@ function SupplierDetail({ id, onClose, onChanged, depots, onDepots }: { id: numb
               if (res?.pending) { alert(res.message); setPay({ ...pay, amount: "", ref: "", wht: "" }); setPhotos([]); reload(); return; }
               if (res) { setPay({ ...pay, amount: "", ref: "", wht: "" }); setPhotos([]); reload(); onChanged(); if (res.payment) setSlip(voucherOf(res.payment, res.owed)); }
             }}>
-              <Field label="Pay amount (Rs)"><input className="input sm:w-40" type="number" inputMode="decimal" min={1} required value={pay.amount} onChange={(e) => setPay({ ...pay, amount: e.target.value })} /></Field>
+              <Field label="Pay amount (Rs)"><input className="input sm:w-40" type="number" inputMode="decimal" step="any" min={1} required value={pay.amount} onChange={(e) => setPay({ ...pay, amount: e.target.value })} /></Field>
               <Field label="Method"><select className="input" value={pay.method} onChange={(e) => setPay({ ...pay, method: e.target.value })}>{["Bank transfer", "Pay order", "Online (1LINK)", "Cheque", "Cash"].map((m) => <option key={m}>{m}</option>)}</select></Field>
               <Field label="Ref"><input className="input sm:w-32" value={pay.ref} onChange={(e) => setPay({ ...pay, ref: e.target.value })} /></Field>
-              <Field label="Tax withheld (Rs)"><input className="input sm:w-32" type="number" inputMode="decimal" min={0} placeholder="0" value={pay.wht} onChange={(e) => setPay({ ...pay, wht: e.target.value })} /></Field>
+              <Field label="Tax withheld (Rs)"><input className="input sm:w-32" type="number" inputMode="decimal" step="any" min={0} placeholder="0" value={pay.wht} onChange={(e) => setPay({ ...pay, wht: e.target.value })} /></Field>
               {canBackdate && <Field label="Entry ki date (agar aaj ki nahi) · پرانی تاریخ"><input className="input sm:w-40" type="date" max={new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 10)} value={pay.txn_date} onChange={(e) => setPay({ ...pay, txn_date: e.target.value })} /></Field>}
               <div className="col-span-2 w-full"><AccountPicker method={pay.method} label="Paid from which bank? · کس بینک سے" value={account} onChange={setAccount} /></div>
               <button className="btn-primary col-span-2" disabled={busy || (pay.method === "Cheque" && !photos.length)}><Wallet size={15} /> Record payment</button>

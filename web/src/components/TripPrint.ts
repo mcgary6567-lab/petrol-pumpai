@@ -48,7 +48,7 @@ const CSS = `
   .bar button { font: 600 15px system-ui, sans-serif; border: 0; border-radius: 8px; padding: 10px 16px; min-height: 44px; cursor: pointer; }
   .bar .go { background: #059669; color: #fff; } .bar .x { background: #334155; color: #fff; }
   .bar span { font-size: 12px; color: #cbd5e1; }
-  @media print { .bar { display: none; } }
+  @media print { .bar, #pmsg { display: none !important; } }
   /* reading it on a phone before printing or sharing as PDF */
   @media screen and (max-width: 640px) {
     .page { padding: 12px 10px; }
@@ -148,7 +148,8 @@ export function printPages(title: string, body: string, color?: string | null) {
     const w = window.open("", "_blank");
     if (w) {
       w.document.open();
-      w.document.write(doc(title, body, `<div class="bar"><button class="x" onclick="window.close()">✕ Close</button><span>${esc(title)}</span><button class="go" onclick="window.print()">🖨 Print / PDF</button></div>`));
+      w.document.write(doc(title, body, `<div class="bar"><button class="x" onclick="window.close()">✕ Close</button><span>${esc(title)}</span><button class="go" id="go">🖨 Print / PDF</button></div><div id="pmsg" style="display:none;margin:8px;padding:10px 12px;border-radius:10px;background:#fef3c7;color:#78350f;font:14px system-ui">Is app mein print nahi khulta. Upar ⋮ menu se <b>"Open in Chrome"</b> karein, phir Print — ya ⋮ → Share → Print.</div>
+<script>document.getElementById("go").onclick=function(){var ok=false;addEventListener("beforeprint",function(){ok=true},{once:true});try{print()}catch(e){}setTimeout(function(){if(!ok)document.getElementById("pmsg").style.display="block"},1200)};</script>`));
       w.document.close();
       return;
     }

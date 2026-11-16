@@ -115,7 +115,7 @@ function Form({ it, post, busy }: { it: Item; post: (p: string, body?: any, msg?
   switch (it.key) {
     case "cash": return (
       <div className="flex flex-wrap items-end gap-2">
-        <Field label="Aaj daraaz / office me cash (Rs)"><input className="input w-48 text-xl tabular-nums" type="number" inputMode="decimal" min={0} value={v("amount")} onChange={(e) => set("amount", e.target.value)} autoFocus /></Field>
+        <Field label="Aaj daraaz / office me cash (Rs)"><input className="input w-48 text-xl tabular-nums" type="number" inputMode="decimal" step="any" min={0} value={v("amount")} onChange={(e) => set("amount", e.target.value)} autoFocus /></Field>
         <Btn label="Opening cash likhein" onClick={() => post("/cash/count", { amount: Number(v("amount")) || 0, note: "Opening cash (go-live)" }, "Opening cash likh diya")} />
       </div>);
     case "bank": return (
@@ -123,7 +123,7 @@ function Form({ it, post, busy }: { it: Item; post: (p: string, body?: any, msg?
         <Field label="Bank / wallet *"><input className="input" value={v("bank")} onChange={(e) => set("bank", e.target.value)} placeholder="HBL, Meezan, JazzCash…" autoFocus /></Field>
         <Field label="Title"><input className="input" value={v("title")} onChange={(e) => set("title", e.target.value)} placeholder="Pump ke naam" /></Field>
         <Field label="Account no"><input className="input" value={v("account_no")} onChange={(e) => set("account_no", e.target.value)} /></Field>
-        <Field label="Aaj ka balance (Rs)"><input className="input tabular-nums" type="number" inputMode="decimal" value={v("opening_balance")} onChange={(e) => set("opening_balance", e.target.value)} /></Field>
+        <Field label="Aaj ka balance (Rs)"><input className="input tabular-nums" type="number" inputMode="decimal" step="any" value={v("opening_balance")} onChange={(e) => set("opening_balance", e.target.value)} /></Field>
         <div className="sm:col-span-4"><Btn label="Account banayein" onClick={() => post("/bank/accounts", { bank: v("bank"), title: v("title") || null, account_no: v("account_no") || null, kind: /jazz|easy|sada|upaisa|wallet/i.test(v("bank")) ? "wallet" : "current", opening_balance: Number(v("opening_balance")) || 0 }, "Bank account ban gaya")} /></div>
       </div>);
     case "staff": {
@@ -152,14 +152,14 @@ function Form({ it, post, busy }: { it: Item; post: (p: string, body?: any, msg?
     case "khata": return (
       <div className="flex flex-wrap items-end gap-2">
         <Field label="Hold after (din bina payment)"><input className="input w-32 tabular-nums" type="number" inputMode="numeric" min={15} max={365} value={v("block_days", it.block_days)} onChange={(e) => set("block_days", e.target.value)} /></Field>
-        <Field label="Salesman khata discount max (Rs)"><input className="input w-36 tabular-nums" type="number" inputMode="decimal" min={0} value={v("khata_discount_max", it.khata_discount_max)} onChange={(e) => set("khata_discount_max", e.target.value)} /></Field>
+        <Field label="Salesman khata discount max (Rs)"><input className="input w-36 tabular-nums" type="number" inputMode="decimal" step="any" min={0} value={v("khata_discount_max", it.khata_discount_max)} onChange={(e) => set("khata_discount_max", e.target.value)} /></Field>
         <Btn onClick={() => post("/settings", { khata_rules: { block_days: Number(v("block_days", it.block_days)) }, limits: { khata_discount_max: Number(v("khata_discount_max", it.khata_discount_max)) } }, "Khata rules set", "PUT").then((r) => r && post(`/golive/khata/done`))} />
       </div>);
     case "fuel_cost": return (
       <div className="space-y-2">
         {(it.fuels ?? []).map((f: any) => (
           <div key={f.product} className="flex flex-wrap items-center gap-2 text-sm"><span className="w-56 truncate">{f.name} · {num(f.litres)} L in tanks</span>
-            <input className="input w-32 tabular-nums" type="number" inputMode="decimal" min={0} step="0.01" placeholder={f.last_purchase_rate ? String(f.last_purchase_rate) : "Rs / L"} value={v(`r${f.product}`, f.rate ?? f.last_purchase_rate ?? "")} onChange={(e) => set(`r${f.product}`, e.target.value)} />
+            <input className="input w-32 tabular-nums" type="number" inputMode="decimal" min={0} step="any" placeholder={f.last_purchase_rate ? String(f.last_purchase_rate) : "Rs / L"} value={v(`r${f.product}`, f.rate ?? f.last_purchase_rate ?? "")} onChange={(e) => set(`r${f.product}`, e.target.value)} />
             <span className="text-xs text-slate-500">Rs/L → value {pkr(Number(v(`r${f.product}`, f.rate ?? f.last_purchase_rate ?? 0)) * f.litres)}</span></div>))}
         <p className="text-xs text-slate-500">Ek fuel ka ek rate (depot ka bhao). Value ledger me "Fuel stock (go-live)" ban kar aayegi; tank ke litre badlein to value khud update hogi.</p>
         <Btn onClick={() => post("/opening/fuel-rates", { rows: (it.fuels ?? []).map((f: any) => ({ product: f.product, rate: Number(v(`r${f.product}`, f.rate ?? f.last_purchase_rate ?? 0)) })).filter((r: any) => r.rate > 0) }, "Opening fuel cost set").then(() => post(`/golive/fuel_cost/done`))} />
@@ -168,16 +168,16 @@ function Form({ it, post, busy }: { it: Item; post: (p: string, body?: any, msg?
       <div className="space-y-2">
         {(it.tanks ?? []).map((k: any) => (
           <div key={k.id} className="flex flex-wrap items-center gap-2 text-sm"><span className="w-56 truncate">{k.station} · {k.name} ({k.product}, {num(k.capacity_l)} L)</span>
-            <input className="input w-32 tabular-nums" type="number" inputMode="decimal" min={0} value={v(`t${k.id}`, k.reorder_l)} onChange={(e) => set(`t${k.id}`, e.target.value)} /> <span className="text-xs text-slate-500">litre par alert</span></div>))}
+            <input className="input w-32 tabular-nums" type="number" inputMode="decimal" step="any" min={0} value={v(`t${k.id}`, k.reorder_l)} onChange={(e) => set(`t${k.id}`, e.target.value)} /> <span className="text-xs text-slate-500">litre par alert</span></div>))}
         <Btn onClick={() => post("/golive/reorder", { tanks: (it.tanks ?? []).map((k: any) => ({ id: k.id, reorder_l: Number(v(`t${k.id}`, k.reorder_l)) })) }, "Reorder levels set")} />
       </div>);
     case "alerts": {
       const s = it.sensitivity ?? {};
       return (
         <div className="flex flex-wrap items-end gap-2">
-          <Field label="Cash short — warning (Rs)"><input className="input w-32 tabular-nums" type="number" inputMode="decimal" value={v("cash_short_warn", s.cash_short_warn)} onChange={(e) => set("cash_short_warn", e.target.value)} /></Field>
-          <Field label="Cash short — critical (Rs)"><input className="input w-32 tabular-nums" type="number" inputMode="decimal" value={v("cash_short_crit", s.cash_short_crit)} onChange={(e) => set("cash_short_crit", e.target.value)} /></Field>
-          <Field label="Shift dip variance (L)"><input className="input w-28 tabular-nums" type="number" inputMode="decimal" value={v("shift_dip_alert_l", s.shift_dip_alert_l)} onChange={(e) => set("shift_dip_alert_l", e.target.value)} /></Field>
+          <Field label="Cash short — warning (Rs)"><input className="input w-32 tabular-nums" type="number" inputMode="decimal" step="any" value={v("cash_short_warn", s.cash_short_warn)} onChange={(e) => set("cash_short_warn", e.target.value)} /></Field>
+          <Field label="Cash short — critical (Rs)"><input className="input w-32 tabular-nums" type="number" inputMode="decimal" step="any" value={v("cash_short_crit", s.cash_short_crit)} onChange={(e) => set("cash_short_crit", e.target.value)} /></Field>
+          <Field label="Shift dip variance (L)"><input className="input w-28 tabular-nums" type="number" inputMode="decimal" step="any" value={v("shift_dip_alert_l", s.shift_dip_alert_l)} onChange={(e) => set("shift_dip_alert_l", e.target.value)} /></Field>
           <Field label="Low stock (din)"><input className="input w-24 tabular-nums" type="number" inputMode="decimal" step="0.5" value={v("low_stock_days", s.low_stock_days)} onChange={(e) => set("low_stock_days", e.target.value)} /></Field>
           <Btn onClick={() => post("/settings", { sensitivity: { cash_short_warn: Number(v("cash_short_warn", s.cash_short_warn)), cash_short_crit: Number(v("cash_short_crit", s.cash_short_crit)), shift_dip_alert_l: Number(v("shift_dip_alert_l", s.shift_dip_alert_l)), low_stock_days: Number(v("low_stock_days", s.low_stock_days)) } }, "Alert sensitivity set", "PUT").then((r) => r && post(`/golive/alerts/done`))} />
         </div>);

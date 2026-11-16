@@ -221,10 +221,10 @@ function ItemForm({ item, stationId, onClose, onDone }: { item?: any; stationId:
             </select>
             {!unitKnown && <input className="input mt-1" value={f.unit} onChange={(e) => setF({ ...f, unit: e.target.value })} placeholder="e.g. box" />}
           </Field>
-          <Field label="Cost (Rs)"><input className="input" type="number" inputMode="decimal" min={0} step="0.01" value={f.cost} onChange={(e) => setF({ ...f, cost: e.target.value })} /></Field>
-          <Field label="Sale price (Rs)"><input className="input" type="number" inputMode="decimal" min={1} step="0.01" required value={f.price} onChange={(e) => setF({ ...f, price: e.target.value })} /></Field>
-          <Field label="Alert when stock ≤"><input className="input" type="number" inputMode="decimal" min={0} value={f.reorder_level} onChange={(e) => setF({ ...f, reorder_level: e.target.value })} /></Field>
-          <Field label={item ? `Stock abhi (${item.unit ?? "pc"})` : "Opening stock"}><input className="input" type="number" inputMode="decimal" min={0} value={f.stock} onChange={(e) => setF({ ...f, stock: e.target.value })} placeholder="0" />
+          <Field label="Cost (Rs)"><input className="input" type="number" inputMode="decimal" min={0} step="any" value={f.cost} onChange={(e) => setF({ ...f, cost: e.target.value })} /></Field>
+          <Field label="Sale price (Rs)"><input className="input" type="number" inputMode="decimal" min={1} step="any" required value={f.price} onChange={(e) => setF({ ...f, price: e.target.value })} /></Field>
+          <Field label="Alert when stock ≤"><input className="input" type="number" inputMode="decimal" step="any" min={0} value={f.reorder_level} onChange={(e) => setF({ ...f, reorder_level: e.target.value })} /></Field>
+          <Field label={item ? `Stock abhi (${item.unit ?? "pc"})` : "Opening stock"}><input className="input" type="number" inputMode="decimal" step="any" min={0} value={f.stock} onChange={(e) => setF({ ...f, stock: e.target.value })} placeholder="0" />
             {item && <span className="text-[11px] text-slate-500">Badalne par farq adjustment me likha jayega; khareed ke liye "Stock in" behtar hai (cost aur supplier ke saath).</span>}</Field>
         </div>
         {item && <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={f.active} onChange={(e) => setF({ ...f, active: e.target.checked })} /> Show on the POS</label>}
@@ -257,7 +257,7 @@ function StockForm({ kind, item, onClose, onDone }: { kind: "in" | "count"; item
         <p className="text-sm text-slate-600">Book stock: <b>{num(item.stock)} {item.unit}</b></p>
         <Field label={kind === "in" ? "Quantity received" : "Quantity counted on the shelf"}><input className="input py-3 text-2xl" type="number" inputMode="decimal" min={kind === "in" ? 1 : 0} step="any" required value={f.qty} onChange={(e) => setF({ ...f, qty: e.target.value })} /></Field>
         {kind === "in" ? <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <Field label="Cost per unit (Rs)"><input className="input" type="number" inputMode="decimal" min={0} step="0.01" value={f.cost} onChange={(e) => setF({ ...f, cost: e.target.value })} /></Field>
+          <Field label="Cost per unit (Rs)"><input className="input" type="number" inputMode="decimal" min={0} step="any" value={f.cost} onChange={(e) => setF({ ...f, cost: e.target.value })} /></Field>
           <Field label="Supplier"><input className="input" value={f.supplier} onChange={(e) => setF({ ...f, supplier: e.target.value })} /></Field>
           <div className="sm:col-span-2">
             <span className="label">Paisa kahan se gaya? · <span lang="ur" dir="rtl" className="font-urdu">رقم کہاں سے</span> {total > 0 && <b className="ml-1 tabular-nums">{pkr(total)}</b>}</span>
@@ -342,7 +342,7 @@ function InvoiceForm({ items, onClose, onDone }: { items: any[]; onClose: () => 
                 <option value="">— item —</option>{items.map((it) => <option key={it.id} value={it.id}>{it.name}{it.unit ? ` (${it.unit})` : ""}</option>)}
               </select>
               <input className="input w-20" type="number" inputMode="decimal" min={0} step="any" placeholder="Qty" value={l.qty} onChange={(e) => setLine(idx, { qty: e.target.value })} />
-              <input className="input w-24" type="number" inputMode="decimal" min={0} step="0.01" placeholder="Cost/unit" value={l.cost} onChange={(e) => setLine(idx, { cost: e.target.value })} />
+              <input className="input w-24" type="number" inputMode="decimal" min={0} step="any" placeholder="Cost/unit" value={l.cost} onChange={(e) => setLine(idx, { cost: e.target.value })} />
               <button type="button" className="flex h-10 w-9 items-center justify-center rounded-lg bg-slate-100 text-slate-500 hover:bg-rose-100 hover:text-rose-600 disabled:opacity-40" disabled={lines.length === 1} onClick={() => setLines((ls) => ls.filter((_, i) => i !== idx))} aria-label="Remove line"><Trash2 size={15} /></button>
             </div>
           ))}
@@ -365,7 +365,7 @@ function InvoiceForm({ items, onClose, onDone }: { items: any[]; onClose: () => 
             ))}
           </div>
           <div className="grid gap-2 sm:grid-cols-2">
-            <Field label="Payment amount (Rs)"><input className="input" type="number" inputMode="decimal" min={0} step="0.01" value={payAmount} onChange={(e) => setPayAmount(e.target.value)} placeholder={String(total)} /></Field>
+            <Field label="Payment amount (Rs)"><input className="input" type="number" inputMode="decimal" min={0} step="any" value={payAmount} onChange={(e) => setPayAmount(e.target.value)} placeholder={String(total)} /></Field>
             {payMode === "bank" && <Field label="Mode"><select className="input" value={payMethod} onChange={(e) => { setPayMethod(e.target.value); setPayAccount(null); }}>{["Bank transfer", "Raast", "JazzCash", "Easypaisa", "Card"].map((m) => <option key={m}>{m}</option>)}</select></Field>}
             {payMode === "cheque" && <Field label="Cheque no."><input className="input" value={payRef} onChange={(e) => setPayRef(e.target.value)} /></Field>}
             {payMode !== "cash" && <AccountPicker method={payMode === "cheque" ? "Cheque" : payMethod} value={payAccount} onChange={setPayAccount} required label={payMode === "cheque" ? "Cheque bank" : "Account"} />}

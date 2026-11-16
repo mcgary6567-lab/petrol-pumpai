@@ -9,6 +9,7 @@ import { PRODUCTS, ago, dt, num, pkr } from "../lib/format";
 import { useAuth } from "../App";
 import { EditSale } from "../pages/Corrections";
 import { LateBadge } from "./LateBadge";
+import { printNow } from "../lib/printNow";
 
 const Ur = ({ children }: { children: ReactNode }) => <span lang="ur" dir="rtl" className="font-urdu">{children}</span>;
 
@@ -99,12 +100,12 @@ export function MeterResetModal({ nozzle, running, shiftBy, lastReading, newRead
           ? <>Ye meter <b>chalti shift</b>{shiftBy ? <> (<b>{shiftBy}</b>)</> : null} me hai. Purane meter ne is shift me jo litre nikale woh bhi hisaab me rahenge — shift band karte waqt <b>naye meter ki reading</b> likhein.</>
           : <>Meter repair se aaya, badla gaya ya reading ulti / zero ho gayi? Yahan darj karein — agli shift <b>nayi reading</b> se shuru hogi.</>}</p>
         <Field label={running ? "Purana meter kahan tak chala (aakhri reading)" : "Purana meter kahan ruka tha (aakhri reading)"}>
-          <input className="input tabular-nums" type="number" inputMode="decimal" step="0.01" min={lastReading} value={f.old} placeholder={running ? `kam se kam ${num(lastReading, 2)}` : ""} onChange={(e) => setF({ ...f, old: e.target.value })} />
+          <input className="input tabular-nums" type="number" inputMode="decimal" step="any" min={lastReading} value={f.old} placeholder={running ? `kam se kam ${num(lastReading, 2)}` : ""} onChange={(e) => setF({ ...f, old: e.target.value })} />
         </Field>
         <p className="-mt-2 text-xs text-slate-500">{running ? "Shift" : "Pichli darj"} reading: {num(lastReading, 2)}</p>
         {running && f.old !== "" && old >= lastReading && <p className="rounded-lg bg-emerald-50 p-2 text-emerald-800">✓ Is shift me purane meter se <b>{num(old - lastReading, 2)} L</b> nikle — ye shift ke hisaab me rahenge.</p>}
         {gap > 0.009 && <p className="rounded-lg bg-amber-50 p-2 text-amber-800">⚠ {num(gap, 2)} L pichli reading ke baad bina shift ke chale — stock se kam honge aur CEO ko alert jayega.</p>}
-        <Field label="Meter ab kya dikha raha hai (nayi reading)"><input className="input tabular-nums text-lg" type="number" inputMode="decimal" step="0.01" min={0} value={f.next} placeholder="e.g. 0" onChange={(e) => setF({ ...f, next: e.target.value })} /></Field>
+        <Field label="Meter ab kya dikha raha hai (nayi reading)"><input className="input tabular-nums text-lg" type="number" inputMode="decimal" step="any" min={0} value={f.next} placeholder="e.g. 0" onChange={(e) => setF({ ...f, next: e.target.value })} /></Field>
         <Field label="Wajah">
           <select className="input" value={f.why} onChange={(e) => setF({ ...f, why: e.target.value })}>
             {["Repair se wapas aaya", "Meter badla gaya (naya meter)", "Reading zero / ulti ho gayi", "Doosri wajah"].map((w) => <option key={w}>{w}</option>)}
@@ -173,7 +174,7 @@ export function StartShiftSheet({ stationId, attendant, onStarted, big }: { stat
               {!n.busy && use[n.nozzle_id] && (
                 <div className="flex items-center gap-2">
                   <span className="hidden text-xs text-slate-500 sm:inline">Meter now</span>
-                  <input className={`input w-36 tabular-nums ${big ? "py-2.5 text-xl" : ""} ${gap < 0 ? "border-red-400" : gap > 0.009 ? "border-amber-400" : ""}`} type="number" step="0.01" min={n.last_reading}
+                  <input className={`input w-36 tabular-nums ${big ? "py-2.5 text-xl" : ""} ${gap < 0 ? "border-red-400" : gap > 0.009 ? "border-amber-400" : ""}`} type="number" step="any" min={n.last_reading}
                     value={vals[n.nozzle_id] ?? ""} onChange={(e) => setVals({ ...vals, [n.nozzle_id]: e.target.value })} aria-label={`${n.label} opening reading`} />
                   <PhotoButton kind="meter" label="Meter" big={big} hint={`Nozzle ${n.label}; last closing reading was ${n.last_reading}.`} onRead={fromPhoto(n)} />
                 </div>
@@ -319,7 +320,7 @@ export function ShiftReport({ id, onClose }: { id: number; onClose: () => void }
     <Modal open onClose={onClose} title={`Shift report #${id}`} wide>
       {!r ? <Loading /> : <ReportBody r={r} />}
       {r && <ShiftSales shiftId={id} />}
-      <div className="mt-4 flex flex-wrap justify-end gap-2 print:hidden"><WhatsAppDoc kind="shift" id={id} /><button className="btn-secondary" onClick={() => window.print()}><Printer size={15} /> Print</button><button className="btn-primary" onClick={onClose}>Done</button></div>
+      <div className="mt-4 flex flex-wrap justify-end gap-2 print:hidden"><WhatsAppDoc kind="shift" id={id} /><button className="btn-secondary" onClick={() => printNow()}><Printer size={15} /> Print</button><button className="btn-primary" onClick={onClose}>Done</button></div>
     </Modal>
   );
 }

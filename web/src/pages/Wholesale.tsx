@@ -31,6 +31,7 @@ import { OrderToCash } from "../components/WholesalePipeline";
 import { Client360, ClientVehicles } from "../components/WholesaleClient360";
 import { voucherNo } from "../components/WholesaleLedger";
 import { LateBadge } from "../components/LateBadge";
+import { printNow } from "../lib/printNow";
 const Ur = ({ children, className = "" }: { children: React.ReactNode; className?: string }) => <span lang="ur" dir="rtl" className={`font-urdu ${className}`}>{children}</span>;
 
 const TYPE: Record<string, { label: string; tone: string }> = {
@@ -121,7 +122,7 @@ function BulkRateModal({ onClose, onDone }: { onClose: () => void; onDone: () =>
         <p className="rounded-lg bg-sky-50 px-3 py-2 text-xs text-sky-900">Rate barhé to <b>+2</b>, kam ho to <b>-1.5</b> likhein. Ye sirf wholesale clients ke rate par lagega — pump/meter (retail) rate se iska koi taalluq nahi. Fixed-rate client ka rate utna barh/kam jayega; "pump − X" wale client pump ke sath chalte rahenge aur unka effective rate bhi utna hi move karega.</p>
         {Object.entries(PRODUCTS).map(([k, v]) => (
           <Field key={k} label={`${v} · Rs/L change`}>
-            <input className="input" type="number" inputMode="decimal" step="0.01" placeholder="e.g. +2 ya -1.5" value={d[k] ?? ""} onChange={(e) => setD({ ...d, [k]: e.target.value })} />
+            <input className="input" type="number" inputMode="decimal" step="any" placeholder="e.g. +2 ya -1.5" value={d[k] ?? ""} onChange={(e) => setD({ ...d, [k]: e.target.value })} />
           </Field>
         ))}
         <Field label="Note (optional)"><input className="input" placeholder="jaise: 8-Oct price increase" value={note} onChange={(e) => setNote(e.target.value)} /></Field>
@@ -349,7 +350,7 @@ export function ClientForm({ initial, onClose, onSaved }: { initial?: any; onClo
             <div className="mb-2 text-sm font-medium">Rate card & credit (admin only)</div>
             <RateCardEditor draft={rc} setDraft={setRc} pump={prices.data?.current} />
             <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <Field label="Credit limit (Rs, 0 = none)"><input className="input" type="number" inputMode="decimal" min={0} value={f.credit_limit} onChange={(e) => setF({ ...f, credit_limit: e.target.value })} /></Field>
+              <Field label="Credit limit (Rs, 0 = none)"><input className="input" type="number" inputMode="decimal" step="any" min={0} value={f.credit_limit} onChange={(e) => setF({ ...f, credit_limit: e.target.value })} /></Field>
               <OpeningBalanceField amount={f.opening_balance} kind={f.opening_kind} onChange={(amount, kind) => setF({ ...f, opening_balance: amount, opening_kind: kind })} {...(initial ? {} : { receipt, onReceipt: setReceipt })} />
               {initial && <p className="text-xs text-slate-500 sm:col-span-2">Naya advance aaj mila ho to "Receive payment" se darj karein — cash/bank wahin se chalta hai.</p>}
             </div>
@@ -482,7 +483,7 @@ function ClientDetail({ id }: { id: string }) {
           <Field label="To"><input className="input" type="date" value={range.to} onChange={(e) => setRange({ ...range, to: e.target.value })} /></Field>
           <a className="btn-secondary" href={csvUrl}><Download size={15} /> Excel / CSV</a>
           <WhatsAppDoc kind="wholesale" id={Number(id)} from={range.from || undefined} to={range.to || undefined} />
-          <button className="btn-secondary" onClick={() => window.print()}><Printer size={15} /> Print</button>
+          <button className="btn-secondary" onClick={() => printNow()}><Printer size={15} /> Print</button>
         </div>
         
         {stmt.data && <ClientBillPrint client={c} s={stmt.data} from={range.from} to={range.to} />}
@@ -690,8 +691,8 @@ function FuelEntry({ kind, client, orderId, onClose, onDone }: { kind: "supply" 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field label="Into station · کہاں"><select className="input" value={f.station_id} onChange={(e) => setF({ ...f, station_id: e.target.value })}>{(stations.data ?? []).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></Field>
             <Field label="Product · تیل"><select className="input" value={f.product} onChange={(e) => setF({ ...f, product: e.target.value })}>{products.map((p) => <option key={p} value={p}>{PRODUCTS[p]}</option>)}</select></Field>
-            <Field label="Litres · لیٹر"><input className="input" type="number" inputMode="decimal" step="0.01" min={1} required value={f.litres} onChange={(e) => setF({ ...f, litres: e.target.value })} /></Field>
-            <Field label={can("wholesale.rates") ? "Rate (Rs/L) — blank = rate card" : "Rate (Rs/L)"}><input className="input" type="number" inputMode="decimal" step="0.01" disabled={!can("wholesale.rates")} placeholder={client.rates[f.product] ? String(client.rates[f.product]) : "last supply rate"} value={f.rate} onChange={(e) => setF({ ...f, rate: e.target.value })} /></Field>
+            <Field label="Litres · لیٹر"><input className="input" type="number" inputMode="decimal" step="any" min={1} required value={f.litres} onChange={(e) => setF({ ...f, litres: e.target.value })} /></Field>
+            <Field label={can("wholesale.rates") ? "Rate (Rs/L) — blank = rate card" : "Rate (Rs/L)"}><input className="input" type="number" inputMode="decimal" step="any" disabled={!can("wholesale.rates")} placeholder={client.rates[f.product] ? String(client.rates[f.product]) : "last supply rate"} value={f.rate} onChange={(e) => setF({ ...f, rate: e.target.value })} /></Field>
             <Field label="Date & time · تاریخ و وقت"><input className="input" type="datetime-local" max={nowLocal()} value={f.txn_date} onChange={(e) => setF({ ...f, txn_date: e.target.value })} /></Field>
             <Field label="Tanker / vehicle no."><input className="input" value={f.vehicle_no} onChange={(e) => setF({ ...f, vehicle_no: e.target.value })} /></Field>
             <Field label="Note"><input className="input" value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} /></Field>
@@ -732,8 +733,8 @@ function FuelEntry({ kind, client, orderId, onClose, onDone }: { kind: "supply" 
             ))}
           </div>
         </div>
-        <Field label="Kitne litre? · لیٹر"><input autoFocus className="input py-3 text-2xl" type="number" step="0.01" min={1} inputMode="decimal" value={f.litres} onChange={(e) => setF({ ...f, litres: e.target.value })} /></Field>
-        {can("wholesale.rates") && <Field label="Rate (Rs/L) — khaali = client ka rate card"><input className="input" type="number" inputMode="decimal" step="0.01" min={0} placeholder={client.rates[f.product] ? String(client.rates[f.product]) : "no rate set"} value={f.rate} onChange={(e) => setF({ ...f, rate: e.target.value })} /></Field>}
+        <Field label="Kitne litre? · لیٹر"><input autoFocus className="input py-3 text-2xl" type="number" step="any" min={1} inputMode="decimal" value={f.litres} onChange={(e) => setF({ ...f, litres: e.target.value })} /></Field>
+        {can("wholesale.rates") && <Field label="Rate (Rs/L) — khaali = client ka rate card"><input className="input" type="number" inputMode="decimal" step="any" min={0} placeholder={client.rates[f.product] ? String(client.rates[f.product]) : "no rate set"} value={f.rate} onChange={(e) => setF({ ...f, rate: e.target.value })} /></Field>}
         {Number(f.litres) > 0 && rate > 0 && <div className="rounded-xl bg-emerald-50 p-3 text-center ring-1 ring-emerald-200"><div className="text-sm text-emerald-700">{num(Number(f.litres), 2)} L × Rs {rate}</div><div className="text-2xl font-bold text-emerald-800">{pkr(amount)}</div></div>}
         {!step1ok && Number(f.litres) > 0 && rate <= 0 && <p className="text-sm text-rose-600">Is client ka {PRODUCTS[f.product]} rate card nahi — pehle rate set karein.</p>}
         <div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={onClose}>Cancel</button><button type="button" className="btn-primary" disabled={!step1ok} onClick={() => setStep(2)}>Aage →</button></div>
@@ -788,7 +789,7 @@ function RefundEntry({ client, onClose, onDone }: { client: any; onClose: () => 
       }}>
         <p className="text-sm text-slate-600">Advance with us: <b>{pkr(advance)}</b></p>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <Field label="Amount (Rs) · رقم"><input className="input" type="number" inputMode="decimal" min={1} required value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} /></Field>
+          <Field label="Amount (Rs) · رقم"><input className="input" type="number" inputMode="decimal" step="any" min={1} required value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} /></Field>
           <Field label="Method · طریقہ"><select className="input" value={f.method} onChange={(e) => { setF({ ...f, method: e.target.value }); setAccount(null); }}>{["Cash", "Bank transfer", "Raast", "JazzCash", "Easypaisa", "Online"].map((m) => <option key={m}>{m}</option>)}</select></Field>
           <Field label="Date"><input className="input" type="date" value={f.txn_date} onChange={(e) => setF({ ...f, txn_date: e.target.value })} /></Field>
         </div>
@@ -815,7 +816,7 @@ function PaymentEntry({ client, onClose, onDone }: { client: any; onClose: () =>
       }}>
         <p className="text-sm text-slate-600">Now: <b>{dueLabel(client.summary.due)}</b></p>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <Field label="Amount (Rs) · رقم"><input className="input" type="number" inputMode="decimal" min={1} required value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} /></Field>
+          <Field label="Amount (Rs) · رقم"><input className="input" type="number" inputMode="decimal" step="any" min={1} required value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} /></Field>
           <Field label="Method · طریقہ"><select className="input" value={f.method} onChange={(e) => setF({ ...f, method: e.target.value })}>{["Bank transfer", "Cash", "Cheque", "Raast", "JazzCash", "Easypaisa", "Online"].map((m) => <option key={m}>{m}</option>)}</select></Field>
           <Field label="Cheque / transaction ref"><input className="input" value={f.ref} onChange={(e) => setF({ ...f, ref: e.target.value })} /></Field>
           <Field label="Date"><input className="input" type="date" value={f.txn_date} onChange={(e) => setF({ ...f, txn_date: e.target.value })} /></Field>
@@ -840,7 +841,7 @@ function AdjustmentEntry({ client, onClose, onDone }: { client: any; onClose: ()
         if (await run(() => api(`/wholesale/clients/${client.id}/adjustment`, { body: { amount: Number(f.dir) * Number(f.amount), note: f.note, photo_ids: photos } }), (r: any) => `Adjustment saved. ${dueLabel(r.due_after)}`)) onDone();
       }}>
         <Field label="Type"><select className="input" value={f.dir} onChange={(e) => setF({ ...f, dir: e.target.value })}><option value="-1">Reduce due (discount, write-off, correction)</option><option value="1">Increase due (charges, freight, correction)</option></select></Field>
-        <Field label="Amount (Rs)"><input className="input" type="number" inputMode="decimal" min={1} required value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} /></Field>
+        <Field label="Amount (Rs)"><input className="input" type="number" inputMode="decimal" step="any" min={1} required value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} /></Field>
         <Field label="Reason (required)"><input className="input" required minLength={3} value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} /></Field>
         <ProofPhotos value={photos} onChange={setPhotos} hint="freight bill, letter, agreement" />
         <div className="flex justify-end gap-2"><button type="button" className="btn-secondary" onClick={onClose}>Cancel</button><button className="btn-primary" disabled={busy}>Save</button></div>
@@ -911,7 +912,7 @@ function RateCardEditor({ draft, setDraft, pump }: { draft: RateDraft; setDraft:
             {r.mode !== "none" && (
               <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
                 {r.mode === "discount" && <span className="text-slate-500">Pump rate −</span>}
-                <input className="input w-32 text-right" type="number" inputMode="decimal" step="0.01" min={r.mode === "fixed" ? 0.01 : -200} required aria-label={`${PRODUCTS[p]} ${r.mode === "discount" ? "rupees below pump rate" : "fixed rate"}`}
+                <input className="input w-32 text-right" type="number" inputMode="decimal" step="any" min={r.mode === "fixed" ? 0.01 : -200} required aria-label={`${PRODUCTS[p]} ${r.mode === "discount" ? "rupees below pump rate" : "fixed rate"}`}
                   value={r.value} onChange={(e) => set({ value: e.target.value })} />
                 <span className="text-slate-500">Rs/L</span>
                 {eff != null && eff > 0 && <span className="ml-auto text-xs text-slate-600">= <b>Rs {eff.toFixed(2)}</b> / L today{r.mode === "discount" ? " · moves with pump price" : ""}</span>}
@@ -945,7 +946,7 @@ function EditPosSupply({ x, onClose, onDone }: { x: any; onClose: () => void; on
       }}>
         <p className="rounded-lg bg-sky-50 p-2 text-xs text-sky-900">Litre ({num(litres)} L) nozzle meter aur tank se jure hain — woh yahan nahi badalte; zaroorat ho to CEO Sale edit se. <Ur className="block">لیٹر میٹر سے جڑے ہیں</Ur></p>
         <div className="grid grid-cols-2 gap-2">
-          <Field label={canRate ? "Rate (Rs/L)" : "Rate (Rs/L) — sirf CEO badal sakta hai"}><input className="input" type="number" inputMode="decimal" step="0.01" min={0.01} required disabled={!canRate} value={rate} onChange={(e) => setRate(e.target.value)} /></Field>
+          <Field label={canRate ? "Rate (Rs/L)" : "Rate (Rs/L) — sirf CEO badal sakta hai"}><input className="input" type="number" inputMode="decimal" step="any" min={0.01} required disabled={!canRate} value={rate} onChange={(e) => setRate(e.target.value)} /></Field>
           <Field label="Amount"><div className="input bg-slate-50 tabular-nums">{pkr(amount)}</div></Field>
           <Field label="Gaari number"><input className="input uppercase" value={vehicle} onChange={(e) => setVehicle(e.target.value)} /></Field>
           <Field label="Note"><input className="input" value={note} onChange={(e) => setNote(e.target.value)} /></Field>

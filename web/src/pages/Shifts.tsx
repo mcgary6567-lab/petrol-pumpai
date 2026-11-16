@@ -260,7 +260,7 @@ function CloseShift({ id, onClose, onClosed }: { id: number; onClose: () => void
                     {can("stock.manage") ? <button type="button" className="btn-secondary !py-1 text-xs" onClick={() => setResetting(r)}>🔧 Meter kharab / reset hua? Darj karein</button>
                       : <span className="text-slate-600">Meter kharab / reset hua ho to manager se "Meter reset" darj karwayein.</span>}</div>}
                   <div className="flex items-center gap-2">
-                    <input className={`input min-w-0 flex-1 text-lg tabular-nums ${bad ? "border-red-400" : ""}`} type="number" step="0.01" min={last} required inputMode="decimal"
+                    <input className={`input min-w-0 flex-1 text-lg tabular-nums ${bad ? "border-red-400" : ""}`} type="number" step="any" min={last} required inputMode="decimal"
                       value={readings[r.nozzle_id] ?? ""} onChange={(e) => setReadings({ ...readings, [r.nozzle_id]: e.target.value })} aria-label={`${r.label} closing reading`} placeholder="Closing reading" />
                     <PhotoButton kind="meter" label="Meter" className="shrink-0" hint={`Nozzle ${r.label}; opening reading was ${r.opening}.`} onRead={(res, pid) => {
                       setPhotos((p) => [...p, pid]);
@@ -270,7 +270,7 @@ function CloseShift({ id, onClose, onClosed }: { id: number; onClose: () => void
                   </div>
                   {bad && <p className="text-xs font-medium text-red-600">Cannot be less than {num(last, 2)}</p>}
                   {showTest && <label className="flex items-center gap-2 text-sm"><span className="shrink-0 text-slate-600">Test / back to tank · <Ur>ٹیسٹ</Ur></span>
-                    <input className="input min-h-9 w-24 !py-1 text-right" type="number" min={0} step="0.01" inputMode="decimal" value={test[r.nozzle_id] ?? ""} onChange={(e) => setTest({ ...test, [r.nozzle_id]: e.target.value })} aria-label={`${r.label} test litres`} /> L</label>}
+                    <input className="input min-h-9 w-24 !py-1 text-right" type="number" min={0} step="any" inputMode="decimal" value={test[r.nozzle_id] ?? ""} onChange={(e) => setTest({ ...test, [r.nozzle_id]: e.target.value })} aria-label={`${r.label} test litres`} /> L</label>}
                 </div>
               );
             })}
@@ -357,7 +357,7 @@ function CloseShift({ id, onClose, onClosed }: { id: number; onClose: () => void
                   <option value="">— customer · گاہک —</option>{(accts.data ?? []).map((a: any) => <option key={a.id} value={a.id}>{a.name}</option>)}
                 </select>
                 <select className="input" value={slipForm.product} onChange={(e) => setSlipForm({ ...slipForm, product: e.target.value })} aria-label="Fuel">{products.map((p) => <option key={p} value={p}>{PRODUCTS[p]}</option>)}</select>
-                <input className="input" type="number" min={0} step="0.01" inputMode="decimal" placeholder="Litres" value={slipForm.litres} onChange={(e) => setSlipForm({ ...slipForm, litres: e.target.value })} aria-label="Litres" />
+                <input className="input" type="number" min={0} step="any" inputMode="decimal" placeholder="Litres" value={slipForm.litres} onChange={(e) => setSlipForm({ ...slipForm, litres: e.target.value })} aria-label="Litres" />
                 <input className="input uppercase" placeholder="Vehicle no. · گاڑی" value={slipForm.vehicle_no} onChange={(e) => setSlipForm({ ...slipForm, vehicle_no: e.target.value })} aria-label="Vehicle number" />
                 <input className="input" placeholder="Slip no. · پرچی" value={slipForm.slip_no} onChange={(e) => setSlipForm({ ...slipForm, slip_no: e.target.value })} aria-label="Slip number" />
                 <div className="col-span-2 flex justify-end gap-2">

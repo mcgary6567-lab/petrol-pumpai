@@ -63,7 +63,7 @@ function KhataBulkRateModal({ onClose, onDone }: { onClose: () => void; onDone: 
           <p className="rounded-lg bg-sky-50 px-3 py-2 text-xs text-sky-900">Rate barhe to <b>+2</b>, kam ho to <b>-1.5</b> likhein. Ye sirf un khata customers par lagega jin ka <b>special rate</b> laga hai. Fixed rate wale ka rate utna barh/kam jayega. "Pump − X" wale pump ke saath chalte rahenge aur un ka effective rate bhi utna hi move karega. Jin ka special rate nahi wo pehle se pump rate par hain, unhein kuch nahi karna.</p>
           {prods.map((p) => (
             <Field key={p} label={`${NAMES[p] ?? p} · Rs/L change · ${carded[p] ?? 0} customer`}>
-              <input className="input" type="number" inputMode="decimal" step="0.01" placeholder="e.g. +2 ya -1.5" value={delta[p] ?? ""} onChange={(e) => setDelta({ ...delta, [p]: e.target.value })} />
+              <input className="input" type="number" inputMode="decimal" step="any" placeholder="e.g. +2 ya -1.5" value={delta[p] ?? ""} onChange={(e) => setDelta({ ...delta, [p]: e.target.value })} />
             </Field>
           ))}
         </> : <>
@@ -78,7 +78,7 @@ function KhataBulkRateModal({ onClose, onDone }: { onClose: () => void; onDone: 
               <select className="input min-h-9 w-auto !py-1" aria-label={`${p} rate mode`} value={cards[p]?.clear ? "clear" : cards[p]?.mode ?? "minus"} onChange={(e) => e.target.value === "clear" ? setC(p, { clear: true }) : setC(p, { mode: e.target.value, clear: false })}>
                 <option value="minus">Pump − X</option><option value="fixed">Fixed rate</option><option value="clear">Pump rate par wapas</option>
               </select>
-              {!cards[p]?.clear && <input className="input min-h-9 w-24 !py-1" type="number" min={0} step="0.01" inputMode="decimal" placeholder="—" aria-label={`${p} rate value`} value={cards[p]?.value ?? ""} onChange={(e) => setC(p, { value: e.target.value })} />}
+              {!cards[p]?.clear && <input className="input min-h-9 w-24 !py-1" type="number" min={0} step="any" inputMode="decimal" placeholder="—" aria-label={`${p} rate value`} value={cards[p]?.value ?? ""} onChange={(e) => setC(p, { value: e.target.value })} />}
               <span className="text-xs text-slate-500">Pump {pump[p]?.price ?? "—"}{!cards[p]?.clear && Number(cards[p]?.value) > 0 ? <> → <b className="tabular-nums">{Math.min(pump[p]?.price ?? Infinity, cards[p]?.mode === "fixed" ? Number(cards[p].value) : Math.round(((pump[p]?.price ?? 0) - Number(cards[p].value)) * 100) / 100)}</b></> : null}</span>
             </div>
           ))}

@@ -7,6 +7,7 @@ import { Badge, Empty, ErrorBox, Loading, SearchBar, Stat, matchQuery, useAction
 import { Ur } from "../components/VoiceShell";
 import { ErpBar } from "../components/WholesaleErp";
 import { dOnly, PRODUCTS, PRODUCT_COLORS, ago, dt, num, pkr, pkrShort } from "../lib/format";
+import { printNow } from "../lib/printNow";
 
 /** English + Urdu together, bank-app style. Urdu sits under or beside the English. */
 const Lbl = ({ en, ur, block }: { en: string; ur: string; block?: boolean }) =>
@@ -186,7 +187,7 @@ export default function Reports() {
         ))}</div>
         <button className="btn-secondary" disabled={!r} onClick={() => downloadCsv(`pumpai-${tab}-${from.slice(0, 10)}_${to.slice(0, 10)}`, tables)} title="Excel / CSV"><Download size={15} /><span className="hidden sm:inline"> Excel</span></button>
         <button className="btn-secondary" disabled={!r || wa.busy} onClick={() => wa.run(() => api("/reports/whatsapp", { body: { from, to } }), (x: any) => x.simulated ? "WhatsApp abhi set nahi — Settings me connect karein" : `Owner ko WhatsApp bhej diya (${x.to})`)}><Send size={15} /><span className="hidden sm:inline"> WhatsApp</span></button>
-        <button className="btn-primary" onClick={() => window.print()}><Printer size={15} /> Print / PDF</button>
+        <button className="btn-primary" onClick={() => printNow()}><Printer size={15} /> Print / PDF</button>
       </ErpBar>
 
       <div className="flex flex-wrap items-end gap-2 print:hidden">

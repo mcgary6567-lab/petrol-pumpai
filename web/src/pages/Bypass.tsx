@@ -15,6 +15,7 @@ import { FleetPicker, fleetBody } from "../components/WholesaleFleet";
 import { EditBypassPurchase, SupplierClientLink } from "../components/BypassEdit";
 import { challanPages, printPages, tripSheetPage } from "../components/TripPrint";
 import { VoucherVoidButton } from "../components/VoucherVoid";
+import { printNow } from "../lib/printNow";
 
 const Ur = ({ children, className = "" }: { children: React.ReactNode; className?: string }) => <span lang="ur" dir="rtl" className={`font-urdu ${className}`}>{children}</span>;
 
@@ -533,8 +534,8 @@ export function BypassDeliveryForm({ onClose, onDone, fromHeld = false, fromClie
                     onAdd={async (name) => { const s = await api("/suppliers", { body: { name } }); await suppliers.reload(); setBuys(buys.map((x, j) => j === i ? { ...x, supplier_id: String(s.id) } : x)); }} />}
                 </div>
                 <select className="input col-span-3" value={b.product} onChange={(e) => setBuys(buys.map((x, j) => j === i ? { ...x, product: e.target.value } : x))}>{activeProducts.map((pr) => <option key={pr.code} value={pr.code}>{pr.name}</option>)}</select>
-                <input className="input col-span-2" type="number" inputMode="decimal" min={0} step="0.01" placeholder="litre" value={b.litres} onChange={(e) => setBuys(buys.map((x, j) => j === i ? { ...x, litres: e.target.value } : x))} />
-                <input className="input col-span-2" type="number" inputMode="decimal" min={0} placeholder="Rs amount" value={b.amount} onChange={(e) => setBuys(buys.map((x, j) => j === i ? { ...x, amount: e.target.value } : x))} />
+                <input className="input col-span-2" type="number" inputMode="decimal" min={0} step="any" placeholder="litre" value={b.litres} onChange={(e) => setBuys(buys.map((x, j) => j === i ? { ...x, litres: e.target.value } : x))} />
+                <input className="input col-span-2" type="number" inputMode="decimal" step="any" min={0} placeholder="Rs amount" value={b.amount} onChange={(e) => setBuys(buys.map((x, j) => j === i ? { ...x, amount: e.target.value } : x))} />
                 <div className="col-span-12 -mt-1 flex flex-wrap items-center justify-between gap-2">
                   {tripTankers.length > 0 ? <label className="flex items-center gap-1.5 text-xs text-slate-600">Kis tanker mein · <Ur>ٹینکر</Ur>
                     <select className="input !w-auto !py-1 text-xs" aria-label="Yeh maal kis tanker mein hai" value={onTrip(b.vehicle_no)} onChange={(e) => setBuys(buys.map((x, j) => j === i ? { ...x, vehicle_no: e.target.value } : x))}>
@@ -585,14 +586,14 @@ export function BypassDeliveryForm({ onClose, onDone, fromHeld = false, fromClie
                     onAdd={async (name) => { const c = await api("/wholesale/clients", { body: { name } }); await clients.reload(); setDrops(drops.map((x, j) => j === i ? { ...x, client_id: String(c.id) } : x)); }} />}
                 </div>
                 <select className="input col-span-3" value={d.product} onChange={(e) => setDrops(drops.map((x, j) => j === i ? { ...x, product: e.target.value } : x))}>{activeProducts.map((pr) => <option key={pr.code} value={pr.code}>{pr.name}</option>)}</select>
-                <input className="input col-span-2" type="number" inputMode="decimal" min={0} step="0.01" placeholder="litre" value={d.litres} onChange={(e) => setDrops(drops.map((x, j) => j === i ? { ...x, litres: e.target.value } : x))} />
+                <input className="input col-span-2" type="number" inputMode="decimal" min={0} step="any" placeholder="litre" value={d.litres} onChange={(e) => setDrops(drops.map((x, j) => j === i ? { ...x, litres: e.target.value } : x))} />
                 <div className="col-span-2 flex items-center justify-end rounded-lg bg-white px-2 text-right text-sm tabular-nums ring-1 ring-slate-200" title={rate > 0 ? `Rate Rs ${rate}/L (card)` : "Rate card nahi"}>
                   {d.client_id && d.client_id !== "__new__" ? (rate > 0 ? pkr(lineAmt) : <span className="text-amber-700">rate?</span>) : <span className="text-slate-400">Rs</span>}
                 </div>
                 <div className="col-span-12 -mt-1 flex items-center justify-between">
                   <span className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
                     <span>{d.order_id ? "📋 booked order · " : ""}{cardRate(d) > 0 ? `Rate Rs ${rate}/L (card)` : d.client_id && d.client_id !== "__new__" ? <label className="inline-flex items-center gap-1.5 text-amber-700">Rate card nahi — is trip ka rate likhein
-                      <input className="input !w-24 !py-1 text-xs" type="number" inputMode="decimal" min={0} step="0.01" placeholder="Rs / L" aria-label="Is drop ka rate fi litre" value={d.rate ?? ""} onChange={(e) => setDrops(drops.map((x, j) => j === i ? { ...x, rate: e.target.value } : x))} /></label> : ""}</span>
+                      <input className="input !w-24 !py-1 text-xs" type="number" inputMode="decimal" min={0} step="any" placeholder="Rs / L" aria-label="Is drop ka rate fi litre" value={d.rate ?? ""} onChange={(e) => setDrops(drops.map((x, j) => j === i ? { ...x, rate: e.target.value } : x))} /></label> : ""}</span>
                     {tripTankers.length > 0 && <label className="inline-flex items-center gap-1.5">Kis tanker se
                       <select className="input !w-auto !py-1 text-xs" aria-label="Yeh drop kis tanker se" value={onTrip(d.vehicle_no)} onChange={(e) => setDrops(drops.map((x, j) => j === i ? { ...x, vehicle_no: e.target.value } : x))}>
                         <option value="">— koi bhi —</option>{tripTankers.map((v) => { const L = vehLeft(v, d.product); return <option key={v} value={v}>{v}{anyTagged || L > 0 ? ` · ${num(Math.max(0, L))} L ${PRODUCTS[d.product]} baqi` : ""}</option>; })}</select></label>}
@@ -623,8 +624,8 @@ export function BypassDeliveryForm({ onClose, onDone, fromHeld = false, fromClie
                 <select className="input col-span-3" value={r.product} onChange={(e) => setToTank(toTank.map((x, j) => j === i ? { ...x, product: e.target.value, tank_id: "" } : x))}>{activeProducts.map((pr) => <option key={pr.code} value={pr.code}>{pr.name}</option>)}</select>
                 <select className="input col-span-5" value={r.tank_id} onChange={(e) => setToTank(toTank.map((x, j) => j === i ? { ...x, tank_id: e.target.value } : x))}>
                   <option value="">— apna tank —</option>{stTanks.filter((tk: any) => tk.product === r.product).map((tk: any) => <option key={tk.id} value={tk.id}>{tk.name} · {tk.station} ({num(tk.current_l)}/{num(tk.capacity_l)} L)</option>)}</select>
-                <input className="input col-span-2" type="number" inputMode="decimal" min={0} step="0.01" placeholder="litre" value={r.litres} onChange={(e) => setToTank(toTank.map((x, j) => j === i ? { ...x, litres: e.target.value } : x))} />
-                <input className="input col-span-2" type="number" inputMode="numeric" min={0} step="0.01" placeholder="Rs amount" value={r.amount ?? ""} onChange={(e) => setToTank(toTank.map((x, j) => j === i ? { ...x, amount: e.target.value } : x))} />
+                <input className="input col-span-2" type="number" inputMode="decimal" min={0} step="any" placeholder="litre" value={r.litres} onChange={(e) => setToTank(toTank.map((x, j) => j === i ? { ...x, litres: e.target.value } : x))} />
+                <input className="input col-span-2" type="number" inputMode="numeric" min={0} step="any" placeholder="Rs amount" value={r.amount ?? ""} onChange={(e) => setToTank(toTank.map((x, j) => j === i ? { ...x, amount: e.target.value } : x))} />
                 <div className="col-span-12 -mt-1 flex items-center justify-between">
                   <span className="text-xs text-slate-500">{bad ? <span className="text-rose-600">Yeh {PRODUCTS[r.product]} tank nahi</span>
                     : Number(r.amount) > 0 && Number(r.litres) > 0 ? `Rs ${num(Math.round((Number(r.amount) / Number(r.litres)) * 100) / 100, 2)}/L — ye stock hai, loss nahi`
@@ -736,7 +737,7 @@ function SupplierStatement({ id, onClose, onChanged }: { id: number; onClose: ()
             <Field label="From"><input className="input" type="date" value={range.from} onChange={(e) => setRange({ ...range, from: e.target.value })} /></Field>
             <Field label="To"><input className="input" type="date" value={range.to} onChange={(e) => setRange({ ...range, to: e.target.value })} /></Field>
             <a className="btn-secondary min-h-10" href={csvUrl}><Download size={15} /> Excel / CSV</a>
-            <button className="btn-secondary min-h-10" onClick={() => window.print()}><Printer size={15} /> Print</button>
+            <button className="btn-secondary min-h-10" onClick={() => printNow()}><Printer size={15} /> Print</button>
           </div>
           <ListTools q={q} onQ={setQ} placeholder="Ref / fuel / method… · تلاش" chips={kindChips} chip={kind} onChip={setKind} shown={lines.length} total={allLines.length} />
           <div className="overflow-x-auto">
@@ -805,7 +806,7 @@ function PaySupplier({ id, owed, onClose, onDone }: { id: number; owed: number; 
             ))}
           </div>
         </fieldset>
-        <Field label="Amount (Rs) *"><input className="input" type="number" inputMode="decimal" min={1} required value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} /></Field>
+        <Field label="Amount (Rs) *"><input className="input" type="number" inputMode="decimal" step="any" min={1} required value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} /></Field>
         {needsClient && <Field label="Which client paid? · کون سا کلائنٹ *"><select className="input" required value={f.client_id} onChange={(e) => setF({ ...f, client_id: e.target.value })}>
           <option value="">— choose client —</option>{(clients.data ?? []).map((c) => <option key={c.id} value={c.id}>{c.name} · due {pkr(c.due)}</option>)}</select></Field>}
         {needsBank && <>
@@ -845,10 +846,10 @@ function EditToTank({ r, tanks, onClose, onDone }: { r: any; tanks: any[]; onClo
       <div className="space-y-3">
         <p className="rounded-xl bg-amber-50 p-2.5 text-xs text-amber-900">Purani entry ulti ho kar nayi banegi: bypass stock, pump ka tank aur stock register sab saath badlenge. Tank se ye litre bik chuke hon to edit nahi hoga. Audit log me pehle / baad aur wajah.</p>
         <div className="grid grid-cols-2 gap-2">
-          <Field label="Litre"><input className="input text-lg font-semibold" type="number" inputMode="decimal" value={litres} onChange={(e) => setLitres(e.target.value)} /></Field>
+          <Field label="Litre"><input className="input text-lg font-semibold" type="number" inputMode="decimal" step="any" value={litres} onChange={(e) => setLitres(e.target.value)} /></Field>
           <Field label="Tank"><select className="input" value={tankId} onChange={(e) => setTankId(e.target.value)}>{tanks.filter((t: any) => t.product === r.product).map((t: any) => <option key={t.id} value={t.id}>{t.name} · {t.station}</option>)}</select></Field>
           <Field label="Tareekh"><input className="input" type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
-          <Field label="Cost amount (khali = average cost)"><input className="input" type="number" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder={`abhi ${pkr(r.cost_amount)}`} /></Field>
+          <Field label="Cost amount (khali = average cost)"><input className="input" type="number" inputMode="decimal" step="any" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder={`abhi ${pkr(r.cost_amount)}`} /></Field>
         </div>
         <Field label="Note"><input className="input" value={note} onChange={(e) => setNote(e.target.value)} /></Field>
         <Field label="Wajah (zaroori)"><input className="input" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. litre 3,000 nahi 2,500 the" /></Field>
@@ -887,7 +888,7 @@ function RecostToTank({ r, onClose, onDone }: { r: any; onClose: () => void; onD
             </label>
           ))}
         </div>
-        {mode !== "lot" && <Field label={mode === "rate" ? "Rate (Rs/L)" : "Kul raqam (Rs)"}><input autoFocus className="input py-3 text-2xl" type="number" inputMode="decimal" min={0} step="0.01" value={val} onChange={(e) => setVal(e.target.value)} /></Field>}
+        {mode !== "lot" && <Field label={mode === "rate" ? "Rate (Rs/L)" : "Kul raqam (Rs)"}><input autoFocus className="input py-3 text-2xl" type="number" inputMode="decimal" min={0} step="any" value={val} onChange={(e) => setVal(e.target.value)} /></Field>}
         <Field label="Wajah (optional)"><input className="input" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="jaise: depot bill ke mutabiq" /></Field>
         {newAmt != null && <div className="rounded-xl bg-emerald-50 p-3 text-sm tabular-nums">
           <div className="flex justify-between"><span>Naya rate</span><b>Rs {num(newRate ?? 0, 2)}/L</b></div>

@@ -10,6 +10,7 @@ import { useAuth } from "../App";
 import { toWords } from "../lib/words";
 import { PrintFooter, PrintHeader } from "../components/Letterhead";
 import { Ur } from "../components/VoiceShell";
+import { printNow } from "../lib/printNow";
 
 const IN: Record<string, string> = { shift_cash: "Cash handed over from shifts", khata_cash: "Khata payments in cash", wholesale_cash: "Wholesale payments in cash", prepaid_cash: "Coupons sold & wallet deposits (cash)", staff_repaid: "Staff advances paid back", bank_withdrawals: "Cash taken out of bank", other_cash: "Other money in (cash counter)" };
 const OUT: Record<string, string> = { bank_deposits: "Deposited in bank", expenses: "Cash expenses (office)", supplier_payments: "Supplier paid in cash", staff_advances: "Staff advances / bonus", other_cash: "Other payments (cash counter)" };
@@ -135,7 +136,7 @@ export function CashForm({ kind, inHand, onClose, onDone }: { kind: "count" | "d
           <PhotoButton kind="receipt" label="Photo of deposit slip" onRead={(r, id) => setF((x) => ({ ...x, photo_id: id, amount: r?.amount ? String(r.amount) : x.amount }))} />
           <span className="flex items-center gap-2 text-slate-600">{f.photo_id ? <><PhotoThumb id={f.photo_id} size={10} /> Slip attached</> : "Keep the bank slip as proof"}</span>
         </div>}
-        <Field label={kind === "count" ? "Cash counted (Rs)" : "Amount deposited (Rs)"}><input className="input py-3 text-2xl" type="number" inputMode="decimal" min={0} required value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} /></Field>
+        <Field label={kind === "count" ? "Cash counted (Rs)" : "Amount deposited (Rs)"}><input className="input py-3 text-2xl" type="number" inputMode="decimal" step="any" min={0} required value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} /></Field>
         {kind === "count" && <p className="text-sm text-slate-600">The book says <b>{pkr(inHand)}</b> should be in hand.</p>}
         {kind === "deposit" && <>
           {hasAccounts ? <AccountPicker method="bank" required label="Deposited in which account? · کس اکاؤنٹ میں" value={account} onChange={setAccount} />
@@ -194,7 +195,7 @@ export function DepositSlip({ d, onClose }: { d: any; onClose: () => void }) {
       </div>
       <div className="mt-4 flex justify-end gap-2 print:hidden">
         <button className="btn-secondary" onClick={onClose}>Close · <Ur>بند</Ur></button>
-        <button className="btn-primary" onClick={() => window.print()}><Printer size={15} /> Print 2 copies · <Ur>پرنٹ</Ur></button>
+        <button className="btn-primary" onClick={() => printNow()}><Printer size={15} /> Print 2 copies · <Ur>پرنٹ</Ur></button>
       </div>
     </Modal>
   );

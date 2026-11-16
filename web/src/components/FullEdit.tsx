@@ -94,12 +94,12 @@ export function FullEditEntry({ kind, id, onClose, onDone }: { kind: FullEditKin
         {withLitres && (
           <div className="grid grid-cols-3 gap-2">
             <Field label="Fuel"><select className="input" disabled={!!data.bypass_drop} value={f.product} onChange={(ev) => changed("product", ev.target.value)}><option value="">—</option>{data.products.map((p: any) => <option key={p.key} value={p.key}>{p.label}</option>)}</select></Field>
-            <Field label="Litres"><input className="input" type="number" inputMode="decimal" value={f.litres} onChange={(ev) => setF((x: any) => ({ ...x, litres: ev.target.value, amountTouched: false }))} /></Field>
-            {realKind !== "carriage" && <Field label="Rate (Rs/L)"><input className="input" type="number" inputMode="decimal" value={f.rate} onChange={(ev) => setF((x: any) => ({ ...x, rate: ev.target.value, amountTouched: false }))} /></Field>}
+            <Field label="Litres"><input className="input" type="number" inputMode="decimal" step="any" value={f.litres} onChange={(ev) => setF((x: any) => ({ ...x, litres: ev.target.value, amountTouched: false }))} /></Field>
+            {realKind !== "carriage" && <Field label="Rate (Rs/L)"><input className="input" type="number" inputMode="decimal" step="any" value={f.rate} onChange={(ev) => setF((x: any) => ({ ...x, rate: ev.target.value, amountTouched: false }))} /></Field>}
           </div>
         )}
         <div className="grid grid-cols-2 gap-2">
-          <Field label="Amount (Rs) · رقم"><input className={`input text-lg font-semibold ${amount !== e.amount ? "border-emerald-500 bg-emerald-50/40" : ""}`} type="number" inputMode="decimal" value={f.amountTouched === true || !withLitres ? f.amount : String(amount)} onChange={(ev) => setF((x: any) => ({ ...x, amount: ev.target.value, amountTouched: true }))} />
+          <Field label="Amount (Rs) · رقم"><input className={`input text-lg font-semibold ${amount !== e.amount ? "border-emerald-500 bg-emerald-50/40" : ""}`} type="number" inputMode="decimal" step="any" value={f.amountTouched === true || !withLitres ? f.amount : String(amount)} onChange={(ev) => setF((x: any) => ({ ...x, amount: ev.target.value, amountTouched: true }))} />
             {withLitres && realKind !== "carriage" && <span className="text-[11px] text-slate-500">litre × rate = {pkr((Number(f.litres) || 0) * (Number(f.rate) || 0))}</span>}</Field>
           {moneyRow ? (
             <Field label="Method · طریقہ">

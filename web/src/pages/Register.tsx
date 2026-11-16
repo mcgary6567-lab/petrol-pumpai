@@ -3,6 +3,7 @@ import { Printer, Download } from "lucide-react";
 import { useApi, linkToken } from "../lib/api";
 import { Loading, PageHeader, ErrorBox } from "../components/ui";
 import { dOnly, num } from "../lib/format";
+import { printNow } from "../lib/printNow";
 
 const today = () => new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 10);
 const daysAgo = (n: number) => new Date(Date.now() + 5 * 3600_000 - n * 86_400_000).toISOString().slice(0, 10);
@@ -25,7 +26,7 @@ export default function Register() {
         <PageHeader title="Stock register" subtitle="Daily stock register and monthly return (Explosives / OGRA format), made from sales, tankers and dips"
           actions={<>
             <a className={`btn-secondary ${station ? "" : "pointer-events-none opacity-50"}`} href={station ? `/api/register.csv?station_id=${station}&${q}&token=${linkToken()}` : undefined}><Download size={15} /> Excel / CSV</a>
-            <button className="btn-primary" onClick={() => window.print()} disabled={!d}><Printer size={15} /> Print</button>
+            <button className="btn-primary" onClick={() => printNow()} disabled={!d}><Printer size={15} /> Print</button>
           </>} />
         <div className="card mt-4 flex flex-wrap items-end gap-3 p-3 text-sm">
           <label className="grid gap-1"><span className="text-slate-500">Station</span>

@@ -139,7 +139,7 @@ export function AccountForm({ khata, onClose, onSaved }: { khata?: boolean; onCl
         </div>
         {canCredit ? (
           <>
-            <Field label="Khata credit limit (Rs) — 0 means no credit"><input className="input sm:w-64" type="number" inputMode="decimal" min={0} value={f.credit_limit} onChange={(e) => setF({ ...f, credit_limit: e.target.value })} /></Field>
+            <Field label="Khata credit limit (Rs) — 0 means no credit"><input className="input sm:w-64" type="number" inputMode="decimal" step="any" min={0} value={f.credit_limit} onChange={(e) => setF({ ...f, credit_limit: e.target.value })} /></Field>
             <OpeningBalanceField amount={opening.amount} kind={opening.kind} onChange={(amount, kind) => setOpening({ amount, kind })} label="Opening balance (Rs) — purana hisaab ya advance (optional)" receipt={receipt} onReceipt={setReceipt} />
           </>
         ) : <p className="text-xs text-slate-500">Khata credit limits are set by the admin.</p>}
@@ -151,7 +151,7 @@ export function AccountForm({ khata, onClose, onSaved }: { khata?: boolean; onCl
               <div key={i} className="flex gap-2">
                 <input className="input uppercase" placeholder={f.type === "police" ? "LEJ-1234 (Mobile 1)" : "LEA-1234"} value={v.plate_no} onChange={(e) => setVehicles(vehicles.map((x, j) => j === i ? { ...x, plate_no: e.target.value } : x))} />
                 <select className="input w-36" value={v.fuel} onChange={(e) => setVehicles(vehicles.map((x, j) => j === i ? { ...x, fuel: e.target.value } : x))}>{Object.entries(PRODUCTS).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
-                <input className="input w-24" type="number" inputMode="decimal" min={1} placeholder="L/day" aria-label="Daily litre limit" value={v.limit ?? ""} onChange={(e) => setVehicles(vehicles.map((x, j) => j === i ? { ...x, limit: e.target.value } : x))} />
+                <input className="input w-24" type="number" inputMode="decimal" step="any" min={1} placeholder="L/day" aria-label="Daily litre limit" value={v.limit ?? ""} onChange={(e) => setVehicles(vehicles.map((x, j) => j === i ? { ...x, limit: e.target.value } : x))} />
                 <button type="button" className="btn-secondary !px-2" aria-label="Remove vehicle" onClick={() => setVehicles(vehicles.filter((_, j) => j !== i))}><Trash2 size={15} /></button>
               </div>
             ))}
@@ -176,7 +176,7 @@ export function SupplierForm({ onClose, onSaved }: { onClose: () => void; onSave
     }}>
       <Field label="Name (e.g. PSO Machike Depot)"><input className="input" required minLength={2} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></Field>
       <Field label="Phone"><PhoneInput value={f.phone} onChange={(v) => setF({ ...f, phone: v })} /></Field>
-      <Field label="Opening balance we owe (Rs)"><input className="input" type="number" inputMode="decimal" value={f.opening_balance} onChange={(e) => setF({ ...f, opening_balance: e.target.value })} /></Field>
+      <Field label="Opening balance we owe (Rs)"><input className="input" type="number" inputMode="decimal" step="any" value={f.opening_balance} onChange={(e) => setF({ ...f, opening_balance: e.target.value })} /></Field>
       <Field label="Notes"><input className="input" value={f.notes} onChange={(e) => setF({ ...f, notes: e.target.value })} /></Field>
     </SimpleModal>
   );
@@ -227,10 +227,10 @@ export function TankForm({ stations, stationId, edit, onClose, onSaved }: { stat
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         {!edit && <Field label="Fuel"><select className="input" value={f.product} onChange={(e) => setF({ ...f, product: e.target.value })}>{Object.entries(PRODUCTS).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></Field>}
         <Field label="Tank name"><input className="input" placeholder="Tank-4 Diesel" required={Boolean(edit)} value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></Field>
-        <Field label="Capacity (litres)"><input className="input" type="number" inputMode="decimal" min={1} required value={f.capacity_l} onChange={(e) => setF({ ...f, capacity_l: e.target.value })} /></Field>
-        {!edit && <Field label="Current stock (litres, from dip)"><input className="input" type="number" inputMode="decimal" min={0} required value={f.current_l} onChange={(e) => setF({ ...f, current_l: e.target.value })} /></Field>}
-        <Field label="Reorder at (% full)"><input className="input" type="number" inputMode="decimal" min={5} max={80} value={f.reorder_pct} onChange={(e) => setF({ ...f, reorder_pct: e.target.value })} /></Field>
-        {!edit && <Field label="Number of nozzles"><input className="input" type="number" inputMode="decimal" min={0} max={12} value={f.nozzles} onChange={(e) => setF({ ...f, nozzles: e.target.value })} /></Field>}
+        <Field label="Capacity (litres)"><input className="input" type="number" inputMode="decimal" step="any" min={1} required value={f.capacity_l} onChange={(e) => setF({ ...f, capacity_l: e.target.value })} /></Field>
+        {!edit && <Field label="Current stock (litres, from dip)"><input className="input" type="number" inputMode="decimal" step="any" min={0} required value={f.current_l} onChange={(e) => setF({ ...f, current_l: e.target.value })} /></Field>}
+        <Field label="Reorder at (% full)"><input className="input" type="number" inputMode="decimal" step="any" min={5} max={80} value={f.reorder_pct} onChange={(e) => setF({ ...f, reorder_pct: e.target.value })} /></Field>
+        {!edit && <Field label="Number of nozzles"><input className="input" type="number" inputMode="decimal" step="any" min={0} max={12} value={f.nozzles} onChange={(e) => setF({ ...f, nozzles: e.target.value })} /></Field>}
       </div>
       {edit && <p className="text-xs text-slate-500">Stock in the tank changes only through dips and deliveries. Fuel type cannot change once the tank has history.</p>}
     </SimpleModal>
@@ -246,7 +246,7 @@ function CategoryForm({ onClose, onSaved }: { onClose: () => void; onSaved: (c: 
       if (r) onSaved(r);
     }}>
       <Field label="Category name"><input className="input" required minLength={2} placeholder="e.g. Fuel testing" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></Field>
-      <Field label="Monthly budget (Rs, optional)"><input className="input" type="number" inputMode="decimal" min={0} value={f.monthly_budget} onChange={(e) => setF({ ...f, monthly_budget: e.target.value })} /></Field>
+      <Field label="Monthly budget (Rs, optional)"><input className="input" type="number" inputMode="decimal" step="any" min={0} value={f.monthly_budget} onChange={(e) => setF({ ...f, monthly_budget: e.target.value })} /></Field>
     </SimpleModal>
   );
 }

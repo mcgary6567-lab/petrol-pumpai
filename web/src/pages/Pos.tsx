@@ -551,7 +551,7 @@ export default function Pos() {
                   <div className="mt-2 grid grid-cols-2 gap-2">
                     {khata.itemsOn && <p className="col-span-2 text-xs text-slate-600">Tel bhi diya hai to upar nozzle ka amount likhein; parchi ka jo hissa saman / cash me gaya wo neeche <b>Baqi litres</b> me. Sirf saman diya hai to upar khaali chhor kar poore parchi litres yahan likhein.</p>}
                     <label className="block"><span className="text-xs text-slate-600">{fullCashKhata ? "Parchi litres" : "Baqi litres"}</span>
-                      <input className="input min-h-10" type="number" min={0} step="0.01" inputMode="decimal" value={khata.cashBackLitres ?? ""} placeholder="e.g. 70"
+                      <input className="input min-h-10" type="number" min={0} step="any" inputMode="decimal" value={khata.cashBackLitres ?? ""} placeholder="e.g. 70"
                         onChange={(e) => { const v = e.target.value; setKhata({ ...khata, cashBackLitres: v === "" ? undefined : Math.max(0, Number(v)) }); }} /></label>
                     <label className="block"><span className="text-xs text-slate-600">Baqi value (auto · {rate || 0}/L)</span>
                       <input className="input min-h-10 bg-slate-100 font-semibold" readOnly value={baqiVal ? pkr(baqiVal) : ""} placeholder="—" /></label>
@@ -911,7 +911,7 @@ function AllEntries({ stationId, onClose, onChange }: { stationId?: number; onCl
                   <div className="space-y-2">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="inline-flex items-center gap-1 font-medium"><span className="h-3 w-3 rounded-full" style={{ background: fuelOf(r.product).color }} />{fuelOf(r.product).en}</span>
-                      <label className="flex items-center gap-1">Litres <input className="input w-24 py-1 text-right tabular-nums" type="number" min={0.01} step="0.01" inputMode="decimal" value={edit.litres} onChange={(e) => setEdit({ ...edit, litres: e.target.value })} aria-label="Litres" /></label>
+                      <label className="flex items-center gap-1">Litres <input className="input w-24 py-1 text-right tabular-nums" type="number" min={0.01} step="any" inputMode="decimal" value={edit.litres} onChange={(e) => setEdit({ ...edit, litres: e.target.value })} aria-label="Litres" /></label>
                     </div>
                     {r.payment_method === "khata" ? (
                       <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
@@ -1317,7 +1317,7 @@ function ShopPos({ d, disabled, training, onSaved }: { d: any; disabled: boolean
               <button onClick={() => add(l.i, -1)} className="rounded-lg bg-slate-100 p-1.5" aria-label={`One less ${l.i.name}`}><Minus size={16} /></button>
               <span className="w-8 text-center font-bold tabular-nums">{l.qty}</span>
               <button onClick={() => add(l.i, 1)} className="rounded-lg bg-slate-100 p-1.5" aria-label={`One more ${l.i.name}`}><Plus size={16} /></button>
-              <input className={`input !w-24 !px-2 !py-1.5 text-right tabular-nums ${l.price < Number(l.i.cost ?? 0) ? "!border-rose-400 !text-rose-700" : ""}`} type="number" inputMode="decimal" min={0} step="0.01" aria-label={`${l.i.name} ka rate`} title={l.price < Number(l.i.cost ?? 0) ? "Lagat se kam — nuqsan par" : "Is customer ka rate"}
+              <input className={`input !w-24 !px-2 !py-1.5 text-right tabular-nums ${l.price < Number(l.i.cost ?? 0) ? "!border-rose-400 !text-rose-700" : ""}`} type="number" inputMode="decimal" min={0} step="any" aria-label={`${l.i.name} ka rate`} title={l.price < Number(l.i.cost ?? 0) ? "Lagat se kam — nuqsan par" : "Is customer ka rate"}
                 placeholder={String(l.i.price)} value={rates[l.i.id] ?? ""} onChange={(e) => setRates({ ...rates, [l.i.id]: e.target.value })} />
               <span className="w-24 text-right tabular-nums">{pkr(l.qty * l.price)}</span>
             </li>
