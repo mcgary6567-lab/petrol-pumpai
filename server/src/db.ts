@@ -791,6 +791,9 @@ export function migrate() {
   addColumn("bypass_drops", "tank_id", "INTEGER");
   addColumn("bypass_drops", "to_delivery_id", "INTEGER");
   addColumn("bypass_drops", "note", "TEXT");
+  // which tanker of the trip a bill line rode on, and which tanker a drop came off (a trip can carry 2+ tankers / khane)
+  addColumn("bypass_purchases", "vehicle_no", "TEXT");
+  addColumn("bypass_drops", "vehicle_no", "TEXT");
   addColumn("deliveries", "bypass_drop_id", "INTEGER"); // this delivery came from bypass stock, not a fresh supplier bill
   // every stand-alone own-tank unload gets its own voucher (BYP-n): the old ones had no number and could not be found.
   // Runs once per row (only unloads still without a voucher); litres, cost and stock are untouched.

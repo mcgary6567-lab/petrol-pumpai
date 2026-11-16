@@ -203,7 +203,7 @@ export function BypassVoucher({ id, onClose }: { id: number; onClose: () => void
           {data.voided && <p className="rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 font-semibold text-rose-900">Ye voucher mansookh hai — iski har line wapas ho chuki hai. Record ke liye yahan rehta hai. · <Ur>منسوخ</Ur></p>}
           {data.purchases?.length > 0 && <div className="rounded-lg bg-sky-50/60 p-3 ring-1 ring-sky-100">
             <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-sky-900">Khareed (supplier se) · <Ur>خریداری</Ur></div>
-            <ul className="space-y-0.5 tabular-nums">{data.purchases.map((p: any, i: number) => <li key={i} className="flex flex-wrap justify-between gap-2"><span><b>{p.supplier_name}</b> · {num(p.litres, 2)} L {PRODUCTS[p.product] ?? p.product} @ Rs {num(p.rate, 2)}{p.ref ? ` · ${p.ref}` : ""}</span><b>{pkr(p.amount)}</b></li>)}</ul>
+            <ul className="space-y-0.5 tabular-nums">{data.purchases.map((p: any, i: number) => <li key={i} className="flex flex-wrap justify-between gap-2"><span><b>{p.supplier_name}</b> · {num(p.litres, 2)} L {PRODUCTS[p.product] ?? p.product} @ Rs {num(p.rate, 2)}{p.vehicle_no ? ` · 🚛 ${p.vehicle_no}` : ""}{p.ref ? ` · ${p.ref}` : ""}</span><b>{pkr(p.amount)}</b></li>)}</ul>
           </div>}
           {data.unloads?.length > 0 && <div className="rounded-lg bg-emerald-50/60 p-3 ring-1 ring-emerald-100">
             <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-emerald-900">Apne tank mein · <Ur>اپنے ٹینک میں</Ur></div>
@@ -215,7 +215,7 @@ export function BypassVoucher({ id, onClose }: { id: number; onClose: () => void
             {data.drops.map((x: any, i: number) => (
               <li key={x.id} className={`space-y-0.5 p-3 ${x.voided ? "text-slate-400 line-through print:hidden" : ""}`}>
                 <div className="flex justify-between gap-2"><b className="min-w-0">{i + 1}. {x.client_name}</b><b className="shrink-0 tabular-nums">{pkr(x.amount)}</b></div>
-                <div className="flex justify-between gap-2 text-xs text-slate-600"><span>{PRODUCTS[x.product]} · {num(x.litres, 2)} L × Rs {x.rate}/L</span><span className="shrink-0">{x.ref ?? ""}</span></div>
+                <div className="flex justify-between gap-2 text-xs text-slate-600"><span>{PRODUCTS[x.product]} · {num(x.litres, 2)} L × Rs {x.rate}/L{x.vehicle_no ? ` · 🚛 ${x.vehicle_no}` : ""}</span><span className="shrink-0">{x.ref ?? ""}</span></div>
                 {x.balance != null && <div className="text-xs text-slate-500">Khata balance ab: {pkr(x.balance)}</div>}
                 {!x.voided && <button className="mt-1 inline-flex min-h-9 items-center gap-1 text-xs font-medium text-brand-700 underline" onClick={() => printPages(`Challan ${x.client_name}`, challanPages(data, x.id), data.business?.color)}><Printer size={13} /> Client voucher</button>}
                 {!x.voided && can("wholesale.void") && <button className="ml-3 mt-1 inline-flex min-h-9 items-center text-xs font-medium text-rose-600 underline" onClick={() => voidDrop(x)}>Mansookh · منسوخ</button>}
@@ -230,7 +230,7 @@ export function BypassVoucher({ id, onClose }: { id: number; onClose: () => void
             <tbody>{data.drops.map((x: any, i: number) => (
               <tr key={x.id} className={x.voided ? "text-slate-400 line-through" : ""}>
                 <td className="td">{i + 1}</td><td className="td">{x.client_name}{x.phone ? <div className="text-xs text-slate-500">{phone(x.phone)}</div> : null}</td>
-                <td className="td">{PRODUCTS[x.product]}</td><td className="td text-right tabular-nums">{num(x.litres, 2)}</td><td className="td text-right tabular-nums font-medium">{x.rate}</td>
+                <td className="td">{PRODUCTS[x.product]}{x.vehicle_no ? <div className="text-xs text-slate-500">🚛 {x.vehicle_no}</div> : null}</td><td className="td text-right tabular-nums">{num(x.litres, 2)}</td><td className="td text-right tabular-nums font-medium">{x.rate}</td>
                 <td className="td text-right tabular-nums">{pkr(x.amount)}</td><td className="td text-right tabular-nums text-slate-500">{x.balance != null ? pkr(x.balance) : "—"}</td>
                 <td className="td print:hidden whitespace-nowrap">{!x.voided && <button className="text-brand-700 underline" title="Print this client's voucher" onClick={() => printPages(`Challan ${x.client_name}`, challanPages(data, x.id), data.business?.color)}>voucher</button>}
                   {!x.voided && can("wholesale.void") && <button className="ml-2 text-rose-600 underline" title="Void this drop (stock back, client bill cancelled)" onClick={() => voidDrop(x)}>mansookh</button>}</td>
@@ -339,7 +339,7 @@ export function BypassDeliveryForm({ onClose, onDone, fromHeld = false, fromClie
     if (tk) setFleets((fs) => [{ ...fs[0], tanker_id: String(tk.id), vehicle_no: "", driver_id: tk.driver_id ? String(tk.driver_id) : fs[0].driver_id }, ...fs.slice(1)]);
   }, [fleetApi.data]); // eslint-disable-line react-hooks/exhaustive-deps
   const [note, setNote] = useState("");
-  const [buys, setBuys] = useState([{ supplier_id: "", product: "HSD", litres: "", amount: "" }]);
+  const [buys, setBuys] = useState<any[]>([{ supplier_id: "", product: "HSD", litres: "", amount: "" }]);
   const [drops, setDrops] = useState<any[]>([{ client_id: "", product: preset?.product ?? "HSD", litres: preset ? String(preset.litres) : "", amount: "", order_id: undefined, location: "" }]);
   const [photos, setPhotos] = useState<number[]>([]);
   const { busy, run } = useAction();
@@ -375,7 +375,19 @@ export function BypassDeliveryForm({ onClose, onDone, fromHeld = false, fromClie
   const overBy = useMemo(() => Object.entries(needBy).filter(([p, l]) => l > held(p) + (bought[p] ?? 0) + 0.01).map(([p, l]) => ({ p, l, have: held(p) + (bought[p] ?? 0) })), [needBy, bought, stock.data]);
   // the client's price comes from their own rate card (CRM): drop amount = litres × card rate
   const clientById = (id: string) => (clients.data ?? []).find((c: any) => String(c.id) === String(id));
-  const clientRate = (d: any) => Number(clientById(d.client_id)?.rates?.[d.product] ?? 0);
+  const cardRate = (d: any) => Number(clientById(d.client_id)?.rates?.[d.product] ?? 0);
+  // no rate card for this fuel yet: the rate can be typed on the line itself (this trip only) instead of leaving the form
+  const clientRate = (d: any) => cardRate(d) || Number(d.rate) || 0;
+  // the trip's tankers by number (the same tanker added twice = its two khane, counted once)
+  const fleetNo = (f: any) => String((f.tanker_id && f.tanker_id !== "other" ? (fleetApi.data?.tankers ?? []).find((x: any) => String(x.id) === String(f.tanker_id))?.number : f.vehicle_no) ?? "").trim();
+  const tripTankers = [...new Set(fleets.map(fleetNo).filter(Boolean))];
+  const onTrip = (v: any) => (v && tripTankers.includes(v) ? v : "");
+  // litres of one fuel still on one tanker: this trip's bill lines on it + what it already holds, less the drops written off it
+  const heldOnVeh = (veh: string, prod: string) => ((lotsApi.data?.fuels ?? []).find((f: any) => f.product === prod)?.lots ?? []).filter((l: any) => (l.vehicles ?? []).some((v: string) => String(v).toLowerCase() === veh.toLowerCase())).reduce((a: number, l: any) => a + Number(l.left || 0), 0);
+  const vehLoad = (veh: string, prod: string) => buys.filter((b: any) => onTrip(b.vehicle_no) === veh && b.product === prod).reduce((a, b) => a + (Number(b.litres) || 0), 0) + heldOnVeh(veh, prod);
+  const vehLeft = (veh: string, prod: string) => vehLoad(veh, prod) - drops.filter((d) => onTrip(d.vehicle_no) === veh && d.product === prod).reduce((a, d) => a + (Number(d.litres) || 0), 0);
+  const anyTagged = buys.some((b: any) => onTrip(b.vehicle_no));
+  const overVeh = anyTagged ? [...new Set(drops.filter((d) => onTrip(d.vehicle_no) && Number(d.litres) > 0 && vehLeft(d.vehicle_no, d.product) < -0.01).map((d) => `${d.vehicle_no}|${d.product}`))] : [];
   const dropLineAmt = (d: any) => Math.round(Number(d.litres || 0) * clientRate(d) * 100) / 100;
   const buyAmt = buys.reduce((a, b) => a + (Number(b.amount) || 0), 0);
   const dropAmt = drops.reduce((a, d) => a + dropLineAmt(d), 0);
@@ -384,11 +396,23 @@ export function BypassDeliveryForm({ onClose, onDone, fromHeld = false, fromClie
   // stock showed a false munafa.
   const buyValBy = useMemo(() => buys.reduce((m: Record<string, number>, b) => { m[b.product] = (m[b.product] ?? 0) + (Number(b.amount) || 0); return m; }, {}), [buys]);
   const lineCosts = useMemo(() => {
-    const left: Record<string, number> = { ...bought };
-    const ownRate = (p: string) => (bought[p] ?? 0) > 0 ? (buyValBy[p] ?? 0) / bought[p] : 0;
-    const take = (p: string, L: number) => { const own = Math.min(L, left[p] ?? 0); left[p] = (left[p] ?? 0) - own; return own * ownRate(p) + (L - own) * heldAvg(p); };
-    return { drops: drops.map((d) => take(d.product, Number(d.litres) || 0)), tank: toTank.map((r) => take(r.product, Number(r.litres) || 0)) };
-  }, [drops, toTank, bought, buyValBy, stock.data]);
+    const left: Record<string, number> = { ...bought }, leftV: Record<string, number> = { ...buyValBy };
+    // a drop that names its tanker is costed from that tanker's own bill line first (same as the server)
+    const lines = buys.map((x: any) => ({ p: x.product, veh: onTrip(x.vehicle_no), left: Number(x.litres) || 0, rate: Number(x.litres) > 0 ? (Number(x.amount) || 0) / Number(x.litres) : 0 }));
+    const take = (p: string, L: number, veh?: string) => {
+      let need = L, cost = 0;
+      if (veh) for (const l of lines) {
+        if (need <= 0.001) break;
+        if (l.p !== p || l.veh !== veh || l.left <= 0.001) continue;
+        const t = Math.min(l.left, need, left[p] ?? 0);
+        l.left -= t; need -= t; cost += t * l.rate; left[p] = (left[p] ?? 0) - t; leftV[p] = (leftV[p] ?? 0) - t * l.rate;
+      }
+      const pool = Math.min(need, left[p] ?? 0);
+      if (pool > 0.001) { const r = (leftV[p] ?? 0) / left[p]; cost += pool * r; left[p] -= pool; leftV[p] = (leftV[p] ?? 0) - pool * r; need -= pool; }
+      return cost + need * heldAvg(p);
+    };
+    return { drops: drops.map((d) => take(d.product, Number(d.litres) || 0, onTrip(d.vehicle_no))), tank: toTank.map((r) => take(r.product, Number(r.litres) || 0)) };
+  }, [drops, toTank, bought, buyValBy, stock.data, buys, fleets, fleetApi.data]); // eslint-disable-line react-hooks/exhaustive-deps
   const toTankL = toTank.reduce((a, r) => a + (Number(r.litres) || 0), 0);
   // value of fuel put into our own tank: a typed amount wins, else its same-voucher cost
   const toTankCost = toTank.reduce((a, r, i) => a + (Number(r.amount) > 0 ? Number(r.amount) : lineCosts.tank[i]), 0);
@@ -411,7 +435,7 @@ export function BypassDeliveryForm({ onClose, onDone, fromHeld = false, fromClie
   const tankLoad = (id: any) => toTank.filter((r) => String(r.tank_id) === String(id)).reduce((a, r) => a + (Number(r.litres) || 0), 0);
   const noRoom = toTank.filter((r) => r.tank_id && tankOf(r.tank_id) && tankLoad(r.tank_id) > room(tankOf(r.tank_id)) + 0.5);
   const valid = !!station && (validBuys.length > 0 || validDrops.length > 0 || validToTank.length > 0) && overBy.length === 0 && noRate.length === 0 && badTank.length === 0
-    && halfDrops.length === 0 && halfTank.length === 0 && halfBuys.length === 0 && noRoom.length === 0;
+    && halfDrops.length === 0 && halfTank.length === 0 && halfBuys.length === 0 && noRoom.length === 0 && overVeh.length === 0;
 
   return (
     <>
@@ -419,8 +443,8 @@ export function BypassDeliveryForm({ onClose, onDone, fromHeld = false, fromClie
         e.preventDefault();
         const body = {
           station_id: Number(station), ...fleetBody(fleets[0]), tankers: fleets.filter((f) => f.tanker_id || f.vehicle_no).map(fleetBody), note: note || null, photo_ids: photos, txn_date: txnDate,
-          purchases: validBuys.map((b) => ({ ...(fromClient ? { client_id: Number(b.supplier_id) } : { supplier_id: Number(b.supplier_id) }), product: b.product, litres: Number(b.litres), amount: Number(b.amount) })),
-          drops: validDrops.map((d) => ({ client_id: Number(d.client_id), product: d.product, litres: Number(d.litres), order_id: d.order_id ?? null, location: d.location || null })),
+          purchases: validBuys.map((b) => ({ ...(fromClient ? { client_id: Number(b.supplier_id) } : { supplier_id: Number(b.supplier_id) }), product: b.product, litres: Number(b.litres), amount: Number(b.amount), vehicle_no: onTrip(b.vehicle_no) || null })),
+          drops: validDrops.map((d) => ({ client_id: Number(d.client_id), product: d.product, litres: Number(d.litres), order_id: d.order_id ?? null, location: d.location || null, vehicle_no: onTrip(d.vehicle_no) || null, ...(cardRate(d) > 0 ? {} : { rate: Number(d.rate) }) })),
           to_tank: validToTank.map((r) => ({ tank_id: Number(r.tank_id), product: r.product, litres: Number(r.litres), ...(Number(r.amount) > 0 ? { amount: Number(r.amount) } : {}), note: null })),
         };
         const saved = await run(() => api("/bypass/deliveries", { body }), (r: any) => `Delivery #${r.id} saved. Bought ${pkr(r.bought)}, billed ${pkr(r.billed)}, munafa ${pkr(r.margin)}${r.to_tank_litres ? `, apne tank ${num(r.to_tank_litres)} L` : ""}`);
@@ -511,7 +535,12 @@ export function BypassDeliveryForm({ onClose, onDone, fromHeld = false, fromClie
                 <select className="input col-span-3" value={b.product} onChange={(e) => setBuys(buys.map((x, j) => j === i ? { ...x, product: e.target.value } : x))}>{activeProducts.map((pr) => <option key={pr.code} value={pr.code}>{pr.name}</option>)}</select>
                 <input className="input col-span-2" type="number" inputMode="decimal" min={0} step="0.01" placeholder="litre" value={b.litres} onChange={(e) => setBuys(buys.map((x, j) => j === i ? { ...x, litres: e.target.value } : x))} />
                 <input className="input col-span-2" type="number" inputMode="decimal" min={0} placeholder="Rs amount" value={b.amount} onChange={(e) => setBuys(buys.map((x, j) => j === i ? { ...x, amount: e.target.value } : x))} />
-                {buys.length > 1 && <button type="button" className="col-span-12 -mt-1 text-right text-xs text-red-600" onClick={() => setBuys(buys.filter((_, j) => j !== i))}>Remove line</button>}
+                <div className="col-span-12 -mt-1 flex flex-wrap items-center justify-between gap-2">
+                  {tripTankers.length > 0 ? <label className="flex items-center gap-1.5 text-xs text-slate-600">Kis tanker mein · <Ur>ٹینکر</Ur>
+                    <select className="input !w-auto !py-1 text-xs" aria-label="Yeh maal kis tanker mein hai" value={onTrip(b.vehicle_no)} onChange={(e) => setBuys(buys.map((x, j) => j === i ? { ...x, vehicle_no: e.target.value } : x))}>
+                      <option value="">— tanker —</option>{tripTankers.map((v) => <option key={v} value={v}>{v}</option>)}</select></label> : <span />}
+                  {buys.length > 1 && <button type="button" className="text-xs text-red-600" onClick={() => setBuys(buys.filter((_, j) => j !== i))}>Remove line</button>}
+                </div>
               </div>
             ))}
           </div>
@@ -558,10 +587,17 @@ export function BypassDeliveryForm({ onClose, onDone, fromHeld = false, fromClie
                 <select className="input col-span-3" value={d.product} onChange={(e) => setDrops(drops.map((x, j) => j === i ? { ...x, product: e.target.value } : x))}>{activeProducts.map((pr) => <option key={pr.code} value={pr.code}>{pr.name}</option>)}</select>
                 <input className="input col-span-2" type="number" inputMode="decimal" min={0} step="0.01" placeholder="litre" value={d.litres} onChange={(e) => setDrops(drops.map((x, j) => j === i ? { ...x, litres: e.target.value } : x))} />
                 <div className="col-span-2 flex items-center justify-end rounded-lg bg-white px-2 text-right text-sm tabular-nums ring-1 ring-slate-200" title={rate > 0 ? `Rate Rs ${rate}/L (card)` : "Rate card nahi"}>
-                  {d.client_id && d.client_id !== "__new__" ? (rate > 0 ? pkr(lineAmt) : <span className="text-rose-600">rate?</span>) : <span className="text-slate-400">Rs</span>}
+                  {d.client_id && d.client_id !== "__new__" ? (rate > 0 ? pkr(lineAmt) : <span className="text-amber-700">rate?</span>) : <span className="text-slate-400">Rs</span>}
                 </div>
                 <div className="col-span-12 -mt-1 flex items-center justify-between">
-                  <span className="text-xs text-slate-500">{d.order_id ? "📋 booked order · " : ""}{rate > 0 ? `Rate Rs ${rate}/L (card)` : d.client_id && d.client_id !== "__new__" ? <span className="text-rose-600">Is client ka {PRODUCTS[d.product]} rate card nahi — pehle rate set karein</span> : ""}</span>
+                  <span className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
+                    <span>{d.order_id ? "📋 booked order · " : ""}{cardRate(d) > 0 ? `Rate Rs ${rate}/L (card)` : d.client_id && d.client_id !== "__new__" ? <label className="inline-flex items-center gap-1.5 text-amber-700">Rate card nahi — is trip ka rate likhein
+                      <input className="input !w-24 !py-1 text-xs" type="number" inputMode="decimal" min={0} step="0.01" placeholder="Rs / L" aria-label="Is drop ka rate fi litre" value={d.rate ?? ""} onChange={(e) => setDrops(drops.map((x, j) => j === i ? { ...x, rate: e.target.value } : x))} /></label> : ""}</span>
+                    {tripTankers.length > 0 && <label className="inline-flex items-center gap-1.5">Kis tanker se
+                      <select className="input !w-auto !py-1 text-xs" aria-label="Yeh drop kis tanker se" value={onTrip(d.vehicle_no)} onChange={(e) => setDrops(drops.map((x, j) => j === i ? { ...x, vehicle_no: e.target.value } : x))}>
+                        <option value="">— koi bhi —</option>{tripTankers.map((v) => { const L = vehLeft(v, d.product); return <option key={v} value={v}>{v}{anyTagged || L > 0 ? ` · ${num(Math.max(0, L))} L ${PRODUCTS[d.product]} baqi` : ""}</option>; })}</select></label>}
+                    {onTrip(d.vehicle_no) && anyTagged && vehLeft(d.vehicle_no, d.product) < -0.01 && <span className="text-rose-600">Is tanker par itna {PRODUCTS[d.product]} nahi ({num(vehLoad(d.vehicle_no, d.product))} L hai)</span>}
+                  </span>
                   {drops.length > 1 && <button type="button" className="text-xs text-red-600" onClick={() => setDrops(drops.filter((_, j) => j !== i))}>Remove drop</button>}
                 </div>
               </div>
@@ -627,10 +663,12 @@ export function BypassDeliveryForm({ onClose, onDone, fromHeld = false, fromClie
 
         <Field label="Note"><input className="input" value={note} onChange={(e) => setNote(e.target.value)} /></Field>
         <ProofPhotos value={photos} onChange={setPhotos} hint="depot invoice / bilty" />
-        {(halfDrops.length > 0 || halfTank.length > 0 || halfBuys.length > 0 || noRoom.length > 0 || (!station && (validBuys.length + validDrops.length + validToTank.length) > 0)) && (
+        {(halfDrops.length > 0 || noRate.length > 0 || overVeh.length > 0 || halfTank.length > 0 || halfBuys.length > 0 || noRoom.length > 0 || (!station && (validBuys.length + validDrops.length + validToTank.length) > 0)) && (
           <ul className="list-disc space-y-0.5 rounded-lg bg-amber-50 px-3 py-2 pl-7 text-sm font-medium text-amber-900 ring-1 ring-amber-200">
             {!station && <li>Station chunein (upar) — kis ki books mein jayega</li>}
             {halfBuys.length > 0 && <li>Khareed ki {halfBuys.length} line adhoori hai — supplier, litre aur amount teeno likhein, ya line hata dein</li>}
+            {overVeh.length > 0 && <li>Tanker par maal kam hai: {overVeh.map((k) => k.replace("|", " · ")).join(", ")} — litre kam karein ya doosra tanker chunein</li>}
+            {noRate.length > 0 && <li>{noRate.length} drop ka rate nahi — line ke neeche rate likhein (ya client ka rate card set karein)</li>}
             {halfDrops.length > 0 && <li>Drop ki {halfDrops.length} line adhoori hai — client aur litre dono likhein, ya line hata dein</li>}
             {halfTank.length > 0 && <li>"Apne tank mein" ki {halfTank.length} line adhoori hai — tank aur litre dono likhein, ya line hata dein</li>}
             {noRoom.length > 0 && <li>Tank mein jagah kam hai — litre kam karein ya doosra tank chunein (jo na samaye wo Baqi stock mein rehta hai)</li>}
