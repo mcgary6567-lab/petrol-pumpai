@@ -26,15 +26,48 @@ export const backupDir = () => process.env.BACKUP_DIR ?? path.join(path.dirname(
 const KEEP = 14;
 const NAME = /^pumpai-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.db$/;
 
-/** A consistent copy of the whole database (VACUUM INTO), keeping the last 14. */
+const MIN_KEEP = 2;
+const MB = 1024 * 1024;
+/** Free bytes on the disk that holds this folder (null when the platform cannot tell). */
+export function diskFree(dir: string): number | null {
+  try { const st = fs.statfsSync(dir); return Number(st.bavail) * Number(st.bsize); } catch { return null; }
+}
+const dbBytes = () => [config.dbPath, `${config.dbPath}-wal`].reduce((a, f) => { try { return a + fs.statSync(f).size; } catch { return a; } }, 0);
+/** Room the database needs to keep working: a sale, a login, a backup all write. Two database sizes, at least 200 MB. */
+const roomNeeded = () => Math.max(200 * MB, 2 * dbBytes() + 50 * MB);
+/**
+ * The backups live on the same disk as the database. On a small disk (Fly: 1 GB) fourteen full copies fill it, and then
+ * every write fails — sign-in included ("Internal server error"). When the disk runs low, the OLDEST local copies go
+ * first; the newest MIN_KEEP always stay (and every copy also went to Google Drive / Dropbox when that is set up).
+ */
+export function makeRoom(): { free_mb: number | null; removed: string[] } {
+  const removed: string[] = [];
+  let free = diskFree(path.dirname(config.dbPath));
+  if (free == null) return { free_mb: null, removed };
+  const list = listBackups(); // newest first
+  while (free < roomNeeded() && list.length > MIN_KEEP) {
+    const old = list.pop()!;
+    try { fs.rmSync(path.join(backupDir(), old.name), { force: true }); removed.push(old.name); } catch { break; }
+    free = diskFree(path.dirname(config.dbPath)) ?? free + old.bytes;
+  }
+  if (removed.length) console.warn(`[backup] disk was low — removed ${removed.length} oldest local backup(s): ${removed.join(", ")}`);
+  return { free_mb: Math.round(free / MB), removed };
+}
+
+/** A consistent copy of the whole database (VACUUM INTO), keeping the last 14 — fewer when the disk is small. */
 export function makeBackup(): { name: string; bytes: number } {
   fs.mkdirSync(backupDir(), { recursive: true });
+  makeRoom();
+  // never fill the disk with a backup: the copy needs about one database of room on top of what the app needs
+  const free = diskFree(backupDir());
+  if (free != null && free < dbBytes() + 100 * MB) throw new Error(`Disk almost full (${Math.round(free / MB)} MB free) — local backup skipped. Make the volume bigger.`);
   const name = `pumpai-${new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 19).replace(/:/g, "-")}.db`;
   const file = path.join(backupDir(), name);
   if (fs.existsSync(file)) fs.rmSync(file);
   db.exec(`VACUUM INTO '${file.replace(/'/g, "''")}'`);
   const all = listBackups();
   for (const old of all.slice(KEEP)) fs.rmSync(path.join(backupDir(), old.name), { force: true });
+  makeRoom();
   copyOffsite(file);
   void cloudPushAll(file); // Google Drive / Dropbox, set up in Settings → Backups
   return { name, bytes: fs.statSync(file).size };

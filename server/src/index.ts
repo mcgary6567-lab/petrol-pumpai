@@ -49,7 +49,7 @@ import { shop } from "./routes/shop.js";
 import { compliance, attendPublic } from "./routes/compliance.js";
 import { analysis } from "./routes/analysis.js";
 import { care, portalFromOldToken } from "./routes/customerCare.js";
-import { system, cloudPublic } from "./routes/system.js";
+import { system, cloudPublic, makeRoom, diskFree } from "./routes/system.js";
 import { renderReceipt } from "./billing.js";
 import { prepaid } from "./routes/prepaid.js";
 import { approvals } from "./routes/approvals.js";
@@ -136,10 +136,15 @@ app.get("/api/cron/tick", (req, res) => {
   res.json({ ok: true, at: new Date().toISOString(), started });
 });
 
+// a full disk breaks every write (sign-in, sales) while reads still work: at start, old local backups make room
+try { const r = makeRoom(); console.log(`[disk] ${r.free_mb ?? "?"} MB free on the data disk${r.removed.length ? ` after removing ${r.removed.length} old backup(s)` : ""}`); } catch (e) { console.error("[disk]", (e as Error).message); }
 app.get("/api/health", (_req, res) => {
   let db = true;
   try { get("SELECT 1 x"); } catch { db = false; }
-  res.status(db ? 200 : 503).json({ ok: db, db, version: APP_VERSION, ai: aiProvider() === "none" ? "rules" : aiProvider(), whatsapp: waLive() ? "live" : "simulated" });
+  const free = diskFree(path.dirname(config.dbPath));
+  const disk_free_mb = free == null ? null : Math.round(free / 1024 / 1024);
+  res.status(db ? 200 : 503).json({ ok: db, db, version: APP_VERSION, ai: aiProvider() === "none" ? "rules" : aiProvider(), whatsapp: waLive() ? "live" : "simulated",
+    disk_free_mb, disk_low: disk_free_mb != null && disk_free_mb < 100 });
 });
 app.use("/api/attend", rateLimit("attend", 40, 10 * 60_000)); // QR self check-in: stop code guessing
 app.use("/api", attendPublic); // non-login workers' QR + 4-digit self check-in (no login)
