@@ -1,0 +1,68 @@
+// PumpAI service worker: keeps the app shell available so the POS opens without internet, and keeps the last copy of every
+// API read (dashboard, khata, prices, /me…) so the app still opens and shows yesterday's numbers when the net is down.
+// Writes are never cached: the POS queues its sales, everything else says "internet nahi".
+const CACHE = "pumpai-shell-v5";
+const API_CACHE = "pumpai-api-v1";
+const FONT_CACHE = "pumpai-fonts-v1"; // Google Fonts (Inter + Urdu Naskh/Nastaliq) so the app reads right offline too
+const FONT_HOST = /(^|\.)fonts\.(googleapis|gstatic)\.com$/;
+
+self.addEventListener("install", () => self.skipWaiting());
+self.addEventListener("activate", (e) => {
+  e.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== CACHE && k !== FONT_CACHE && k !== API_CACHE).map((k) => caches.delete(k)))).then(() => self.clients.claim()));
+});
+
+self.addEventListener("fetch", (e) => {
+  const req = e.request;
+  const url = new URL(req.url);
+  // Google Fonts: cache-first into their own cache (cross-origin), so the fonts survive offline after one online load
+  if (req.method === "GET" && FONT_HOST.test(url.hostname)) {
+    e.respondWith(caches.open(FONT_CACHE).then((c) => c.match(req).then((hit) =>
+      hit || fetch(req).then((res) => { if (res && (res.ok || res.type === "opaque")) c.put(req, res.clone()); return res; }).catch(() => hit))));
+    return;
+  }
+  // API reads: network first; when the network is gone, the last good copy comes back marked x-pumpai-offline so the app can
+  // show "offline — purana data". Streams, downloads and photos are left alone. The cache is cleared on sign-out (api.ts).
+  if (req.method === "GET" && url.origin === location.origin && url.pathname.startsWith("/api/") && !/^\/api\/(live|events|io\/|photos?\/|.*\.(csv|pdf|xlsx)$)/.test(url.pathname) && !url.searchParams.has("token")) {
+    e.respondWith(fetch(req).then((res) => {
+      if (res.ok && (res.headers.get("content-type") || "").includes("json")) { const copy = res.clone(); caches.open(API_CACHE).then((c) => c.put(req, copy)).catch(() => {}); }
+      return res;
+    }).catch(async () => {
+      const hit = await caches.open(API_CACHE).then((c) => c.match(req, { ignoreVary: true }));
+      if (!hit) return new Response(JSON.stringify({ error: "Internet nahi hai", offline: true }), { status: 503, headers: { "content-type": "application/json", "x-pumpai-offline": "1" } });
+      const h = new Headers(hit.headers); h.set("x-pumpai-offline", "1");
+      return new Response(await hit.blob(), { status: 200, headers: h });
+    }));
+    return;
+  }
+  // pages made by the server (customer khata, bills, receipts, reports, slips, legal) are never stored as the app shell
+  const SERVER_PAGES = /^\/(api|webhooks|bill|w|k|r|day|portal|board|slip|privacy|terms|branding|manifest|version)(\/|\.|$)/;
+  if (req.method !== "GET" || url.origin !== location.origin || SERVER_PAGES.test(url.pathname)) return;
+  if (req.mode === "navigate") {
+    // network first so updates arrive; fall back to the cached shell when offline
+    e.respondWith(fetch(req).then((res) => { if (res.ok && !res.redirected) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put("/index.html", copy)); } return res; })
+      .catch(() => caches.match("/index.html")));
+    return;
+  }
+  // hashed build assets: cache first
+  e.respondWith(caches.match(req).then((hit) => hit || fetch(req).then((res) => {
+    if (res.ok) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(req, copy)); }
+    return res;
+  })));
+});
+
+// push notifications from the server (price change, cash short, licence expiry…)
+self.addEventListener("message", (e) => { if (e.data === "clear-api-cache") caches.delete(API_CACHE); });
+
+self.addEventListener("push", (e) => {
+  let d = {};
+  try { d = e.data ? e.data.json() : {}; } catch { d = { title: e.data ? e.data.text() : "PumpAI" }; }
+  e.waitUntil(self.registration.showNotification(d.title || "PumpAI", { body: d.body || "", tag: d.tag, data: { url: d.url || "/" } }));
+});
+self.addEventListener("notificationclick", (e) => {
+  e.notification.close();
+  const url = (e.notification.data && e.notification.data.url) || "/";
+  e.waitUntil(self.clients.matchAll({ type: "window" }).then((ws) => {
+    for (const w of ws) if ("focus" in w) { w.navigate(url); return w.focus(); }
+    return self.clients.openWindow(url);
+  }));
+});

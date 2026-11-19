@@ -1,0 +1,30 @@
+{
+  "name": "pumpai-hostinger",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Petrol PumpAI — ready-built for Hostinger Node.js hosting (entry file: app.js). Built from main; do not edit here.",
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js",
+    "build": "echo already built"
+  },
+  "engines": {
+    "node": "22.x"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.131.0",
+    "bcryptjs": "^2.4.3",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.2",
+    "jimp": "^1.6.1",
+    "jsonwebtoken": "^9.0.2",
+    "node-cron": "^3.0.3",
+    "uuid": "^11.1.1",
+    "web-push": "^3.6.7",
+    "zod": "^4.6.7"
+  },
+  "overrides": {
+    "zod": "^4.6.7",
+    "uuid": "^11.1.1"
+  }
+}
