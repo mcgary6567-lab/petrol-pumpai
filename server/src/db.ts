@@ -2,6 +2,7 @@ import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import fs from "node:fs";
 import path from "node:path";
 import { config } from "./config.js";
+import { makeRoomFor } from "./diskRoom.js";
 
 fs.mkdirSync(path.dirname(config.dbPath), { recursive: true });
 // a restore staged from Settings → Backups is swapped in before the database is opened
@@ -11,6 +12,8 @@ if (fs.existsSync(`${config.dbPath}.restore`)) {
   fs.renameSync(`${config.dbPath}.restore`, config.dbPath);
   console.log(`[db] restored backup; previous database kept as ${path.basename(config.dbPath)}.before-restore-${stamp}`);
 }
+// a full disk kills the start-up table changes below: make room first (oldest local backups), before the database opens
+try { fs.mkdirSync(path.dirname(config.dbPath), { recursive: true }); const r = makeRoomFor(config.dbPath); console.log(`[disk] ${r.free_mb ?? "?"} MB free on the data disk`); } catch (e) { console.error("[disk]", (e as Error).message); }
 export const db = new DatabaseSync(config.dbPath);
 db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000; PRAGMA synchronous = NORMAL;");
 
