@@ -50,7 +50,14 @@ parchi.get("/parchi/meta", requirePerm("khata.manage"), h((req) => {
       month: round2(get("SELECT COALESCE(SUM(amount),0) v FROM khata_ledger WHERE customer_id=? AND type='debit' AND created_at >= ?", c.id, monthStart)!.v as number),
       last_payment: get("SELECT amount, created_at FROM khata_ledger WHERE customer_id=? AND type='credit' ORDER BY created_at DESC, id DESC LIMIT 1", c.id) ?? null,
       recent: all("SELECT id, type, amount, ref, note, product, litres, vehicle_no, slip_no, created_at FROM khata_ledger WHERE customer_id=? ORDER BY created_at DESC, id DESC LIMIT 3", c.id) };
-    out.vehicles = all("SELECT id, plate_no, fuel, daily_limit_l FROM vehicles WHERE customer_id=? ORDER BY plate_no", c.id);
+    // saved gaariyan, most used first (khata entries with that plate)
+    out.vehicles = all(`SELECT v.id, v.plate_no, v.fuel, v.daily_limit_l, (SELECT COUNT(*) FROM khata_ledger k WHERE k.customer_id=v.customer_id AND UPPER(k.vehicle_no)=UPPER(v.plate_no)) uses
+      FROM vehicles v WHERE v.customer_id=? ORDER BY uses DESC, v.plate_no`, c.id);
+    // slip nos. already on this khata — the form warns before the same parchi goes on twice
+    out.slips = [
+      ...all("SELECT slip_no slip, 'PR-'||id ref, parchi_date date FROM parchi_lines WHERE customer_id=? AND voided=0 AND slip_no IS NOT NULL AND TRIM(slip_no)<>'' ORDER BY id DESC LIMIT 5000", c.id),
+      ...all("SELECT slip_no slip, 'K-'||id ref, substr(created_at,1,10) date FROM khata_ledger WHERE customer_id=? AND slip_no IS NOT NULL AND TRIM(slip_no)<>'' AND COALESCE(ref,'') NOT LIKE 'PR-%' ORDER BY id DESC LIMIT 5000", c.id),
+    ];
   }
   return out;
 }));
@@ -60,6 +67,8 @@ const lineSchema = z.object({
   parchi_date: day, slip_no: z.string().trim().max(40).optional().nullable(), vehicle_no: z.string().trim().max(30).optional().nullable(),
   kind: z.enum(["fuel", "shop"]), product: z.string().max(12).optional().nullable(), item_id: z.number().int().optional().nullable(),
   qty: z.number().positive().max(200_000), rate: z.number().positive().max(10_000_000).optional().nullable(), photo_ids: proofPhotos,
+  // the parchi says a money amount ("Rs 5,000"): that exact amount goes on the khata; qty is amount ÷ rate
+  amount: z.number().positive().max(100_000_000).optional().nullable(),
 });
 
 /** One parchi line priced: the khata date (closed day CEO-only, no future), the rate (fuel = that day's, shop = the item's,
@@ -81,7 +90,7 @@ function priceLine(req: Parameters<typeof backdateAt>[0], t: number, l: z.infer<
     if (!rate) throw new AppError(400, `${tag}: ${it.name} ka rate likhein`);
     label = `${round2(l.qty)} × ${it.name} @ ${rate}`;
   }
-  return { ...l, at, rate: round2(rate), amount: round2(l.qty * rate), product, itemId, itemName, label };
+  return { ...l, at, rate: round2(rate), amount: round2(l.amount ?? l.qty * rate), product, itemId, itemName, label };
 }
 
 /** Save many parchiyan for one customer in one go (all or nothing). */
