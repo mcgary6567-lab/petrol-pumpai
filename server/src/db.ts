@@ -807,7 +807,12 @@ export function migrate() {
   // a payment tied to chosen parchiyan (instead of oldest-first): which khata payment pays how much of which parchi
   db.exec(`CREATE TABLE IF NOT EXISTS parchi_alloc (id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, customer_id INTEGER NOT NULL, khata_id INTEGER NOT NULL,
     parchi_id INTEGER NOT NULL, amount REAL NOT NULL, created_by TEXT, created_at TEXT NOT NULL)`);
-  db.exec("CREATE INDEX IF NOT EXISTS idx_palloc_khata ON parchi_alloc(khata_id)"); // a batch's tag ("Nov project · Site B"), filterable in the Parchi Book
+  db.exec("CREATE INDEX IF NOT EXISTS idx_palloc_khata ON parchi_alloc(khata_id)");
+  // saved line sets for gaariyan that come every day ("Site B ki 5 gaariyan")
+  db.exec(`CREATE TABLE IF NOT EXISTS parchi_templates (id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, customer_id INTEGER NOT NULL, name TEXT NOT NULL,
+    lines TEXT NOT NULL, created_by TEXT, created_at TEXT NOT NULL)`);
+  addColumn("photos", "sha", "TEXT"); // content hash, filled on demand — the same photo uploaded twice is spotted
+  db.exec("CREATE INDEX IF NOT EXISTS idx_photos_sha ON photos(sha)"); // a batch's tag ("Nov project · Site B"), filterable in the Parchi Book
   // the first "Sirf parchi entry" rows (khata ref PARCHI-n) join the Parchi Book once, as one line each
   for (const k of db.prepare(`SELECT k.id, k.customer_id, k.amount, k.note, k.slip_no, k.vehicle_no, k.created_at, c.tenant_id FROM khata_ledger k JOIN customers c ON c.id=k.customer_id
       WHERE k.ref LIKE 'PARCHI-%' AND NOT EXISTS (SELECT 1 FROM parchi_lines p WHERE p.khata_id=k.id)`).all() as any[])

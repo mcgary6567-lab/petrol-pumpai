@@ -217,3 +217,48 @@ test("Parchi: a payment tied to chosen parchiyan pays them, not the oldest entry
   assert.deepEqual(await st(), { [r.ids[0]]: "unpaid", [r.ids[1]]: "unpaid" }, "untied: back to oldest-first");
   await books();
 });
+
+test("Parchi: history, bulk change / delete, templates, rate review, vehicle-day litres, duplicate photo", async () => {
+  const t = db.get("SELECT id FROM tenants ORDER BY id LIMIT 1")!.id as number;
+  const cid = (db.run("INSERT INTO customers (tenant_id,name,phone,type,balance,credit_limit,created_at) VALUES (?,?,?,?,?,?,?)", t, "Bulk Test Customer", "923000000782", "retail", 0, 900000, new Date().toISOString()) as any).id;
+  const day = (n: number) => new Date(Date.now() - n * 86_400_000 + 5 * 3600_000).toISOString().slice(0, 10);
+  const r = ok(await call("manager", "POST", "/api/parchi/batch", { customer_id: cid, lines: [
+    { parchi_date: day(0), vehicle_no: "LEH-1", kind: "fuel", product: "PMG", qty: 10 }, { parchi_date: day(0), vehicle_no: "leh 1", kind: "fuel", product: "PMG", qty: 5 },
+    { parchi_date: day(0), vehicle_no: "LES-2", kind: "fuel", product: "HSD", qty: 8 } ] }), "batch");
+  // 17: litres already on a gaari that day
+  const vd = ok(await call("manager", "GET", `/api/parchi/vehicle-day?customer_id=${cid}&dates=${day(0)}`), "vday");
+  near(vd[`LEH1|${day(0)}`], 15, "both spellings of one gaari");
+  // 28: bulk tag + gaari, then history (29)
+  ok(await call("manager", "POST", "/api/parchi/bulk", { ids: [r.ids[0], r.ids[1]], field: "tag", value: "Site X" }), "bulk tag");
+  ok(await call("manager", "POST", "/api/parchi/bulk", { ids: [r.ids[1]], field: "vehicle", value: "les-9" }), "bulk gaari");
+  assert.equal(db.get("SELECT vehicle_no FROM khata_ledger WHERE ref=?", r.entry_ids[1])!.vehicle_no, "LES-9");
+  ok(await call("manager", "POST", "/api/parchi/bulk", { ids: [r.ids[2]], field: "date", value: day(1) }), "bulk date");
+  assert.equal(new Date(Date.parse(db.get("SELECT created_at FROM khata_ledger WHERE ref=?", r.entry_ids[2])!.created_at) + 5 * 3600_000).toISOString().slice(0, 10), day(1));
+  assert.equal((await call("manager", "POST", "/api/parchi/bulk", { ids: [r.ids[2]], field: "date", value: day(-1) })).status, 400, "no future date");
+  const hs = ok(await call("manager", "GET", `/api/parchi/${r.ids[1]}/history`), "history");
+  assert.ok(hs.events.length >= 3 && hs.events[0].what === "Banai gayi");
+  // 31: templates
+  ok(await call("manager", "POST", "/api/parchi/templates", { customer_id: cid, name: "Site X roz", lines: [{ vehicle_no: "LEH-1", kind: "fuel", product: "PMG", qty: 10 }] }), "tpl");
+  ok(await call("manager", "POST", "/api/parchi/templates", { customer_id: cid, name: "site x ROZ", lines: [{ vehicle_no: "LEH-1", kind: "fuel", product: "PMG", qty: 12 }] }), "tpl again");
+  const tpl = ok(await call("manager", "GET", `/api/parchi/templates?customer_id=${cid}`), "tpls");
+  assert.equal(tpl.length, 1, "same name replaces"); near(tpl[0].lines[0].qty, 12);
+  // 33: rate card changes → review shows the PMG parchiyan, reprice moves khata + balance
+  db.run("UPDATE customers SET khata_rates=? WHERE id=?", JSON.stringify({ PMG: { mode: "minus", value: 4 } }), cid);
+  const rv = ok(await call("manager", "GET", `/api/parchi/rate-review?customer_id=${cid}`), "review");
+  assert.equal(rv.rows.length, 2); near(rv.diff, -4 * 15);
+  const bal0 = db.get("SELECT balance FROM customers WHERE id=?", cid)!.balance;
+  const rp = ok(await call("manager", "POST", "/api/parchi/reprice", { ids: rv.rows.map((x: any) => x.id) }), "reprice");
+  assert.equal(rp.changed, 2); near(db.get("SELECT balance FROM customers WHERE id=?", cid)!.balance, bal0 - 60);
+  assert.equal(ok(await call("manager", "GET", `/api/parchi/rate-review?customer_id=${cid}`), "review2").rows.length, 0);
+  await books();
+  // 28: bulk delete
+  const bd = ok(await call("manager", "POST", "/api/parchi/bulk/void", { ids: [r.ids[0], r.ids[2]], reason: "ghalat customer" }), "bulk void");
+  assert.equal(bd.deleted, 2); assert.equal(db.get("SELECT COUNT(*) n FROM khata_ledger WHERE ref IN (?,?)", r.entry_ids[0], r.entry_ids[2])!.n, 0);
+  await books();
+  // 32: the same photo twice
+  const img = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+  const ph1 = db.run("INSERT INTO photos (tenant_id,kind,ref,mime,data,created_at) VALUES (?,?,?,?,?,?)", t, "proof", `khata:${db.get("SELECT id FROM khata_ledger WHERE ref=?", r.entry_ids[1])!.id}`, "image/png", Buffer.from(img.split(",")[1], "base64"), new Date().toISOString()) as any;
+  const ph2 = db.run("INSERT INTO photos (tenant_id,kind,ref,mime,data,created_at) VALUES (?,?,?,?,?,?)", t, "proof", null, "image/png", Buffer.from(img.split(",")[1], "base64"), new Date().toISOString()) as any;
+  const pc = ok(await call("manager", "POST", "/api/parchi/photo-check", { photo_ids: [ph2.id] }), "photo check");
+  assert.equal(pc.length, 1); assert.match(pc[0].dup, new RegExp(`PR-${r.ids[1]}`)); void ph1;
+});
