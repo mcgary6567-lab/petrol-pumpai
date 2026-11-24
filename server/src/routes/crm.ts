@@ -472,10 +472,18 @@ export function khataAging(t: number) {
     // walk the ledger oldest-first; each payment eats the oldest open charges
     const rows = all("SELECT type, amount, created_at FROM khata_ledger WHERE customer_id=? ORDER BY created_at, id", c.id);
     const open: { at: number; left: number }[] = [];
+    // money paid with nothing open to clear (an advance) is kept and clears the next charges — it used to be dropped,
+    // so a customer who paid ahead showed his later charges as unpaid (aging 7,100 against a balance of 2,100)
+    let advance = 0;
     for (const r of rows) {
-      if (r.type === "debit") open.push({ at: Date.parse(r.created_at), left: r.amount });
-      else { let pay = r.amount; for (const o of open) { if (pay <= 0) break; const take = Math.min(o.left, pay); o.left -= take; pay -= take; } }
+      if (r.type === "debit") {
+        const use = Math.min(advance, r.amount); advance -= use;
+        open.push({ at: Date.parse(r.created_at), left: r.amount - use });
+      } else { let pay = r.amount; for (const o of open) { if (pay <= 0) break; const take = Math.min(o.left, pay); o.left -= take; pay -= take; } advance += pay; }
     }
+    // never age more than the balance actually owed: if the ledger and the balance disagree, the newest charges go first
+    let excess = Math.max(0, open.reduce((x, o) => x + o.left, 0) - c.balance);
+    for (let i = open.length - 1; i >= 0 && excess > 0.009; i--) { const cut = Math.min(open[i].left, excess); open[i].left -= cut; excess -= cut; }
     const buckets = [0, 0, 0, 0];
     let placed = 0;
     for (const o of open) if (o.left > 0.009) { buckets[bucketOf(Math.floor((now - o.at) / 86_400_000))] += o.left; placed += o.left; }

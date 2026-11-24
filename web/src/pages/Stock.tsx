@@ -159,7 +159,11 @@ export default function Stock() {
       <div>
         {(() => { const multi = new Set(tanks.map((t: any) => t.station_name)).size > 1; return (
           <ListTools q={flt.q} onQ={(q) => setFlt({ ...flt, q })} placeholder="Supplier, tanker no, tank… · تلاش"
-            chips={[{ k: "", label: "All tanks" }, ...tanks.map((t: any) => ({ k: String(t.id), label: multi ? `${t.name} · ${t.station_name}` : t.name }))]} chip={flt.tank} onChip={(tank) => setFlt({ ...flt, tank })}
+            chips={[{ k: "", label: "All tanks" }, ...tanks.map((t: any) => ({ k: String(t.id), label: multi ? `${t.name} · ${t.station_name}` : t.name }))]} chip={flt.tank} onChip={(tank) => {
+              setFlt({ ...flt, tank });
+              // picking a tank below also picks it in the dip and tanker forms above (one tank in focus across the page)
+              if (tank) { setDip((d) => ({ ...d, tank_id: tank })); setDipSure(false); setDel((d: any) => ({ ...d, tank_id: tank })); }
+            }}
             from={flt.from} to={flt.to} onFrom={(from) => setFlt({ ...flt, from })} onTo={(to) => setFlt({ ...flt, to })} />); })()}
       <div className="grid grid-cols-1 gap-5 md:grid-cols-2 print:block print:space-y-4">
         <History title="Dip readings" right={4} rows={stock.data.dips} cols={[["When", (r) => dt(r.created_at)], ["Tank", (r) => `${r.station} ${r.tank}`], ["Book", (r) => num(r.book_l)], ["Dip", (r) => <>{num(r.measured_l)}{r.measured_cm != null ? <span className="text-xs text-slate-400"> ({r.measured_cm} cm)</span> : null}</>], ["Var %", (r) => <span className={Math.abs(r.variance_pct) >= 0.5 ? "font-semibold text-red-600" : ""}>{r.variance_pct}%</span>], ["Photo", (r) => (r.proof_ids?.length ? <ProofThumbs ids={r.proof_ids} /> : null)], ["ID", (r) => <IdTag id={`DIP-${r.id}`} />]]} />
