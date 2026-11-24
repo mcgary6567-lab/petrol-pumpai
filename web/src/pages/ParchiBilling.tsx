@@ -213,10 +213,11 @@ function ParchiBook({ customer, setCustomer }: { customer: string; setCustomer: 
   const qs = new URLSearchParams(Object.entries({ customer_id: customer, ...range }).filter(([, v]) => v)).toString();
   const { data, reload } = useApi<any>(`/parchi/book${qs ? `?${qs}` : ""}`);
   const { busy, run } = useAction();
+  const [edit, setEdit] = useState<any>(null);
   const voidIt = async (r: any) => {
-    const reason = prompt(`PR-${r.id} mansookh karein (${pkr(r.amount)}) — wajah likhein:`);
+    const reason = prompt(`PR-${r.id} delete karein? ${pkr(r.amount)} khate se hat jayenge.\nWajah likhein:`);
     if (!reason || reason.trim().length < 3) return;
-    if (await run(() => api(`/parchi/${r.id}/void`, { body: { reason } }), `PR-${r.id} mansookh — khata ${pkr(r.amount)} kam`)) reload();
+    if (await run(() => api(`/parchi/${r.id}/void`, { body: { reason } }), `PR-${r.id} delete — khata ${pkr(r.amount)} kam`)) reload();
   };
   const chip = (s: string, r: any) => s === "paid" ? <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-700">Paid</span>
     : s === "part" ? <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">{pkr(r.unpaid)} baqi</span>
@@ -243,14 +244,85 @@ function ParchiBook({ customer, setCustomer }: { customer: string; setCustomer: 
                   <td className="td whitespace-nowrap text-xs">{dmy(r.parchi_date)}</td><td className="td">{r.customer}</td><td className="td text-xs">{r.slip_no ?? ""}</td><td className="td text-xs">{r.vehicle_no ?? ""}</td>
                   <td className="td text-xs text-slate-600">{r.kind === "fuel" ? `${num(r.qty, 2)} L ${PRODUCTS[r.product] ?? r.product} × ${r.rate}` : r.kind === "shop" ? `🛒 ${r.item_name} × ${num(r.qty, 2)} @ ${r.rate}` : r.item_name}{r.khata_id ? <> · <IdTag id={`K-${r.khata_id}`} /></> : null}</td>
                   <td className="td whitespace-nowrap text-right font-semibold tabular-nums">{pkr(r.amount)}</td><td className="td">{chip(r.status, r)}</td><td className="td text-xs">{r.created_by ?? ""}</td>
-                  <td className="td"><button className="text-xs text-rose-600 underline" disabled={busy} onClick={() => voidIt(r)}>mansookh</button></td>
+                  <td className="td whitespace-nowrap"><button className="rounded-md border border-violet-200 px-2 py-1 text-xs font-semibold text-violet-700 hover:bg-violet-50" disabled={busy} onClick={() => setEdit(r)} aria-label={`PR-${r.id} edit`}>✏️ Edit</button>{" "}
+                    <button className="rounded-md border border-rose-200 px-2 py-1 text-xs font-semibold text-rose-600 hover:bg-rose-50" disabled={busy} onClick={() => voidIt(r)} aria-label={`PR-${r.id} delete`}>🗑 Delete</button></td>
                 </tr>))}
               {!data.rows.length && <tr><td className="td py-8 text-center text-slate-500" colSpan={10}>Koi parchi nahi</td></tr>}
             </tbody>
           </table>
         </div>
-        <p className="p-4 text-xs text-slate-500">Payment "Khata payment" se aati hai — sab se purani entry pehle Paid hoti hai. "Mansookh" se parchi ki raqam khate se hat jati hai.</p>
+        <p className="p-4 text-xs text-slate-500">Payment "Khata payment" se aati hai — sab se purani entry pehle Paid hoti hai. "Edit" se gaari, litre, rate, tareekh theek karein — khata aur balance khud update. "Delete" se parchi ki raqam khate se hat jati hai.</p>
       </>}
+      {edit && <EditParchi row={edit} onClose={() => setEdit(null)} onDone={() => { setEdit(null); reload(); }} />}
     </div>
+  );
+}
+
+/** Edit one saved parchi: every field; the khata entry, its date and the customer's balance follow on save. */
+function EditParchi({ row, onClose, onDone }: { row: any; onClose: () => void; onDone: () => void }) {
+  const meta = useApi<any>(`/parchi/meta?customer_id=${row.customer_id}`);
+  const [f, setF] = useState({ parchi_date: row.parchi_date, slip_no: row.slip_no ?? "", vehicle_no: row.vehicle_no ?? "", kind: row.kind as "fuel" | "shop" | "other",
+    product: row.product ?? activeProducts[0]?.code ?? "PMG", item_id: row.item_id ? String(row.item_id) : "", qty: String(row.qty ?? 1), rate: String(row.rate ?? row.amount), reason: "" });
+  const [touched, setTouched] = useState(true); // rate typed (or kept from the saved parchi) — a change of day / fuel / item re-reads it
+  const [photos, setPhotos] = useState<number[]>([]);
+  const [newPlate, setNewPlate] = useState<string | null>(null);
+  const { busy, run } = useAction();
+  const items: any[] = meta.data?.items ?? [], vehicles: any[] = meta.data?.vehicles ?? [];
+  const set = (patch: Partial<typeof f>, reRate = false) => { setF((x) => ({ ...x, ...patch })); if (reRate) setTouched(false); };
+  useEffect(() => {
+    if (touched || f.kind === "other") return;
+    let stop = false;
+    (async () => {
+      let r = "";
+      if (f.kind === "shop") { const it = items.find((i) => String(i.id) === f.item_id); r = it ? String(it.price) : ""; }
+      else { try { const rs = await api(`/parchi/rates?date=${f.parchi_date}`); r = rs[f.product] ? String(rs[f.product]) : ""; } catch { /* keep */ } }
+      if (!stop && r) setF((x) => ({ ...x, rate: r }));
+    })();
+    return () => { stop = true; };
+  }, [f.parchi_date, f.kind, f.product, f.item_id, touched, items.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  const amount = Math.round((Number(f.qty) || 0) * (Number(f.rate) || 0) * 100) / 100;
+  const okToSave = Number(f.qty) > 0 && Number(f.rate) > 0 && (f.kind !== "shop" || !!f.item_id) && f.parchi_date <= pkToday();
+  const save = async () => {
+    const r = await run(() => api(`/parchi/${row.id}`, { method: "PATCH", body: { parchi_date: f.parchi_date, slip_no: f.slip_no || null, vehicle_no: f.vehicle_no || null, kind: f.kind,
+      product: f.kind === "fuel" ? f.product : null, item_id: f.kind === "shop" ? Number(f.item_id) : null, qty: Number(f.qty), rate: Number(f.rate), photo_ids: photos, reason: f.reason || null } }),
+      (x: any) => `PR-${row.id} update — ${x.diff ? `khata ${x.diff > 0 ? "+" : "−"}${pkr(Math.abs(x.diff))}` : "raqam wohi"}`);
+    if (r) onDone();
+  };
+  const addPlate = async () => {
+    if (!newPlate || newPlate.trim().length < 3) return;
+    const v = await run(() => api(`/customers/${row.customer_id}/vehicles`, { body: { plate_no: newPlate.trim() } }), "Gaari save ho gayi");
+    if (v) { set({ vehicle_no: v.plate_no }); setNewPlate(null); meta.reload(); }
+  };
+  return (
+    <Modal open onClose={onClose} title={`✏️ Edit parchi PR-${row.id} · ${row.customer}`}>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Parchi ki tareekh"><input className="input" type="date" max={pkToday()} value={f.parchi_date} onChange={(e) => set({ parchi_date: e.target.value }, f.kind === "fuel")} /></Field>
+        <Field label="Slip no."><input className="input" value={f.slip_no} onChange={(e) => set({ slip_no: e.target.value })} /></Field>
+        <Field label="Gaari">{newPlate !== null
+          ? <div className="flex gap-1"><input className="input uppercase" autoFocus value={newPlate} onChange={(e) => setNewPlate(e.target.value)} placeholder="LEB-4455" aria-label="Nayi gaari no." /><button type="button" className="btn-primary !px-3" disabled={busy || newPlate.trim().length < 3} onClick={addPlate}>Add</button></div>
+          : <select className="input" value={f.vehicle_no} aria-label="Gaari" onChange={(e) => e.target.value === "__new__" ? setNewPlate("") : set({ vehicle_no: e.target.value })}>
+              <option value="">— gaari nahi —</option>{vehicles.map((v) => <option key={v.id} value={v.plate_no}>{v.plate_no}</option>)}
+              {f.vehicle_no && !vehicles.some((v) => v.plate_no === f.vehicle_no) && <option value={f.vehicle_no}>{f.vehicle_no}</option>}
+              <option value="__new__">＋ Nayi gaari add karein</option></select>}</Field>
+        <Field label="Kya">{f.kind === "other" ? <div className="input bg-slate-50 text-sm">Purani parchi (sirf raqam)</div>
+          : <div className="flex gap-1">{(["fuel", "shop"] as const).map((k) => <button key={k} type="button" aria-pressed={f.kind === k} onClick={() => set({ kind: k }, true)} className={`flex-1 rounded-lg border px-2 py-2 text-sm font-semibold ${f.kind === k ? "border-violet-400 bg-violet-50 text-violet-700" : "border-slate-200 text-slate-500"}`}>{k === "fuel" ? "⛽ Fuel" : "🛒 Shop"}</button>)}</div>}</Field>
+        {f.kind === "fuel" && <Field label="Fuel"><select className="input" value={f.product} onChange={(e) => set({ product: e.target.value }, true)}>{activeProducts.map((p) => <option key={p.code} value={p.code}>{p.name}</option>)}</select></Field>}
+        {f.kind === "shop" && <Field label="Shop item"><select className="input" value={f.item_id} aria-label="Shop item" onChange={(e) => set({ item_id: e.target.value }, true)}><option value="">— item —</option>{items.map((it) => <option key={it.id} value={it.id}>{it.name}</option>)}</select></Field>}
+        <Field label={f.kind === "fuel" ? "Litre" : f.kind === "shop" ? "Qty" : "Qty"}><input className="input text-right" type="number" inputMode="decimal" step="any" min={0} value={f.qty} onChange={(e) => set({ qty: e.target.value })} /></Field>
+        <Field label={f.kind === "other" ? "Raqam" : "Rate"}><input className="input text-right" type="number" inputMode="decimal" step="any" min={0} value={f.rate} onChange={(e) => { setTouched(true); set({ rate: e.target.value }); }} /></Field>
+      </div>
+      <div className="mt-3 flex items-center justify-between rounded-xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm">
+        <span>Pehle <b className="tabular-nums">{pkr(row.amount)}</b> → ab</span><b className="text-xl tabular-nums text-violet-700">{pkr(amount)}</b>
+      </div>
+      {amount !== row.amount && <p className="mt-1 text-xs text-slate-600">Khata balance {amount > row.amount ? "barhega" : "kam hoga"}: {pkr(Math.abs(Math.round((amount - row.amount) * 100) / 100))}</p>}
+      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+        <Field label="Wajah (kya ghalat tha)"><input className="input" value={f.reason} onChange={(e) => set({ reason: e.target.value })} placeholder="gaari no. ghalat tha" /></Field>
+        <ProofPhotos value={photos} onChange={setPhotos} label="Nayi photo (agar ho)" hint="parchi" />
+      </div>
+      <div className="mt-4 flex justify-end gap-2 border-t border-slate-100 pt-3">
+        <button className="btn-secondary" onClick={onClose}>Cancel</button>
+        <button className="btn-primary !bg-emerald-600" disabled={busy || !okToSave} onClick={save}><Check size={16} /> Save · محفوظ کریں</button>
+      </div>
+    </Modal>
   );
 }

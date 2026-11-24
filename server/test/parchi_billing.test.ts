@@ -74,6 +74,22 @@ test("Parchi Billing: many parchiyan at once (fuel at that day's rate, shop item
   const book = ok(await call("manager", "GET", `/api/parchi/book?customer_id=${c.id}`), "book2");
   assert.equal(book.rows.find((x: any) => x.id === r.ids[0]).status, "paid", `oldest paid (was ${oldest.status})`);
   assert.equal(book.rows.find((x: any) => x.id === r.ids[1]).status, "unpaid");
+  // edit a mistake: wrong gaari, wrong litres, wrong day — the khata row and the balance follow
+  const bal0 = db.get("SELECT balance FROM customers WHERE id=?", c.id)!.balance;
+  assert.notEqual((await call("cashier", "PATCH", `/api/parchi/${r.ids[1]}`, { parchi_date: day(1), kind: "fuel", product: "PMG", qty: 30 })).status, 200, "cashier cannot edit");
+  assert.equal((await call("manager", "PATCH", `/api/parchi/${r.ids[1]}`, { parchi_date: day(-1), kind: "fuel", product: "PMG", qty: 30 })).status, 400, "no future date on edit");
+  const e = ok(await call("manager", "PATCH", `/api/parchi/${r.ids[1]}`, { parchi_date: day(5), slip_no: "246A", vehicle_no: "LES-0981", kind: "fuel", product: "PMG", qty: 30, reason: "litre ghalat" }), "edit");
+  near(e.amount, 30 * 250, "moved to 5 days back: old rate"); near(e.diff, 30 * 250 - 25 * 270);
+  near(db.get("SELECT balance FROM customers WHERE id=?", c.id)!.balance, bal0 + e.diff, "balance follows the edit");
+  const k2 = db.get("SELECT * FROM khata_ledger WHERE ref=?", r.entry_ids[1])!;
+  near(k2.amount, 30 * 250); assert.equal(k2.vehicle_no, "LES-0981"); assert.equal(k2.slip_no, "246A"); assert.match(k2.note, /30 L Petrol/);
+  assert.equal(new Date(Date.parse(k2.created_at) + 5 * 3600_000).toISOString().slice(0, 10), day(5), "khata re-dated");
+  const pl = db.get("SELECT * FROM parchi_lines WHERE id=?", r.ids[1])!; assert.equal(pl.vehicle_no, "LES-0981"); near(pl.qty, 30);
+  // typed rate, and fuel → shop
+  const e2 = ok(await call("manager", "PATCH", `/api/parchi/${r.ids[1]}`, { parchi_date: day(5), kind: "shop", item_id: item.id, qty: 3, rate: 100 }), "edit2");
+  near(e2.amount, 300); near(db.get("SELECT balance FROM customers WHERE id=?", c.id)!.balance, bal0 + e.diff + e2.diff);
+  assert.equal(db.get("SELECT stock FROM shop_items WHERE id=?", item.id)!.stock, before.stock, "edit does not touch shop stock");
+  await books();
   // void a mistake: its charge goes, the balance comes down, the book keeps it as void
   const bal = db.get("SELECT balance FROM customers WHERE id=?", c.id)!.balance;
   ok(await call("manager", "POST", `/api/parchi/${r.ids[2]}/void`, { reason: "ghalat item" }), "void");

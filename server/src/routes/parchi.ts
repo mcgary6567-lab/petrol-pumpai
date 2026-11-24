@@ -62,6 +62,28 @@ const lineSchema = z.object({
   qty: z.number().positive().max(200_000), rate: z.number().positive().max(10_000_000).optional().nullable(), photo_ids: proofPhotos,
 });
 
+/** One parchi line priced: the khata date (closed day CEO-only, no future), the rate (fuel = that day's, shop = the item's,
+ *  unless typed) and the label written on the khata. */
+function priceLine(req: Parameters<typeof backdateAt>[0], t: number, l: z.infer<typeof lineSchema>, tag: string, rateCache: Record<string, Record<string, number>> = {}) {
+  const at = backdateAt(req, t, l.parchi_date) ?? now(); // a future date is refused; a closed day is CEO-only
+  let rate = l.rate ?? null, label: string, product: string | null = null, itemId: number | null = null, itemName: string | null = null;
+  if (l.kind === "fuel") {
+    if (!l.product || !PRODUCTS[l.product]) throw new AppError(400, `${tag}: fuel chunein`);
+    product = l.product;
+    rate ??= (rateCache[l.parchi_date] ??= ratesOn(t, l.parchi_date))[l.product] ?? null;
+    if (!rate) throw new AppError(400, `${tag}: ${PRODUCTS[l.product]} ka rate nahi mila — rate likhein`);
+    label = `${round2(l.qty)} L ${PRODUCTS[l.product]} × ${rate}`;
+  } else {
+    const it = l.item_id ? get("SELECT id, name, price FROM shop_items WHERE id=? AND tenant_id=?", l.item_id, t) : null;
+    if (!it) throw new AppError(400, `${tag}: shop item chunein`);
+    itemId = it.id as number; itemName = it.name as string;
+    rate ??= Number(it.price) || null;
+    if (!rate) throw new AppError(400, `${tag}: ${it.name} ka rate likhein`);
+    label = `${round2(l.qty)} × ${it.name} @ ${rate}`;
+  }
+  return { ...l, at, rate: round2(rate), amount: round2(l.qty * rate), product, itemId, itemName, label };
+}
+
 /** Save many parchiyan for one customer in one go (all or nothing). */
 export function saveParchis(req: Parameters<Parameters<typeof h>[0]>[0], customerId: number, lines: z.infer<typeof lineSchema>[], note?: string | null) {
   const t = tid(req);
@@ -71,25 +93,7 @@ export function saveParchis(req: Parameters<Parameters<typeof h>[0]>[0], custome
   const batch = crypto.randomUUID();
   const by = req.user!.name;
   const rateCache: Record<string, Record<string, number>> = {};
-  const priced = lines.map((l, i) => {
-    const at = backdateAt(req, t, l.parchi_date) ?? now(); // a future date is refused; a closed day is CEO-only
-    let rate = l.rate ?? null, label: string, product: string | null = null, itemId: number | null = null, itemName: string | null = null;
-    if (l.kind === "fuel") {
-      if (!l.product || !PRODUCTS[l.product]) throw new AppError(400, `Line ${i + 1}: fuel chunein`);
-      product = l.product;
-      rate ??= (rateCache[l.parchi_date] ??= ratesOn(t, l.parchi_date))[l.product] ?? null;
-      if (!rate) throw new AppError(400, `Line ${i + 1}: ${PRODUCTS[l.product]} ka rate nahi mila — rate likhein`);
-      label = `${round2(l.qty)} L ${PRODUCTS[l.product]} × ${rate}`;
-    } else {
-      const it = l.item_id ? get("SELECT id, name, price FROM shop_items WHERE id=? AND tenant_id=?", l.item_id, t) : null;
-      if (!it) throw new AppError(400, `Line ${i + 1}: shop item chunein`);
-      itemId = it.id as number; itemName = it.name as string;
-      rate ??= Number(it.price) || null;
-      if (!rate) throw new AppError(400, `Line ${i + 1}: ${it.name} ka rate likhein`);
-      label = `${round2(l.qty)} × ${it.name} @ ${rate}`;
-    }
-    return { ...l, at, rate: round2(rate), amount: round2(l.qty * rate), product, itemId, itemName, label };
-  });
+  const priced = lines.map((l, i) => priceLine(req, t, l, `Line ${i + 1}`, rateCache));
   const total = round2(priced.reduce((a, l) => a + l.amount, 0));
   const ids = tx(() => {
     const out: number[] = [];
@@ -149,6 +153,48 @@ parchi.get("/parchi/book", requirePerm("khata.manage"), h((req) => {
     fuel: round2(live.filter((r) => r.kind === "fuel").reduce((a, r) => a + r.amount, 0)), shop: round2(live.filter((r) => r.kind === "shop").reduce((a, r) => a + r.amount, 0)) } };
 }));
 
+/** The parchi day of a khata row (Pakistan date). */
+const khataDay = (at: string) => new Date(Date.parse(at) + 5 * 3600_000).toISOString().slice(0, 10);
+
+/** Edit one parchi: date, slip, gaari, fuel / item, qty, rate — the khata entry (amount, date, note) and the balance follow.
+ *  An old-style parchi (amount only, from "Sirf parchi entry") can be fixed too: kind "other" with the amount as rate. */
+parchi.patch("/parchi/:id", requirePerm("khata.manage"), h((req) => {
+  const t = tid(req);
+  staffOnly(req.user!.role);
+  const b = parse(lineSchema.extend({ kind: z.enum(["fuel", "shop", "other"]), reason: z.string().trim().max(200).optional().nullable() }), req.body);
+  const p = get("SELECT * FROM parchi_lines WHERE id=? AND tenant_id=?", Number(req.params.id), t);
+  if (!p) throw new AppError(404, "Parchi not found");
+  if (p.voided) throw new AppError(400, "Ye parchi delete ho chuki hai");
+  const k = p.khata_id ? get("SELECT * FROM khata_ledger WHERE id=?", p.khata_id) : null;
+  if (k) { const d = khataDay(k.created_at); backdateAt(req, t, d === pkDate() ? null : d); } // the old day closed: CEO only
+  let line;
+  if (b.kind === "other") {
+    if (!b.rate) throw new AppError(400, "Raqam likhein");
+    const at = backdateAt(req, t, b.parchi_date) ?? now();
+    const amount = round2(b.qty * b.rate);
+    line = { ...b, at, rate: round2(b.rate), amount, product: b.product && PRODUCTS[b.product] ? b.product : null, itemId: null, itemName: p.item_name ?? "Parchi", label: p.item_name ?? "Parchi" };
+  } else line = priceLine(req, t, b as z.infer<typeof lineSchema>, "Parchi");
+  // keep the khata row's time when the day did not change (its place among same-day rows stays)
+  const at = k && khataDay(k.created_at) === b.parchi_date ? k.created_at : line.at;
+  const diff = round2(line.amount - (k?.amount ?? p.amount));
+  const before = { parchi_date: p.parchi_date, slip_no: p.slip_no, vehicle_no: p.vehicle_no, kind: p.kind, product: p.product, item: p.item_name, qty: p.qty, rate: p.rate, amount: p.amount };
+  tx(() => {
+    run(`UPDATE parchi_lines SET parchi_date=?, slip_no=?, vehicle_no=?, kind=?, product=?, item_id=?, item_name=?, qty=?, rate=?, amount=? WHERE id=?`,
+      b.parchi_date, b.slip_no || null, b.vehicle_no || null, b.kind, line.product, line.itemId, line.itemName, round2(b.qty), line.rate, line.amount, p.id);
+    if (k) {
+      run("UPDATE khata_ledger SET amount=?, note=?, vehicle_no=?, slip_no=?, created_at=? WHERE id=?", line.amount,
+        ["🎫 Parchi", line.label, p.note].filter(Boolean).join(" · "), b.vehicle_no || null, b.slip_no || null, at, k.id);
+      if (diff) run("UPDATE customers SET balance = balance + ? WHERE id=?", diff, p.customer_id);
+      if (b.photo_ids?.length) linkPhotos(t, b.photo_ids, `khata:${k.id}`);
+    }
+    audit(t, req.user!, "parchi:edit", `PR-${p.id}`, { before, after: { parchi_date: b.parchi_date, slip_no: b.slip_no, vehicle_no: b.vehicle_no, kind: b.kind, product: line.product, item: line.itemName, qty: b.qty, rate: line.rate, amount: line.amount }, reason: b.reason ?? null });
+  });
+  const c = get("SELECT name, balance FROM customers WHERE id=?", p.customer_id)!;
+  if (diff) createAlert(t, { type: "khata_parchi", severity: "info", title: `Parchi badli: PR-${p.id} — ${c.name} (${diff > 0 ? "+" : "−"}${pkr(Math.abs(diff))})`,
+    body: `${req.user!.name} ne PR-${p.id} badli: ${pkr(p.amount)} → ${pkr(line.amount)}. Naya balance ${pkr(round2(c.balance as number))}.${b.reason ? ` Wajah: ${b.reason}` : ""}` });
+  return { ok: true, id: p.id, amount: line.amount, diff, balance: round2(c.balance as number) };
+}));
+
 /** Cancel one parchi (a mistake): its khata charge is removed and the balance comes down. Kept in the book as void. */
 parchi.post("/parchi/:id/void", requirePerm("khata.manage"), h((req) => {
   const t = tid(req);
@@ -156,9 +202,9 @@ parchi.post("/parchi/:id/void", requirePerm("khata.manage"), h((req) => {
   const b = parse(z.object({ reason: z.string().trim().min(3, "Wajah likhein").max(200) }), req.body);
   const p = get("SELECT * FROM parchi_lines WHERE id=? AND tenant_id=?", Number(req.params.id), t);
   if (!p) throw new AppError(404, "Parchi not found");
-  if (p.voided) throw new AppError(400, "Ye parchi pehle hi mansookh hai");
+  if (p.voided) throw new AppError(400, "Ye parchi pehle hi delete ho chuki hai");
   const k = p.khata_id ? get("SELECT * FROM khata_ledger WHERE id=?", p.khata_id) : null;
-  if (k) backdateAt(req, t, new Date(Date.parse(k.created_at) + 5 * 3600_000).toISOString().slice(0, 10) === pkDate() ? null : new Date(Date.parse(k.created_at) + 5 * 3600_000).toISOString().slice(0, 10)); // closed day: CEO only
+  if (k) { const d = khataDay(k.created_at); backdateAt(req, t, d === pkDate() ? null : d); } // closed day: CEO only
   tx(() => {
     if (k) { run("DELETE FROM khata_ledger WHERE id=?", k.id); run("UPDATE customers SET balance = balance - ? WHERE id=?", k.amount, p.customer_id); }
     run("UPDATE parchi_lines SET voided=1, void_reason=? WHERE id=?", b.reason, p.id);
