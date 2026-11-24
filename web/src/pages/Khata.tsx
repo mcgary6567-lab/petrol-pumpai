@@ -65,6 +65,7 @@ export default function Khata() {
         <div {...tile("risk", "Sirf high-risk dikhayein")}><Stat label="High credit risk · خطرہ" value={highRisk} tone="red" /></div>
       </div>
       <AgingCard onOpen={(id) => nav(`/customers/${id}`)} />
+      <ParchiEntriesCard onOpen={(id) => nav(`/customers/${id}`)} />
       <LimitReviewCard canSet={can("credit.set_limit")} onApplied={reload} />
       <OpenGovtBills onOpen={setBill} />
       <div className="-mx-4 mb-3 flex gap-2 overflow-x-auto px-4 pb-1 sm:mx-0 sm:flex-wrap sm:px-0">
@@ -127,6 +128,28 @@ export default function Khata() {
 }
 
 /** Khata aging: how much of the outstanding is 0-30 / 31-60 / 61-90 / 90+ days old (oldest charges cleared first). */
+/** "Sirf parchi entry" (khata charged, no fuel / cash given) this month — who wrote which, for the owner's check. */
+function ParchiEntriesCard({ onOpen }: { onOpen: (id: number) => void }) {
+  const from = new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 8) + "01";
+  const { data } = useApi<any>(`/khata/parchi-entries?from=${from}`);
+  if (!data?.rows?.length) return null;
+  return (
+    <details className="card p-4">
+      <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-2">
+        <span className="font-semibold">Sirf parchi entries — is mahine · <span lang="ur" className="font-urdu font-normal">صرف پرچی</span></span>
+        <span className="text-sm text-slate-600">{data.rows.length} entries · <b className="tabular-nums">{pkr(data.total)}</b> <span className="text-xs text-brand-700">(dekhein)</span></span>
+      </summary>
+      <table className="mt-3 w-full"><thead><tr>{["Date", "ID", "Customer", "Slip", "Gaari", "Note", "By", "Amount"].map((h) => <th key={h} className={`th ${h === "Amount" ? "text-right" : ""}`}>{h}</th>)}</tr></thead>
+        <tbody>{data.rows.map((r: any) => (
+          <tr key={r.id} className="cursor-pointer hover:bg-slate-50" onClick={() => onOpen(r.customer_id)}>
+            <td className="td whitespace-nowrap text-xs">{new Date(r.created_at).toLocaleString("en-PK", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}</td>
+            <td className="td font-mono text-xs">K-{r.id}</td><td className="td">{r.customer}</td><td className="td text-xs">{r.slip_no ?? ""}</td><td className="td text-xs">{r.vehicle_no ?? ""}</td>
+            <td className="td text-xs text-slate-600">{String(r.note ?? "").replace(/^Parchi entry \(na tail, na cash\)( · )?/, "")}</td><td className="td text-xs">{r.by_name ?? ""}</td><td className="td text-right tabular-nums">{pkr(r.amount)}</td>
+          </tr>))}</tbody></table>
+    </details>
+  );
+}
+
 function AgingCard({ onOpen }: { onOpen: (id: number) => void }) {
   const { data } = useApi<any>("/khata/aging");
   const [open, setOpen] = useState(false);

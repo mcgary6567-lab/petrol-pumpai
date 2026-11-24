@@ -5,7 +5,7 @@ import { all, get, run, tx, now, pkStart, pkEnd, pkDate } from "../db.js";
 import { linkPhotos, proofPhotos, proofCol, requireProof, isCheque } from "./capture.js";
 import { bankAccountFor, accountIdField, chequeToRegister } from "./banks.js";
 import { h, parse, tid, requirePerm, requireAny, can } from "../auth.js";
-import { AppError, assertNoDuplicateParty, khataEntry, normalizePhone, paymentLink, pkr, dueText, recordSale, audit, round2, currentPrices, logKhataRate } from "../services.js";
+import { AppError, createAlert, assertNoDuplicateParty, khataEntry, normalizePhone, paymentLink, pkr, dueText, recordSale, audit, round2, currentPrices, logKhataRate } from "../services.js";
 import { setKhataOpening } from "./opening.js";
 import { productSchema } from "../products.js";
 import { assertLookup } from "./lookups.js";
@@ -502,6 +502,51 @@ export function khataAging(t: number) {
   };
 }
 crm.get("/khata/aging", requirePerm("khata.manage"), h((req) => khataAging(tid(req))));
+
+/**
+ * "Sirf parchi entry": the customer brings a parchi but takes neither fuel nor cash — the amount only goes on his khata
+ * (agreed between the pump and its own customer). Nothing leaves a tank, the bag or the bank: it is a khata charge,
+ * booked Khata receivable ← Other income (see ledger.ts), so the books stay level. Litres / rate / fuel, when written,
+ * are kept in the note only — never in the litres column — so no fuel report counts them as fuel sold.
+ * Manager / CEO only; every entry raises an alert for the owner.
+ */
+crm.post("/customers/:id/parchi", requirePerm("khata.manage"), h((req) => {
+  const t = tid(req);
+  if (!["admin", "manager"].includes(req.user!.role)) throw new AppError(403, "Sirf manager ya CEO parchi entry kar sakte hain");
+  const c = ownCustomer(t, Number(req.params.id));
+  const b = parse(z.object({
+    amount: z.number().positive().max(100_000_000), slip_no: z.string().trim().max(40).optional().nullable(), vehicle_no: z.string().trim().max(30).optional().nullable(),
+    product: productSchema().optional().nullable(), litres: z.number().positive().max(200_000).optional().nullable(), rate: z.number().positive().max(100_000).optional().nullable(),
+    note: z.string().trim().max(200).optional().nullable(), photo_ids: proofPhotos, entry_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
+  }), req.body);
+  const at = backdateAt(req, t, b.entry_date) ?? now();
+  const fuel = b.product ? (PRODUCTS[b.product] ?? b.product) : null;
+  const what = [fuel && b.litres ? `${b.litres} L ${fuel}` : fuel, b.rate ? `@ Rs ${b.rate}` : null].filter(Boolean).join(" ");
+  const note = ["Parchi entry (na tail, na cash)", what, b.note].filter(Boolean).join(" · ");
+  const id = tx(() => {
+    const k = run("INSERT INTO khata_ledger (customer_id,type,amount,ref,note,vehicle_no,slip_no,created_at) VALUES (?,?,?,?,?,?,?,?)",
+      c.id, "debit", round2(b.amount), "PARCHI", note, b.vehicle_no || null, b.slip_no || null, at).id as number;
+    run("UPDATE khata_ledger SET ref=? WHERE id=?", `PARCHI-${k}`, k);
+    run("UPDATE customers SET balance = balance + ? WHERE id=?", round2(b.amount), c.id);
+    if (b.photo_ids?.length) linkPhotos(t, b.photo_ids, `khata:${k}`);
+    audit(t, req.user!, "khata:parchi entry", `K-${k}`, { customer: c.name, amount: b.amount, slip: b.slip_no ?? null });
+    return k;
+  });
+  createAlert(t, { type: "khata_parchi", severity: "info", title: `Parchi entry: ${pkr(b.amount)} — ${c.name}`,
+    body: `${req.user!.name} ne ${c.name} ke khate mein ${pkr(b.amount)} likha (na tail diya, na cash)${b.slip_no ? ` · slip ${b.slip_no}` : ""}${b.vehicle_no ? ` · ${b.vehicle_no}` : ""}. ID K-${id}.` });
+  return { id, entry_id: `K-${id}`, balance: get("SELECT balance FROM customers WHERE id=?", c.id)!.balance };
+}));
+/** Every parchi entry in a period (who, which customer, how much) — the owner's check on them. */
+crm.get("/khata/parchi-entries", requirePerm("khata.manage"), h((req) => {
+  const t = tid(req);
+  const q = parse(z.object({ from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() }), req.query);
+  const rows = all(`SELECT k.id, k.amount, k.note, k.slip_no, k.vehicle_no, k.created_at, c.id customer_id, c.name customer,
+      (SELECT a.user_name FROM audit_log a WHERE a.tenant_id=c.tenant_id AND a.ref='K-'||k.id AND a.action='khata:parchi entry' LIMIT 1) by_name
+    FROM khata_ledger k JOIN customers c ON c.id=k.customer_id WHERE c.tenant_id=? AND k.ref LIKE 'PARCHI-%'
+    ${q.from ? "AND k.created_at >= ?" : ""} ${q.to ? "AND k.created_at < ?" : ""} ORDER BY k.created_at DESC, k.id DESC LIMIT 500`,
+    ...[t, ...(q.from ? [pkStart(q.from)] : []), ...(q.to ? [pkEnd(q.to)] : [])]);
+  return { rows, total: round2(rows.reduce((a, r) => a + (r.amount as number), 0)) };
+}));
 
 /**
  * AI-style credit-limit review: suggest raising limits for reliable payers who keep hitting the cap, and lowering
