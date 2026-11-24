@@ -161,12 +161,15 @@ const khataDay = (at: string) => new Date(Date.parse(at) + 5 * 3600_000).toISOSt
 parchi.patch("/parchi/:id", requirePerm("khata.manage"), h((req) => {
   const t = tid(req);
   staffOnly(req.user!.role);
-  const b = parse(lineSchema.extend({ kind: z.enum(["fuel", "shop", "other"]), reason: z.string().trim().max(200).optional().nullable() }), req.body);
+  const b = parse(lineSchema.extend({ kind: z.enum(["fuel", "shop", "other"]), reason: z.string().trim().max(200).optional().nullable(), customer_id: z.number().int().optional().nullable() }), req.body);
   const p = get("SELECT * FROM parchi_lines WHERE id=? AND tenant_id=?", Number(req.params.id), t);
   if (!p) throw new AppError(404, "Parchi not found");
   if (p.voided) throw new AppError(400, "Ye parchi delete ho chuki hai");
   const k = p.khata_id ? get("SELECT * FROM khata_ledger WHERE id=?", p.khata_id) : null;
   if (k) { const d = khataDay(k.created_at); backdateAt(req, t, d === pkDate() ? null : d); } // the old day closed: CEO only
+  // a parchi written on the wrong customer moves to the right one (his khata, his balance)
+  const to = b.customer_id && b.customer_id !== p.customer_id ? own(t, b.customer_id) : null;
+  const from = to ? get("SELECT id, name FROM customers WHERE id=?", p.customer_id)! : null;
   let line;
   if (b.kind === "other") {
     if (!b.rate) throw new AppError(400, "Raqam likhein");
@@ -179,20 +182,26 @@ parchi.patch("/parchi/:id", requirePerm("khata.manage"), h((req) => {
   const diff = round2(line.amount - (k?.amount ?? p.amount));
   const before = { parchi_date: p.parchi_date, slip_no: p.slip_no, vehicle_no: p.vehicle_no, kind: p.kind, product: p.product, item: p.item_name, qty: p.qty, rate: p.rate, amount: p.amount };
   tx(() => {
-    run(`UPDATE parchi_lines SET parchi_date=?, slip_no=?, vehicle_no=?, kind=?, product=?, item_id=?, item_name=?, qty=?, rate=?, amount=? WHERE id=?`,
-      b.parchi_date, b.slip_no || null, b.vehicle_no || null, b.kind, line.product, line.itemId, line.itemName, round2(b.qty), line.rate, line.amount, p.id);
+    run(`UPDATE parchi_lines SET customer_id=?, parchi_date=?, slip_no=?, vehicle_no=?, kind=?, product=?, item_id=?, item_name=?, qty=?, rate=?, amount=? WHERE id=?`,
+      to ? to.id : p.customer_id, b.parchi_date, b.slip_no || null, b.vehicle_no || null, b.kind, line.product, line.itemId, line.itemName, round2(b.qty), line.rate, line.amount, p.id);
     if (k) {
       run("UPDATE khata_ledger SET amount=?, note=?, vehicle_no=?, slip_no=?, created_at=? WHERE id=?", line.amount,
         ["🎫 Parchi", line.label, p.note].filter(Boolean).join(" · "), b.vehicle_no || null, b.slip_no || null, at, k.id);
-      if (diff) run("UPDATE customers SET balance = balance + ? WHERE id=?", diff, p.customer_id);
+      if (to) {
+        run("UPDATE khata_ledger SET customer_id=? WHERE id=?", to.id, k.id);
+        run("UPDATE customers SET balance = balance - ? WHERE id=?", k.amount, p.customer_id);
+        run("UPDATE customers SET balance = balance + ? WHERE id=?", line.amount, to.id);
+      } else if (diff) run("UPDATE customers SET balance = balance + ? WHERE id=?", diff, p.customer_id);
       if (b.photo_ids?.length) linkPhotos(t, b.photo_ids, `khata:${k.id}`);
     }
-    audit(t, req.user!, "parchi:edit", `PR-${p.id}`, { before, after: { parchi_date: b.parchi_date, slip_no: b.slip_no, vehicle_no: b.vehicle_no, kind: b.kind, product: line.product, item: line.itemName, qty: b.qty, rate: line.rate, amount: line.amount }, reason: b.reason ?? null });
+    audit(t, req.user!, "parchi:edit", `PR-${p.id}`, { before: { ...before, customer: from?.name }, after: { customer: to?.name, parchi_date: b.parchi_date, slip_no: b.slip_no, vehicle_no: b.vehicle_no, kind: b.kind, product: line.product, item: line.itemName, qty: b.qty, rate: line.rate, amount: line.amount }, reason: b.reason ?? null });
   });
-  const c = get("SELECT name, balance FROM customers WHERE id=?", p.customer_id)!;
-  if (diff) createAlert(t, { type: "khata_parchi", severity: "info", title: `Parchi badli: PR-${p.id} — ${c.name} (${diff > 0 ? "+" : "−"}${pkr(Math.abs(diff))})`,
+  const c = get("SELECT name, balance FROM customers WHERE id=?", to ? to.id : p.customer_id)!;
+  if (to) createAlert(t, { type: "khata_parchi", severity: "info", title: `Parchi customer badla: PR-${p.id} — ${from!.name} → ${to.name}`,
+    body: `${req.user!.name} ne PR-${p.id} (${pkr(line.amount)}) ${from!.name} ke khate se hata kar ${to.name} ke khate mein daali. ${to.name} ka naya balance ${pkr(round2(c.balance as number))}.${b.reason ? ` Wajah: ${b.reason}` : ""}` });
+  else if (diff) createAlert(t, { type: "khata_parchi", severity: "info", title: `Parchi badli: PR-${p.id} — ${c.name} (${diff > 0 ? "+" : "−"}${pkr(Math.abs(diff))})`,
     body: `${req.user!.name} ne PR-${p.id} badli: ${pkr(p.amount)} → ${pkr(line.amount)}. Naya balance ${pkr(round2(c.balance as number))}.${b.reason ? ` Wajah: ${b.reason}` : ""}` });
-  return { ok: true, id: p.id, amount: line.amount, diff, balance: round2(c.balance as number) };
+  return { ok: true, id: p.id, amount: line.amount, diff, moved: !!to, customer: c.name, balance: round2(c.balance as number) };
 }));
 
 /** Cancel one parchi (a mistake): its khata charge is removed and the balance comes down. Kept in the book as void. */

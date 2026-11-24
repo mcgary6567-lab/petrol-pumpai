@@ -260,7 +260,11 @@ function ParchiBook({ customer, setCustomer }: { customer: string; setCustomer: 
 
 /** Edit one saved parchi: every field; the khata entry, its date and the customer's balance follow on save. */
 function EditParchi({ row, onClose, onDone }: { row: any; onClose: () => void; onDone: () => void }) {
-  const meta = useApi<any>(`/parchi/meta?customer_id=${row.customer_id}`);
+  const customers = useCustomers();
+  const [cust, setCust] = useState(String(row.customer_id));
+  const meta = useApi<any>(`/parchi/meta?customer_id=${cust}`);
+  const moved = cust !== String(row.customer_id);
+  const newC = meta.data?.customer;
   const [f, setF] = useState({ parchi_date: row.parchi_date, slip_no: row.slip_no ?? "", vehicle_no: row.vehicle_no ?? "", kind: row.kind as "fuel" | "shop" | "other",
     product: row.product ?? activeProducts[0]?.code ?? "PMG", item_id: row.item_id ? String(row.item_id) : "", qty: String(row.qty ?? 1), rate: String(row.rate ?? row.amount), reason: "" });
   const [touched, setTouched] = useState(true); // rate typed (or kept from the saved parchi) — a change of day / fuel / item re-reads it
@@ -284,18 +288,23 @@ function EditParchi({ row, onClose, onDone }: { row: any; onClose: () => void; o
   const okToSave = Number(f.qty) > 0 && Number(f.rate) > 0 && (f.kind !== "shop" || !!f.item_id) && f.parchi_date <= pkToday();
   const save = async () => {
     const r = await run(() => api(`/parchi/${row.id}`, { method: "PATCH", body: { parchi_date: f.parchi_date, slip_no: f.slip_no || null, vehicle_no: f.vehicle_no || null, kind: f.kind,
-      product: f.kind === "fuel" ? f.product : null, item_id: f.kind === "shop" ? Number(f.item_id) : null, qty: Number(f.qty), rate: Number(f.rate), photo_ids: photos, reason: f.reason || null } }),
-      (x: any) => `PR-${row.id} update — ${x.diff ? `khata ${x.diff > 0 ? "+" : "−"}${pkr(Math.abs(x.diff))}` : "raqam wohi"}`);
+      product: f.kind === "fuel" ? f.product : null, item_id: f.kind === "shop" ? Number(f.item_id) : null, qty: Number(f.qty), rate: Number(f.rate), photo_ids: photos, reason: f.reason || null,
+      ...(moved ? { customer_id: Number(cust) } : {}) } }),
+      (x: any) => x.moved ? `PR-${row.id} ab ${x.customer} ke khate mein` : `PR-${row.id} update — ${x.diff ? `khata ${x.diff > 0 ? "+" : "−"}${pkr(Math.abs(x.diff))}` : "raqam wohi"}`);
     if (r) onDone();
   };
   const addPlate = async () => {
     if (!newPlate || newPlate.trim().length < 3) return;
-    const v = await run(() => api(`/customers/${row.customer_id}/vehicles`, { body: { plate_no: newPlate.trim() } }), "Gaari save ho gayi");
+    const v = await run(() => api(`/customers/${cust}/vehicles`, { body: { plate_no: newPlate.trim() } }), "Gaari save ho gayi");
     if (v) { set({ vehicle_no: v.plate_no }); setNewPlate(null); meta.reload(); }
   };
   return (
     <Modal open onClose={onClose} title={`✏️ Edit parchi PR-${row.id} · ${row.customer}`}>
-      <div className="grid grid-cols-2 gap-3">
+      <Field label="Khata customer · کھاتہ گاہک"><select className="input font-semibold" value={cust} aria-label="Edit customer" onChange={(e) => { setCust(e.target.value); set({ vehicle_no: "" }); }}>
+        {!customers.some((x) => String(x.id) === String(row.customer_id)) && <option value={row.customer_id}>{row.customer}</option>}
+        {customers.map((x) => <option key={x.id} value={x.id}>{x.name}{x.phone ? ` · ${x.phone}` : ""}</option>)}</select></Field>
+      {moved && <p className="mt-1 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">Parchi <b>{row.customer}</b> ke khate se hat kar <b>{newC?.name ?? "…"}</b> ke khate mein jayegi. {row.customer} ka balance {pkr(row.amount)} kam hoga.{newC?.credit_limit > 0 && newC.balance + amount > newC.credit_limit ? ` ⚠ ${newC.name} ki limit se zyada.` : ""}</p>}
+      <div className="mt-3 grid grid-cols-2 gap-3">
         <Field label="Parchi ki tareekh"><input className="input" type="date" max={pkToday()} value={f.parchi_date} onChange={(e) => set({ parchi_date: e.target.value }, f.kind === "fuel")} /></Field>
         <Field label="Slip no."><input className="input" value={f.slip_no} onChange={(e) => set({ slip_no: e.target.value })} /></Field>
         <Field label="Gaari">{newPlate !== null
@@ -314,7 +323,7 @@ function EditParchi({ row, onClose, onDone }: { row: any; onClose: () => void; o
       <div className="mt-3 flex items-center justify-between rounded-xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm">
         <span>Pehle <b className="tabular-nums">{pkr(row.amount)}</b> → ab</span><b className="text-xl tabular-nums text-violet-700">{pkr(amount)}</b>
       </div>
-      {amount !== row.amount && <p className="mt-1 text-xs text-slate-600">Khata balance {amount > row.amount ? "barhega" : "kam hoga"}: {pkr(Math.abs(Math.round((amount - row.amount) * 100) / 100))}</p>}
+      {!moved && amount !== row.amount && <p className="mt-1 text-xs text-slate-600">Khata balance {amount > row.amount ? "barhega" : "kam hoga"}: {pkr(Math.abs(Math.round((amount - row.amount) * 100) / 100))}</p>}
       <div className="mt-3 grid gap-3 sm:grid-cols-2">
         <Field label="Wajah (kya ghalat tha)"><input className="input" value={f.reason} onChange={(e) => set({ reason: e.target.value })} placeholder="gaari no. ghalat tha" /></Field>
         <ProofPhotos value={photos} onChange={setPhotos} label="Nayi photo (agar ho)" hint="parchi" />

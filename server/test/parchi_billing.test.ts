@@ -90,6 +90,16 @@ test("Parchi Billing: many parchiyan at once (fuel at that day's rate, shop item
   near(e2.amount, 300); near(db.get("SELECT balance FROM customers WHERE id=?", c.id)!.balance, bal0 + e.diff + e2.diff);
   assert.equal(db.get("SELECT stock FROM shop_items WHERE id=?", item.id)!.stock, before.stock, "edit does not touch shop stock");
   await books();
+  // wrong customer: the parchi moves to the right khata, both balances follow
+  const c2 = (db.run("INSERT INTO customers (tenant_id,name,phone,type,balance,credit_limit,created_at) VALUES (?,?,?,?,?,?,?)", t, "Parchi Sahi Customer", "923000000778", "retail", 0, 0, new Date().toISOString()) as any).id;
+  const b1 = db.get("SELECT balance FROM customers WHERE id=?", c.id)!.balance;
+  const mv = ok(await call("manager", "PATCH", `/api/parchi/${r.ids[1]}`, { customer_id: c2, parchi_date: day(5), kind: "shop", item_id: item.id, qty: 3, rate: 120 }), "move");
+  assert.equal(mv.moved, true);
+  near(db.get("SELECT balance FROM customers WHERE id=?", c.id)!.balance, b1 - 300, "old customer loses the old amount");
+  near(db.get("SELECT balance FROM customers WHERE id=?", c2)!.balance, 360, "right customer gets the new amount");
+  assert.equal(db.get("SELECT customer_id FROM khata_ledger WHERE ref=?", r.entry_ids[1])!.customer_id, c2);
+  assert.equal(ok(await call("manager", "GET", `/api/parchi/book?customer_id=${c2}`), "b-c2").rows.length, 1);
+  await books();
   // void a mistake: its charge goes, the balance comes down, the book keeps it as void
   const bal = db.get("SELECT balance FROM customers WHERE id=?", c.id)!.balance;
   ok(await call("manager", "POST", `/api/parchi/${r.ids[2]}/void`, { reason: "ghalat item" }), "void");
