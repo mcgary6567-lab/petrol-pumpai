@@ -330,6 +330,8 @@ function closeShiftCore(req: Request, shift: Row, b: CloseInput, dryRun: boolean
     const counted = b.cash_actual ?? 0;
     run("UPDATE shifts SET status='closed', closed_at=?, litres=?, cash_expected=?, cash_actual=?, variance=?, notes=?, cash_notes=? WHERE id=?",
       now(), round2(totalLitres), r.cash_expected, counted, round2(counted - r.cash_expected), b.notes ?? null, b.cash_notes ? JSON.stringify(b.cash_notes) : null, shift.id);
+    // the shift is closed: its "still open" alert is done
+    run("UPDATE alerts SET acknowledged=1 WHERE dedupe_key=? AND acknowledged=0", `shift-overdue-${shift.id}`);
     return r;
   })!;
 }

@@ -1,4 +1,6 @@
-import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
+import { Link } from "react-router-dom";
 import { Bell, CheckCheck, TrendingUp, TrendingDown } from "lucide-react";
 import { api, useApi } from "../lib/api";
 import { Field, Modal, useAction } from "./ui";
@@ -24,8 +26,27 @@ export function NotificationBell({ dark }: { dark?: boolean }) {
   const { data, reload, setSnoozed } = useNotifications();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const panel = useRef<HTMLDivElement>(null);
+  // the list is drawn on top of the whole page (portal, fixed position under the bell): inside the sidebar it was
+  // hidden behind the dashboard cards
+  const [pos, setPos] = useState<{ top: number; left: number; width: number } | null>(null);
+  useLayoutEffect(() => {
+    if (!open) return;
+    const place = () => {
+      const r = ref.current?.getBoundingClientRect(); if (!r) return;
+      const width = Math.min(window.innerWidth * 0.92, 380);
+      const left = Math.max(8, Math.min(dark ? r.left : r.right - width, window.innerWidth - width - 8));
+      setPos({ top: r.bottom + 8, left, width });
+    };
+    place();
+    window.addEventListener("resize", place); window.addEventListener("scroll", place, true);
+    return () => { window.removeEventListener("resize", place); window.removeEventListener("scroll", place, true); };
+  }, [open, dark]);
+  // open alerts are a different list (things to fix) from notifications (messages to me): show their count here too
+  const alerts = useApi<any>(open ? "/badges" : null);
+  const openAlerts = Number(alerts.data?.open_alerts ?? 0);
   useEffect(() => {
-    const close = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+    const close = (e: MouseEvent) => { const n = e.target as Node; if (ref.current && !ref.current.contains(n) && !panel.current?.contains(n)) setOpen(false); };
     document.addEventListener("mousedown", close);
     return () => document.removeEventListener("mousedown", close);
   }, []);
@@ -39,12 +60,17 @@ export function NotificationBell({ dark }: { dark?: boolean }) {
         <Bell size={19} key={`b${ring}`} className={ring ? "animate-bell origin-top" : ""} />
         {unread > 0 && <span key={`n${unread}`} className="absolute -right-0.5 -top-0.5 min-w-[18px] animate-pop-badge rounded-full bg-red-600 px-1 text-center text-[11px] font-semibold leading-[18px] text-white">{unread}</span>}
       </button>
-      {open && (
-        <div className={`absolute ${dark ? "left-0" : "right-0"} z-50 mt-2 w-[min(92vw,380px)] overflow-hidden rounded-xl border border-slate-200 bg-white text-slate-900 shadow-xl`}>
+      {open && pos && createPortal(
+        <div ref={panel} role="region" aria-label="Notifications" style={{ top: pos.top, left: pos.left, width: pos.width }}
+          className="fixed z-[70] overflow-hidden rounded-xl border border-slate-200 bg-white text-slate-900 shadow-2xl print:hidden">
           <div className="flex items-center justify-between border-b border-slate-100 px-4 py-2.5">
             <span className="text-sm font-semibold">Notifications</span>
             <PhoneAlerts />
             {unread > 0 && <button className="flex items-center gap-1 text-xs text-brand-600 hover:underline" onClick={() => api("/notifications/read-all", { body: {} }).then(reload)}><CheckCheck size={13} /> Mark all read</button>}
+          </div>
+          <div className="flex items-center justify-between gap-2 border-b border-slate-100 bg-slate-50 px-4 py-2 text-xs text-slate-600">
+            <span><b className="text-slate-800">{unread}</b> unread message{unread === 1 ? "" : "s"}{openAlerts ? <> · <b className="text-rose-700">{openAlerts}</b> open alert{openAlerts === 1 ? "" : "s"}</> : null}</span>
+            {openAlerts > 0 && <Link to="/alerts" onClick={() => setOpen(false)} className="font-medium text-brand-700 hover:underline">Alerts dekhein →</Link>}
           </div>
           <div className="max-h-[420px] overflow-y-auto">
             {(data?.items ?? []).map((n) => (
@@ -61,7 +87,7 @@ export function NotificationBell({ dark }: { dark?: boolean }) {
             ))}
             {!data?.items.length && <div className="p-6 text-center text-sm text-slate-500">No notifications</div>}
           </div>
-        </div>
+        </div>, document.body,
       )}
     </div>
   );

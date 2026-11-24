@@ -100,7 +100,16 @@ export function OwnerOverview() {
           <h2 className="mb-1 flex items-center gap-2 font-semibold"><Landmark size={17} /> This month · <Ur>اس مہینے</Ur></h2>
           <Row label="Sales (all)" ur="کل سیل" v={mo.income} to="/reports" />
           <Row label="Gross profit" ur="مجموعی منافع" v={mo.gross_profit} />
-          <Row label="Expenses" ur="خرچے" v={mo.expenses} to="/expenses" tone="text-rose-700" />
+          {/* net profit = gross profit + other income − expenses − other discount: every part is shown, so the lines add up */}
+          {Math.abs(mo.other_income ?? 0) >= 1 && <details className="group">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-2 py-1.5 text-sm">
+              <span className="text-slate-600">+ Other income · <Ur>دیگر آمدن</Ur> <span className="text-xs text-brand-700 group-open:hidden">(tafseel)</span></span>
+              <span className={`font-semibold tabular-nums ${mo.other_income < 0 ? "text-rose-700" : "text-emerald-700"}`}>{pkr(mo.other_income)}</span>
+            </summary>
+            <ul className="mb-1 space-y-0.5 rounded-lg bg-slate-50 px-3 py-2 text-xs">{(mo.other_income_parts ?? []).map((x: any) => <li key={x.label} className="flex justify-between gap-2"><span className="text-slate-600">{x.label}</span><span className="tabular-nums">{pkr(x.amount)}</span></li>)}</ul>
+          </details>}
+          <Row label="− Expenses" ur="خرچے" v={mo.expenses} to="/expenses" tone="text-rose-700" />
+          {Math.abs(mo.other_discount ?? 0) >= 1 && <Row label="− Other discount" ur="رعایت" v={mo.other_discount} to="/other-entries" tone="text-rose-700" />}
           <div className="mt-2 flex items-baseline justify-between border-t-2 border-slate-800 pt-2">
             <span className="font-semibold">Net profit · <Ur>خالص منافع</Ur><span className="block text-xs font-normal text-slate-500">{mo.margin_pct}% of sales</span></span>
             <span className={`shrink-0 text-xl font-bold tabular-nums ${mo.net_profit < 0 ? "text-red-600" : "text-emerald-700"}`}>{pkr(mo.net_profit)}</span>

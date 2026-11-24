@@ -53,7 +53,7 @@ export function ManagerDesk({ k }: { k: any }) {
         <Kpi label="Khata outstanding" value={pkrShort(k.khata.outstanding)} accent="text-amber-700" to="/khata"
           sub={data?.khata_overdue ? <span className="font-medium text-red-600">{pkrShort(data.khata_overdue)} unpaid 30+ days</span> : `${k.khata.debtors} customers owe`} />
         <Kpi label="Staff on duty" value={data ? `${data.staff_summary.on_duty} / ${data.staff_summary.total}` : "…"} to="/staff"
-          sub={data ? <>{data.staff_summary.late ? <span className="text-amber-700">{data.staff_summary.late} late </span> : null}{data.staff_summary.missing ? <span className="font-medium text-red-600">· {data.staff_summary.missing} not in</span> : data.staff_summary.late ? null : "everyone on time"}</> : undefined} />
+          sub={data ? <>{data.staff_summary.late ? <span className="text-amber-700">{data.staff_summary.late} late </span> : null}{data.staff_summary.missing ? <span className="font-medium text-red-600">· {data.staff_summary.missing} not in</span> : data.staff_summary.late ? null : data.staff_summary.total ? (data.staff_summary.roster ? "everyone on time" : `${data.staff_summary.on_shift} on shift · duty times not set`) : "no one on duty"}</> : undefined} />
         <Kpi label="Open alerts" value={k.open_alerts} accent={k.open_alerts ? "text-red-600" : undefined} sub={`${k.whatsapp.human} chats need a person`} to="/alerts" />
       </div>
 

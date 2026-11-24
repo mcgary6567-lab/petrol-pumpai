@@ -141,13 +141,21 @@ export function profitAndLoss(t: number, month: string, showPrivate = true) {
   const MISC = ["Other income", "Bank profit", "Shortage claims recovered", "Supplier adjustments", "Cash short / over", "Other payments", "Loyalty points redeemed", "Khareed"];
   const miscIncome = r0(J.trial_balance.filter((x) => MISC.includes(x.account)).reduce((a, x) => a - x.balance, 0));
   // shop / hotel rent is already inside miscIncome (its cash voucher / bank entry is booked to "Other income") — not added again
-  const otherIncome = r0(carriageIncome(t, from, toIso) + carriageIncomeThekedar(t, from, toIso) + ceoIncome + miscIncome);
+  const carriageIn = r0(carriageIncome(t, from, toIso) + carriageIncomeThekedar(t, from, toIso));
+  const otherIncome = r0(carriageIn + ceoIncome + miscIncome);
+  // where "other income" came from, line by line (the dashboard shows it so gross − expenses + other = net adds up)
+  const other_income_parts = [
+    { label: "Kiraya / carriage", amount: carriageIn },
+    { label: "Other income (CEO entries)", amount: r0(ceoIncome) },
+    ...J.trial_balance.filter((x) => MISC.includes(x.account)).map((x) => ({ label: x.account, amount: r0(-x.balance) })),
+  ].filter((x) => Math.abs(x.amount) >= 1);
   const net = r0(gross + otherIncome - expensesTotal - ceoDiscount);
   const costAssumed: string[] = (s as any).cost_assumed_products ?? [];
   const cost_note = costAssumed.length ? `${costAssumed.join(", ")}: khareed rate nahi — is liye cost = sale (0 margin) mana gaya, asal munafa is se zyada hai. Opening balances → Tank stock me khareed rate likhein, ya tanker delivery rate ke saath darj karein.` : null;
   return { cost_note, cost_assumed: costAssumed,
     month, from, to: toIso, income, wholesale_margin, cost_of_sales: cost, gross_profit: gross,
     other_income: otherIncome,
+    other_income_parts,
     other_income_ceo: ceoIncome,
     other_income_misc: miscIncome,
     discount_given: discountGiven,

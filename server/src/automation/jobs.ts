@@ -1,5 +1,5 @@
 /** Fully automated background jobs. Each returns a short human-readable result for the Automations page. */
-import { all, get, getSetting, pkDate, pkDayStart, type Row } from "../db.js";
+import { all, get, getSetting, pkDate, pkDayStart, run, type Row } from "../db.js";
 import { scoreCustomers, detectAnomalies, tankOutlook, kpis, insights, sensitivity } from "../ai/analytics.js";
 import { createAlert, paymentLink, pkr, round2 } from "../services.js";
 import { PRODUCTS } from "../config.js";
@@ -186,8 +186,14 @@ export const JOBS: Job[] = [
           reminded++;
         }
         if (hours >= dueAfter + 1) {
-          const a = createAlert(t, { station_id: sh.station_id, type: "shift_overdue", severity: "warning", title: `Shift still open: ${sh.attendant} (${Math.floor(hours)} h)`,
-            body: `${sh.station_name} — opened ${new Date(sh.opened_at).toLocaleString("en-PK")}.`, dedupe_key: `shift-overdue-${sh.id}` });
+          // the alert names the hours AND the opening time, and is kept current on every run — a "13 h" written hours ago
+          // read as a different shift next to the dashboard's live "18h 30m"
+          const opened = new Date(Date.parse(sh.opened_at) + 5 * 3600_000).toISOString();
+          const since = `${opened.slice(8, 10)}-${["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][Number(opened.slice(5, 7)) - 1]} ${((Number(opened.slice(11, 13)) + 11) % 12) + 1}:${opened.slice(14, 16)} ${Number(opened.slice(11, 13)) >= 12 ? "pm" : "am"}`;
+          const title = `Shift still open: ${sh.attendant} (${Math.floor(hours)} h, since ${since})`;
+          const body = `${sh.station_name} — opened ${since}. Close it with the meter readings and cash count.`;
+          run("UPDATE alerts SET title=?, body=? WHERE tenant_id=? AND dedupe_key=? AND acknowledged=0", title, body, t, `shift-overdue-${sh.id}`);
+          const a = createAlert(t, { station_id: sh.station_id, type: "shift_overdue", severity: "warning", title, body, dedupe_key: `shift-overdue-${sh.id}` });
           if (a) await notify(t, staff(t, ["admin", "manager"]), { type: "shift_overdue", data: { shift_id: sh.id }, whatsapp: false, title: a.title, body: a.body });
         }
       }

@@ -124,7 +124,15 @@ managerDesk.get("/dashboard/desk", requirePerm("dashboard.view"), h((req) => {
     shifts, staff, pending: pend, shift_hours: shiftHours,
     // today's online money (card / JazzCash / Easypaisa / Raast): same figures as the owner's and the cashier's view
     online: onlineToday(tid(req)),
-    staff_summary: { on_duty: staff.filter((s) => s.status === "present" || s.status === "late").length, late: staff.filter((s) => s.status === "late").length, missing: missing.length, total: staff.length },
+    // on duty = checked in today OR running a shift right now (a salesman with an open shift is at work even when no duty
+    // time is set and no attendance was marked); counted once per person
+    staff_summary: (() => {
+      const key = (n: string) => String(n ?? "").trim().toLowerCase();
+      const onShift = new Set(shifts.map((x) => key(x.attendant)).filter(Boolean));
+      const present = new Set(staff.filter((x) => x.status === "present" || x.status === "late").map((x) => key(x.name)));
+      const everyone = new Set([...staff.map((x) => key(x.name)), ...onShift]);
+      return { on_duty: new Set([...present, ...onShift]).size, on_shift: onShift.size, late: staff.filter((x) => x.status === "late").length, missing: missing.filter((x) => !onShift.has(key(x.name))).length, total: everyone.size, roster: staff.length };
+    })(),
     cash_in_shifts: Math.round(shifts.reduce((a, s) => a + s.cash_expected, 0)),
     khata_overdue: Math.round(old.reduce((a, c) => a + c.balance, 0)),
     suggestions: sug.slice(0, 14),
