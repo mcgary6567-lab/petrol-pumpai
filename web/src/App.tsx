@@ -10,72 +10,89 @@ import { UpdateBanner } from "./components/UpdateBanner";
 import Login from "./pages/Login"; // sign-in is the first screen an unauthenticated user needs — keep it eager
 import { loadLookups } from "./lib/lookups";
 import { loadProducts } from "./lib/format";
+/**
+ * A page's script went missing after an update (the phone still runs the old version, whose page files the server no
+ * longer has): reload ONCE to get the new version instead of leaving a blank screen. Never loops — a second failure
+ * within a minute is shown as an error.
+ */
+function retryImport<T>(load: () => Promise<T>): Promise<T> {
+  return load().catch((e) => {
+    let last = 0;
+    try { last = Number(sessionStorage.getItem("pumpai_chunk_reload") || 0); } catch { /* storage blocked */ }
+    if (Date.now() - last > 60_000) {
+      try { sessionStorage.setItem("pumpai_chunk_reload", String(Date.now())); } catch { /* storage blocked */ }
+      window.location.reload();
+      return new Promise<T>(() => { /* the page is reloading */ });
+    }
+    throw e;
+  });
+}
 // every other page is code-split (React.lazy): the browser only downloads a screen's JS when it's first opened, so
 // sign-in and first paint stay fast on the phones/tablets this PWA targets instead of pulling all ~60 pages up front.
-const Help = lazy(() => import("./pages/Help"));
-const Dashboard = lazy(() => import("./pages/Dashboard"));
-const Inbox = lazy(() => import("./pages/Inbox"));
-const Customers = lazy(() => import("./pages/Customers"));
-const Khata = lazy(() => import("./pages/Khata"));
-const Orders = lazy(() => import("./pages/Orders"));
-const Complaints = lazy(() => import("./pages/Complaints"));
-const Campaigns = lazy(() => import("./pages/Campaigns"));
-const Pos = lazy(() => import("./pages/Pos"));
-const Shifts = lazy(() => import("./pages/Shifts"));
-const Stock = lazy(() => import("./pages/Stock"));
-const DipCharts = lazy(() => import("./pages/DipCharts"));
-const Prices = lazy(() => import("./pages/Prices"));
-const Alerts = lazy(() => import("./pages/Alerts"));
-const Automations = lazy(() => import("./pages/Automations"));
-const SettingsPage = lazy(() => import("./pages/Settings"));
-const Lists = lazy(() => import("./pages/Lists"));
-const Users = lazy(() => import("./pages/Users"));
-const Wholesale = lazy(() => import("./pages/Wholesale"));
-const Expenses = lazy(() => import("./pages/Expenses"));
-const Property = lazy(() => import("./pages/Property"));
-const Reports = lazy(() => import("./pages/Reports"));
-const Suppliers = lazy(() => import("./pages/Suppliers"));
-const Carriage = lazy(() => import("./pages/Carriage"));
-const Staff = lazy(() => import("./pages/Staff"));
-const MyAccount = lazy(() => import("./pages/MyAccount"));
-const Cards = lazy(() => import("./pages/Cards"));
-const Cash = lazy(() => import("./pages/Cash"));
-const Shop = lazy(() => import("./pages/Shop"));
-const Compliance = lazy(() => import("./pages/Compliance"));
-const ChecklistPage = lazy(() => import("./pages/ChecklistPage"));
-const Insights = lazy(() => import("./pages/Insights"));
-const Bookings = lazy(() => import("./pages/Bookings"));
-const Register = lazy(() => import("./pages/Register"));
-const Prepaid = lazy(() => import("./pages/Prepaid"));
-const CouponSheet = lazy(() => import("./pages/Prepaid").then((m) => ({ default: m.CouponSheet })));
-const Team = lazy(() => import("./pages/Team"));
-const Accounts = lazy(() => import("./pages/Accounts"));
-const Setup = lazy(() => import("./pages/Setup"));
-const Audit = lazy(() => import("./pages/Audit"));
-const SecurityScore = lazy(() => import("./pages/SecurityScore"));
-const Machines = lazy(() => import("./pages/Machines"));
-const Cashier = lazy(() => import("./pages/Cashier"));
-const Suggestions = lazy(() => import("./pages/Suggestions"));
-const CardPending = lazy(() => import("./pages/CardPending"));
-const OwnerReport = lazy(() => import("./pages/OwnerReport"));
-const DiscountReport = lazy(() => import("./pages/DiscountReport"));
-const OtherEntries = lazy(() => import("./pages/OtherEntries"));
-const Investors = lazy(() => import("./pages/Investors"));
-const Corrections = lazy(() => import("./pages/Corrections"));
-const SalesHistory = lazy(() => import("./pages/SalesHistory"));
-const OpeningBalances = lazy(() => import("./pages/OpeningBalances"));
-const GoLive = lazy(() => import("./pages/GoLive"));
-const Margins = lazy(() => import("./pages/Margins"));
-const ProfitExplainer = lazy(() => import("./pages/ProfitExplainer"));
-const Roster = lazy(() => import("./pages/Roster"));
-const Kiosk = lazy(() => import("./pages/Kiosk"));
+const Help = lazy(() => retryImport(() => import("./pages/Help")));
+const Dashboard = lazy(() => retryImport(() => import("./pages/Dashboard")));
+const Inbox = lazy(() => retryImport(() => import("./pages/Inbox")));
+const Customers = lazy(() => retryImport(() => import("./pages/Customers")));
+const Khata = lazy(() => retryImport(() => import("./pages/Khata")));
+const Orders = lazy(() => retryImport(() => import("./pages/Orders")));
+const Complaints = lazy(() => retryImport(() => import("./pages/Complaints")));
+const Campaigns = lazy(() => retryImport(() => import("./pages/Campaigns")));
+const Pos = lazy(() => retryImport(() => import("./pages/Pos")));
+const Shifts = lazy(() => retryImport(() => import("./pages/Shifts")));
+const Stock = lazy(() => retryImport(() => import("./pages/Stock")));
+const DipCharts = lazy(() => retryImport(() => import("./pages/DipCharts")));
+const Prices = lazy(() => retryImport(() => import("./pages/Prices")));
+const Alerts = lazy(() => retryImport(() => import("./pages/Alerts")));
+const Automations = lazy(() => retryImport(() => import("./pages/Automations")));
+const SettingsPage = lazy(() => retryImport(() => import("./pages/Settings")));
+const Lists = lazy(() => retryImport(() => import("./pages/Lists")));
+const Users = lazy(() => retryImport(() => import("./pages/Users")));
+const Wholesale = lazy(() => retryImport(() => import("./pages/Wholesale")));
+const Expenses = lazy(() => retryImport(() => import("./pages/Expenses")));
+const Property = lazy(() => retryImport(() => import("./pages/Property")));
+const Reports = lazy(() => retryImport(() => import("./pages/Reports")));
+const Suppliers = lazy(() => retryImport(() => import("./pages/Suppliers")));
+const Carriage = lazy(() => retryImport(() => import("./pages/Carriage")));
+const Staff = lazy(() => retryImport(() => import("./pages/Staff")));
+const MyAccount = lazy(() => retryImport(() => import("./pages/MyAccount")));
+const Cards = lazy(() => retryImport(() => import("./pages/Cards")));
+const Cash = lazy(() => retryImport(() => import("./pages/Cash")));
+const Shop = lazy(() => retryImport(() => import("./pages/Shop")));
+const Compliance = lazy(() => retryImport(() => import("./pages/Compliance")));
+const ChecklistPage = lazy(() => retryImport(() => import("./pages/ChecklistPage")));
+const Insights = lazy(() => retryImport(() => import("./pages/Insights")));
+const Bookings = lazy(() => retryImport(() => import("./pages/Bookings")));
+const Register = lazy(() => retryImport(() => import("./pages/Register")));
+const Prepaid = lazy(() => retryImport(() => import("./pages/Prepaid")));
+const CouponSheet = lazy(() => retryImport(() => import("./pages/Prepaid")).then((m) => ({ default: m.CouponSheet })));
+const Team = lazy(() => retryImport(() => import("./pages/Team")));
+const Accounts = lazy(() => retryImport(() => import("./pages/Accounts")));
+const Setup = lazy(() => retryImport(() => import("./pages/Setup")));
+const Audit = lazy(() => retryImport(() => import("./pages/Audit")));
+const SecurityScore = lazy(() => retryImport(() => import("./pages/SecurityScore")));
+const Machines = lazy(() => retryImport(() => import("./pages/Machines")));
+const Cashier = lazy(() => retryImport(() => import("./pages/Cashier")));
+const Suggestions = lazy(() => retryImport(() => import("./pages/Suggestions")));
+const CardPending = lazy(() => retryImport(() => import("./pages/CardPending")));
+const OwnerReport = lazy(() => retryImport(() => import("./pages/OwnerReport")));
+const DiscountReport = lazy(() => retryImport(() => import("./pages/DiscountReport")));
+const OtherEntries = lazy(() => retryImport(() => import("./pages/OtherEntries")));
+const Investors = lazy(() => retryImport(() => import("./pages/Investors")));
+const Corrections = lazy(() => retryImport(() => import("./pages/Corrections")));
+const SalesHistory = lazy(() => retryImport(() => import("./pages/SalesHistory")));
+const OpeningBalances = lazy(() => retryImport(() => import("./pages/OpeningBalances")));
+const GoLive = lazy(() => retryImport(() => import("./pages/GoLive")));
+const Margins = lazy(() => retryImport(() => import("./pages/Margins")));
+const ProfitExplainer = lazy(() => retryImport(() => import("./pages/ProfitExplainer")));
+const Roster = lazy(() => retryImport(() => import("./pages/Roster")));
+const Kiosk = lazy(() => retryImport(() => import("./pages/Kiosk")));
 import { loadBranding, applyBrand, setPumpSlug, applyPumpManifest } from "./lib/brand";
 import { useParams } from "react-router-dom";
 import { useAsaan } from "./components/Asaan";
-const AsaanHome = lazy(() => import("./components/Asaan").then((m) => ({ default: m.AsaanHome })));
-const TanksLevel = lazy(() => import("./components/Asaan").then((m) => ({ default: m.TanksLevel })));
-const AsaanOwnerHome = lazy(() => import("./components/Asaan").then((m) => ({ default: m.AsaanOwnerHome })));
-const AsaanCloseShift = lazy(() => import("./components/Asaan").then((m) => ({ default: m.AsaanCloseShift })));
+const AsaanHome = lazy(() => retryImport(() => import("./components/Asaan")).then((m) => ({ default: m.AsaanHome })));
+const TanksLevel = lazy(() => retryImport(() => import("./components/Asaan")).then((m) => ({ default: m.TanksLevel })));
+const AsaanOwnerHome = lazy(() => retryImport(() => import("./components/Asaan")).then((m) => ({ default: m.AsaanOwnerHome })));
+const AsaanCloseShift = lazy(() => retryImport(() => import("./components/Asaan")).then((m) => ({ default: m.AsaanCloseShift })));
 
 /** A pump's own sign-in link (/p/<slug>): remember the pump, then show its sign-in page. */
 function PumpLink() {
@@ -83,10 +100,10 @@ function PumpLink() {
   setPumpSlug(slug ?? null);
   return <Navigate to={`/login?pump=${encodeURIComponent(slug ?? "")}`} replace />;
 }
-const Activate = lazy(() => import("./pages/Activate"));
-const AttendPublic = lazy(() => import("./pages/AttendPublic"));
-const Platform = lazy(() => import("./pages/Platform"));
-const Migrate = lazy(() => import("./pages/Migrate"));
+const Activate = lazy(() => retryImport(() => import("./pages/Activate")));
+const AttendPublic = lazy(() => retryImport(() => import("./pages/AttendPublic")));
+const Platform = lazy(() => retryImport(() => import("./pages/Platform")));
+const Migrate = lazy(() => retryImport(() => import("./pages/Migrate")));
 
 loadBranding().catch(() => {});
 

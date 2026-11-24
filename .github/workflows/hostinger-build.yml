@@ -30,6 +30,13 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: node deploy/hostinger/build.mjs dist-hostinger
+      # keep the last few builds' page scripts too, so a tablet still on the old version can open its pages after an update
+      - name: Carry the previous builds' assets
+        run: |
+          if git fetch -q --depth=1 origin hostinger 2>/dev/null; then
+            mkdir -p prev-build && git --work-tree=prev-build checkout FETCH_HEAD -- web/dist/assets 2>/dev/null || true
+            node deploy/hostinger/keep-old-assets.mjs prev-build/web/dist/assets dist-hostinger/web/dist/assets
+          fi
       - name: Push to the hostinger branch
         run: |
           cd dist-hostinger

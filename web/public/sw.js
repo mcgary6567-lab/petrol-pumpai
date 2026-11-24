@@ -1,7 +1,7 @@
 // PumpAI service worker: keeps the app shell available so the POS opens without internet, and keeps the last copy of every
 // API read (dashboard, khata, prices, /me…) so the app still opens and shows yesterday's numbers when the net is down.
 // Writes are never cached: the POS queues its sales, everything else says "internet nahi".
-const CACHE = "pumpai-shell-v5";
+const CACHE = "pumpai-shell-v6"; // v6: drops v5, which could hold an HTML page saved as a script (blank screen)
 const API_CACHE = "pumpai-api-v1";
 const FONT_CACHE = "pumpai-fonts-v1"; // Google Fonts (Inter + Urdu Naskh/Nastaliq) so the app reads right offline too
 const FONT_HOST = /(^|\.)fonts\.(googleapis|gstatic)\.com$/;
@@ -44,10 +44,16 @@ self.addEventListener("fetch", (e) => {
     return;
   }
   // hashed build assets: cache first
-  e.respondWith(caches.match(req).then((hit) => hit || fetch(req).then((res) => {
-    if (res.ok) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(req, copy)); }
-    return res;
-  })));
+  e.respondWith(caches.match(req).then((hit) => {
+    // a cached "script" that is really an HTML page (an old file answered with the app page) is thrown away, never served
+    if (hit && /text\/html/i.test(hit.headers.get("content-type") || "") && !/\.html?$/i.test(new URL(req.url).pathname)) { caches.open(CACHE).then((c) => c.delete(req)); hit = undefined; }
+    return hit || fetch(req).then((res) => {
+      const type = res.headers.get("content-type") || "";
+      // keep only the real file (a script is never text/html) — anything else is passed through uncached
+      if (res.ok && !(/text\/html/i.test(type) && !/\.html?$/i.test(new URL(req.url).pathname))) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(req, copy)); }
+      return res;
+    });
+  }));
 });
 
 // push notifications from the server (price change, cash short, licence expiry…)

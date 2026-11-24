@@ -469,7 +469,14 @@ if (fs.existsSync(webDist)) {
       else res.setHeader("Cache-Control", "no-cache");
     },
   }));
-  app.get(/^\/(?!api|webhooks).*/, (_req, res) => { res.setHeader("Cache-Control", "no-cache"); res.sendFile(path.join(webDist, "index.html")); });
+  // a build file that is not there (an old /assets/… after an update, a typo'd .js / .css / .png) is a plain 404 — never
+  // the app page: a phone still on the old version asked for its old script, got HTML back with 200, ran it and showed a
+  // blank screen (and the offline cache kept that HTML as the script)
+  app.get(/^\/assets\//, (_req, res) => { res.setHeader("Cache-Control", "no-store"); res.status(404).type("text/plain").send("Not found"); });
+  app.get(/^\/(?!api|webhooks).*/, (req, res) => {
+    if (/\.(js|mjs|css|map|png|jpe?g|svg|ico|webp|woff2?|ttf|json|txt)$/i.test(req.path)) { res.status(404).type("text/plain").send("Not found"); return; }
+    res.setHeader("Cache-Control", "no-cache"); res.sendFile(path.join(webDist, "index.html"));
+  });
 }
 app.use(errorHandler);
 
