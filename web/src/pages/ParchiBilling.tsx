@@ -6,8 +6,10 @@
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Plus, Ticket, X, ArrowLeft, Check } from "lucide-react";
-import { api, useApi } from "../lib/api";
+import { Plus, Ticket, X, ArrowLeft, Check, Printer, Download } from "lucide-react";
+import { api, linkToken, useApi } from "../lib/api";
+import { printNow } from "../lib/printNow";
+import { WhatsAppDoc } from "../components/WhatsAppDoc";
 import { activeProducts, PRODUCTS, num, pkr } from "../lib/format";
 import { Field, IdTag, Loading, Modal, PageHeader, useAction } from "../components/ui";
 import { ProofPhotos } from "../components/Capture";
@@ -210,8 +212,20 @@ function NewParchis({ customer, setCustomer, onSaved }: { customer: string; setC
 function ParchiBook({ customer, setCustomer }: { customer: string; setCustomer: (v: string) => void }) {
   const customers = useCustomers();
   const [range, setRange] = useState({ from: "", to: "" });
-  const qs = new URLSearchParams(Object.entries({ customer_id: customer, ...range }).filter(([, v]) => v)).toString();
+  const blankF = { vehicle: "", slip: "", kind: "", product: "", status: "", q: "", min: "", max: "", by: "", voided: "" };
+  const [f, setF] = useState(blankF);
+  const [more, setMore] = useState(false);
+  const [q, setQ] = useState(""); // typed search, sent after a pause
+  useEffect(() => { const id = setTimeout(() => setF((x) => (x.q === q ? x : { ...x, q })), 350); return () => clearTimeout(id); }, [q]);
+  const extra = Object.fromEntries(Object.entries(f).filter(([, v]) => v)) as Record<string, string>;
+  const qs = new URLSearchParams(Object.entries({ customer_id: customer, ...range, ...extra }).filter(([, v]) => v)).toString();
   const { data, reload } = useApi<any>(`/parchi/book${qs ? `?${qs}` : ""}`);
+  const filterJson = Object.keys(extra).length ? JSON.stringify(extra) : "";
+  const docQs = new URLSearchParams(Object.entries({ ...range, filter: filterJson }).filter(([, v]) => v)).toString();
+  const pdf = `/api/docs/parchi_book/${customer || 0}/pdf?${docQs ? `${docQs}&` : ""}token=${linkToken()}`;
+  const nActive = Object.keys(extra).length + (range.from ? 1 : 0) + (range.to ? 1 : 0);
+  const quick = (from: string, to = "") => setRange({ from, to });
+  const ago = (n: number) => new Date(Date.now() + 5 * 3600_000 - n * 86_400_000).toISOString().slice(0, 10);
   const { busy, run } = useAction();
   const [edit, setEdit] = useState<any>(null);
   const voidIt = async (r: any) => {
@@ -221,17 +235,46 @@ function ParchiBook({ customer, setCustomer }: { customer: string; setCustomer: 
   };
   const chip = (s: string, r: any) => s === "paid" ? <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-700">Paid</span>
     : s === "part" ? <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">{pkr(r.unpaid)} baqi</span>
+    : s === "void" ? <span className="rounded-full bg-slate-200 px-2 py-0.5 text-xs font-semibold text-slate-600" title={r.void_reason ?? ""}>Deleted</span>
     : <span className="rounded-full bg-rose-100 px-2 py-0.5 text-xs font-semibold text-rose-700">Unpaid</span>;
   return (
     <div className="card">
-      <div className="grid gap-3 border-b border-slate-100 p-4 sm:grid-cols-[1.4fr_1fr_1fr]">
-        <Field label="Customer"><select className="input" value={customer} onChange={(e) => setCustomer(e.target.value)} aria-label="Parchi Book customer"><option value="">Sab customers</option>{customers.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select></Field>
-        <Field label="From"><input className="input" type="date" value={range.from} onChange={(e) => setRange({ ...range, from: e.target.value })} /></Field>
-        <Field label="To"><input className="input" type="date" value={range.to} onChange={(e) => setRange({ ...range, to: e.target.value })} /></Field>
+      <div className="space-y-3 border-b border-slate-100 p-4 print:hidden">
+        <div className="grid gap-3 sm:grid-cols-[1.4fr_1.4fr_1fr_1fr]">
+          <Field label="Customer"><select className="input" value={customer} onChange={(e) => setCustomer(e.target.value)} aria-label="Parchi Book customer"><option value="">Sab customers</option>{customers.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select></Field>
+          <Field label="Dhoondein · تلاش"><input className="input" type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="PR-12, slip, gaari, item, naam, raqam…" aria-label="Parchi dhoondein" /></Field>
+          <Field label="From (parchi date)"><input className="input" type="date" value={range.from} onChange={(e) => setRange({ ...range, from: e.target.value })} /></Field>
+          <Field label="To"><input className="input" type="date" value={range.to} onChange={(e) => setRange({ ...range, to: e.target.value })} /></Field>
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5 text-xs">
+          {([["Aaj", () => quick(pkToday(), pkToday())], ["7 din", () => quick(ago(6))], ["Is mahine", () => quick(pkToday().slice(0, 8) + "01")], ["Pichla mahina", () => { const d = new Date(pkToday().slice(0, 8) + "01T00:00:00Z"); d.setUTCDate(0); quick(d.toISOString().slice(0, 8) + "01", d.toISOString().slice(0, 10)); }], ["Sab", () => quick("")]] as [string, () => void][]).map(([l, fn]) => (
+            <button key={l} type="button" onClick={fn} className="rounded-full border border-slate-200 px-2.5 py-1 font-semibold text-slate-600 hover:bg-slate-50">{l}</button>))}
+          <span className="mx-1 text-slate-300">|</span>
+          {([["", "Har status"], ["open", "Baqi (unpaid + part)"], ["unpaid", "Unpaid"], ["part", "Thori baqi"], ["paid", "Paid"], ["void", "Deleted"]] as const).map(([k, l]) => (
+            <button key={k} type="button" aria-pressed={f.status === k} onClick={() => setF({ ...f, status: k })} className={`rounded-full border px-2.5 py-1 font-semibold ${f.status === k ? "border-violet-400 bg-violet-50 text-violet-700" : "border-slate-200 text-slate-600"}`}>{l}</button>))}
+          <button type="button" onClick={() => setMore(!more)} className="ml-auto rounded-full border border-violet-300 px-2.5 py-1 font-semibold text-violet-700">{more ? "▲ Kam filter" : "▼ Mazeed filter"}{nActive ? ` (${nActive})` : ""}</button>
+          {nActive > 0 && <button type="button" onClick={() => { setF(blankF); setQ(""); setRange({ from: "", to: "" }); }} className="rounded-full px-2 py-1 font-semibold text-rose-600 underline">Saaf karein</button>}
+        </div>
+        {more && <div className="grid grid-cols-2 gap-3 rounded-xl bg-slate-50 p-3 sm:grid-cols-4">
+          <Field label="Gaari no."><input className="input uppercase" value={f.vehicle} onChange={(e) => setF({ ...f, vehicle: e.target.value })} placeholder="LEH-453" /></Field>
+          <Field label="Slip no."><input className="input" value={f.slip} onChange={(e) => setF({ ...f, slip: e.target.value })} /></Field>
+          <Field label="Kya"><select className="input" value={f.kind} onChange={(e) => setF({ ...f, kind: e.target.value, product: e.target.value === "fuel" ? f.product : "" })}><option value="">Sab</option><option value="fuel">⛽ Fuel</option><option value="shop">🛒 Shop</option><option value="other">Purani (sirf raqam)</option></select></Field>
+          <Field label="Fuel"><select className="input" value={f.product} onChange={(e) => setF({ ...f, product: e.target.value, kind: e.target.value ? "fuel" : f.kind })}><option value="">Sab</option>{activeProducts.map((p) => <option key={p.code} value={p.code}>{p.name}</option>)}</select></Field>
+          <Field label="Raqam se (Rs)"><input className="input text-right" type="number" inputMode="decimal" step="any" value={f.min} onChange={(e) => setF({ ...f, min: e.target.value })} /></Field>
+          <Field label="Raqam tak (Rs)"><input className="input text-right" type="number" inputMode="decimal" step="any" value={f.max} onChange={(e) => setF({ ...f, max: e.target.value })} /></Field>
+          <Field label="Kis ne likhi"><input className="input" value={f.by} onChange={(e) => setF({ ...f, by: e.target.value })} placeholder="naam" /></Field>
+          <label className="flex items-end gap-2 pb-2 text-sm"><input type="checkbox" checked={!!f.voided} onChange={(e) => setF({ ...f, voided: e.target.checked ? "1" : "" })} /> Deleted bhi dikhayein</label>
+        </div>}
+        <div className="flex flex-wrap justify-end gap-2">
+          <WhatsAppDoc kind="parchi_book" id={Number(customer) || 0} from={range.from || undefined} to={range.to || undefined} filter={filterJson || undefined} />
+          <a className="btn-secondary" href={pdf} target="_blank" rel="noreferrer"><Download size={15} /> PDF</a>
+          <button className="btn-primary" onClick={() => printNow({ title: "Parchi Book", pdf })}><Printer size={15} /> Print · پرنٹ</button>
+        </div>
       </div>
       {!data ? <Loading /> : <>
-        <div className="grid grid-cols-2 gap-2 p-4 sm:grid-cols-4">
-          {[["Parchiyan", String(data.totals.n)], ["Fuel", pkr(data.totals.fuel)], ["Shop", pkr(data.totals.shop)], ["Kul / baqi", `${pkr(data.totals.amount)} · ${pkr(data.totals.unpaid)} baqi`]].map(([l, v]) => (
+        <div className="hidden p-4 print:block"><div className="text-lg font-bold">Parchi Book</div><div className="text-sm">{customer ? customers.find((x) => String(x.id) === customer)?.name : "Sab customers"} · {range.from || "shuru"} — {range.to || "aaj"}</div></div>
+        <div className="grid grid-cols-2 gap-2 p-4 sm:grid-cols-6">
+          {[["Parchiyan", `${data.totals.n}${data.totals.vehicles ? ` · ${data.totals.vehicles} gaari` : ""}`], ["Fuel", `${pkr(data.totals.fuel)} · ${num(data.totals.litres, 2)} L`], ["Shop / other", pkr(data.totals.shop + data.totals.other)], ["Kul", pkr(data.totals.amount)], ["Paid", pkr(data.totals.paid)], ["Baqi", pkr(data.totals.unpaid)]].map(([l, v]) => (
             <div key={l} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"><div className="text-xs text-slate-500">{l}</div><div className="font-bold tabular-nums">{v}</div></div>))}
         </div>
         <div className="overflow-x-auto">
@@ -244,8 +287,8 @@ function ParchiBook({ customer, setCustomer }: { customer: string; setCustomer: 
                   <td className="td whitespace-nowrap text-xs">{dmy(r.parchi_date)}</td><td className="td">{r.customer}</td><td className="td text-xs">{r.slip_no ?? ""}</td><td className="td text-xs">{r.vehicle_no ?? ""}</td>
                   <td className="td text-xs text-slate-600">{r.kind === "fuel" ? `${num(r.qty, 2)} L ${PRODUCTS[r.product] ?? r.product} × ${r.rate}` : r.kind === "shop" ? `🛒 ${r.item_name} × ${num(r.qty, 2)} @ ${r.rate}` : r.item_name}{r.khata_id ? <> · <IdTag id={`K-${r.khata_id}`} /></> : null}</td>
                   <td className="td whitespace-nowrap text-right font-semibold tabular-nums">{pkr(r.amount)}</td><td className="td">{chip(r.status, r)}</td><td className="td text-xs">{r.created_by ?? ""}</td>
-                  <td className="td whitespace-nowrap"><button className="rounded-md border border-violet-200 px-2 py-1 text-xs font-semibold text-violet-700 hover:bg-violet-50" disabled={busy} onClick={() => setEdit(r)} aria-label={`PR-${r.id} edit`}>✏️ Edit</button>{" "}
-                    <button className="rounded-md border border-rose-200 px-2 py-1 text-xs font-semibold text-rose-600 hover:bg-rose-50" disabled={busy} onClick={() => voidIt(r)} aria-label={`PR-${r.id} delete`}>🗑 Delete</button></td>
+                  <td className="td whitespace-nowrap print:hidden">{r.status !== "void" && <><button className="rounded-md border border-violet-200 px-2 py-1 text-xs font-semibold text-violet-700 hover:bg-violet-50" disabled={busy} onClick={() => setEdit(r)} aria-label={`PR-${r.id} edit`}>✏️ Edit</button>{" "}
+                    <button className="rounded-md border border-rose-200 px-2 py-1 text-xs font-semibold text-rose-600 hover:bg-rose-50" disabled={busy} onClick={() => voidIt(r)} aria-label={`PR-${r.id} delete`}>🗑 Delete</button></>}</td>
                 </tr>))}
               {!data.rows.length && <tr><td className="td py-8 text-center text-slate-500" colSpan={10}>Koi parchi nahi</td></tr>}
             </tbody>

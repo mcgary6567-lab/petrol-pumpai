@@ -134,24 +134,45 @@ function openParts(customerId: number) {
   return new Map(open.map((o) => [o.id, round2(o.left)]));
 }
 
-/** The Parchi Book: every parchi with its status (Paid / part / Unpaid). One customer or all; a date range on the parchi date. */
-parchi.get("/parchi/book", requirePerm("khata.manage"), h((req) => {
-  const t = tid(req);
-  const q = parse(z.object({ customer_id: z.coerce.number().int().optional(), from: day.optional(), to: day.optional(), voided: z.coerce.number().optional() }), req.query);
-  const rows = all(`SELECT p.*, c.name customer FROM parchi_lines p JOIN customers c ON c.id=p.customer_id WHERE p.tenant_id=?
-      ${q.customer_id ? "AND p.customer_id=?" : ""} ${q.from ? "AND p.parchi_date >= ?" : ""} ${q.to ? "AND p.parchi_date <= ?" : ""} ${q.voided ? "" : "AND p.voided=0"}
-      ORDER BY p.parchi_date DESC, p.id DESC LIMIT 1000`, ...[t, ...(q.customer_id ? [q.customer_id] : []), ...(q.from ? [q.from] : []), ...(q.to ? [q.to] : [])]);
+export const bookQuery = z.object({
+  customer_id: z.coerce.number().int().optional(), from: day.optional(), to: day.optional(), voided: z.coerce.number().optional(),
+  vehicle: z.string().trim().max(30).optional(), slip: z.string().trim().max(40).optional(), kind: z.enum(["fuel", "shop", "other"]).optional(),
+  product: z.string().max(12).optional(), status: z.enum(["paid", "part", "unpaid", "open", "void"]).optional(), q: z.string().trim().max(80).optional(),
+  min: z.coerce.number().optional(), max: z.coerce.number().optional(), by: z.string().trim().max(60).optional(),
+});
+export type BookQuery = z.infer<typeof bookQuery>;
+const key = (v: unknown) => String(v ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+
+/** The Parchi Book: every parchi with its status (Paid / part / Unpaid), with every filter (customer, parchi date range,
+ *  gaari, slip, fuel / shop, fuel type, status, amount range, entered by, free text). Deleted ones only when asked. */
+export function parchiBook(t: number, q: BookQuery) {
+  const showVoid = !!q.voided || q.status === "void";
+  const rows = all(`SELECT p.*, c.name customer, c.phone customer_phone FROM parchi_lines p JOIN customers c ON c.id=p.customer_id WHERE p.tenant_id=?
+      ${q.customer_id ? "AND p.customer_id=?" : ""} ${q.from ? "AND p.parchi_date >= ?" : ""} ${q.to ? "AND p.parchi_date <= ?" : ""} ${showVoid ? "" : "AND p.voided=0"}
+      ORDER BY p.parchi_date DESC, p.id DESC LIMIT 5000`, ...[t, ...(q.customer_id ? [q.customer_id] : []), ...(q.from ? [q.from] : []), ...(q.to ? [q.to] : [])]);
   const parts = new Map<number, Map<number, number>>();
+  const words = (q.q ?? "").toLowerCase().split(/\s+/).filter(Boolean);
   const list = rows.map((r) => {
     if (r.voided) return { ...r, unpaid: 0, status: "void" };
     if (!parts.has(r.customer_id)) parts.set(r.customer_id, openParts(r.customer_id));
     const left = parts.get(r.customer_id)!.get(r.khata_id) ?? 0;
     return { ...r, unpaid: left, status: left <= 0.5 ? "paid" : left >= r.amount - 0.5 ? "unpaid" : "part" };
-  });
+  }).filter((r) => (!q.vehicle || key(r.vehicle_no).includes(key(q.vehicle))) && (!q.slip || String(r.slip_no ?? "").toLowerCase().includes(q.slip.toLowerCase()))
+    && (!q.kind || r.kind === q.kind) && (!q.product || r.product === q.product) && (q.min == null || r.amount >= q.min) && (q.max == null || r.amount <= q.max)
+    && (!q.by || String(r.created_by ?? "").toLowerCase().includes(q.by.toLowerCase()))
+    && (!q.status || (q.status === "open" ? r.status === "unpaid" || r.status === "part" : r.status === q.status))
+    && (!words.length || words.every((w) => [r.customer, r.customer_phone, r.slip_no, r.vehicle_no, r.item_name, r.product ? PRODUCTS[r.product] : "", r.note, r.created_by, `pr-${r.id}`, `k-${r.khata_id}`, r.amount]
+      .filter((v) => v != null).join(" ").toLowerCase().includes(w))));
   const live = list.filter((r) => r.status !== "void");
-  return { rows: list, totals: { n: live.length, amount: round2(live.reduce((a, r) => a + r.amount, 0)), unpaid: round2(live.reduce((a, r) => a + r.unpaid, 0)),
-    fuel: round2(live.filter((r) => r.kind === "fuel").reduce((a, r) => a + r.amount, 0)), shop: round2(live.filter((r) => r.kind === "shop").reduce((a, r) => a + r.amount, 0)) } };
-}));
+  const sum = (xs: any[], f: (r: any) => number) => round2(xs.reduce((a, r) => a + f(r), 0));
+  const byFuel: Record<string, { product: string; n: number; litres: number; amount: number }> = {};
+  for (const r of live.filter((x) => x.kind === "fuel")) { byFuel[r.product] ??= { product: r.product, n: 0, litres: 0, amount: 0 }; byFuel[r.product].n++; byFuel[r.product].litres = round2(byFuel[r.product].litres + r.qty); byFuel[r.product].amount = round2(byFuel[r.product].amount + r.amount); }
+  return { rows: list, totals: { n: live.length, amount: sum(live, (r) => r.amount), unpaid: sum(live, (r) => r.unpaid), paid: sum(live, (r) => r.amount - r.unpaid),
+    fuel: sum(live.filter((r) => r.kind === "fuel"), (r) => r.amount), shop: sum(live.filter((r) => r.kind === "shop"), (r) => r.amount), other: sum(live.filter((r) => r.kind === "other"), (r) => r.amount),
+    litres: sum(live.filter((r) => r.kind === "fuel"), (r) => r.qty), by_fuel: Object.values(byFuel), vehicles: new Set(live.map((r) => key(r.vehicle_no)).filter(Boolean)).size,
+    customers: new Set(live.map((r) => r.customer_id)).size, deleted: list.length - live.length } };
+}
+parchi.get("/parchi/book", requirePerm("khata.manage"), h((req) => parchiBook(tid(req), parse(bookQuery, req.query))));
 
 /** The parchi day of a khata row (Pakistan date). */
 const khataDay = (at: string) => new Date(Date.parse(at) + 5 * 3600_000).toISOString().slice(0, 10);

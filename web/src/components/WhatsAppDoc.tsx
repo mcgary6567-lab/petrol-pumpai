@@ -3,7 +3,7 @@ import { MessageCircle, Download, Check, X, Send } from "lucide-react";
 import { api, linkToken } from "../lib/api";
 import { Modal, useAction } from "./ui";
 
-type Kind = "voucher" | "khata" | "wholesale" | "carriage" | "supplier" | "shift" | "receipt" | "slip" | "customer_list" | "client_list" | "supplier_list" | "trip_list";
+type Kind = "voucher" | "khata" | "wholesale" | "carriage" | "supplier" | "shift" | "receipt" | "slip" | "customer_list" | "client_list" | "supplier_list" | "trip_list" | "khata_vehicle" | "wholesale_vehicle" | "supplier_vehicle" | "parchi_book" | "khata_bill" | "wholesale_bill";
 const Ur = ({ children }: { children: React.ReactNode }) => <span lang="ur" dir="rtl" className="font-urdu">{children}</span>;
 const fmt = (p: string) => (p.startsWith("92") && p.length === 12 ? `0${p.slice(2, 5)} ${p.slice(5)}` : p);
 const ROLE: Record<string, string> = { owner: "Owner", admin: "CEO", manager: "Manager", cashier: "Cashier", salesman: "Salesman", wholesale: "Wholesale" };
@@ -13,20 +13,20 @@ const ROLE: Record<string, string> = { owner: "Owner", admin: "CEO", manager: "M
  * a recent number, or type one. With the Cloud API set up it is sent from the server; otherwise the phone's WhatsApp opens
  * with the message + link (wa.me) — works on any pump with no setup.
  */
-export function WhatsAppDoc({ kind, id, from, to, label = "WhatsApp", className = "btn-secondary", small = false }: { kind: Kind; id: number; from?: string; to?: string; label?: string; className?: string; small?: boolean }) {
+export function WhatsAppDoc({ kind, id, from, to, vehicle, filter, label = "WhatsApp", className = "btn-secondary", small = false }: { kind: Kind; id: number; from?: string; to?: string; vehicle?: string; filter?: string; label?: string; className?: string; small?: boolean }) {
   const [open, setOpen] = useState(false);
   return (
     <>
       <button type="button" className={`${className} ${small ? "!px-2 !py-1 text-xs" : ""}`} onClick={() => setOpen(true)} title="Send as PDF on WhatsApp · واٹس ایپ پر بھیجیں">
         <MessageCircle size={small ? 13 : 15} /> {label}{!small && <> · <Ur>واٹس ایپ</Ur></>}
       </button>
-      {open && <WhatsAppDocModal kind={kind} id={id} from={from} to={to} onClose={() => setOpen(false)} />}
+      {open && <WhatsAppDocModal kind={kind} id={id} from={from} to={to} vehicle={vehicle} filter={filter} onClose={() => setOpen(false)} />}
     </>
   );
 }
 
-export function WhatsAppDocModal({ kind, id, from, to, onClose }: { kind: Kind; id: number; from?: string; to?: string; onClose: () => void }) {
-  const qs = new URLSearchParams(Object.entries({ from, to }).filter(([, v]) => v) as [string, string][]).toString();
+export function WhatsAppDocModal({ kind, id, from, to, vehicle, filter, onClose }: { kind: Kind; id: number; from?: string; to?: string; vehicle?: string; filter?: string; onClose: () => void }) {
+  const qs = new URLSearchParams(Object.entries({ from, to, vehicle, filter }).filter(([, v]) => v) as [string, string][]).toString();
   const [c, setC] = useState<any>(null);
   const [err, setErr] = useState("");
   const [sel, setSel] = useState<string[]>([]);
@@ -40,7 +40,7 @@ export function WhatsAppDocModal({ kind, id, from, to, onClose }: { kind: Kind; 
   const toggle = (p: string) => setSel((s) => (s.includes(p) ? s.filter((x) => x !== p) : [...s, p]));
   const phones = [...sel, ...manual.split(/[,\n;]/).map((x) => x.trim()).filter((x) => x.length >= 7)];
   const send = async () => {
-    const r = await run(() => api(`/docs/${kind}/${id}/send`, { body: { phones, note: note || undefined, from, to } }), (x: any) => x.mode === "api" ? `Sent to ${x.results.filter((y: any) => y.ok).length} number(s) · بھیج دیا` : "WhatsApp khul raha hai · واٹس ایپ کھل رہا ہے");
+    const r = await run(() => api(`/docs/${kind}/${id}/send`, { body: { phones, note: note || undefined, from, to, vehicle: vehicle || undefined, filter: filter || undefined } }), (x: any) => x.mode === "api" ? `Sent to ${x.results.filter((y: any) => y.ok).length} number(s) · بھیج دیا` : "WhatsApp khul raha hai · واٹس ایپ کھل رہا ہے");
     if (!r) return;
     setResult(r);
     // phone mode: open WhatsApp for the first number right away (the rest have buttons below)

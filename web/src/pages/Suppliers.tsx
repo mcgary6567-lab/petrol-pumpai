@@ -17,6 +17,7 @@ import { ProofPhotos, ProofThumbs } from "../components/Capture";
 import { AccountPicker } from "../components/BankParts";
 import { IdTag, Badge, Empty, Field, ListTools, Loading, Modal, PageHeader, Pager, PhoneInput, SearchBar, Stat, matchQuery, useAction, useListFilter, usePaged } from "../components/ui";
 import { WhatsAppDoc } from "../components/WhatsAppDoc";
+import { VehicleStatementButton } from "../components/VehicleStatement";
 import { Ur } from "../components/VoiceShell";
 import { PRODUCTS, ago, d, dt, num, phone, pkr, pkrShort } from "../lib/format";
 import { printNow } from "../lib/printNow";
@@ -337,6 +338,7 @@ function SupplierDetail({ id, onClose, onChanged, depots, onDepots }: { id: numb
             <Stat label="We owe (pump + bypass)" value={pkr(s.total_owed ?? s.owed)} tone="red" hint={Math.abs(s.bypass_owed ?? 0) > 0.5 ? `pump ${pkr(s.owed)} · bypass ${pkr(s.bypass_owed)}` : undefined} />
             <a className="btn-secondary min-h-10" href={`/api/suppliers/${id}/statement.csv?token=${linkToken()}`}><Download size={15} /> Excel / CSV</a>
             <WhatsAppDoc kind="supplier" id={Number(id)} className="btn-secondary min-h-10" />
+            <VehicleStatementButton party="supplier" id={Number(id)} name={s.name} className="btn-secondary min-h-10" />
             <button type="button" className="btn-secondary min-h-10" onClick={() => printNow()}><Printer size={15} /> Print statement · <Ur>پرنٹ</Ur></button>
             {modules.investors && Number(s.total_owed) > 0.5 && <Link to={`/investors?transfer=supplier:${s.id}`} className="btn-secondary min-h-10 !text-violet-700" title="Baqaya investor capital banayein">⇄ Investor me transfer</Link>}
             {Number(s.owed) < -0.5 && <button type="button" className="btn-secondary min-h-10 !text-emerald-700" onClick={() => setRefund(true)}><Wallet size={15} /> Overpayment wapas · <Ur>ایڈوانس واپس</Ur></button>}

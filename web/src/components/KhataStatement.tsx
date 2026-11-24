@@ -8,6 +8,7 @@ import { ProofThumbs } from "./Capture";
 import { PortalCard } from "./PortalCard";
 import { IdTag, Field, ListTools, Loading, Modal, useAction, useListFilter, useNewRows } from "./ui";
 import { WhatsAppDoc } from "./WhatsAppDoc";
+import { VehicleStatementButton } from "./VehicleStatement";
 import { PRODUCTS, newestFirst, num, phone, pkr } from "../lib/format";
 import { printNow } from "../lib/printNow";
 
@@ -84,6 +85,7 @@ export default function KhataStatement({ customerId, onClose }: { customerId: nu
           <a className="btn-secondary" href={`/cards/${customerId}`} target="_blank" rel="noreferrer"><QrCode size={15} /> QR cards</a>
           <a className="btn-secondary" href={csv}><Download size={15} /> Excel</a>
           <WhatsAppDoc kind="khata" id={customerId} from={range.from || undefined} to={range.to || undefined} label="WhatsApp PDF" />
+          <VehicleStatementButton party="khata" id={customerId} name={s?.customer?.name ?? ""} vehicle={veh || undefined} from={range.from || undefined} to={range.to || undefined} />
           {["admin", "manager"].includes(user?.role ?? "") && <a className="btn-secondary" href={`/parchi?customer=${customerId}`} onClick={(e) => { e.preventDefault(); history.pushState(null, "", `/parchi?customer=${customerId}`); dispatchEvent(new PopStateEvent("popstate")); }} title="Parchi aayi — na tail diya, na cash. Parchi Billing mein khate par chadhayein."><FilePlus2 size={15} /> 🎫 Parchi Billing · پرچی</a>}
           <button className="btn-secondary" onClick={printPurchase} disabled={!s} title="Sirf jo customer ne khareeda — litre × rate = raqam, har cheez ka total. Payment aur balance nahi."><ReceiptText size={15} /> Purchase bill · خریداری بل</button>
           <button className="btn-primary" onClick={printStatement}><Printer size={15} /> Print bill · پرنٹ</button>

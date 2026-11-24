@@ -108,3 +108,52 @@ test("Parchi Billing: many parchiyan at once (fuel at that day's rate, shop item
   assert.equal(ok(await call("manager", "GET", `/api/parchi/book?customer_id=${c.id}&voided=1`), "b3").rows.find((x: any) => x.id === r.ids[2]).status, "void");
   await books();
 });
+
+test("Gari statement (khata / wholesale / supplier) and the Parchi Book filters + PDF", async () => {
+  const t = db.get("SELECT id FROM tenants ORDER BY id LIMIT 1")!.id as number;
+  const cid = (db.run("INSERT INTO customers (tenant_id,name,phone,type,balance,credit_limit,created_at) VALUES (?,?,?,?,?,?,?)", t, "Gari Test Customer", "923000000779", "retail", 0, 500000, new Date().toISOString()) as any).id;
+  const day = (n: number) => new Date(Date.now() - n * 86_400_000 + 5 * 3600_000).toISOString().slice(0, 10);
+  const r = ok(await call("manager", "POST", "/api/parchi/batch", { customer_id: cid, lines: [
+    { parchi_date: day(3), slip_no: "11", vehicle_no: "LEH-453", kind: "fuel", product: "PMG", qty: 10, rate: 260 },
+    { parchi_date: day(2), slip_no: "12", vehicle_no: "leh 453", kind: "fuel", product: "HSD", qty: 20, rate: 270 },
+    { parchi_date: day(1), slip_no: "13", vehicle_no: "LES-9", kind: "fuel", product: "PMG", qty: 5, rate: 260 },
+  ] }), "batch");
+  db.run("INSERT INTO khata_ledger (customer_id,type,amount,ref,note,vehicle_no,created_at) VALUES (?,?,?,?,?,?,?)", cid, "credit", 1000, "cash", "payment", "LEH453", new Date().toISOString());
+  const vs = ok(await call("manager", "GET", `/api/vehicle-statement/vehicles?party=khata&id=${cid}`), "vehicles");
+  assert.equal(vs.find((v: any) => v.vehicle.replace(/[^A-Z0-9]/g, "") === "LEH453").entries, 3, "one gaari however it was written");
+  const s = ok(await call("manager", "GET", `/api/vehicle-statement?party=khata&id=${cid}&vehicle=LEH-453`), "stmt");
+  assert.equal(s.totals.entries, 3); near(s.totals.debit, 10 * 260 + 20 * 270); near(s.totals.credit, 1000); near(s.totals.litres, 30);
+  near(s.totals.net, 10 * 260 + 20 * 270 - 1000); assert.equal(s.totals.by_item.length, 2);
+  const ranged = ok(await call("manager", "GET", `/api/vehicle-statement?party=khata&id=${cid}&vehicle=LEH-453&from=${day(2)}&to=${day(2)}`), "ranged");
+  assert.equal(ranged.totals.entries, 1, "date range");
+  const pdf = await fetch(`${base}/api/docs/khata_vehicle/${cid}/pdf?vehicle=LEH-453`, { headers: { authorization: `Bearer ${tokens.manager}` } });
+  assert.equal(pdf.status, 200); assert.match(pdf.headers.get("content-type") ?? "", /pdf/);
+  assert.notEqual((await call("salesman", "GET", `/api/vehicle-statement?party=khata&id=${cid}&vehicle=LEH-453`)).status, 200, "salesman refused");
+  // wholesale + supplier: whatever vehicle the demo data has
+  const w = db.get("SELECT client_id, vehicle_no FROM wholesale_txns WHERE voided=0 AND vehicle_no IS NOT NULL AND TRIM(vehicle_no)<>'' LIMIT 1");
+  if (w) {
+    const ws = ok(await call("admin", "GET", `/api/vehicle-statement?party=wholesale&id=${w.client_id}&vehicle=${encodeURIComponent(w.vehicle_no)}`), "ws");
+    const n = db.all("SELECT vehicle_no FROM wholesale_txns WHERE client_id=? AND voided=0", w.client_id).filter((x: any) => String(x.vehicle_no ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "") === String(w.vehicle_no).toUpperCase().replace(/[^A-Z0-9]/g, "")).length;
+    assert.equal(ws.totals.entries, n);
+    assert.equal((await fetch(`${base}/api/docs/wholesale_vehicle/${w.client_id}/pdf?vehicle=${encodeURIComponent(w.vehicle_no)}`, { headers: { authorization: `Bearer ${tokens.admin}` } })).status, 200);
+  }
+  const sp = db.get("SELECT x.supplier_id, d.tanker_no FROM supplier_txns x JOIN deliveries d ON d.id=x.delivery_id WHERE d.tanker_no IS NOT NULL AND TRIM(d.tanker_no)<>'' LIMIT 1");
+  if (sp) {
+    const ss = ok(await call("admin", "GET", `/api/vehicle-statement?party=supplier&id=${sp.supplier_id}&vehicle=${encodeURIComponent(sp.tanker_no)}`), "ss");
+    assert.ok(ss.totals.entries >= 1 && ss.totals.debit > 0);
+  }
+  // Parchi Book filters
+  const bk = (qs: string) => call("manager", "GET", `/api/parchi/book?customer_id=${cid}&${qs}`).then((x) => ok(x, qs));
+  assert.equal((await bk("vehicle=leh453")).rows.length, 2, "gaari filter");
+  assert.equal((await bk("product=HSD")).rows.length, 1);
+  assert.equal((await bk("q=LES")).rows.length, 1, "text");
+  assert.equal((await bk("min=2000")).rows.length, 2, "amount range");
+  assert.equal((await bk("status=open")).rows.length, 3, "unpaid + part");
+  assert.equal((await bk("status=part")).rows.length, 1, "the 1000 payment part-paid the oldest");
+  ok(await call("manager", "POST", `/api/parchi/${r.ids[2]}/void`, { reason: "test delete" }), "void");
+  assert.equal((await bk("status=void")).rows.length, 1, "deleted on asking");
+  const bpdf = await fetch(`${base}/api/docs/parchi_book/${cid}/pdf?filter=${encodeURIComponent(JSON.stringify({ vehicle: "LEH-453" }))}`, { headers: { authorization: `Bearer ${tokens.manager}` } });
+  assert.equal(bpdf.status, 200);
+  const all0 = await fetch(`${base}/api/docs/parchi_book/0/pdf`, { headers: { authorization: `Bearer ${tokens.manager}` } });
+  assert.equal(all0.status, 200, "all customers");
+});

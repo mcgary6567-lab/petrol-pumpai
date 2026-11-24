@@ -10,6 +10,7 @@ import { PartyAdmin } from "../components/PartyAdmin";
 import { api, linkToken, useApi } from "../lib/api";
 import { IdTag, Badge, Empty, ErrorBox, Field, ListTools, Loading, Modal, PageHeader, Pager, PhoneInput, useAction, useListFilter, usePaged } from "../components/ui";
 import { WhatsAppDoc } from "../components/WhatsAppDoc";
+import { VehicleStatementButton } from "../components/VehicleStatement";
 import { dOnly, newestFirst, PRODUCTS, ago, d, dt, num, phone, pkr, pkrShort, dueLabel, nowLocal } from "../lib/format";
 import { useAuth } from "../App";
 import { OpeningBalanceField, type AdvanceReceipt } from "../components/OpeningBalanceField";
@@ -483,6 +484,7 @@ function ClientDetail({ id }: { id: string }) {
           <Field label="To"><input className="input" type="date" value={range.to} onChange={(e) => setRange({ ...range, to: e.target.value })} /></Field>
           <a className="btn-secondary" href={csvUrl}><Download size={15} /> Excel / CSV</a>
           <WhatsAppDoc kind="wholesale" id={Number(id)} from={range.from || undefined} to={range.to || undefined} />
+          <VehicleStatementButton party="wholesale" id={Number(id)} name={c.name} from={range.from || undefined} to={range.to || undefined} />
           <button className="btn-secondary" disabled={!stmt.data} title="Sirf jo client ne khareeda — litre × rate = raqam, har cheez ka total. Payment aur balance nahi."
             onClick={() => { document.body.classList.add("print-purchase"); printNow({ title: `Purchase bill — ${c.name}`, pdf: `/api/docs/wholesale_bill/${id}/pdf?${qs ? `${qs}&` : ""}token=${linkToken()}` }); if (!window.matchMedia("(pointer: coarse)").matches && window.innerWidth >= 768) document.body.classList.remove("print-purchase"); }}>
             <ReceiptText size={15} /> Purchase bill · <Ur>خریداری بل</Ur></button>

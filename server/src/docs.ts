@@ -17,13 +17,15 @@ import { statement as carriageStatement } from "./routes/carriage.js";
 import { supplierOwed, supplierOwedAll } from "./routes/suppliers.js";
 import { shiftReport } from "./shifts.js";
 import { PRODUCTS } from "./config.js";
+import { vehicleStatement, type VParty } from "./vehicleStatement.js";
+import { parchiBook, bookQuery } from "./routes/parchi.js";
 import { AppError, round2, normalizePhone } from "./services.js";
 import { sendDocumentToPhone, sendWhatsApp } from "./whatsapp/cloud.js";
 import { slipUrl } from "./routes/people.js";
 
-export const DOC_KINDS = ["voucher", "khata", "khata_bill", "wholesale_bill", "wholesale", "carriage", "supplier", "shift", "receipt", "slip", "customer_list", "client_list", "supplier_list", "trip_list"] as const;
+export const DOC_KINDS = ["voucher", "khata", "khata_bill", "wholesale_bill", "wholesale", "carriage", "supplier", "shift", "receipt", "slip", "customer_list", "client_list", "supplier_list", "trip_list", "khata_vehicle", "wholesale_vehicle", "supplier_vehicle", "parchi_book"] as const;
 export type DocKind = (typeof DOC_KINDS)[number];
-export type DocOpts = { from?: string; to?: string; vehicle?: string };
+export type DocOpts = { from?: string; to?: string; vehicle?: string; filter?: string };
 export type Doc = { title: string; filename: string; pdf?: Buffer; party: { phone: string | null; name: string; customer_id?: number } | null; caption: string; link?: string };
 
 const money = (n: number) => `Rs ${Math.round(n ?? 0).toLocaleString("en-PK")}`;
@@ -381,19 +383,81 @@ export function renderDoc(t: number, kind: DocKind, id: number, o: DocOpts = {})
     case "shift": return shiftDoc(t, id);
     case "receipt": return receiptDoc(t, id);
     case "slip": return slipDoc(t, id);
+    case "khata_vehicle": return vehicleDoc(t, "khata", id, o);
+    case "wholesale_vehicle": return vehicleDoc(t, "wholesale", id, o);
+    case "supplier_vehicle": return vehicleDoc(t, "supplier", id, o);
+    case "parchi_book": return parchiBookDoc(t, id, o);
   }
 }
+/** Gari statement: one vehicle in one party's account — every entry, litres, debit / credit, totals by item. */
+function vehicleDoc(t: number, party: VParty, id: number, o: DocOpts): Doc {
+  if (!o.vehicle) throw new AppError(400, "Gaari no. chunein");
+  const s = vehicleStatement(t, party, id, o.vehicle, o.from, o.to);
+  const p = s.party, tot = s.totals;
+  const who = party === "khata" ? "Customer" : party === "wholesale" ? "Client" : "Supplier";
+  const pg = page(t, "Vehicle statement", `${p.name}${p.extra ? ` · ${p.extra}` : ""}${p.phone ? ` · ${p.phone}` : ""}`, period(o), `Vehicle ${s.vehicle}`);
+  kv(pg, [["Vehicle", s.vehicle], ["Entries", String(tot.entries)], ["Fuel litres", tot.litres ? tot.litres.toFixed(2) : "0"],
+    [party === "supplier" ? "Purchases" : "Debit (billed)", money(tot.debit)], [party === "supplier" ? "Paid" : "Credit (received)", money(tot.credit)], [party === "supplier" ? "Net (we owe)" : "Net", money(tot.net)]], 3);
+  table(pg, [{ k: "d", w: 1.9, label: "Date" }, { k: "no", w: 1.4, label: "No." }, { k: "s", w: 1.1, label: "Slip" }, { k: "p", w: 3.2, label: "Particulars" }, { k: "l", w: 1.3, label: "Litres", align: "right" },
+    { k: "r", w: 1.2, label: "Rate", align: "right" }, { k: "dr", w: 1.6, label: "Debit", align: "right" }, { k: "cr", w: 1.6, label: "Credit", align: "right" }, { k: "b", w: 1.7, label: "Running", align: "right" }],
+    s.lines.map((l) => ({ d: dateOf(l.at), no: l.no, s: l.slip ?? "", p: `${l.item}${l.note ? ` · ${l.note}` : ""}`, l: l.litres ? Number(l.litres).toFixed(2) : "", r: l.rate ? Number(l.rate).toFixed(2) : "",
+      dr: l.debit ? money(l.debit) : "", cr: l.credit ? money(l.credit) : "", b: money(l.running) }))
+      .concat([{ __bold: true, p: "Total", l: tot.litres ? tot.litres.toFixed(2) : "", dr: money(tot.debit), cr: money(tot.credit), b: money(tot.net) } as any]), { size: 8 });
+  if (tot.by_item.length) {
+    pg.need(16); pg.pdf.text(L, pg.y + 10, "Total by item", 9, { bold: true }); pg.y += 14;
+    table(pg, [{ k: "p", w: 3, label: "Item" }, { k: "n", w: 1, label: "Entries", align: "right" }, { k: "l", w: 2, label: "Litres", align: "right" }, { k: "r", w: 2, label: "Avg rate", align: "right" }, { k: "a", w: 2.2, label: "Amount", align: "right" }],
+      tot.by_item.map((x) => ({ p: x.item, n: x.entries, l: x.litres ? x.litres.toFixed(2) : "", r: x.litres > 0 ? `Rs ${(x.amount / x.litres).toFixed(2)}` : "", a: money(x.amount) })));
+  }
+  if (!s.lines.length) { pg.need(20); pg.pdf.text(L, pg.y + 12, "No entries for this vehicle in this period.", 9, { gray: 0.4 }); pg.y += 20; }
+  sig(pg, ["Prepared by", who]);
+  const fn = `${s.vehicle}-${p.name}`.replace(/[^\w-]+/g, "_");
+  return { title: `Vehicle statement — ${s.vehicle} · ${p.name}`, filename: `vehicle-${fn}.pdf`, pdf: pg.done(`Vehicle ${s.vehicle}`),
+    party: { phone: p.phone, name: p.name, ...(party === "khata" ? { customer_id: id } : {}) },
+    caption: `Vehicle ${s.vehicle} — ${p.name} (${period(o)}): ${tot.entries} entries${tot.litres ? `, ${tot.litres.toFixed(2)} L` : ""}, debit ${money(tot.debit)}, credit ${money(tot.credit)}.` };
+}
+
+/** Parchi Book on paper: the same filters as the screen (customer, dates, gaari, status …). id = customer (0 = all). */
+function parchiBookDoc(t: number, id: number, o: DocOpts): Doc {
+  let extra: Record<string, unknown> = {};
+  try { extra = o.filter ? JSON.parse(o.filter) : {}; } catch { /* ignore a bad filter */ }
+  const q = bookQuery.parse({ ...extra, customer_id: id || undefined, from: o.from, to: o.to, vehicle: o.vehicle ?? (extra as any).vehicle });
+  const b = parchiBook(t, q);
+  const c = id ? get("SELECT name, phone FROM customers WHERE id=? AND tenant_id=?", id, t) : null;
+  if (id && !c) throw new AppError(404, "Customer not found");
+  const what = [q.vehicle ? `Vehicle ${q.vehicle}` : "", q.status ? ({ paid: "Paid", part: "Part paid", unpaid: "Unpaid", open: "Unpaid + part", void: "Deleted" } as any)[q.status] : "",
+    q.kind ? q.kind : "", q.product ? (PRODUCTS[q.product] ?? q.product) : "", q.slip ? `Slip ${q.slip}` : "", q.q ? `"${q.q}"` : ""].filter(Boolean).join(" · ");
+  const pg = page(t, "Parchi book", c ? `${c.name}${c.phone ? ` · ${c.phone}` : ""}` : "All khata customers", period(o), what);
+  kv(pg, [["Parchiyan", String(b.totals.n)], ["Fuel", `${money(b.totals.fuel)} · ${b.totals.litres.toFixed(2)} L`], ["Shop / other", money(b.totals.shop + b.totals.other)],
+    ["Total", money(b.totals.amount)], ["Paid", money(b.totals.paid)], ["Unpaid", money(b.totals.unpaid)]], 3);
+  const st = (r: any) => r.status === "paid" ? "Paid" : r.status === "part" ? `Due ${money(r.unpaid)}` : r.status === "void" ? "Deleted" : "Unpaid";
+  table(pg, [{ k: "id", w: 1.2, label: "ID" }, { k: "d", w: 1.9, label: "Parchi date" }, ...(id ? [] : [{ k: "c", w: 2.6, label: "Customer" }]), { k: "s", w: 1, label: "Slip" }, { k: "v", w: 1.5, label: "Vehicle" },
+    { k: "p", w: id ? 4.2 : 3.2, label: "Detail" }, { k: "a", w: 1.7, label: "Amount", align: "right" }, { k: "st", w: 1.5, label: "Status" }],
+    b.rows.map((r: any) => ({ id: `PR-${r.id}`, d: dateOf(pkStart(r.parchi_date)), c: r.customer, s: r.slip_no ?? "", v: r.vehicle_no ?? "",
+      p: r.kind === "fuel" ? `${Number(r.qty).toFixed(2)} L ${PRODUCTS[r.product] ?? r.product} x ${r.rate}` : r.kind === "shop" ? `${r.item_name} x ${Number(r.qty)} @ ${r.rate}` : (r.item_name ?? "Parchi"),
+      a: money(r.amount), st: st(r) }))
+      .concat([{ __bold: true, p: "Total", a: money(b.totals.amount) } as any]), { size: 8 });
+  if (b.totals.by_fuel.length) {
+    pg.need(16); pg.pdf.text(L, pg.y + 10, "Fuel by type", 9, { bold: true }); pg.y += 14;
+    table(pg, [{ k: "p", w: 3, label: "Fuel" }, { k: "n", w: 1, label: "Parchi", align: "right" }, { k: "l", w: 2, label: "Litres", align: "right" }, { k: "a", w: 2.2, label: "Amount", align: "right" }],
+      b.totals.by_fuel.map((x) => ({ p: PRODUCTS[x.product] ?? x.product, n: x.n, l: x.litres.toFixed(2), a: money(x.amount) })));
+  }
+  sig(pg, ["Prepared by", c ? "Customer" : "Checked by"]);
+  return { title: `Parchi book${c ? ` — ${c.name}` : ""}`, filename: `parchi-book${c ? `-${String(c.name).replace(/[^\w-]+/g, "_")}` : ""}.pdf`, pdf: pg.done("Parchi book"),
+    party: c ? { phone: c.phone as string | null, name: c.name as string, customer_id: id } : null,
+    caption: `Parchi book${c ? ` — ${c.name}` : ""} (${period(o)}): ${b.totals.n} parchi, total ${money(b.totals.amount)}, unpaid ${money(b.totals.unpaid)}.` };
+}
+
 /** Signed public link to the PDF (valid a year) — what WhatsApp sends and what "Download PDF" opens. */
 export function docLink(t: number, kind: DocKind, id: number, o: DocOpts = {}) {
   if (kind === "slip") return renderDoc(t, kind, id).link!;
   const days = Number(get("SELECT value FROM settings WHERE tenant_id=? AND key='doc_link_days'", t)?.value ?? 365) || 365;
-  return `${config.publicUrl}/doc/${jwt.sign({ d: kind, t, id, f: o.from ?? null, to: o.to ?? null, v: o.vehicle ?? null }, config.jwtSecret, { expiresIn: `${days}d` })}.pdf`;
+  return `${config.publicUrl}/doc/${jwt.sign({ d: kind, t, id, f: o.from ?? null, to: o.to ?? null, v: o.vehicle ?? null, x: o.filter ?? null }, config.jwtSecret, { expiresIn: `${days}d` })}.pdf`;
 }
 export function docFromToken(token: string): Doc | null {
-  let p: { d: DocKind; t: number; id: number; f?: string | null; to?: string | null; v?: string | null };
+  let p: { d: DocKind; t: number; id: number; f?: string | null; to?: string | null; v?: string | null; x?: string | null };
   try { p = jwt.verify(token.replace(/\.pdf$/, ""), config.jwtSecret) as typeof p; } catch { return null; }
   if (!(DOC_KINDS as readonly string[]).includes(p.d) || typeof p.id !== "number") return null;
-  try { return renderDoc(p.t, p.d, p.id, { from: p.f ?? undefined, to: p.to ?? undefined, vehicle: p.v ?? undefined }); } catch { return null; }
+  try { return renderDoc(p.t, p.d, p.id, { from: p.f ?? undefined, to: p.to ?? undefined, vehicle: p.v ?? undefined, filter: p.x ?? undefined }); } catch { return null; }
 }
 
 /** Who this document would usually go to: the party, the pump's own people (owner, managers, cashiers…), recent numbers. */
