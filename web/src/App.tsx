@@ -34,6 +34,7 @@ const Dashboard = lazy(() => retryImport(() => import("./pages/Dashboard")));
 const Inbox = lazy(() => retryImport(() => import("./pages/Inbox")));
 const Customers = lazy(() => retryImport(() => import("./pages/Customers")));
 const Khata = lazy(() => retryImport(() => import("./pages/Khata")));
+const ParchiBilling = lazy(() => retryImport(() => import("./pages/ParchiBilling")));
 const Orders = lazy(() => retryImport(() => import("./pages/Orders")));
 const Complaints = lazy(() => retryImport(() => import("./pages/Complaints")));
 const Campaigns = lazy(() => retryImport(() => import("./pages/Campaigns")));
@@ -251,6 +252,7 @@ export default function App() {
               <Route path="customers" element={<Need perm="customers.edit"><Customers /></Need>} />
               <Route path="customers/:id" element={<Need perm="customers.edit"><Customers /></Need>} />
               <Route path="khata" element={<Need perm="khata.manage"><Khata /></Need>} />
+              <Route path="parchi" element={<Need perm="khata.manage"><ParchiBilling /></Need>} />
               <Route path="orders" element={<Need perm="orders.manage"><Orders /></Need>} />
               <Route path="complaints" element={<Need perm="complaints.manage"><Complaints /></Need>} />
               <Route path="campaigns" element={<Need perm="campaigns.manage"><Campaigns /></Need>} />

@@ -527,6 +527,10 @@ crm.post("/customers/:id/parchi", requirePerm("khata.manage"), h((req) => {
     const k = run("INSERT INTO khata_ledger (customer_id,type,amount,ref,note,vehicle_no,slip_no,created_at) VALUES (?,?,?,?,?,?,?,?)",
       c.id, "debit", round2(b.amount), "PARCHI", note, b.vehicle_no || null, b.slip_no || null, at).id as number;
     run("UPDATE khata_ledger SET ref=? WHERE id=?", `PARCHI-${k}`, k);
+    // also in the Parchi Book (Parchi Billing)
+    run(`INSERT INTO parchi_lines (tenant_id,customer_id,khata_id,parchi_date,slip_no,vehicle_no,kind,product,item_name,qty,rate,amount,note,created_by,created_at)
+      VALUES (?,?,?,?,?,?,'other',?,?,1,?,?,?,?,?)`, t, c.id, k, new Date(Date.parse(at) + 5 * 3600_000).toISOString().slice(0, 10), b.slip_no || null, b.vehicle_no || null,
+      b.product ?? null, what || "Parchi", round2(b.amount), round2(b.amount), note, req.user!.name, now());
     run("UPDATE customers SET balance = balance + ? WHERE id=?", round2(b.amount), c.id);
     if (b.photo_ids?.length) linkPhotos(t, b.photo_ids, `khata:${k}`);
     audit(t, req.user!, "khata:parchi entry", `K-${k}`, { customer: c.name, amount: b.amount, slip: b.slip_no ?? null });

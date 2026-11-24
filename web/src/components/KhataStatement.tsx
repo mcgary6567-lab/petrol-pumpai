@@ -36,7 +36,6 @@ export default function KhataStatement({ customerId, onClose }: { customerId: nu
   const csv = `/api/customers/${customerId}/statement.csv?${qs}&token=${linkToken()}`;
   const { busy, run } = useAction();
   const { user } = useAuth();
-  const [parchi, setParchi] = useState(false);
   // Purchase bill: only what was bought (fuel / shop / slips), litres x rate = amount on every line, total per item —
   // no payments and no balance. Same dates and vehicle filter as on screen; newest first like every paper.
   const buys = useMemo(() => ((s?.lines ?? []) as any[])
@@ -85,7 +84,7 @@ export default function KhataStatement({ customerId, onClose }: { customerId: nu
           <a className="btn-secondary" href={`/cards/${customerId}`} target="_blank" rel="noreferrer"><QrCode size={15} /> QR cards</a>
           <a className="btn-secondary" href={csv}><Download size={15} /> Excel</a>
           <WhatsAppDoc kind="khata" id={customerId} from={range.from || undefined} to={range.to || undefined} label="WhatsApp PDF" />
-          {["admin", "manager"].includes(user?.role ?? "") && <button className="btn-secondary" onClick={() => setParchi(true)} title="Parchi aayi — na tail diya, na cash. Sirf khate mein entry."><FilePlus2 size={15} /> Sirf parchi entry · صرف پرچی</button>}
+          {["admin", "manager"].includes(user?.role ?? "") && <a className="btn-secondary" href={`/parchi?customer=${customerId}`} onClick={(e) => { e.preventDefault(); history.pushState(null, "", `/parchi?customer=${customerId}`); dispatchEvent(new PopStateEvent("popstate")); }} title="Parchi aayi — na tail diya, na cash. Parchi Billing mein khate par chadhayein."><FilePlus2 size={15} /> 🎫 Parchi Billing · پرچی</a>}
           <button className="btn-secondary" onClick={printPurchase} disabled={!s} title="Sirf jo customer ne khareeda — litre × rate = raqam, har cheez ka total. Payment aur balance nahi."><ReceiptText size={15} /> Purchase bill · خریداری بل</button>
           <button className="btn-primary" onClick={printStatement}><Printer size={15} /> Print bill · پرنٹ</button>
         </div>
@@ -216,51 +215,10 @@ export default function KhataStatement({ customerId, onClose }: { customerId: nu
           <div className="mt-10 grid grid-cols-2 gap-10 text-center text-xs text-slate-500"><div className="border-t border-slate-400 pt-1">Prepared by</div><div className="border-t border-slate-400 pt-1">Customer</div></div>
         </div>
       )}
-      {parchi && s && <ParchiEntry customerId={customerId} name={s.customer.name} onClose={() => setParchi(false)} onDone={() => { setParchi(false); reload(); }} />}
     </Modal>
   );
 }
 
-/**
- * Sirf parchi entry: the customer brings a parchi, takes neither fuel nor cash — the amount only goes on his khata.
- * No tank, bag or bank moves; the owner is alerted. Litres × rate fills the amount when typed (record only).
- */
-function ParchiEntry({ customerId, name, onClose, onDone }: { customerId: number; name: string; onClose: () => void; onDone: () => void }) {
-  const [f, setF] = useState({ amount: "", slip_no: "", vehicle_no: "", product: "", litres: "", rate: "", note: "" });
-  const [photos, setPhotos] = useState<number[]>([]);
-  const { busy, run } = useAction();
-  const calc = Number(f.litres) > 0 && Number(f.rate) > 0 ? Math.round(Number(f.litres) * Number(f.rate) * 100) / 100 : 0;
-  const amount = Number(f.amount) > 0 ? Number(f.amount) : calc;
-  const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
-  return (
-    <Modal open onClose={onClose} title={`Sirf parchi entry — ${name} · صرف پرچی`}>
-      <form className="space-y-3" onSubmit={async (e) => {
-        e.preventDefault();
-        if (!(amount > 0)) return;
-        const r = await run(() => api(`/customers/${customerId}/parchi`, { body: { amount, slip_no: f.slip_no || null, vehicle_no: f.vehicle_no || null, product: f.product || null,
-          litres: Number(f.litres) > 0 ? Number(f.litres) : null, rate: Number(f.rate) > 0 ? Number(f.rate) : null, note: f.note || null, photo_ids: photos } }), (x: any) => `${x.entry_id} — khate mein ${pkr(amount)} likh diya`);
-        if (r) onDone();
-      }}>
-        <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">Parchi aayi — <b>na tail diya, na cash</b>. Raqam sirf khate mein chadhegi. Tank, bag aur bank par koi asar nahi. Malik ko alert jayega.</p>
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Slip / parchi no."><input className="input" value={f.slip_no} onChange={set("slip_no")} /></Field>
-          <Field label="Gaari no. (optional)"><input className="input" value={f.vehicle_no} onChange={set("vehicle_no")} /></Field>
-          <Field label="Fuel (record ke liye)"><select className="input" value={f.product} onChange={set("product")}><option value="">—</option>{activeProducts.map((p) => <option key={p.code} value={p.code}>{p.name}</option>)}</select></Field>
-          <Field label="Litre (record)"><input className="input" type="number" inputMode="decimal" step="any" min={0} value={f.litres} onChange={set("litres")} /></Field>
-          <Field label="Rate / L (record)"><input className="input" type="number" inputMode="decimal" step="any" min={0} value={f.rate} onChange={set("rate")} /></Field>
-          <Field label="Raqam (Rs) *"><input className="input text-lg font-semibold" type="number" inputMode="decimal" step="any" min={0} placeholder={calc ? String(calc) : ""} value={f.amount} onChange={set("amount")} /></Field>
-        </div>
-        {calc > 0 && !f.amount && <p className="text-xs text-slate-500">Raqam: {num(Number(f.litres), 2)} L × Rs {f.rate} = <b>{pkr(calc)}</b></p>}
-        <Field label="Note"><input className="input" value={f.note} onChange={set("note")} placeholder="kis ki parchi, kis kaam ki" /></Field>
-        <ProofPhotos value={photos} onChange={setPhotos} label="Parchi ki photo" hint="parchi / slip" />
-        <div className="flex items-center justify-between gap-2 border-t border-slate-100 pt-3">
-          <span className="text-sm">Khate mein: <b className="tabular-nums">{pkr(amount)}</b></span>
-          <div className="flex gap-2"><button type="button" className="btn-secondary" onClick={onClose}>Cancel</button><button className="btn-primary" disabled={busy || !(amount > 0)}>Save · محفوظ</button></div>
-        </div>
-      </form>
-    </Modal>
-  );
-}
 
 /** Monthly bills for an office: PO number, when submitted, cheque received. */
 function GovtBills({ customerId }: { customerId: number }) {

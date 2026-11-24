@@ -796,6 +796,19 @@ export function migrate() {
   addColumn("bypass_drops", "note", "TEXT");
   // which tanker of the trip a bill line rode on, and which tanker a drop came off (a trip can carry 2+ tankers / khane)
   addColumn("bypass_purchases", "vehicle_no", "TEXT");
+  // Parchi Billing: parchiyan (no fuel / cash given) on a khata — one row per parchi line, each with its own khata debit
+  db.exec(`CREATE TABLE IF NOT EXISTS parchi_lines (
+    id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, customer_id INTEGER NOT NULL, khata_id INTEGER, batch_id TEXT,
+    parchi_date TEXT NOT NULL, slip_no TEXT, vehicle_no TEXT, kind TEXT NOT NULL, product TEXT, item_id INTEGER, item_name TEXT,
+    qty REAL NOT NULL, rate REAL NOT NULL, amount REAL NOT NULL, note TEXT, voided INTEGER NOT NULL DEFAULT 0, void_reason TEXT,
+    created_by TEXT, created_at TEXT NOT NULL)`);
+  db.exec("CREATE INDEX IF NOT EXISTS idx_parchi_cust ON parchi_lines(customer_id, parchi_date)");
+  // the first "Sirf parchi entry" rows (khata ref PARCHI-n) join the Parchi Book once, as one line each
+  for (const k of db.prepare(`SELECT k.id, k.customer_id, k.amount, k.note, k.slip_no, k.vehicle_no, k.created_at, c.tenant_id FROM khata_ledger k JOIN customers c ON c.id=k.customer_id
+      WHERE k.ref LIKE 'PARCHI-%' AND NOT EXISTS (SELECT 1 FROM parchi_lines p WHERE p.khata_id=k.id)`).all() as any[])
+    db.prepare(`INSERT INTO parchi_lines (tenant_id,customer_id,khata_id,parchi_date,slip_no,vehicle_no,kind,item_name,qty,rate,amount,note,created_at)
+      VALUES (?,?,?,?,?,?,'other',?,1,?,?,?,?)`).run(k.tenant_id, k.customer_id, k.id, new Date(Date.parse(k.created_at) + 5 * 3600_000).toISOString().slice(0, 10),
+      k.slip_no, k.vehicle_no, "Parchi", k.amount, k.amount, k.note, k.created_at);
   addColumn("bypass_drops", "vehicle_no", "TEXT");
   addColumn("deliveries", "bypass_drop_id", "INTEGER"); // this delivery came from bypass stock, not a fresh supplier bill
   // every stand-alone own-tank unload gets its own voucher (BYP-n): the old ones had no number and could not be found.

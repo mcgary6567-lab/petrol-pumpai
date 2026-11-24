@@ -14,6 +14,7 @@ import { privacyPage, termsPage } from "./legal.js";
 import { sellPage } from "./sell.js";
 import { operations } from "./routes/operations.js";
 import { crm } from "./routes/crm.js";
+import { parchi } from "./routes/parchi.js";
 import { waWebhook, inbox } from "./routes/whatsapp.js";
 import { insightsRouter } from "./routes/insights.js";
 import { managerDesk } from "./routes/managerDesk.js";
@@ -388,6 +389,7 @@ api.post("/me/password", rateLimit("pw-change", 10, 10 * 60_000), h((req) => {
 }));
 api.use(operations);
 api.use(crm);
+api.use(parchi);
 api.use("/whatsapp", inbox);
 api.use(insightsRouter);
 api.use(managerDesk);

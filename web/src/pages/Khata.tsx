@@ -136,7 +136,7 @@ function ParchiEntriesCard({ onOpen }: { onOpen: (id: number) => void }) {
   return (
     <details className="card p-4">
       <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-2">
-        <span className="font-semibold">Sirf parchi entries — is mahine · <span lang="ur" className="font-urdu font-normal">صرف پرچی</span></span>
+        <span className="font-semibold">🎫 Parchi entries — is mahine · <span lang="ur" className="font-urdu font-normal">پرچی</span> <a href="/parchi?tab=book" onClick={(e) => { e.preventDefault(); history.pushState(null, "", "/parchi?tab=book"); dispatchEvent(new PopStateEvent("popstate")); }} className="ml-1 text-xs font-normal text-violet-700 underline">Parchi Book kholein →</a></span>
         <span className="text-sm text-slate-600">{data.rows.length} entries · <b className="tabular-nums">{pkr(data.total)}</b> <span className="text-xs text-brand-700">(dekhein)</span></span>
       </summary>
       <table className="mt-3 w-full"><thead><tr>{["Date", "ID", "Customer", "Slip", "Gaari", "Note", "By", "Amount"].map((h) => <th key={h} className={`th ${h === "Amount" ? "text-right" : ""}`}>{h}</th>)}</tr></thead>

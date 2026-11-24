@@ -51,6 +51,7 @@ const POS_PAGES = ["/pos", "/bookings"];
 const GROUPS: { key: string; label: string; ur: string; icon: any; items: string[] }[] = [
   { key: "sales", label: "Sales & shifts", ur: "سیل و شفٹ", icon: Fuel, items: ["/pos", "/shifts", "/bookings", "/card-pending"] },
   { key: "customers", label: "Customers & khata", ur: "گاہک و کھاتہ", icon: Users, items: ["/customers", "/khata", "/prepaid", "/orders", "/complaints", "/campaigns"] },
+  { key: "billing", label: "Parchi Billing", ur: "پرچی بلنگ", icon: Ticket, items: ["/parchi"] },
   { key: "wholesale", label: "Wholesale & carriage", ur: "ہول سیل و کرایہ", icon: Container, items: ["/wholesale", "/carriage"] },
   { key: "stock", label: "Stock & prices", ur: "اسٹاک و ریٹ", icon: Droplets, items: ["/stock", "/dip-charts", "/register", "/prices", "/shop", "/suppliers"] },
   { key: "money", label: "Money & accounts", ur: "پیسہ و حساب", icon: Landmark, items: ["/cashier", "/cash", "/expenses", "/accounts", "/investors", "/property", "/other-entries"] },
@@ -223,6 +224,7 @@ const NAV = [
   { to: "/shifts", label: "Shifts", icon: Clock, perm: "shifts.manage" },
   { to: "/customers", label: "Customers", icon: Users, perm: "customers.edit" },
   { to: "/khata", label: "Khata (Credit)", icon: BookOpen, perm: "khata.manage" },
+  { to: "/parchi", label: "Parchi Billing", icon: Ticket, perm: "khata.manage" },
   { to: "/prepaid", label: "Coupons & wallets", icon: Ticket, perm: "khata.manage" },
   { to: "/card-pending", label: "Card pending (khata)", icon: Hourglass, perm: "khata.clear_pending" },
   { to: "/wholesale", label: "Wholesale Supply", icon: Container, perm: "wholesale.view" },
