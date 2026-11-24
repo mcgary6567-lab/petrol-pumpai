@@ -9,6 +9,7 @@ import { QuickAddTiles } from "../components/QuickAdd";
 import { HealthCard } from "./Insights";
 import { ManagerDesk } from "../components/ManagerDesk";
 import { OwnerOverview } from "../components/OwnerOverview";
+import { ParchiCard } from "../components/ParchiCard";
 import { useAuth } from "../App";
 
 const insightIcon: Record<string, any> = { fuel: Fuel, trend: TrendingUp, users: Users, credit: CreditCard, chart: BarChart3 };
@@ -48,6 +49,7 @@ export default function Dashboard() {
       {can("reports.view") && <OwnerOverview />}
 
       <ManagerDesk k={k} />
+      {can("khata.manage") && <ParchiCard />}
 
       <Link to="/insights" className="block"><HealthCard compact /></Link>
       {data.day && <TodayBook b={data.day} />}

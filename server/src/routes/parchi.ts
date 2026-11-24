@@ -16,7 +16,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { all, get, run, tx, now, pkDate, pkStart, pkEnd } from "../db.js";
 import { h, parse, tid, requirePerm } from "../auth.js";
-import { AppError, audit, createAlert, currentPrices, pkr, round2 } from "../services.js";
+import { AppError, audit, createAlert, currentPrices, khataSpecialRate, pkr, round2 } from "../services.js";
 import { linkPhotos, proofPhotos } from "./capture.js";
 import { backdateAt } from "./backoffice.js";
 import { PRODUCTS } from "../config.js";
@@ -30,10 +30,11 @@ const own = (t: number, id: number) => {
   return c;
 };
 
-/** The rate of every fuel on a day (the price in force at that day's end; today = now). */
-function ratesOn(t: number, d: string) {
+/** The rate of every fuel on a day (the price in force at that day's end; today = now). With a customer: his khata rate
+ *  card (fixed, or pump − X, the card in force that day) — the same rate his POS khata fills get, never above the board. */
+function ratesOn(t: number, d: string, customerId?: number | null) {
   const at = d >= pkDate() ? now() : pkEnd(d);
-  return Object.fromEntries(Object.entries(currentPrices(t, at)).map(([p, v]) => [p, v.price]));
+  return Object.fromEntries(Object.entries(currentPrices(t, at)).map(([p, v]) => [p, customerId ? khataSpecialRate(t, customerId, p, v.price, at) : v.price]));
 }
 
 /** What the form needs for one customer: the khata, the vehicles, the shop items and today's rates. */
@@ -42,7 +43,9 @@ parchi.get("/parchi/meta", requirePerm("khata.manage"), h((req) => {
   const q = parse(z.object({ customer_id: z.coerce.number().int().optional(), date: day.optional() }), req.query);
   const items = all(`SELECT i.id, i.name, i.price, i.unit, s.name station FROM shop_items i JOIN stations s ON s.id=i.station_id WHERE i.tenant_id=? AND i.active=1 ORDER BY i.category, i.name`, t);
   const multi = new Set(items.map((i) => i.station)).size > 1;
-  const out: Record<string, unknown> = { items: items.map((i) => ({ id: i.id, name: multi ? `${i.name} · ${i.station}` : i.name, price: i.price, unit: i.unit })), rates: ratesOn(t, q.date ?? pkDate()), today: pkDate() };
+  const out: Record<string, unknown> = { items: items.map((i) => ({ id: i.id, name: multi ? `${i.name} · ${i.station}` : i.name, price: i.price, unit: i.unit })), rates: ratesOn(t, q.date ?? pkDate(), q.customer_id), board_rates: ratesOn(t, q.date ?? pkDate()), today: pkDate(),
+    // tags used before (newest first), for the batch tag box
+    tags: all("SELECT tag, MAX(id) m FROM parchi_lines WHERE tenant_id=? AND tag IS NOT NULL AND TRIM(tag)<>'' GROUP BY tag ORDER BY m DESC LIMIT 30", t).map((r) => r.tag) };
   if (q.customer_id) {
     const c = own(t, q.customer_id);
     const monthStart = pkStart(`${pkDate().slice(0, 7)}-01`);
@@ -61,7 +64,10 @@ parchi.get("/parchi/meta", requirePerm("khata.manage"), h((req) => {
   }
   return out;
 }));
-parchi.get("/parchi/rates", requirePerm("khata.manage"), h((req) => ratesOn(tid(req), parse(z.object({ date: day }), req.query).date)));
+parchi.get("/parchi/rates", requirePerm("khata.manage"), h((req) => {
+  const q = parse(z.object({ date: day, customer_id: z.coerce.number().int().optional() }), req.query);
+  return ratesOn(tid(req), q.date, q.customer_id);
+}));
 
 const lineSchema = z.object({
   parchi_date: day, slip_no: z.string().trim().max(40).optional().nullable(), vehicle_no: z.string().trim().max(30).optional().nullable(),
@@ -73,13 +79,13 @@ const lineSchema = z.object({
 
 /** One parchi line priced: the khata date (closed day CEO-only, no future), the rate (fuel = that day's, shop = the item's,
  *  unless typed) and the label written on the khata. */
-function priceLine(req: Parameters<typeof backdateAt>[0], t: number, l: z.infer<typeof lineSchema>, tag: string, rateCache: Record<string, Record<string, number>> = {}) {
+function priceLine(req: Parameters<typeof backdateAt>[0], t: number, l: z.infer<typeof lineSchema>, tag: string, rateCache: Record<string, Record<string, number>> = {}, customerId?: number) {
   const at = backdateAt(req, t, l.parchi_date) ?? now(); // a future date is refused; a closed day is CEO-only
   let rate = l.rate ?? null, label: string, product: string | null = null, itemId: number | null = null, itemName: string | null = null;
   if (l.kind === "fuel") {
     if (!l.product || !PRODUCTS[l.product]) throw new AppError(400, `${tag}: fuel chunein`);
     product = l.product;
-    rate ??= (rateCache[l.parchi_date] ??= ratesOn(t, l.parchi_date))[l.product] ?? null;
+    rate ??= (rateCache[l.parchi_date] ??= ratesOn(t, l.parchi_date, customerId))[l.product] ?? null;
     if (!rate) throw new AppError(400, `${tag}: ${PRODUCTS[l.product]} ka rate nahi mila — rate likhein`);
     label = `${round2(l.qty)} L ${PRODUCTS[l.product]} × ${rate}`;
   } else {
@@ -94,7 +100,7 @@ function priceLine(req: Parameters<typeof backdateAt>[0], t: number, l: z.infer<
 }
 
 /** Save many parchiyan for one customer in one go (all or nothing). */
-export function saveParchis(req: Parameters<Parameters<typeof h>[0]>[0], customerId: number, lines: z.infer<typeof lineSchema>[], note?: string | null) {
+export function saveParchis(req: Parameters<Parameters<typeof h>[0]>[0], customerId: number, lines: z.infer<typeof lineSchema>[], note?: string | null, tag?: string | null) {
   const t = tid(req);
   staffOnly(req.user!.role);
   const c = own(t, customerId);
@@ -102,14 +108,14 @@ export function saveParchis(req: Parameters<Parameters<typeof h>[0]>[0], custome
   const batch = crypto.randomUUID();
   const by = req.user!.name;
   const rateCache: Record<string, Record<string, number>> = {};
-  const priced = lines.map((l, i) => priceLine(req, t, l, `Line ${i + 1}`, rateCache));
+  const priced = lines.map((l, i) => priceLine(req, t, l, `Line ${i + 1}`, rateCache, c.id));
   const total = round2(priced.reduce((a, l) => a + l.amount, 0));
   const ids = tx(() => {
     const out: number[] = [];
     for (const l of priced) {
-      const pid = run(`INSERT INTO parchi_lines (tenant_id,customer_id,batch_id,parchi_date,slip_no,vehicle_no,kind,product,item_id,item_name,qty,rate,amount,note,created_by,created_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, t, c.id, batch, l.parchi_date, l.slip_no || null, l.vehicle_no || null, l.kind, l.product, l.itemId, l.itemName,
-        round2(l.qty), l.rate, l.amount, note || null, by, now()).id as number;
+      const pid = run(`INSERT INTO parchi_lines (tenant_id,customer_id,batch_id,parchi_date,slip_no,vehicle_no,kind,product,item_id,item_name,qty,rate,amount,note,tag,created_by,created_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, t, c.id, batch, l.parchi_date, l.slip_no || null, l.vehicle_no || null, l.kind, l.product, l.itemId, l.itemName,
+        round2(l.qty), l.rate, l.amount, note || null, tag?.trim() || null, by, now()).id as number;
       const k = run("INSERT INTO khata_ledger (customer_id,type,amount,ref,note,vehicle_no,slip_no,created_at) VALUES (?,?,?,?,?,?,?,?)",
         c.id, "debit", l.amount, `PR-${pid}`, ["🎫 Parchi", l.label, note].filter(Boolean).join(" · "), l.vehicle_no || null, l.slip_no || null, l.at).id as number;
       run("UPDATE parchi_lines SET khata_id=? WHERE id=?", k, pid);
@@ -127,8 +133,8 @@ export function saveParchis(req: Parameters<Parameters<typeof h>[0]>[0], custome
 }
 
 parchi.post("/parchi/batch", requirePerm("khata.manage"), h((req) => {
-  const b = parse(z.object({ customer_id: z.number().int(), note: z.string().trim().max(200).optional().nullable(), lines: z.array(lineSchema).min(1).max(100) }), req.body);
-  return saveParchis(req, b.customer_id, b.lines, b.note);
+  const b = parse(z.object({ customer_id: z.number().int(), note: z.string().trim().max(200).optional().nullable(), tag: z.string().trim().max(60).optional().nullable(), lines: z.array(lineSchema).min(1).max(200) }), req.body);
+  return saveParchis(req, b.customer_id, b.lines, b.note, b.tag);
 }));
 
 /** Each charge's unpaid part, payments clearing the oldest charge first (an advance paid ahead clears the next ones). */
@@ -148,7 +154,10 @@ export const bookQuery = z.object({
   vehicle: z.string().trim().max(30).optional(), slip: z.string().trim().max(40).optional(), kind: z.enum(["fuel", "shop", "other"]).optional(),
   product: z.string().max(12).optional(), status: z.enum(["paid", "part", "unpaid", "open", "void"]).optional(), q: z.string().trim().max(80).optional(),
   min: z.coerce.number().optional(), max: z.coerce.number().optional(), by: z.string().trim().max(60).optional(),
+  tag: z.string().trim().max(60).optional(), older: z.coerce.number().int().min(0).max(3650).optional(), // older = unpaid for more than N days
 });
+/** days from a parchi date to today (Pakistan) */
+const ageDays = (d: string) => Math.max(0, Math.round((Date.parse(pkDate()) - Date.parse(d)) / 86_400_000));
 export type BookQuery = z.infer<typeof bookQuery>;
 const key = (v: unknown) => String(v ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
 
@@ -162,15 +171,16 @@ export function parchiBook(t: number, q: BookQuery) {
   const parts = new Map<number, Map<number, number>>();
   const words = (q.q ?? "").toLowerCase().split(/\s+/).filter(Boolean);
   const list = rows.map((r) => {
-    if (r.voided) return { ...r, unpaid: 0, status: "void" };
+    if (r.voided) return { ...r, unpaid: 0, status: "void", age: null };
     if (!parts.has(r.customer_id)) parts.set(r.customer_id, openParts(r.customer_id));
     const left = parts.get(r.customer_id)!.get(r.khata_id) ?? 0;
-    return { ...r, unpaid: left, status: left <= 0.5 ? "paid" : left >= r.amount - 0.5 ? "unpaid" : "part" };
-  }).filter((r) => (!q.vehicle || key(r.vehicle_no).includes(key(q.vehicle))) && (!q.slip || String(r.slip_no ?? "").toLowerCase().includes(q.slip.toLowerCase()))
+    const status = left <= 0.5 ? "paid" : left >= r.amount - 0.5 ? "unpaid" : "part";
+    return { ...r, unpaid: left, status, age: status === "paid" ? null : ageDays(r.parchi_date) };
+  }).filter((r) => (!q.tag || String(r.tag ?? "").toLowerCase() === q.tag.toLowerCase()) && (q.older == null || (r.age != null && r.age > q.older)) && (!q.vehicle || key(r.vehicle_no).includes(key(q.vehicle))) && (!q.slip || String(r.slip_no ?? "").toLowerCase().includes(q.slip.toLowerCase()))
     && (!q.kind || r.kind === q.kind) && (!q.product || r.product === q.product) && (q.min == null || r.amount >= q.min) && (q.max == null || r.amount <= q.max)
     && (!q.by || String(r.created_by ?? "").toLowerCase().includes(q.by.toLowerCase()))
     && (!q.status || (q.status === "open" ? r.status === "unpaid" || r.status === "part" : r.status === q.status))
-    && (!words.length || words.every((w) => [r.customer, r.customer_phone, r.slip_no, r.vehicle_no, r.item_name, r.product ? PRODUCTS[r.product] : "", r.note, r.created_by, `pr-${r.id}`, `k-${r.khata_id}`, r.amount]
+    && (!words.length || words.every((w) => [r.customer, r.customer_phone, r.slip_no, r.vehicle_no, r.item_name, r.product ? PRODUCTS[r.product] : "", r.note, r.tag, r.created_by, `pr-${r.id}`, `k-${r.khata_id}`, r.amount]
       .filter((v) => v != null).join(" ").toLowerCase().includes(w))));
   const live = list.filter((r) => r.status !== "void");
   const sum = (xs: any[], f: (r: any) => number) => round2(xs.reduce((a, r) => a + f(r), 0));
@@ -183,6 +193,34 @@ export function parchiBook(t: number, q: BookQuery) {
 }
 parchi.get("/parchi/book", requirePerm("khata.manage"), h((req) => parchiBook(tid(req), parse(bookQuery, req.query))));
 
+/** Parchi aging: unpaid parchi money by how old the parchi is (0-30 / 31-60 / 61-90 / 90+ days), per customer, oldest first. */
+export function parchiAging(t: number, customerId?: number) {
+  const rows = parchiBook(t, { customer_id: customerId, status: "open" }).rows.filter((r: any) => r.unpaid > 0.5);
+  const B = () => ({ d0_30: 0, d31_60: 0, d61_90: 0, d90: 0 });
+  const put = (b: ReturnType<typeof B>, age: number, v: number) => { const k = age <= 30 ? "d0_30" : age <= 60 ? "d31_60" : age <= 90 ? "d61_90" : "d90"; b[k] = round2(b[k] + v); };
+  const total = B(); const per = new Map<number, any>();
+  for (const r of rows) {
+    put(total, r.age, r.unpaid);
+    const c = per.get(r.customer_id) ?? { id: r.customer_id, name: r.customer, phone: r.customer_phone, unpaid: 0, n: 0, oldest_date: r.parchi_date, oldest_days: 0, buckets: B() };
+    c.unpaid = round2(c.unpaid + r.unpaid); c.n++; put(c.buckets, r.age, r.unpaid);
+    if (r.age >= c.oldest_days) { c.oldest_days = r.age; c.oldest_date = r.parchi_date; }
+    per.set(r.customer_id, c);
+  }
+  const customers = [...per.values()].sort((a, b) => b.oldest_days - a.oldest_days || b.unpaid - a.unpaid);
+  return { buckets: total, unpaid: round2(rows.reduce((a: number, r: any) => a + r.unpaid, 0)), n: rows.length, customers };
+}
+parchi.get("/parchi/aging", requirePerm("khata.manage"), h((req) => parchiAging(tid(req), parse(z.object({ customer_id: z.coerce.number().int().optional() }), req.query).customer_id)));
+
+/** Dashboard card: parchiyan today / this month, unpaid parchi money, 90+ days, and the 5 customers owing most on parchi. */
+parchi.get("/parchi/summary", requirePerm("khata.manage"), h((req) => {
+  const t = tid(req), today = pkDate(), month = `${today.slice(0, 7)}-01`;
+  const sum = (from: string) => get("SELECT COUNT(*) n, COALESCE(SUM(amount),0) a FROM parchi_lines WHERE tenant_id=? AND voided=0 AND parchi_date >= ? AND parchi_date <= ?", t, from, today)!;
+  const d = sum(today), m = sum(month);
+  const ag = parchiAging(t);
+  return { today: { n: d.n, amount: round2(d.a as number) }, month: { n: m.n, amount: round2(m.a as number) }, unpaid: ag.unpaid, unpaid_n: ag.n, over90: ag.buckets.d90, buckets: ag.buckets,
+    top: [...ag.customers].sort((a, b) => b.unpaid - a.unpaid).slice(0, 5).map((c) => ({ id: c.id, name: c.name, unpaid: c.unpaid, n: c.n, oldest_days: c.oldest_days })) };
+}));
+
 /** The parchi day of a khata row (Pakistan date). */
 const khataDay = (at: string) => new Date(Date.parse(at) + 5 * 3600_000).toISOString().slice(0, 10);
 
@@ -191,7 +229,7 @@ const khataDay = (at: string) => new Date(Date.parse(at) + 5 * 3600_000).toISOSt
 parchi.patch("/parchi/:id", requirePerm("khata.manage"), h((req) => {
   const t = tid(req);
   staffOnly(req.user!.role);
-  const b = parse(lineSchema.extend({ kind: z.enum(["fuel", "shop", "other"]), reason: z.string().trim().max(200).optional().nullable(), customer_id: z.number().int().optional().nullable() }), req.body);
+  const b = parse(lineSchema.extend({ kind: z.enum(["fuel", "shop", "other"]), reason: z.string().trim().max(200).optional().nullable(), customer_id: z.number().int().optional().nullable(), tag: z.string().trim().max(60).optional().nullable() }), req.body);
   const p = get("SELECT * FROM parchi_lines WHERE id=? AND tenant_id=?", Number(req.params.id), t);
   if (!p) throw new AppError(404, "Parchi not found");
   if (p.voided) throw new AppError(400, "Ye parchi delete ho chuki hai");
@@ -206,12 +244,13 @@ parchi.patch("/parchi/:id", requirePerm("khata.manage"), h((req) => {
     const at = backdateAt(req, t, b.parchi_date) ?? now();
     const amount = round2(b.qty * b.rate);
     line = { ...b, at, rate: round2(b.rate), amount, product: b.product && PRODUCTS[b.product] ? b.product : null, itemId: null, itemName: p.item_name ?? "Parchi", label: p.item_name ?? "Parchi" };
-  } else line = priceLine(req, t, b as z.infer<typeof lineSchema>, "Parchi");
+  } else line = priceLine(req, t, b as z.infer<typeof lineSchema>, "Parchi", {}, to ? to.id : p.customer_id);
   // keep the khata row's time when the day did not change (its place among same-day rows stays)
   const at = k && khataDay(k.created_at) === b.parchi_date ? k.created_at : line.at;
   const diff = round2(line.amount - (k?.amount ?? p.amount));
   const before = { parchi_date: p.parchi_date, slip_no: p.slip_no, vehicle_no: p.vehicle_no, kind: p.kind, product: p.product, item: p.item_name, qty: p.qty, rate: p.rate, amount: p.amount };
   tx(() => {
+    if (b.tag !== undefined) run("UPDATE parchi_lines SET tag=? WHERE id=?", b.tag?.trim() || null, p.id);
     run(`UPDATE parchi_lines SET customer_id=?, parchi_date=?, slip_no=?, vehicle_no=?, kind=?, product=?, item_id=?, item_name=?, qty=?, rate=?, amount=? WHERE id=?`,
       to ? to.id : p.customer_id, b.parchi_date, b.slip_no || null, b.vehicle_no || null, b.kind, line.product, line.itemId, line.itemName, round2(b.qty), line.rate, line.amount, p.id);
     if (k) {

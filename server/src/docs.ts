@@ -426,7 +426,7 @@ function parchiBookDoc(t: number, id: number, o: DocOpts): Doc {
   const c = id ? get("SELECT name, phone FROM customers WHERE id=? AND tenant_id=?", id, t) : null;
   if (id && !c) throw new AppError(404, "Customer not found");
   const what = [q.vehicle ? `Vehicle ${q.vehicle}` : "", q.status ? ({ paid: "Paid", part: "Part paid", unpaid: "Unpaid", open: "Unpaid + part", void: "Deleted" } as any)[q.status] : "",
-    q.kind ? q.kind : "", q.product ? (PRODUCTS[q.product] ?? q.product) : "", q.slip ? `Slip ${q.slip}` : "", q.q ? `"${q.q}"` : ""].filter(Boolean).join(" · ");
+    q.kind ? q.kind : "", q.product ? (PRODUCTS[q.product] ?? q.product) : "", q.slip ? `Slip ${q.slip}` : "", q.tag ? `Tag ${q.tag}` : "", q.older != null ? `Unpaid over ${q.older} days` : "", q.q ? `"${q.q}"` : ""].filter(Boolean).join(" · ");
   const pg = page(t, "Parchi book", c ? `${c.name}${c.phone ? ` · ${c.phone}` : ""}` : "All khata customers", period(o), what);
   kv(pg, [["Parchiyan", String(b.totals.n)], ["Fuel", `${money(b.totals.fuel)} · ${b.totals.litres.toFixed(2)} L`], ["Shop / other", money(b.totals.shop + b.totals.other)],
     ["Total", money(b.totals.amount)], ["Paid", money(b.totals.paid)], ["Unpaid", money(b.totals.unpaid)]], 3);

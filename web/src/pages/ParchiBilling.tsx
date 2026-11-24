@@ -67,6 +67,7 @@ function NewParchis({ customer, setCustomer, onSaved }: { customer: string; setC
   const meta = useApi<any>(customer ? `/parchi/meta?customer_id=${customer}` : "/parchi/meta");
   const [lines, setLines] = useState<Line[]>(() => [blank()]);
   const [note, setNote] = useState("");
+  const [tag, setTag] = useState("");
   const [confirm, setConfirm] = useState(false);
   const [newVeh, setNewVeh] = useState<{ line: number; plate: string; fuel: string } | null>(null);
   const [active, setActive] = useState<number | null>(null); // the line the gaari buttons fill
@@ -77,12 +78,13 @@ function NewParchis({ customer, setCustomer, onSaved }: { customer: string; setC
   const [importing, setImporting] = useState(false);
   const [done, setDone] = useState<{ id: number; n: number; total: number; balance: number } | null>(null);
   const photoInput = useRef<HTMLInputElement>(null);
-  const rates = useRef<Record<string, Record<string, number>>>({});
+  const rates = useRef<Record<string, Record<string, number>>>({}); // `${customer}|${date}` → his rate (card applied)
+  const boards = useRef<Record<string, Record<string, number>>>({}); // date → pump board rate
   const { busy, run } = useAction();
   const items: any[] = meta.data?.items ?? [];
   const c = meta.data?.customer;
   const vehicles: any[] = meta.data?.vehicles ?? [];
-  if (meta.data?.today && meta.data.rates && !rates.current[meta.data.today]) rates.current[meta.data.today] = meta.data.rates;
+  if (meta.data?.today && meta.data.rates && meta.data.customer && !rates.current[`${customer}|${meta.data.today}`]) { rates.current[`${customer}|${meta.data.today}`] = meta.data.rates; boards.current[meta.data.today] = meta.data.board_rates; }
 
   /** change a line; a person's change marks it edited; a line written as an amount keeps its litres = amount ÷ rate */
   const set = (key: number, patch: Partial<Line>, byUser = true) => setLines((ls) => ls.map((l) => {
@@ -96,8 +98,9 @@ function NewParchis({ customer, setCustomer, onSaved }: { customer: string; setC
   // the rate a line should carry: fuel = that day's rate, shop = the item's rate (unless typed by hand)
   const autoRate = async (l: Line): Promise<string> => {
     if (l.kind === "shop") { const it = items.find((i) => String(i.id) === l.item_id); return it ? String(it.price) : ""; }
-    if (!rates.current[l.parchi_date]) { try { rates.current[l.parchi_date] = await api(`/parchi/rates?date=${l.parchi_date}`); } catch { return ""; } }
-    const r = rates.current[l.parchi_date]?.[l.product]; return r ? String(r) : "";
+    const k = `${customer}|${l.parchi_date}`;
+    if (!rates.current[k]) { try { const [mine, board] = await Promise.all([api(`/parchi/rates?date=${l.parchi_date}&customer_id=${customer}`), boards.current[l.parchi_date] ?? api(`/parchi/rates?date=${l.parchi_date}`)]); rates.current[k] = mine; boards.current[l.parchi_date] = board; } catch { return ""; } }
+    const r = rates.current[k]?.[l.product]; return r ? String(r) : "";
   };
   useEffect(() => { // fill / refresh rates whenever date, fuel or item changes on a line whose rate was not typed
     let stop = false;
@@ -176,7 +179,7 @@ function NewParchis({ customer, setCustomer, onSaved }: { customer: string; setC
   const blocked = !ready.length || half.length > 0 || future.length > 0;
 
   const save = async () => {
-    const r = await run(() => api("/parchi/batch", { body: { customer_id: Number(customer), note: note || null, lines: ready.map((l) => ({
+    const r = await run(() => api("/parchi/batch", { body: { customer_id: Number(customer), note: note || null, tag: tag.trim() || null, lines: ready.map((l) => ({
       parchi_date: l.parchi_date, slip_no: l.slip_no || null, vehicle_no: l.vehicle_no || null, kind: l.kind, product: l.kind === "fuel" ? l.product : null,
       item_id: l.kind === "shop" ? Number(l.item_id) : null, qty: Number(l.qty), rate: Number(l.rate), amount: l.byAmount ? Number(l.amount) : null, photo_ids: l.photos })) } }),
       (x: any) => `${x.ids.length} parchi khate mein — ${pkr(x.total)}`);
@@ -229,7 +232,8 @@ function NewParchis({ customer, setCustomer, onSaved }: { customer: string; setC
       qty: <input data-f={`qty-${l.key}`} className={`input ${phone ? "" : "!w-24"} ${big} text-right ${l.byAmount ? "!bg-slate-50 text-slate-500" : ""}`} type="number" inputMode="decimal" step="any" min={0} placeholder={l.kind === "fuel" ? "litre" : "qty"} aria-label={`Line ${i + 1} ${l.kind === "fuel" ? "litre" : "qty"}`}
         value={l.qty} onChange={(e) => set(l.key, { qty: e.target.value, byAmount: false, amount: "" })} onKeyDown={(e) => onEnter(e, l, "qty")} />,
       rate: <><input data-f={`rate-${l.key}`} className={`input ${phone ? "" : "!w-24"} ${big} text-right`} type="number" inputMode="decimal" step="any" min={0} aria-label={`Line ${i + 1} rate`} value={l.rate} onChange={(e) => set(l.key, { rate: e.target.value, rateTouched: true })} onKeyDown={(e) => onEnter(e, l, "rate")} />
-        <div className="text-right text-[11px] text-violet-700">{l.rateTouched ? "haath se" : l.kind === "fuel" ? `✓ ${l.parchi_date === pkToday() ? "aaj" : dmy(l.parchi_date).slice(0, 6)} ka rate` : l.item_id ? "✓ item ka rate" : ""}</div></>,
+        <div className="text-right text-[11px] text-violet-700">{l.rateTouched ? "haath se" : l.kind === "fuel" ? (() => { const b = boards.current[l.parchi_date]?.[l.product]; const off = b && Number(l.rate) ? Math.round((b - Number(l.rate)) * 100) / 100 : 0;
+          return off > 0.004 ? `✓ customer rate (−${off})` : `✓ ${l.parchi_date === pkToday() ? "aaj" : dmy(l.parchi_date).slice(0, 6)} ka rate`; })() : l.item_id ? "✓ item ka rate" : ""}</div></>,
       amount: <><input data-f={`amount-${l.key}`} className={`input ${phone ? "" : "!w-28"} ${big} text-right font-semibold ${l.byAmount ? "!border-violet-400" : ""}`} type="number" inputMode="decimal" step="any" min={0} placeholder="Rs" aria-label={`Line ${i + 1} raqam`}
         value={l.byAmount ? l.amount : amt(l) ? String(amt(l)) : ""} onChange={(e) => e.target.value === "" ? set(l.key, { byAmount: false, amount: "", qty: "" }) : set(l.key, { byAmount: true, amount: e.target.value })} onKeyDown={(e) => onEnter(e, l, "amount")} />
         <div className="text-right text-[11px] text-violet-700">{l.byAmount ? "raqam se litre" : ""}</div></>,
@@ -247,7 +251,11 @@ function NewParchis({ customer, setCustomer, onSaved }: { customer: string; setC
             {customers.map((x) => <option key={x.id} value={x.id}>{x.name}{x.phone ? ` · ${x.phone}` : ""} · {x.balance < -0.5 ? `advance ${pkr(-x.balance)}` : `${pkr(x.balance)} baqi`}</option>)}
           </select>
         </Field>
-        <Field label="Note (sab parchiyon ke liye)"><input className="input" value={note} onChange={(e) => setNote(e.target.value)} placeholder="kis ki parchiyan" /></Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Note (sab parchiyon ke liye)"><input className="input" value={note} onChange={(e) => setNote(e.target.value)} placeholder="kis ki parchiyan" /></Field>
+          <Field label="🏷 Tag (project / site)"><input className="input" list="parchi-tags" value={tag} onChange={(e) => setTag(e.target.value)} placeholder="Nov · Site B" aria-label="Batch tag" />
+            <datalist id="parchi-tags">{((meta.data?.tags ?? []) as string[]).map((x) => <option key={x} value={x} />)}</datalist></Field>
+        </div>
       </div>
       {!customer ? <p className="p-6 text-center text-sm text-slate-500">Pehle customer chunein — us ka khata yahan load hoga.</p> : !c ? <Loading /> : (
         <div className="space-y-3 p-4">
@@ -483,7 +491,9 @@ function ExcelImport({ items, defDate, onClose, onAdd }: { items: any[]; defDate
 function ParchiBook({ customer, setCustomer }: { customer: string; setCustomer: (v: string) => void }) {
   const customers = useCustomers();
   const [range, setRange] = useState({ from: "", to: "" });
-  const blankF = { vehicle: "", slip: "", kind: "", product: "", status: "", q: "", min: "", max: "", by: "", voided: "" };
+  const blankF = { vehicle: "", slip: "", kind: "", product: "", status: "", q: "", min: "", max: "", by: "", voided: "", tag: "", older: "" };
+  const tagsList = useApi<any>("/parchi/meta");
+  const aging = useApi<any>(`/parchi/aging${customer ? `?customer_id=${customer}` : ""}`);
   const [f, setF] = useState(blankF);
   const [more, setMore] = useState(false);
   const [q, setQ] = useState(""); // typed search, sent after a pause
@@ -534,6 +544,8 @@ function ParchiBook({ customer, setCustomer }: { customer: string; setCustomer: 
           <Field label="Raqam se (Rs)"><input className="input text-right" type="number" inputMode="decimal" step="any" value={f.min} onChange={(e) => setF({ ...f, min: e.target.value })} /></Field>
           <Field label="Raqam tak (Rs)"><input className="input text-right" type="number" inputMode="decimal" step="any" value={f.max} onChange={(e) => setF({ ...f, max: e.target.value })} /></Field>
           <Field label="Kis ne likhi"><input className="input" value={f.by} onChange={(e) => setF({ ...f, by: e.target.value })} placeholder="naam" /></Field>
+          <Field label="🏷 Tag"><select className="input" value={f.tag} onChange={(e) => setF({ ...f, tag: e.target.value })} aria-label="Tag filter"><option value="">Sab</option>{((tagsList.data?.tags ?? []) as string[]).map((x) => <option key={x} value={x}>{x}</option>)}</select></Field>
+          <Field label="⏳ Kitni purani baqi"><select className="input" value={f.older} onChange={(e) => setF({ ...f, older: e.target.value })} aria-label="Purani baqi"><option value="">Sab</option><option value="30">30 din se zyada</option><option value="60">60 din se zyada</option><option value="90">90 din se zyada</option></select></Field>
           <label className="flex items-end gap-2 pb-2 text-sm"><input type="checkbox" checked={!!f.voided} onChange={(e) => setF({ ...f, voided: e.target.checked ? "1" : "" })} /> Deleted bhi dikhayein</label>
         </div>}
         <div className="flex flex-wrap justify-end gap-2">
@@ -543,6 +555,17 @@ function ParchiBook({ customer, setCustomer }: { customer: string; setCustomer: 
         </div>
       </div>
       {!data ? <Loading /> : <>
+        {aging.data && aging.data.unpaid > 0.5 && <div className="m-4 mb-0 rounded-xl border border-slate-200 p-3 print:hidden">
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2"><b className="text-sm">⏳ Parchi aging · <Ur>پرانی باقی</Ur></b><span className="text-xs text-slate-500">baqi {pkr(aging.data.unpaid)} · {aging.data.n} parchi — tap karein to wohi dikhengi</span></div>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {([["0–30 din", "d0_30", "", "border-slate-200"], ["31–60 din", "d31_60", "30", "border-amber-200 bg-amber-50/50"], ["61–90 din", "d61_90", "60", "border-orange-300 bg-orange-50"], ["90+ din", "d90", "90", "border-rose-300 bg-rose-50 text-rose-800"]] as const).map(([l, k, older, cls]) => (
+              <button key={k} type="button" onClick={() => setF({ ...f, older, status: older ? f.status : "open" })} className={`rounded-lg border px-3 py-2 text-left ${cls} ${f.older === older && (older || f.status === "open") ? "ring-2 ring-violet-400" : ""}`}>
+                <div className="text-xs opacity-80">{l}</div><div className="font-bold tabular-nums">{pkr(aging.data.buckets[k])}</div></button>))}
+          </div>
+          {!customer && aging.data.customers.length > 0 && <div className="mt-2 flex flex-wrap gap-1.5 text-xs">{aging.data.customers.slice(0, 8).map((x: any) => (
+            <button key={x.id} type="button" onClick={() => setCustomer(String(x.id))} className={`rounded-full border px-2.5 py-1 ${x.oldest_days > 90 ? "border-rose-300 bg-rose-50 font-semibold text-rose-700" : x.oldest_days > 60 ? "border-amber-300 bg-amber-50 text-amber-800" : "border-slate-200 text-slate-600"}`}>
+              {x.name} · {pkr(x.unpaid)} · {x.oldest_days} din</button>))}</div>}
+        </div>}
         <div className="hidden p-4 print:block"><div className="text-lg font-bold">Parchi Book</div><div className="text-sm">{customer ? customers.find((x) => String(x.id) === customer)?.name : "Sab customers"} · {range.from || "shuru"} — {range.to || "aaj"}</div></div>
         <div className="grid grid-cols-2 gap-2 p-4 sm:grid-cols-6">
           {[["Parchiyan", `${data.totals.n}${data.totals.vehicles ? ` · ${data.totals.vehicles} gaari` : ""}`], ["Fuel", `${pkr(data.totals.fuel)} · ${num(data.totals.litres, 2)} L`], ["Shop / other", pkr(data.totals.shop + data.totals.other)], ["Kul", pkr(data.totals.amount)], ["Paid", pkr(data.totals.paid)], ["Baqi", pkr(data.totals.unpaid)]].map(([l, v]) => (
@@ -550,18 +573,19 @@ function ParchiBook({ customer, setCustomer }: { customer: string; setCustomer: 
         </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[900px]">
-            <thead><tr>{["ID", "Parchi date", "Customer", "Slip", "Gaari", "Hisaab", "Raqam", "Status", "By", ""].map((hd) => <th key={hd} className={`th ${hd === "Raqam" ? "text-right" : ""}`}>{hd}</th>)}</tr></thead>
+            <thead><tr>{["ID", "Parchi date", "Customer", "Slip", "Gaari", "Hisaab", "Raqam", "Status", "Tag", "By", ""].map((hd) => <th key={hd} className={`th ${hd === "Raqam" ? "text-right" : ""}`}>{hd}</th>)}</tr></thead>
             <tbody>
               {data.rows.map((r: any) => (
                 <tr key={r.id}>
                   <td className="td"><span className="inline-flex items-center gap-1 whitespace-nowrap rounded-md bg-violet-50 px-1.5 py-0.5 font-mono text-xs font-semibold text-violet-700">🎫 PR-{r.id}</span></td>
                   <td className="td whitespace-nowrap text-xs">{dmy(r.parchi_date)}</td><td className="td">{r.customer}</td><td className="td text-xs">{r.slip_no ?? ""}</td><td className="td text-xs">{r.vehicle_no ?? ""}</td>
                   <td className="td text-xs text-slate-600">{r.kind === "fuel" ? `${num(r.qty, 2)} L ${PRODUCTS[r.product] ?? r.product} × ${r.rate}` : r.kind === "shop" ? `🛒 ${r.item_name} × ${num(r.qty, 2)} @ ${r.rate}` : r.item_name}{r.khata_id ? <> · <IdTag id={`K-${r.khata_id}`} /></> : null}</td>
-                  <td className="td whitespace-nowrap text-right font-semibold tabular-nums">{pkr(r.amount)}</td><td className="td">{chip(r.status, r)}</td><td className="td text-xs">{r.created_by ?? ""}</td>
+                  <td className="td whitespace-nowrap text-right font-semibold tabular-nums">{pkr(r.amount)}</td><td className="td">{chip(r.status, r)}{r.age != null && <div className={`mt-0.5 whitespace-nowrap text-[11px] ${r.age > 90 ? "font-semibold text-rose-700" : r.age > 60 ? "text-amber-700" : "text-slate-500"}`}>{r.age === 0 ? "aaj ki" : `${r.age} din purani`}</div>}</td>
+                  <td className="td text-xs">{r.tag ? <span className="whitespace-nowrap rounded-full bg-sky-50 px-2 py-0.5 text-sky-800">🏷 {r.tag}</span> : ""}</td><td className="td text-xs">{r.created_by ?? ""}</td>
                   <td className="td whitespace-nowrap print:hidden">{r.status !== "void" && <><button className="rounded-md border border-violet-200 px-2 py-1 text-xs font-semibold text-violet-700 hover:bg-violet-50" disabled={busy} onClick={() => setEdit(r)} aria-label={`PR-${r.id} edit`}>✏️ Edit</button>{" "}
                     <button className="rounded-md border border-rose-200 px-2 py-1 text-xs font-semibold text-rose-600 hover:bg-rose-50" disabled={busy} onClick={() => voidIt(r)} aria-label={`PR-${r.id} delete`}>🗑 Delete</button></>}</td>
                 </tr>))}
-              {!data.rows.length && <tr><td className="td py-8 text-center text-slate-500" colSpan={10}>Koi parchi nahi</td></tr>}
+              {!data.rows.length && <tr><td className="td py-8 text-center text-slate-500" colSpan={11}>Koi parchi nahi</td></tr>}
             </tbody>
           </table>
         </div>
@@ -580,7 +604,7 @@ function EditParchi({ row, onClose, onDone }: { row: any; onClose: () => void; o
   const moved = cust !== String(row.customer_id);
   const newC = meta.data?.customer;
   const [f, setF] = useState({ parchi_date: row.parchi_date, slip_no: row.slip_no ?? "", vehicle_no: row.vehicle_no ?? "", kind: row.kind as "fuel" | "shop" | "other",
-    product: row.product ?? activeProducts[0]?.code ?? "PMG", item_id: row.item_id ? String(row.item_id) : "", qty: String(row.qty ?? 1), rate: String(row.rate ?? row.amount), reason: "" });
+    product: row.product ?? activeProducts[0]?.code ?? "PMG", item_id: row.item_id ? String(row.item_id) : "", qty: String(row.qty ?? 1), rate: String(row.rate ?? row.amount), reason: "", tag: row.tag ?? "" });
   const [touched, setTouched] = useState(true); // rate typed (or kept from the saved parchi) — a change of day / fuel / item re-reads it
   const [photos, setPhotos] = useState<number[]>([]);
   const [newPlate, setNewPlate] = useState<string | null>(null);
@@ -602,7 +626,7 @@ function EditParchi({ row, onClose, onDone }: { row: any; onClose: () => void; o
   const okToSave = Number(f.qty) > 0 && Number(f.rate) > 0 && (f.kind !== "shop" || !!f.item_id) && f.parchi_date <= pkToday();
   const save = async () => {
     const r = await run(() => api(`/parchi/${row.id}`, { method: "PATCH", body: { parchi_date: f.parchi_date, slip_no: f.slip_no || null, vehicle_no: f.vehicle_no || null, kind: f.kind,
-      product: f.kind === "fuel" ? f.product : null, item_id: f.kind === "shop" ? Number(f.item_id) : null, qty: Number(f.qty), rate: Number(f.rate), photo_ids: photos, reason: f.reason || null,
+      product: f.kind === "fuel" ? f.product : null, item_id: f.kind === "shop" ? Number(f.item_id) : null, qty: Number(f.qty), rate: Number(f.rate), photo_ids: photos, reason: f.reason || null, tag: f.tag.trim() || null,
       ...(moved ? { customer_id: Number(cust) } : {}) } }),
       (x: any) => x.moved ? `PR-${row.id} ab ${x.customer} ke khate mein` : `PR-${row.id} update — ${x.diff ? `khata ${x.diff > 0 ? "+" : "−"}${pkr(Math.abs(x.diff))}` : "raqam wohi"}`);
     if (r) onDone();
@@ -639,6 +663,7 @@ function EditParchi({ row, onClose, onDone }: { row: any; onClose: () => void; o
       </div>
       {!moved && amount !== row.amount && <p className="mt-1 text-xs text-slate-600">Khata balance {amount > row.amount ? "barhega" : "kam hoga"}: {pkr(Math.abs(Math.round((amount - row.amount) * 100) / 100))}</p>}
       <div className="mt-3 grid gap-3 sm:grid-cols-2">
+        <Field label="🏷 Tag"><input className="input" value={f.tag} onChange={(e) => set({ tag: e.target.value })} placeholder="Nov · Site B" /></Field>
         <Field label="Wajah (kya ghalat tha)"><input className="input" value={f.reason} onChange={(e) => set({ reason: e.target.value })} placeholder="gaari no. ghalat tha" /></Field>
         <ProofPhotos value={photos} onChange={setPhotos} label="Nayi photo (agar ho)" hint="parchi" />
       </div>

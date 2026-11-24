@@ -162,3 +162,30 @@ test("Gari statement (khata / wholesale / supplier) and the Parchi Book filters 
   const m = ok(await call("manager", "POST", "/api/parchi/batch", { customer_id: cid, lines: [{ parchi_date: day(0), kind: "fuel", product: "PMG", qty: 19.048, rate: 262.5, amount: 5000 }] }), "by amount");
   near(m.total, 5000); near(db.get("SELECT amount FROM khata_ledger WHERE ref=?", m.entry_ids[0])!.amount, 5000);
 });
+
+test("Parchi: customer rate card, batch tag, aging and the dashboard summary", async () => {
+  const t = db.get("SELECT id FROM tenants ORDER BY id LIMIT 1")!.id as number;
+  const cid = (db.run("INSERT INTO customers (tenant_id,name,phone,type,balance,credit_limit,created_at,khata_rates) VALUES (?,?,?,?,?,?,?,?)", t, "Rate Card Customer", "923000000780", "retail", 0, 900000, new Date().toISOString(),
+    JSON.stringify({ HSD: { mode: "minus", value: 5 } })) as any).id;
+  const day = (n: number) => new Date(Date.now() - n * 86_400_000 + 5 * 3600_000).toISOString().slice(0, 10);
+  const board = ok(await call("manager", "GET", `/api/parchi/rates?date=${day(0)}`), "board").HSD;
+  near(ok(await call("manager", "GET", `/api/parchi/rates?date=${day(0)}&customer_id=${cid}`), "card").HSD, board - 5, "pump − 5 card");
+  const meta = ok(await call("manager", "GET", `/api/parchi/meta?customer_id=${cid}`), "meta");
+  near(meta.rates.HSD, board - 5); near(meta.board_rates.HSD, board);
+  const r = ok(await call("manager", "POST", "/api/parchi/batch", { customer_id: cid, tag: "Site B", lines: [
+    { parchi_date: day(0), kind: "fuel", product: "HSD", qty: 10 }, { parchi_date: day(100), kind: "fuel", product: "PMG", qty: 2, rate: 250 }, { parchi_date: day(45), kind: "fuel", product: "PMG", qty: 4, rate: 250 } ] }), "batch");
+  near(r.total, 10 * (board - 5) + 500 + 1000, "the card rate on the parchi");
+  assert.ok(ok(await call("manager", "GET", "/api/parchi/meta"), "tags").tags.includes("Site B"));
+  assert.equal(ok(await call("manager", "GET", `/api/parchi/book?customer_id=${cid}&tag=site b`), "tag").rows.length, 3, "tag filter");
+  assert.equal(ok(await call("manager", "GET", `/api/parchi/book?customer_id=${cid}&older=90`), "older").rows.length, 1, "unpaid over 90 days");
+  const ag = ok(await call("manager", "GET", `/api/parchi/aging?customer_id=${cid}`), "aging");
+  near(ag.buckets.d90, 500); near(ag.buckets.d31_60, 1000); near(ag.buckets.d0_30, 10 * (board - 5)); assert.equal(ag.customers[0].oldest_days, 100);
+  // edit keeps the card rate; a tag can be changed
+  const e = ok(await call("manager", "PATCH", `/api/parchi/${r.ids[0]}`, { parchi_date: day(0), kind: "fuel", product: "HSD", qty: 20, tag: "Site C" }), "edit");
+  near(e.amount, 20 * (board - 5));
+  assert.equal(db.get("SELECT tag FROM parchi_lines WHERE id=?", r.ids[0])!.tag, "Site C");
+  const sm = ok(await call("manager", "GET", "/api/parchi/summary"), "summary");
+  assert.ok(sm.month.n >= 1 && sm.unpaid > 0 && sm.over90 >= 500 && sm.top.length >= 1);
+  assert.notEqual((await call("cashier", "GET", "/api/parchi/summary")).status, 200, "manager / CEO only");
+  await books();
+});
