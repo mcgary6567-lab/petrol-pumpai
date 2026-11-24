@@ -341,10 +341,11 @@ crm.post("/customers/:id/khata", requireAny("khata.manage", "cash.receive"), h(a
     return { ...get("SELECT * FROM customers WHERE id=?", c.id)!, cheque_pending: true, cheque_id: id };
   }
   const updated = khataEntry(c.id, b.type, b.amount, b.method ?? null, b.note ?? null, b.type === "credit" ? bankAccountFor(tid(req), b.account_id, b.method) : null, at);
-  if (b.photo_ids?.length) linkPhotos(tid(req), b.photo_ids, `khata:${get("SELECT MAX(id) id FROM khata_ledger WHERE customer_id=?", c.id)!.id}`);
+  const khataId = get("SELECT MAX(id) id FROM khata_ledger WHERE customer_id=?", c.id)!.id as number;
+  if (b.photo_ids?.length) linkPhotos(tid(req), b.photo_ids, `khata:${khataId}`);
   if (b.notify && b.type === "credit")
     await sendWhatsApp(tid(req), updated, `✅ Shukriya ${updated.name}! ${pkr(b.amount)} ki payment mil gayi${b.method ? ` (${b.method})` : ""}. Naya khata balance: ${dueText(updated.balance)}.`, "system", { kind: "payment_receipt" });
-  return updated;
+  return { ...updated, khata_id: khataId }; // the new khata row (Parchi Book ties a payment to chosen parchiyan by it)
 }));
 
 /** Khata statement / monthly bill: every fuel entry with litres, the rate at that time, vehicle and slip, plus payments. */

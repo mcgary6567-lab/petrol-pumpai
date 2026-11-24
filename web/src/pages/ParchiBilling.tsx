@@ -10,6 +10,7 @@ import { Plus, Ticket, X, ArrowLeft, Check, Printer, Download } from "lucide-rea
 import { api, linkToken, useApi } from "../lib/api";
 import { printNow } from "../lib/printNow";
 import { WhatsAppDoc } from "../components/WhatsAppDoc";
+import { AccountPicker } from "../components/BankParts";
 import { activeProducts, PRODUCTS, num, pkr } from "../lib/format";
 import { Field, IdTag, Loading, Modal, PageHeader, useAction } from "../components/ui";
 import { ProofPhotos, resizeImage } from "../components/Capture";
@@ -390,6 +391,66 @@ function NewParchis({ customer, setCustomer, onSaved }: { customer: string; setC
   );
 }
 
+/** Payment for chosen parchiyan: a new khata payment (the usual one: cash / bank / receipt on WhatsApp) tied to them,
+ *  or an earlier payment's untied money put on them. The khata balance moves only for a new payment. */
+function PayParchis({ mode, customerId, name, rows, due, onClose, onDone }: { mode: "new" | "old"; customerId: number; name: string; rows: any[]; due: number; onClose: () => void; onDone: () => void }) {
+  const [amount, setAmount] = useState(String(due));
+  const [method, setMethod] = useState("Cash");
+  const [account, setAccount] = useState<number | null>(null);
+  const [notify, setNotify] = useState(true);
+  const [pick, setPick] = useState<number | null>(null);
+  const pays = useApi<any[]>(mode === "old" ? `/parchi/payments?customer_id=${customerId}` : null);
+  const { busy, run } = useAction();
+  const ids = rows.map((r) => r.id);
+  const label = `Parchi payment: ${ids.slice(0, 8).map((i) => `PR-${i}`).join(", ")}${ids.length > 8 ? ` +${ids.length - 8}` : ""}`;
+  const take = async () => {
+    const p = await run(() => api(`/customers/${customerId}/khata`, { body: { type: "credit", amount: Number(amount), method, note: label, notify, account_id: /^cash$/i.test(method) ? null : account } }), "Payment mil gayi");
+    if (!p) return;
+    if (!p.khata_id || p.cheque_pending) { alert("Cheque register mein chala gaya. Clear hone par yahan \"🔗 Purani payment se jorein\" se in parchiyon par lagayein."); onDone(); return; }
+    await run(() => api("/parchi/allocate", { body: { customer_id: customerId, khata_id: p.khata_id, parchi_ids: ids } }), (x: any) => `${x.allocated.length} parchi Paid${x.left > 0.5 ? ` · ${pkr(x.left)} baqi purani entries par` : ""}`);
+    onDone();
+  };
+  const tie = async () => {
+    if (!pick) return;
+    if (await run(() => api("/parchi/allocate", { body: { customer_id: customerId, khata_id: pick, parchi_ids: ids } }), (x: any) => `${x.allocated.length} parchi K-${pick} se Paid`)) onDone();
+  };
+  const untie = async (k: number) => { if (confirm(`K-${k} ko parchiyon se alag karein? Woh parchiyan phir sab se purani pehle wale hisaab par aa jayengi.`) && await run(() => api(`/parchi/allocate/${k}/clear`, { body: {} }), "Alag kar diya")) pays.reload(); };
+  return (
+    <Modal open onClose={onClose} title={mode === "new" ? `💰 Payment lein · ${name}` : `🔗 Purani payment se jorein · ${name}`}>
+      <div className="rounded-lg bg-slate-50 px-3 py-2 text-sm"><b>{rows.length} parchi</b> · baqi <b className="tabular-nums">{pkr(due)}</b>
+        <div className="mt-1 max-h-24 overflow-auto text-xs text-slate-600">{rows.map((r) => <div key={r.id}>PR-{r.id} · {dmy(r.parchi_date)}{r.vehicle_no ? ` · ${r.vehicle_no}` : ""} · {pkr(r.unpaid)}</div>)}</div></div>
+      {mode === "new" ? <>
+        <div className="mt-3 grid grid-cols-2 gap-3">
+          <Field label="Raqam · رقم"><input className="input text-right text-lg font-semibold" type="number" inputMode="decimal" step="any" min={0} value={amount} onChange={(e) => setAmount(e.target.value)} /></Field>
+          <Field label="Method · طریقہ"><select className="input" value={method} onChange={(e) => { setMethod(e.target.value); setAccount(null); }}>{["Cash", "JazzCash", "Easypaisa", "Raast", "Bank transfer", "Cheque"].map((m) => <option key={m}>{m}</option>)}</select></Field>
+        </div>
+        {!/^cash$/i.test(method) && <div className="mt-2"><AccountPicker method={method} value={account} onChange={setAccount} /></div>}
+        <label className="mt-2 flex items-center gap-2 text-sm"><input type="checkbox" checked={notify} onChange={(e) => setNotify(e.target.checked)} /> Customer ko WhatsApp receipt</label>
+        {Number(amount) > due + 0.5 && <p className="mt-2 rounded-lg bg-sky-50 px-3 py-2 text-xs text-sky-900">Chuni parchiyon se {pkr(Number(amount) - due)} zyada — yeh baqi purani entries par lagega (ya advance).</p>}
+        {Number(amount) > 0 && Number(amount) < due - 0.5 && <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">Kam raqam: pehle sab se purani chuni parchi Paid hogi, aakhri wali thori baqi rahegi.</p>}
+        <p className="mt-2 text-xs text-slate-500">Yeh aam khata payment hai — cash / bank, khata balance aur receipt sab wahi. Sirf yeh chuni parchiyan Paid hongi.</p>
+        <div className="mt-4 flex justify-end gap-2 border-t border-slate-100 pt-3"><button className="btn-secondary" onClick={onClose}>Cancel</button>
+          <button className="btn-primary !bg-emerald-600" disabled={busy || !(Number(amount) > 0)} onClick={take}><Check size={16} /> {pkr(Number(amount) || 0)} wasool</button></div>
+      </> : <>
+        <p className="mt-3 text-sm text-slate-600">Kaunsi payment in parchiyon ki thi? (sirf jis ki raqam abhi kisi parchi par nahi lagi)</p>
+        {!pays.data ? <Loading /> : <div className="mt-2 max-h-64 space-y-1 overflow-auto">
+          {pays.data.map((x) => (
+            <div key={x.id} className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm ${pick === x.id ? "border-emerald-400 bg-emerald-50" : "border-slate-200"}`}>
+              <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2"><input type="radio" name="pay" disabled={x.free <= 0.5} checked={pick === x.id} onChange={() => setPick(x.id)} />
+                <span className="min-w-0 truncate">K-{x.id} · {new Date(Date.parse(x.created_at) + 5 * 3600_000).toISOString().slice(0, 10)} · {x.method ?? ""} · <b>{pkr(x.amount)}</b>{x.tied > 0.5 ? <span className="text-xs text-slate-500"> · {pkr(x.tied)} parchiyon par</span> : null}</span></label>
+              <span className="text-xs tabular-nums text-emerald-700">{x.free > 0.5 ? `${pkr(x.free)} khali` : "poori lagi"}</span>
+              {x.tied > 0.5 && <button type="button" className="text-xs text-rose-600 underline" onClick={() => untie(x.id)}>alag</button>}
+            </div>))}
+          {!pays.data.length && <p className="p-4 text-center text-sm text-slate-500">Is customer ki koi payment nahi</p>}
+        </div>}
+        <p className="mt-2 text-xs text-slate-500">Paisa aur balance nahi badalte — sirf yeh payment in parchiyon ki maani jayegi.</p>
+        <div className="mt-4 flex justify-end gap-2 border-t border-slate-100 pt-3"><button className="btn-secondary" onClick={onClose}>Cancel</button>
+          <button className="btn-primary !bg-emerald-600" disabled={busy || !pick} onClick={tie}>🔗 Jorein</button></div>
+      </>}
+    </Modal>
+  );
+}
+
 /* ---- 13: parchiyan from Excel (copy-paste) or a CSV file — read here, put in the form, then the usual summary / Confirm ---- */
 const MON = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
 /** 24-11-2026, 24/11/26, 2026-11-24, 24-Nov-2026, 24 Nov 2026 → 2026-11-24 */
@@ -509,6 +570,13 @@ function ParchiBook({ customer, setCustomer }: { customer: string; setCustomer: 
   const ago = (n: number) => new Date(Date.now() + 5 * 3600_000 - n * 86_400_000).toISOString().slice(0, 10);
   const { busy, run } = useAction();
   const [edit, setEdit] = useState<any>(null);
+  const [sel, setSel] = useState<Set<number>>(new Set()); // parchiyan chosen for a payment
+  const [payMode, setPayMode] = useState<"new" | "old" | null>(null);
+  useEffect(() => { setSel(new Set()); }, [customer]);
+  const openRows = (data?.rows ?? []).filter((r: any) => r.status === "unpaid" || r.status === "part");
+  const chosen = openRows.filter((r: any) => sel.has(r.id)).sort((a: any, b: any) => a.parchi_date.localeCompare(b.parchi_date) || a.id - b.id);
+  const chosenDue = Math.round(chosen.reduce((a: number, r: any) => a + r.unpaid, 0) * 100) / 100;
+  const toggle = (id: number) => setSel((x) => { const n = new Set(x); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const voidIt = async (r: any) => {
     const reason = prompt(`PR-${r.id} delete karein? ${pkr(r.amount)} khate se hat jayenge.\nWajah likhein:`);
     if (!reason || reason.trim().length < 3) return;
@@ -573,25 +641,37 @@ function ParchiBook({ customer, setCustomer }: { customer: string; setCustomer: 
         </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[900px]">
-            <thead><tr>{["ID", "Parchi date", "Customer", "Slip", "Gaari", "Hisaab", "Raqam", "Status", "Tag", "By", ""].map((hd) => <th key={hd} className={`th ${hd === "Raqam" ? "text-right" : ""}`}>{hd}</th>)}</tr></thead>
+            <thead><tr>{[customer ? "☐" : "", "ID", "Parchi date", "Customer", "Slip", "Gaari", "Hisaab", "Raqam", "Status", "Tag", "By", ""].map((hd, hi) => hi === 0 ? <th key="sel" className="th w-8 print:hidden">{customer && openRows.length > 0 && <input type="checkbox" aria-label="Sab baqi parchiyan chunein" checked={openRows.length > 0 && openRows.every((r: any) => sel.has(r.id))} onChange={(e) => setSel(e.target.checked ? new Set(openRows.map((r: any) => r.id)) : new Set())} />}</th> : <th key={hd} className={`th ${hd === "Raqam" ? "text-right" : ""}`}>{hd}</th>)}</tr></thead>
             <tbody>
               {data.rows.map((r: any) => (
-                <tr key={r.id}>
+                <tr key={r.id} className={sel.has(r.id) ? "bg-emerald-50/60" : ""}>
+                  <td className="td print:hidden">{customer && (r.status === "unpaid" || r.status === "part") && <input type="checkbox" checked={sel.has(r.id)} onChange={() => toggle(r.id)} aria-label={`PR-${r.id} chunein`} />}</td>
                   <td className="td"><span className="inline-flex items-center gap-1 whitespace-nowrap rounded-md bg-violet-50 px-1.5 py-0.5 font-mono text-xs font-semibold text-violet-700">🎫 PR-{r.id}</span></td>
                   <td className="td whitespace-nowrap text-xs">{dmy(r.parchi_date)}</td><td className="td">{r.customer}</td><td className="td text-xs">{r.slip_no ?? ""}</td><td className="td text-xs">{r.vehicle_no ?? ""}</td>
                   <td className="td text-xs text-slate-600">{r.kind === "fuel" ? `${num(r.qty, 2)} L ${PRODUCTS[r.product] ?? r.product} × ${r.rate}` : r.kind === "shop" ? `🛒 ${r.item_name} × ${num(r.qty, 2)} @ ${r.rate}` : r.item_name}{r.khata_id ? <> · <IdTag id={`K-${r.khata_id}`} /></> : null}</td>
-                  <td className="td whitespace-nowrap text-right font-semibold tabular-nums">{pkr(r.amount)}</td><td className="td">{chip(r.status, r)}{r.age != null && <div className={`mt-0.5 whitespace-nowrap text-[11px] ${r.age > 90 ? "font-semibold text-rose-700" : r.age > 60 ? "text-amber-700" : "text-slate-500"}`}>{r.age === 0 ? "aaj ki" : `${r.age} din purani`}</div>}</td>
+                  <td className="td whitespace-nowrap text-right font-semibold tabular-nums">{pkr(r.amount)}</td><td className="td">{chip(r.status, r)}{r.paid_by && <div className="mt-0.5 whitespace-nowrap text-[11px] text-emerald-700">🔗 {r.paid_by} se</div>}{r.age != null && <div className={`mt-0.5 whitespace-nowrap text-[11px] ${r.age > 90 ? "font-semibold text-rose-700" : r.age > 60 ? "text-amber-700" : "text-slate-500"}`}>{r.age === 0 ? "aaj ki" : `${r.age} din purani`}</div>}</td>
                   <td className="td text-xs">{r.tag ? <span className="whitespace-nowrap rounded-full bg-sky-50 px-2 py-0.5 text-sky-800">🏷 {r.tag}</span> : ""}</td><td className="td text-xs">{r.created_by ?? ""}</td>
                   <td className="td whitespace-nowrap print:hidden">{r.status !== "void" && <><button className="rounded-md border border-violet-200 px-2 py-1 text-xs font-semibold text-violet-700 hover:bg-violet-50" disabled={busy} onClick={() => setEdit(r)} aria-label={`PR-${r.id} edit`}>✏️ Edit</button>{" "}
                     <button className="rounded-md border border-rose-200 px-2 py-1 text-xs font-semibold text-rose-600 hover:bg-rose-50" disabled={busy} onClick={() => voidIt(r)} aria-label={`PR-${r.id} delete`}>🗑 Delete</button></>}</td>
                 </tr>))}
-              {!data.rows.length && <tr><td className="td py-8 text-center text-slate-500" colSpan={11}>Koi parchi nahi</td></tr>}
+              {!data.rows.length && <tr><td className="td py-8 text-center text-slate-500" colSpan={12}>Koi parchi nahi</td></tr>}
             </tbody>
           </table>
         </div>
-        <p className="p-4 text-xs text-slate-500">Payment "Khata payment" se aati hai — sab se purani entry pehle Paid hoti hai. "Edit" se gaari, litre, rate, tareekh theek karein — khata aur balance khud update. "Delete" se parchi ki raqam khate se hat jati hai.</p>
+        <p className="p-4 text-xs text-slate-500">Payment "Khata payment" se aati hai — sab se purani entry pehle Paid hoti hai, ya parchiyan tick kar ke "💰 Payment lein" se wohi parchiyan Paid. "Edit" se gaari, litre, rate, tareekh theek karein — khata aur balance khud update. "Delete" se parchi ki raqam khate se hat jati hai.</p>
       </>}
       {edit && <EditParchi row={edit} onClose={() => setEdit(null)} onDone={() => { setEdit(null); reload(); }} />}
+      {!customer && data?.rows?.some((r: any) => r.status !== "paid" && r.status !== "void") && <p className="px-4 pb-4 text-xs text-violet-700 print:hidden">💰 Kisi khaas parchi ki payment lagani ho to upar <b>Customer</b> chunein — phir parchiyan tick karein.</p>}
+      {sel.size > 0 && <div className="sticky bottom-0 z-20 flex flex-wrap items-center gap-2 rounded-b-xl border-t border-emerald-200 bg-white/95 px-4 py-2.5 shadow-[0_-6px_16px_rgba(15,23,42,.08)] backdrop-blur print:hidden dark:bg-slate-900/95">
+        <span className="text-sm"><b>{chosen.length}</b> parchi chuni · baqi <b className="tabular-nums text-emerald-700">{pkr(chosenDue)}</b></span>
+        <button type="button" className="text-xs text-slate-500 underline" onClick={() => setSel(new Set())}>Saaf</button>
+        <span className="ml-auto flex flex-wrap gap-2">
+          <button type="button" className="btn-secondary" onClick={() => setPayMode("old")}>🔗 Purani payment se jorein</button>
+          <button type="button" className="btn-primary !bg-emerald-600" onClick={() => setPayMode("new")}>💰 Payment lein · {pkr(chosenDue)}</button>
+        </span>
+      </div>}
+      {payMode && customer && <PayParchis mode={payMode} customerId={Number(customer)} name={customers.find((x) => String(x.id) === customer)?.name ?? ""} rows={chosen} due={chosenDue}
+        onClose={() => setPayMode(null)} onDone={() => { setPayMode(null); setSel(new Set()); reload(); aging.reload(); }} />}
     </div>
   );
 }

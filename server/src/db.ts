@@ -803,7 +803,11 @@ export function migrate() {
     qty REAL NOT NULL, rate REAL NOT NULL, amount REAL NOT NULL, note TEXT, voided INTEGER NOT NULL DEFAULT 0, void_reason TEXT,
     created_by TEXT, created_at TEXT NOT NULL)`);
   db.exec("CREATE INDEX IF NOT EXISTS idx_parchi_cust ON parchi_lines(customer_id, parchi_date)");
-  addColumn("parchi_lines", "tag", "TEXT"); // a batch's tag ("Nov project · Site B"), filterable in the Parchi Book
+  addColumn("parchi_lines", "tag", "TEXT");
+  // a payment tied to chosen parchiyan (instead of oldest-first): which khata payment pays how much of which parchi
+  db.exec(`CREATE TABLE IF NOT EXISTS parchi_alloc (id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, customer_id INTEGER NOT NULL, khata_id INTEGER NOT NULL,
+    parchi_id INTEGER NOT NULL, amount REAL NOT NULL, created_by TEXT, created_at TEXT NOT NULL)`);
+  db.exec("CREATE INDEX IF NOT EXISTS idx_palloc_khata ON parchi_alloc(khata_id)"); // a batch's tag ("Nov project · Site B"), filterable in the Parchi Book
   // the first "Sirf parchi entry" rows (khata ref PARCHI-n) join the Parchi Book once, as one line each
   for (const k of db.prepare(`SELECT k.id, k.customer_id, k.amount, k.note, k.slip_no, k.vehicle_no, k.created_at, c.tenant_id FROM khata_ledger k JOIN customers c ON c.id=k.customer_id
       WHERE k.ref LIKE 'PARCHI-%' AND NOT EXISTS (SELECT 1 FROM parchi_lines p WHERE p.khata_id=k.id)`).all() as any[])

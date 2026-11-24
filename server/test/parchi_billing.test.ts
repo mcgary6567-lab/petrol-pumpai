@@ -119,6 +119,7 @@ test("Gari statement (khata / wholesale / supplier) and the Parchi Book filters 
     { parchi_date: day(1), slip_no: "13", vehicle_no: "LES-9", kind: "fuel", product: "PMG", qty: 5, rate: 260 },
   ] }), "batch");
   db.run("INSERT INTO khata_ledger (customer_id,type,amount,ref,note,vehicle_no,created_at) VALUES (?,?,?,?,?,?,?)", cid, "credit", 1000, "cash", "payment", "LEH453", new Date().toISOString());
+  db.run("UPDATE customers SET balance = balance - 1000 WHERE id=?", cid);
   const vs = ok(await call("manager", "GET", `/api/vehicle-statement/vehicles?party=khata&id=${cid}`), "vehicles");
   assert.equal(vs.find((v: any) => v.vehicle.replace(/[^A-Z0-9]/g, "") === "LEH453").entries, 3, "one gaari however it was written");
   const s = ok(await call("manager", "GET", `/api/vehicle-statement?party=khata&id=${cid}&vehicle=LEH-453`), "stmt");
@@ -187,5 +188,32 @@ test("Parchi: customer rate card, batch tag, aging and the dashboard summary", a
   const sm = ok(await call("manager", "GET", "/api/parchi/summary"), "summary");
   assert.ok(sm.month.n >= 1 && sm.unpaid > 0 && sm.over90 >= 500 && sm.top.length >= 1);
   assert.notEqual((await call("cashier", "GET", "/api/parchi/summary")).status, 200, "manager / CEO only");
+  await books();
+});
+
+test("Parchi: a payment tied to chosen parchiyan pays them, not the oldest entry", async () => {
+  const t = db.get("SELECT id FROM tenants ORDER BY id LIMIT 1")!.id as number;
+  const cid = (db.run("INSERT INTO customers (tenant_id,name,phone,type,balance,credit_limit,created_at) VALUES (?,?,?,?,?,?,?)", t, "Tied Pay Customer", "923000000781", "retail", 1000, 900000, new Date(Date.now() - 20 * 86_400_000).toISOString()) as any).id;
+  // an older fuel charge (not a parchi) that oldest-first would clear first
+  db.run("INSERT INTO khata_ledger (customer_id,type,amount,ref,note,created_at) VALUES (?,?,?,?,?,?)", cid, "debit", 1000, null, "old charge", new Date(Date.now() - 10 * 86_400_000).toISOString());
+  const day = (n: number) => new Date(Date.now() - n * 86_400_000 + 5 * 3600_000).toISOString().slice(0, 10);
+  const r = ok(await call("manager", "POST", "/api/parchi/batch", { customer_id: cid, lines: [
+    { parchi_date: day(2), kind: "fuel", product: "PMG", qty: 2, rate: 250 }, { parchi_date: day(1), kind: "fuel", product: "PMG", qty: 4, rate: 200 } ] }), "batch");
+  const bal0 = db.get("SELECT balance FROM customers WHERE id=?", cid)!.balance;
+  const pay = ok(await call("manager", "POST", `/api/customers/${cid}/khata`, { type: "credit", amount: 800, method: "Cash", notify: false }), "pay");
+  assert.ok(pay.khata_id > 0, "payment returns its khata id");
+  near(db.get("SELECT balance FROM customers WHERE id=?", cid)!.balance, bal0 - 800);
+  const st = async () => Object.fromEntries(ok(await call("manager", "GET", `/api/parchi/book?customer_id=${cid}`), "book").rows.map((x: any) => [x.id, x.status]));
+  assert.deepEqual(await st(), { [r.ids[0]]: "unpaid", [r.ids[1]]: "unpaid" }, "oldest-first: the 800 went to the old fuel");
+  const a = ok(await call("manager", "POST", "/api/parchi/allocate", { customer_id: cid, khata_id: pay.khata_id, parchi_ids: [r.ids[1]] }), "allocate");
+  near(a.allocated[0].amount, 800); near(a.left, 0);
+  assert.deepEqual(await st(), { [r.ids[0]]: "unpaid", [r.ids[1]]: "paid" }, "the chosen parchi is paid");
+  near(db.get("SELECT balance FROM customers WHERE id=?", cid)!.balance, bal0 - 800, "money unchanged");
+  const pays = ok(await call("manager", "GET", `/api/parchi/payments?customer_id=${cid}`), "payments");
+  near(pays.find((x: any) => x.id === pay.khata_id).free, 0);
+  assert.equal((await call("manager", "POST", "/api/parchi/allocate", { customer_id: cid, khata_id: pay.khata_id, parchi_ids: [r.ids[0]] })).status, 400, "fully tied already");
+  assert.notEqual((await call("cashier", "POST", "/api/parchi/allocate", { customer_id: cid, khata_id: pay.khata_id, parchi_ids: [r.ids[0]] })).status, 200, "manager / CEO only");
+  ok(await call("manager", "POST", `/api/parchi/allocate/${pay.khata_id}/clear`, {}), "clear");
+  assert.deepEqual(await st(), { [r.ids[0]]: "unpaid", [r.ids[1]]: "unpaid" }, "untied: back to oldest-first");
   await books();
 });

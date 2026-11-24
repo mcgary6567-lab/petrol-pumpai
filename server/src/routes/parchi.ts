@@ -137,16 +137,49 @@ parchi.post("/parchi/batch", requirePerm("khata.manage"), h((req) => {
   return saveParchis(req, b.customer_id, b.lines, b.note, b.tag);
 }));
 
-/** Each charge's unpaid part, payments clearing the oldest charge first (an advance paid ahead clears the next ones). */
+/** Each charge's unpaid part. A payment tied to chosen parchiyan (parchi_alloc) pays those first; the rest of it — and every
+ *  other payment — clears the oldest charge first (an advance paid ahead clears the next ones). */
 function openParts(customerId: number) {
   const rows = all("SELECT id, type, amount FROM khata_ledger WHERE customer_id=? ORDER BY created_at, id", customerId);
+  const tied = new Map<number, { khata: number; amount: number }[]>();
+  for (const a of all("SELECT a.khata_id pay, p.khata_id target, a.amount FROM parchi_alloc a JOIN parchi_lines p ON p.id=a.parchi_id WHERE a.customer_id=? AND p.voided=0 ORDER BY a.id", customerId))
+    tied.set(a.pay as number, [...(tied.get(a.pay as number) ?? []), { khata: a.target as number, amount: a.amount as number }]);
   const open: { id: number; left: number }[] = [];
+  const byId = new Map<number, { id: number; left: number }>();
   let advance = 0;
   for (const r of rows) {
-    if (r.type === "debit") { const use = Math.min(advance, r.amount); advance -= use; open.push({ id: r.id, left: r.amount - use }); }
-    else { let pay = r.amount; for (const o of open) { if (pay <= 0) break; const take = Math.min(o.left, pay); o.left -= take; pay -= take; } advance += pay; }
+    if (r.type === "debit") { const use = Math.min(advance, r.amount); advance -= use; const o = { id: r.id, left: r.amount - use }; open.push(o); byId.set(r.id, o); continue; }
+    let pay = r.amount;
+    for (const t of tied.get(r.id) ?? []) { const o = byId.get(t.khata); if (!o || pay <= 0) continue; const take = Math.min(o.left, t.amount, pay); o.left -= take; pay -= take; }
+    for (const o of open) { if (pay <= 0) break; const take = Math.min(o.left, pay); o.left -= take; pay -= take; }
+    advance += pay;
   }
   return new Map(open.map((o) => [o.id, round2(o.left)]));
+}
+
+/** Tie a khata payment to chosen parchiyan: its money (what is not tied already) goes to them in the order given, each up
+ *  to what it still owes. Nothing about the money changes — the khata balance, cash and books stay as they are; only which
+ *  parchi shows Paid. */
+export function allocatePayment(t: number, customerId: number, khataId: number, parchiIds: number[], by: string) {
+  const k = get("SELECT k.* FROM khata_ledger k JOIN customers c ON c.id=k.customer_id WHERE k.id=? AND k.customer_id=? AND c.tenant_id=?", khataId, customerId, t);
+  if (!k || k.type !== "credit") throw new AppError(400, "Ye is customer ki payment nahi");
+  let free = round2(k.amount - (get("SELECT COALESCE(SUM(amount),0) v FROM parchi_alloc WHERE khata_id=?", khataId)!.v as number));
+  if (free <= 0.5) throw new AppError(400, "Is payment ki poori raqam pehle hi parchiyon par lag chuki hai");
+  const parts = openParts(customerId);
+  const out: { parchi_id: number; amount: number }[] = [];
+  tx(() => {
+    for (const pid of parchiIds) {
+      if (free <= 0.005) break;
+      const p = get("SELECT * FROM parchi_lines WHERE id=? AND customer_id=? AND tenant_id=? AND voided=0", pid, customerId, t);
+      if (!p) throw new AppError(400, `PR-${pid} is customer ki parchi nahi`);
+      const owed = parts.get(p.khata_id) ?? 0;
+      const take = round2(Math.min(owed, free));
+      if (take <= 0.005) continue;
+      run("INSERT INTO parchi_alloc (tenant_id,customer_id,khata_id,parchi_id,amount,created_by,created_at) VALUES (?,?,?,?,?,?,?)", t, customerId, khataId, pid, take, by, now());
+      free = round2(free - take); out.push({ parchi_id: pid, amount: take });
+    }
+  });
+  return { allocated: out, left: free };
 }
 
 export const bookQuery = z.object({
@@ -169,13 +202,17 @@ export function parchiBook(t: number, q: BookQuery) {
       ${q.customer_id ? "AND p.customer_id=?" : ""} ${q.from ? "AND p.parchi_date >= ?" : ""} ${q.to ? "AND p.parchi_date <= ?" : ""} ${showVoid ? "" : "AND p.voided=0"}
       ORDER BY p.parchi_date DESC, p.id DESC LIMIT 5000`, ...[t, ...(q.customer_id ? [q.customer_id] : []), ...(q.from ? [q.from] : []), ...(q.to ? [q.to] : [])]);
   const parts = new Map<number, Map<number, number>>();
+  // the payments tied to each parchi (K-ids), shown next to its status
+  const tiedTo = new Map<number, string>();
+  for (const a of all(`SELECT parchi_id, GROUP_CONCAT('K-'||khata_id, ', ') ks FROM parchi_alloc WHERE tenant_id=? ${q.customer_id ? "AND customer_id=?" : ""} GROUP BY parchi_id`, ...[t, ...(q.customer_id ? [q.customer_id] : [])]))
+    tiedTo.set(a.parchi_id as number, a.ks as string);
   const words = (q.q ?? "").toLowerCase().split(/\s+/).filter(Boolean);
   const list = rows.map((r) => {
     if (r.voided) return { ...r, unpaid: 0, status: "void", age: null };
     if (!parts.has(r.customer_id)) parts.set(r.customer_id, openParts(r.customer_id));
     const left = parts.get(r.customer_id)!.get(r.khata_id) ?? 0;
     const status = left <= 0.5 ? "paid" : left >= r.amount - 0.5 ? "unpaid" : "part";
-    return { ...r, unpaid: left, status, age: status === "paid" ? null : ageDays(r.parchi_date) };
+    return { ...r, unpaid: left, status, age: status === "paid" ? null : ageDays(r.parchi_date), paid_by: tiedTo.get(r.id) ?? null };
   }).filter((r) => (!q.tag || String(r.tag ?? "").toLowerCase() === q.tag.toLowerCase()) && (q.older == null || (r.age != null && r.age > q.older)) && (!q.vehicle || key(r.vehicle_no).includes(key(q.vehicle))) && (!q.slip || String(r.slip_no ?? "").toLowerCase().includes(q.slip.toLowerCase()))
     && (!q.kind || r.kind === q.kind) && (!q.product || r.product === q.product) && (q.min == null || r.amount >= q.min) && (q.max == null || r.amount <= q.max)
     && (!q.by || String(r.created_by ?? "").toLowerCase().includes(q.by.toLowerCase()))
@@ -192,6 +229,30 @@ export function parchiBook(t: number, q: BookQuery) {
     customers: new Set(live.map((r) => r.customer_id)).size, deleted: list.length - live.length } };
 }
 parchi.get("/parchi/book", requirePerm("khata.manage"), h((req) => parchiBook(tid(req), parse(bookQuery, req.query))));
+
+/** This customer's payments, newest first, with how much of each is already tied to parchiyan (for "purani payment se jorein"). */
+parchi.get("/parchi/payments", requirePerm("khata.manage"), h((req) => {
+  const q = parse(z.object({ customer_id: z.coerce.number().int() }), req.query);
+  own(tid(req), q.customer_id);
+  return all(`SELECT k.id, k.amount, k.ref method, k.note, k.created_at, COALESCE((SELECT SUM(a.amount) FROM parchi_alloc a WHERE a.khata_id=k.id),0) tied
+    FROM khata_ledger k WHERE k.customer_id=? AND k.type='credit' AND COALESCE(k.ref,'') NOT LIKE 'xfer:%' ORDER BY k.created_at DESC, k.id DESC LIMIT 60`, q.customer_id)
+    .map((r) => ({ ...r, tied: round2(r.tied as number), free: round2((r.amount as number) - (r.tied as number)) }));
+}));
+parchi.post("/parchi/allocate", requirePerm("khata.manage"), h((req) => {
+  staffOnly(req.user!.role);
+  const b = parse(z.object({ customer_id: z.number().int(), khata_id: z.number().int(), parchi_ids: z.array(z.number().int()).min(1).max(500) }), req.body);
+  const r = allocatePayment(tid(req), b.customer_id, b.khata_id, b.parchi_ids, req.user!.name);
+  audit(tid(req), req.user!, "parchi:allocate", `K-${b.khata_id}`, { customer_id: b.customer_id, ...r });
+  return r;
+}));
+/** Untie a payment from its parchiyan (they go back to oldest-first). */
+parchi.post("/parchi/allocate/:khataId/clear", requirePerm("khata.manage"), h((req) => {
+  staffOnly(req.user!.role);
+  const t = tid(req), id = Number(req.params.khataId);
+  const n = run("DELETE FROM parchi_alloc WHERE khata_id=? AND tenant_id=?", id, t).changes;
+  audit(t, req.user!, "parchi:unallocate", `K-${id}`, { rows: n });
+  return { ok: true, removed: n };
+}));
 
 /** Parchi aging: unpaid parchi money by how old the parchi is (0-30 / 31-60 / 61-90 / 90+ days), per customer, oldest first. */
 export function parchiAging(t: number, customerId?: number) {
