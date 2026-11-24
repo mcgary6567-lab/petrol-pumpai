@@ -30,6 +30,14 @@ const own = (t: number, id: number) => {
   return c;
 };
 
+/** A parchi's own khata row — only when it is still that row (same customer, ref PR-<id> / a legacy PARCHI-), never a
+ *  reused id that now belongs to some other entry. */
+function khataOf(p: any) {
+  if (!p?.khata_id) return null;
+  return get("SELECT * FROM khata_ledger WHERE id=? AND customer_id=? AND (ref=? OR ref LIKE 'PARCHI-%')", p.khata_id, p.customer_id, `PR-${p.id}`) ?? null;
+}
+const ownActive = (t: number, id: number) => { const c = own(t, id); if (c.active === 0) throw new AppError(400, `${c.name} archive hai — pehle customer wapas active karein`); return c; };
+
 /** The rate of every fuel on a day (the price in force at that day's end; today = now). With a customer: his khata rate
  *  card (fixed, or pump − X, the card in force that day) — the same rate his POS khata fills get, never above the board. */
 function ratesOn(t: number, d: string, customerId?: number | null) {
@@ -59,7 +67,7 @@ parchi.get("/parchi/meta", requirePerm("khata.manage"), h((req) => {
     // slip nos. already on this khata — the form warns before the same parchi goes on twice
     out.slips = [
       ...all("SELECT slip_no slip, 'PR-'||id ref, parchi_date date FROM parchi_lines WHERE customer_id=? AND voided=0 AND slip_no IS NOT NULL AND TRIM(slip_no)<>'' ORDER BY id DESC LIMIT 5000", c.id),
-      ...all("SELECT slip_no slip, 'K-'||id ref, substr(created_at,1,10) date FROM khata_ledger WHERE customer_id=? AND slip_no IS NOT NULL AND TRIM(slip_no)<>'' AND COALESCE(ref,'') NOT LIKE 'PR-%' ORDER BY id DESC LIMIT 5000", c.id),
+      ...all("SELECT slip_no slip, 'K-'||id ref, substr(created_at,1,10) date FROM khata_ledger WHERE customer_id=? AND slip_no IS NOT NULL AND TRIM(slip_no)<>'' AND COALESCE(ref,'') NOT LIKE 'PR-%' AND COALESCE(ref,'') NOT LIKE 'PARCHI-%' ORDER BY id DESC LIMIT 5000", c.id),
     ];
   }
   return out;
@@ -96,16 +104,25 @@ function priceLine(req: Parameters<typeof backdateAt>[0], t: number, l: z.infer<
     if (!rate) throw new AppError(400, `${tag}: ${it.name} ka rate likhein`);
     label = `${round2(l.qty)} × ${it.name} @ ${rate}`;
   }
-  return { ...l, at, rate: round2(rate), amount: round2(l.amount ?? l.qty * rate), product, itemId, itemName, label };
+  const qty = Math.round(l.qty * 1000) / 1000; // the stored qty is the one billed: qty × rate = amount on every paper
+  return { ...l, qty, at, rate: round2(rate), amount: round2(l.amount ?? qty * rate), product, itemId, itemName, label };
 }
 
 /** Save many parchiyan for one customer in one go (all or nothing). */
-export function saveParchis(req: Parameters<Parameters<typeof h>[0]>[0], customerId: number, lines: z.infer<typeof lineSchema>[], note?: string | null, tag?: string | null) {
+export function saveParchis(req: Parameters<Parameters<typeof h>[0]>[0], customerId: number, lines: z.infer<typeof lineSchema>[], note?: string | null, tag?: string | null, clientBatch?: string | null) {
   const t = tid(req);
   staffOnly(req.user!.role);
-  const c = own(t, customerId);
+  const c = ownActive(t, customerId);
   if (!lines.length) throw new AppError(400, "Kam az kam ek parchi likhein");
-  const batch = crypto.randomUUID();
+  // the same Save sent twice (double tap, a retry on a weak line) is saved once: the browser's batch id is kept
+  if (clientBatch) {
+    const prev = all("SELECT id, amount FROM parchi_lines WHERE batch_id=? AND tenant_id=? ORDER BY id", clientBatch, t);
+    if (prev.length) {
+      const total = round2(prev.reduce((a, r) => a + (r.amount as number), 0)), balance = round2(get("SELECT balance FROM customers WHERE id=?", c.id)!.balance as number);
+      return { batch_id: clientBatch, ids: prev.map((r) => r.id as number), entry_ids: prev.map((r) => `PR-${r.id}`), total, balance, over_limit: c.credit_limit > 0 && balance > c.credit_limit, duplicate: true };
+    }
+  }
+  const batch = clientBatch || crypto.randomUUID();
   const by = req.user!.name;
   const rateCache: Record<string, Record<string, number>> = {};
   const priced = lines.map((l, i) => priceLine(req, t, l, `Line ${i + 1}`, rateCache, c.id));
@@ -115,7 +132,7 @@ export function saveParchis(req: Parameters<Parameters<typeof h>[0]>[0], custome
     for (const l of priced) {
       const pid = run(`INSERT INTO parchi_lines (tenant_id,customer_id,batch_id,parchi_date,slip_no,vehicle_no,kind,product,item_id,item_name,qty,rate,amount,note,tag,created_by,created_at)
         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, t, c.id, batch, l.parchi_date, l.slip_no || null, l.vehicle_no || null, l.kind, l.product, l.itemId, l.itemName,
-        round2(l.qty), l.rate, l.amount, note || null, tag?.trim() || null, by, now()).id as number;
+        l.qty, l.rate, l.amount, note || null, tag?.trim() || null, by, now()).id as number;
       const k = run("INSERT INTO khata_ledger (customer_id,type,amount,ref,note,vehicle_no,slip_no,created_at) VALUES (?,?,?,?,?,?,?,?)",
         c.id, "debit", l.amount, `PR-${pid}`, ["🎫 Parchi", l.label, note].filter(Boolean).join(" · "), l.vehicle_no || null, l.slip_no || null, l.at).id as number;
       run("UPDATE parchi_lines SET khata_id=? WHERE id=?", k, pid);
@@ -133,49 +150,70 @@ export function saveParchis(req: Parameters<Parameters<typeof h>[0]>[0], custome
 }
 
 parchi.post("/parchi/batch", requirePerm("khata.manage"), h((req) => {
-  const b = parse(z.object({ customer_id: z.number().int(), note: z.string().trim().max(200).optional().nullable(), tag: z.string().trim().max(60).optional().nullable(), lines: z.array(lineSchema).min(1).max(200) }), req.body);
-  return saveParchis(req, b.customer_id, b.lines, b.note, b.tag);
+  const b = parse(z.object({ customer_id: z.number().int(), note: z.string().trim().max(200).optional().nullable(), tag: z.string().trim().max(60).optional().nullable(), lines: z.array(lineSchema).min(1).max(200),
+    batch_id: z.string().uuid().optional().nullable() }), req.body);
+  return saveParchis(req, b.customer_id, b.lines, b.note, b.tag, b.batch_id);
 }));
 
 /** Each charge's unpaid part. A payment tied to chosen parchiyan (parchi_alloc) pays those first; the rest of it — and every
  *  other payment — clears the oldest charge first (an advance paid ahead clears the next ones). */
-function openParts(customerId: number) {
+function openParts(customerId: number, skipPay?: number) {
   const rows = all("SELECT id, type, amount FROM khata_ledger WHERE customer_id=? ORDER BY created_at, id", customerId);
+  // live ties only: the parchi is not deleted, its khata row is still there, and the payment is this customer's credit
   const tied = new Map<number, { khata: number; amount: number }[]>();
-  for (const a of all("SELECT a.khata_id pay, p.khata_id target, a.amount FROM parchi_alloc a JOIN parchi_lines p ON p.id=a.parchi_id WHERE a.customer_id=? AND p.voided=0 ORDER BY a.id", customerId))
+  for (const a of all(`SELECT a.khata_id pay, d.id target, a.amount FROM parchi_alloc a JOIN parchi_lines p ON p.id=a.parchi_id AND p.voided=0
+      JOIN khata_ledger d ON d.id=p.khata_id AND d.customer_id=a.customer_id JOIN khata_ledger k ON k.id=a.khata_id AND k.customer_id=a.customer_id AND k.type='credit'
+      WHERE a.customer_id=? ORDER BY a.id`, customerId))
     tied.set(a.pay as number, [...(tied.get(a.pay as number) ?? []), { khata: a.target as number, amount: a.amount as number }]);
   const open: { id: number; left: number }[] = [];
   const byId = new Map<number, { id: number; left: number }>();
+  const reserved = new Map<number, number>(); // a payment tied to a parchi that comes after it (payment received in advance)
   let advance = 0;
   for (const r of rows) {
-    if (r.type === "debit") { const use = Math.min(advance, r.amount); advance -= use; const o = { id: r.id, left: r.amount - use }; open.push(o); byId.set(r.id, o); continue; }
+    if (r.type === "debit") {
+      const pre = Math.min(reserved.get(r.id) ?? 0, r.amount); advance += (reserved.get(r.id) ?? 0) - pre;
+      let left = r.amount - pre; const use = Math.min(advance, left); advance -= use; left -= use;
+      const o = { id: r.id, left }; open.push(o); byId.set(r.id, o); continue;
+    }
     let pay = r.amount;
-    for (const t of tied.get(r.id) ?? []) { const o = byId.get(t.khata); if (!o || pay <= 0) continue; const take = Math.min(o.left, t.amount, pay); o.left -= take; pay -= take; }
+    for (const t of tied.get(r.id) ?? []) {
+      if (pay <= 0) break;
+      const o = byId.get(t.khata);
+      if (o) { const take = Math.min(o.left, t.amount, pay); o.left -= take; pay -= take; }
+      else { const take = Math.min(t.amount, pay); reserved.set(t.khata, (reserved.get(t.khata) ?? 0) + take); pay -= take; }
+    }
+    if (r.id === skipPay) continue; // allocate: what this payment's untied money is NOT yet doing
     for (const o of open) { if (pay <= 0) break; const take = Math.min(o.left, pay); o.left -= take; pay -= take; }
     advance += pay;
   }
   return new Map(open.map((o) => [o.id, round2(o.left)]));
 }
+/** money of a payment already tied to live parchiyan */
+const tiedOf = (khataId: number, customerId: number) => round2(get(`SELECT COALESCE(SUM(a.amount),0) v FROM parchi_alloc a JOIN parchi_lines p ON p.id=a.parchi_id AND p.voided=0
+  WHERE a.khata_id=? AND a.customer_id=?`, khataId, customerId)!.v as number);
 
 /** Tie a khata payment to chosen parchiyan: its money (what is not tied already) goes to them in the order given, each up
- *  to what it still owes. Nothing about the money changes — the khata balance, cash and books stay as they are; only which
- *  parchi shows Paid. */
+ *  to what it still owes (worked out without this payment's own untied money). Nothing about the money changes — the
+ *  khata balance, cash and books stay as they are; only which parchi shows Paid. */
 export function allocatePayment(t: number, customerId: number, khataId: number, parchiIds: number[], by: string) {
   const k = get("SELECT k.* FROM khata_ledger k JOIN customers c ON c.id=k.customer_id WHERE k.id=? AND k.customer_id=? AND c.tenant_id=?", khataId, customerId, t);
-  if (!k || k.type !== "credit") throw new AppError(400, "Ye is customer ki payment nahi");
-  let free = round2(k.amount - (get("SELECT COALESCE(SUM(amount),0) v FROM parchi_alloc WHERE khata_id=?", khataId)!.v as number));
+  if (!k || k.type !== "credit" || /^xfer:/i.test(String(k.ref ?? ""))) throw new AppError(400, "Ye is customer ki payment nahi");
+  let free = round2(k.amount - tiedOf(khataId, customerId));
   if (free <= 0.5) throw new AppError(400, "Is payment ki poori raqam pehle hi parchiyon par lag chuki hai");
-  const parts = openParts(customerId);
+  const parts = openParts(customerId, khataId);
   const out: { parchi_id: number; amount: number }[] = [];
   tx(() => {
-    for (const pid of parchiIds) {
+    for (const pid of [...new Set(parchiIds)]) {
       if (free <= 0.005) break;
       const p = get("SELECT * FROM parchi_lines WHERE id=? AND customer_id=? AND tenant_id=? AND voided=0", pid, customerId, t);
       if (!p) throw new AppError(400, `PR-${pid} is customer ki parchi nahi`);
-      const owed = parts.get(p.khata_id) ?? 0;
+      const kr = khataOf(p);
+      if (!kr) continue;
+      const owed = parts.get(kr.id) ?? 0;
       const take = round2(Math.min(owed, free));
       if (take <= 0.005) continue;
       run("INSERT INTO parchi_alloc (tenant_id,customer_id,khata_id,parchi_id,amount,created_by,created_at) VALUES (?,?,?,?,?,?,?)", t, customerId, khataId, pid, take, by, now());
+      parts.set(kr.id, round2(owed - take));
       free = round2(free - take); out.push({ parchi_id: pid, amount: take });
     }
   });
@@ -196,11 +234,12 @@ const key = (v: unknown) => String(v ?? "").toUpperCase().replace(/[^A-Z0-9]/g, 
 
 /** The Parchi Book: every parchi with its status (Paid / part / Unpaid), with every filter (customer, parchi date range,
  *  gaari, slip, fuel / shop, fuel type, status, amount range, entered by, free text). Deleted ones only when asked. */
-export function parchiBook(t: number, q: BookQuery) {
+export function parchiBook(t: number, q: BookQuery, opt: { all?: boolean } = {}) {
   const showVoid = !!q.voided || q.status === "void";
-  const rows = all(`SELECT p.*, c.name customer, c.phone customer_phone FROM parchi_lines p JOIN customers c ON c.id=p.customer_id WHERE p.tenant_id=?
+  const rows = all(`SELECT p.*, c.name customer, c.phone customer_phone, k.id kid FROM parchi_lines p JOIN customers c ON c.id=p.customer_id
+      LEFT JOIN khata_ledger k ON k.id=p.khata_id AND k.customer_id=p.customer_id AND (k.ref='PR-'||p.id OR k.ref LIKE 'PARCHI-%') WHERE p.tenant_id=?
       ${q.customer_id ? "AND p.customer_id=?" : ""} ${q.from ? "AND p.parchi_date >= ?" : ""} ${q.to ? "AND p.parchi_date <= ?" : ""} ${showVoid ? "" : "AND p.voided=0"}
-      ORDER BY p.parchi_date DESC, p.id DESC LIMIT 5000`, ...[t, ...(q.customer_id ? [q.customer_id] : []), ...(q.from ? [q.from] : []), ...(q.to ? [q.to] : [])]);
+      ORDER BY p.parchi_date DESC, p.id DESC ${opt.all ? "" : "LIMIT 5000"}`, ...[t, ...(q.customer_id ? [q.customer_id] : []), ...(q.from ? [q.from] : []), ...(q.to ? [q.to] : [])]);
   const parts = new Map<number, Map<number, number>>();
   // the payments tied to each parchi (K-ids), shown next to its status
   const tiedTo = new Map<number, string>();
@@ -209,6 +248,7 @@ export function parchiBook(t: number, q: BookQuery) {
   const words = (q.q ?? "").toLowerCase().split(/\s+/).filter(Boolean);
   const list = rows.map((r) => {
     if (r.voided) return { ...r, unpaid: 0, status: "void", age: null };
+    if (!r.kid) return { ...r, unpaid: 0, status: "gone", age: null }; // its khata entry was removed elsewhere — see 📊 Hisaab
     if (!parts.has(r.customer_id)) parts.set(r.customer_id, openParts(r.customer_id));
     const left = parts.get(r.customer_id)!.get(r.khata_id) ?? 0;
     const status = left <= 0.5 ? "paid" : left >= r.amount - 0.5 ? "unpaid" : "part";
@@ -219,14 +259,14 @@ export function parchiBook(t: number, q: BookQuery) {
     && (!q.status || (q.status === "open" ? r.status === "unpaid" || r.status === "part" : r.status === q.status))
     && (!words.length || words.every((w) => [r.customer, r.customer_phone, r.slip_no, r.vehicle_no, r.item_name, r.product ? PRODUCTS[r.product] : "", r.note, r.tag, r.created_by, `pr-${r.id}`, `k-${r.khata_id}`, r.amount]
       .filter((v) => v != null).join(" ").toLowerCase().includes(w))));
-  const live = list.filter((r) => r.status !== "void");
+  const live = list.filter((r) => r.status !== "void" && r.status !== "gone");
   const sum = (xs: any[], f: (r: any) => number) => round2(xs.reduce((a, r) => a + f(r), 0));
   const byFuel: Record<string, { product: string; n: number; litres: number; amount: number }> = {};
   for (const r of live.filter((x) => x.kind === "fuel")) { byFuel[r.product] ??= { product: r.product, n: 0, litres: 0, amount: 0 }; byFuel[r.product].n++; byFuel[r.product].litres = round2(byFuel[r.product].litres + r.qty); byFuel[r.product].amount = round2(byFuel[r.product].amount + r.amount); }
   return { rows: list, totals: { n: live.length, amount: sum(live, (r) => r.amount), unpaid: sum(live, (r) => r.unpaid), paid: sum(live, (r) => r.amount - r.unpaid),
     fuel: sum(live.filter((r) => r.kind === "fuel"), (r) => r.amount), shop: sum(live.filter((r) => r.kind === "shop"), (r) => r.amount), other: sum(live.filter((r) => r.kind === "other"), (r) => r.amount),
     litres: sum(live.filter((r) => r.kind === "fuel"), (r) => r.qty), by_fuel: Object.values(byFuel), vehicles: new Set(live.map((r) => key(r.vehicle_no)).filter(Boolean)).size,
-    customers: new Set(live.map((r) => r.customer_id)).size, deleted: list.length - live.length } };
+    customers: new Set(live.map((r) => r.customer_id)).size, deleted: list.filter((r) => r.status === "void").length, missing: list.filter((r) => r.status === "gone").length }, truncated: !opt.all && rows.length >= 5000 };
 }
 parchi.get("/parchi/book", requirePerm("khata.manage"), h((req) => parchiBook(tid(req), parse(bookQuery, req.query))));
 
@@ -234,7 +274,7 @@ parchi.get("/parchi/book", requirePerm("khata.manage"), h((req) => parchiBook(ti
 parchi.get("/parchi/payments", requirePerm("khata.manage"), h((req) => {
   const q = parse(z.object({ customer_id: z.coerce.number().int() }), req.query);
   own(tid(req), q.customer_id);
-  return all(`SELECT k.id, k.amount, k.ref method, k.note, k.created_at, COALESCE((SELECT SUM(a.amount) FROM parchi_alloc a WHERE a.khata_id=k.id),0) tied
+  return all(`SELECT k.id, k.amount, k.ref method, k.note, k.created_at, COALESCE((SELECT SUM(a.amount) FROM parchi_alloc a JOIN parchi_lines p ON p.id=a.parchi_id AND p.voided=0 WHERE a.khata_id=k.id AND a.customer_id=k.customer_id),0) tied
     FROM khata_ledger k WHERE k.customer_id=? AND k.type='credit' AND COALESCE(k.ref,'') NOT LIKE 'xfer:%' ORDER BY k.created_at DESC, k.id DESC LIMIT 60`, q.customer_id)
     .map((r) => ({ ...r, tied: round2(r.tied as number), free: round2((r.amount as number) - (r.tied as number)) }));
 }));
@@ -283,12 +323,17 @@ parchi.post("/parchi/bulk", requirePerm("khata.manage"), h((req) => {
   tx(() => {
     for (const p of rows) {
       if (b.field === "date") {
-        const k = p.khata_id ? get("SELECT created_at FROM khata_ledger WHERE id=?", p.khata_id) : null;
+        const k = khataOf(p);
         if (k) { const d = khataDay(k.created_at); backdateAt(req, t, d === pkDate() ? null : d); } // its old day closed: CEO only
         run("UPDATE parchi_lines SET parchi_date=? WHERE id=?", b.value, p.id);
-        if (p.khata_id) run("UPDATE khata_ledger SET created_at=? WHERE id=?", at, p.khata_id);
+        if (k) run("UPDATE khata_ledger SET created_at=? WHERE id=?", at, k.id);
       } else if (b.field === "tag") run("UPDATE parchi_lines SET tag=? WHERE id=?", b.value || null, p.id);
-      else { run("UPDATE parchi_lines SET vehicle_no=? WHERE id=?", b.value?.toUpperCase() || null, p.id); if (p.khata_id) run("UPDATE khata_ledger SET vehicle_no=? WHERE id=?", b.value?.toUpperCase() || null, p.khata_id); }
+      else {
+        const k = khataOf(p);
+        if (k) { const d = khataDay(k.created_at); backdateAt(req, t, d === pkDate() ? null : d); } // a closed day's khata: CEO only
+        run("UPDATE parchi_lines SET vehicle_no=? WHERE id=?", b.value?.toUpperCase() || null, p.id);
+        if (k) run("UPDATE khata_ledger SET vehicle_no=? WHERE id=?", b.value?.toUpperCase() || null, k.id);
+      }
       audit(t, req.user!, "parchi:bulk", `PR-${p.id}`, { field: b.field, before: b.field === "date" ? p.parchi_date : b.field === "tag" ? p.tag : p.vehicle_no, after: b.value });
     }
   });
@@ -298,20 +343,21 @@ parchi.post("/parchi/bulk/void", requirePerm("khata.manage"), h((req) => {
   const t = tid(req);
   staffOnly(req.user!.role);
   const b = parse(z.object({ ids: z.array(z.number().int()).min(1).max(500), reason: z.string().trim().min(3, "Wajah likhein").max(200) }), req.body);
-  let total = 0;
+  let total = 0, done = 0;
   tx(() => {
-    for (const id of b.ids) {
+    for (const id of [...new Set(b.ids)]) {
       const p = get("SELECT * FROM parchi_lines WHERE id=? AND tenant_id=? AND voided=0", id, t);
       if (!p) continue;
-      const k = p.khata_id ? get("SELECT * FROM khata_ledger WHERE id=?", p.khata_id) : null;
+      done++;
+      const k = khataOf(p);
       if (k) { const d = khataDay(k.created_at); backdateAt(req, t, d === pkDate() ? null : d); run("DELETE FROM khata_ledger WHERE id=?", k.id); run("UPDATE customers SET balance = balance - ? WHERE id=?", k.amount, p.customer_id); total += k.amount as number; }
       run("UPDATE parchi_lines SET voided=1, void_reason=? WHERE id=?", b.reason, p.id);
       run("DELETE FROM parchi_alloc WHERE parchi_id=?", p.id);
       audit(t, req.user!, "parchi:void", `PR-${p.id}`, { amount: p.amount, reason: b.reason, bulk: true });
     }
   });
-  if (total > 0.5) createAlert(t, { type: "khata_parchi", severity: "info", title: `${b.ids.length} parchi delete — ${pkr(total)}`, body: `${req.user!.name} ne ${b.ids.length} parchi ek saath delete kin (${pkr(total)}). Wajah: ${b.reason}` });
-  return { ok: true, deleted: b.ids.length, amount: round2(total) };
+  if (total > 0.5) createAlert(t, { type: "khata_parchi", severity: "info", title: `${done} parchi delete — ${pkr(total)}`, body: `${req.user!.name} ne ${done} parchi ek saath delete kin (${pkr(total)}). Wajah: ${b.reason}` });
+  return { ok: true, deleted: done, amount: round2(total) };
 }));
 
 /* ---------------- 33: the customer's rate card changed — which fuel parchiyan would bill differently now ---------------- */
@@ -344,7 +390,7 @@ parchi.post("/parchi/reprice", requirePerm("khata.manage"), h((req) => {
       const p = get("SELECT * FROM parchi_lines WHERE id=? AND tenant_id=? AND voided=0 AND kind='fuel'", id, t);
       if (!p) continue;
       const nr = newRateFor(t, p); if (nr == null || Math.abs(nr - p.rate) < 0.005) continue;
-      const k = p.khata_id ? get("SELECT * FROM khata_ledger WHERE id=?", p.khata_id) : null;
+      const k = khataOf(p);
       if (k) { const d = khataDay(k.created_at); backdateAt(req, t, d === pkDate() ? null : d); }
       const amount = round2(p.qty * nr), dd = round2(amount - p.amount);
       run("UPDATE parchi_lines SET rate=?, amount=? WHERE id=?", nr, amount, p.id);
@@ -425,9 +471,41 @@ parchi.get("/parchi/vehicle-day", requirePerm("khata.manage"), h((req) => {
   return out;
 }));
 
+/* ---------------- ERP view: the parchi journal and a control check (parchi lines ↔ khata rows) ---------------- */
+export function parchiAccounts(t: number, q: { customer_id?: number; from?: string; to?: string }) {
+  const W = `p.tenant_id=? ${q.customer_id ? "AND p.customer_id=?" : ""} ${q.from ? "AND p.parchi_date >= ?" : ""} ${q.to ? "AND p.parchi_date <= ?" : ""}`;
+  const A = [t, ...(q.customer_id ? [q.customer_id] : []), ...(q.from ? [q.from] : []), ...(q.to ? [q.to] : [])];
+  const live = get(`SELECT COUNT(*) n, COALESCE(SUM(amount),0) a, COALESCE(SUM(CASE WHEN kind='fuel' THEN amount END),0) fuel, COALESCE(SUM(CASE WHEN kind<>'fuel' THEN amount END),0) other FROM parchi_lines p WHERE ${W} AND voided=0`, ...A)!;
+  const dead = get(`SELECT COUNT(*) n, COALESCE(SUM(amount),0) a FROM parchi_lines p WHERE ${W} AND voided=1`, ...A)!;
+  // control: every live parchi has its khata row with the same amount, and the same customer; a deleted one has none
+  const bad = all(`SELECT p.id, p.amount, p.customer_id, p.voided, k.id kid, k.amount kamount, k.customer_id kcust, k.ref
+      FROM parchi_lines p LEFT JOIN khata_ledger k ON k.id=p.khata_id WHERE ${W}
+      AND ((p.voided=0 AND (k.id IS NULL OR ABS(k.amount-p.amount) > 0.005 OR k.customer_id<>p.customer_id OR (k.ref<>'PR-'||p.id AND k.ref NOT LIKE 'PARCHI-%'))) OR (p.voided=1 AND k.id IS NOT NULL))`, ...A)
+    .map((r) => ({ id: r.id, problem: r.voided ? "Delete hui parchi ki khata entry abhi bhi hai" : !r.kid ? "Khata entry nahi mili" : r.kcust !== r.customer_id ? "Khata entry doosre customer par" : r.ref !== `PR-${r.id}` && !String(r.ref).startsWith("PARCHI-") ? "Khata entry ka number badla hua" : `Raqam farq: parchi ${pkr(r.amount as number)} · khata ${pkr(r.kamount as number)}` }));
+  // khata rows that say PR-n but whose parchi is gone / deleted (only when not narrowed to dates: a row has no parchi date)
+  const orphans = q.from || q.to ? [] : all(`SELECT k.id, k.ref, k.amount FROM khata_ledger k JOIN customers c ON c.id=k.customer_id WHERE c.tenant_id=? ${q.customer_id ? "AND k.customer_id=?" : ""}
+      AND k.ref LIKE 'PR-%' AND NOT EXISTS (SELECT 1 FROM parchi_lines p WHERE p.khata_id=k.id AND p.voided=0)`, ...[t, ...(q.customer_id ? [q.customer_id] : [])])
+    .map((r) => ({ id: r.id, problem: `Khata ${r.ref} (K-${r.id}, ${pkr(r.amount as number)}) ki parchi nahi mili` }));
+  const ag = parchiBook(t, { customer_id: q.customer_id, from: q.from, to: q.to }, { all: true }).totals;
+  const amt = round2(live.a as number);
+  return {
+    parchi: { n: live.n, amount: amt, fuel: round2(live.fuel as number), other: round2(live.other as number) }, deleted: { n: dead.n, amount: round2(dead.a as number) },
+    paid: ag.paid, unpaid: ag.unpaid,
+    journal: [
+      { what: "Parchi likhi (khate par udhaar)", lines: [{ account: "Khata receivable", debit: amt, credit: 0 }, { account: "Other income — Parchi", debit: 0, credit: amt }] },
+      { what: "Parchi ki payment aayi (khata payment)", lines: [{ account: "Cash / Bank", debit: ag.paid, credit: 0 }, { account: "Khata receivable", debit: 0, credit: ag.paid }] },
+    ],
+    control: { ok: !bad.length && !orphans.length, problems: [...bad, ...orphans].slice(0, 200) },
+  };
+}
+parchi.get("/parchi/accounts", requirePerm("khata.manage"), h((req) => {
+  const q = parse(z.object({ customer_id: z.coerce.number().int().optional(), from: day.optional(), to: day.optional() }), req.query);
+  return parchiAccounts(tid(req), q);
+}));
+
 /** Parchi aging: unpaid parchi money by how old the parchi is (0-30 / 31-60 / 61-90 / 90+ days), per customer, oldest first. */
 export function parchiAging(t: number, customerId?: number) {
-  const rows = parchiBook(t, { customer_id: customerId, status: "open" }).rows.filter((r: any) => r.unpaid > 0.5);
+  const rows = parchiBook(t, { customer_id: customerId, status: "open" }, { all: true }).rows.filter((r: any) => r.unpaid > 0.5);
   const B = () => ({ d0_30: 0, d31_60: 0, d61_90: 0, d90: 0 });
   const put = (b: ReturnType<typeof B>, age: number, v: number) => { const k = age <= 30 ? "d0_30" : age <= 60 ? "d31_60" : age <= 90 ? "d61_90" : "d90"; b[k] = round2(b[k] + v); };
   const total = B(); const per = new Map<number, any>();
@@ -465,10 +543,10 @@ parchi.patch("/parchi/:id", requirePerm("khata.manage"), h((req) => {
   const p = get("SELECT * FROM parchi_lines WHERE id=? AND tenant_id=?", Number(req.params.id), t);
   if (!p) throw new AppError(404, "Parchi not found");
   if (p.voided) throw new AppError(400, "Ye parchi delete ho chuki hai");
-  const k = p.khata_id ? get("SELECT * FROM khata_ledger WHERE id=?", p.khata_id) : null;
+  const k = khataOf(p);
   if (k) { const d = khataDay(k.created_at); backdateAt(req, t, d === pkDate() ? null : d); } // the old day closed: CEO only
   // a parchi written on the wrong customer moves to the right one (his khata, his balance)
-  const to = b.customer_id && b.customer_id !== p.customer_id ? own(t, b.customer_id) : null;
+  const to = b.customer_id && b.customer_id !== p.customer_id ? ownActive(t, b.customer_id) : null;
   const from = to ? get("SELECT id, name FROM customers WHERE id=?", p.customer_id)! : null;
   let line;
   if (b.kind === "other") {
@@ -489,6 +567,7 @@ parchi.patch("/parchi/:id", requirePerm("khata.manage"), h((req) => {
       run("UPDATE khata_ledger SET amount=?, note=?, vehicle_no=?, slip_no=?, created_at=? WHERE id=?", line.amount,
         ["🎫 Parchi", line.label, p.note].filter(Boolean).join(" · "), b.vehicle_no || null, b.slip_no || null, at, k.id);
       if (to) {
+        run("DELETE FROM parchi_alloc WHERE parchi_id=?", p.id); // the old customer's payment no longer pays it
         run("UPDATE khata_ledger SET customer_id=? WHERE id=?", to.id, k.id);
         run("UPDATE customers SET balance = balance - ? WHERE id=?", k.amount, p.customer_id);
         run("UPDATE customers SET balance = balance + ? WHERE id=?", line.amount, to.id);
@@ -513,11 +592,12 @@ parchi.post("/parchi/:id/void", requirePerm("khata.manage"), h((req) => {
   const p = get("SELECT * FROM parchi_lines WHERE id=? AND tenant_id=?", Number(req.params.id), t);
   if (!p) throw new AppError(404, "Parchi not found");
   if (p.voided) throw new AppError(400, "Ye parchi pehle hi delete ho chuki hai");
-  const k = p.khata_id ? get("SELECT * FROM khata_ledger WHERE id=?", p.khata_id) : null;
+  const k = khataOf(p);
   if (k) { const d = khataDay(k.created_at); backdateAt(req, t, d === pkDate() ? null : d); } // closed day: CEO only
   tx(() => {
     if (k) { run("DELETE FROM khata_ledger WHERE id=?", k.id); run("UPDATE customers SET balance = balance - ? WHERE id=?", k.amount, p.customer_id); }
     run("UPDATE parchi_lines SET voided=1, void_reason=? WHERE id=?", b.reason, p.id);
+    run("DELETE FROM parchi_alloc WHERE parchi_id=?", p.id); // its payment's money is free again
     audit(t, req.user!, "parchi:void", `PR-${p.id}`, { amount: p.amount, reason: b.reason });
   });
   return { ok: true, balance: round2(get("SELECT balance FROM customers WHERE id=?", p.customer_id)!.balance as number) };

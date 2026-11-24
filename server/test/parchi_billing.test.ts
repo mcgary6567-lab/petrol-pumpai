@@ -262,3 +262,64 @@ test("Parchi: history, bulk change / delete, templates, rate review, vehicle-day
   const pc = ok(await call("manager", "POST", "/api/parchi/photo-check", { photo_ids: [ph2.id] }), "photo check");
   assert.equal(pc.length, 1); assert.match(pc[0].dup, new RegExp(`PR-${r.ids[1]}`)); void ph1;
 });
+
+test("Parchi audit fixes: payment ties, deletes elsewhere, double save, books check", async () => {
+  const t = db.get("SELECT id FROM tenants ORDER BY id LIMIT 1")!.id as number;
+  const mk = (name: string, phone: string) => (db.run("INSERT INTO customers (tenant_id,name,phone,type,balance,credit_limit,created_at) VALUES (?,?,?,?,?,?,?)", t, name, phone, "retail", 0, 900000, new Date(Date.now() - 30 * 86_400_000).toISOString()) as any).id;
+  const day = (n: number) => new Date(Date.now() - n * 86_400_000 + 5 * 3600_000).toISOString().slice(0, 10);
+  const status = async (cid: number) => Object.fromEntries(ok(await call("manager", "GET", `/api/parchi/book?customer_id=${cid}&voided=1`), "book").rows.map((x: any) => [x.id, x.status]));
+  const bal = (cid: number) => db.get("SELECT balance FROM customers WHERE id=?", cid)!.balance as number;
+
+  // a payment tied to the newer parchi pays IT fully (not the older one first)
+  const a = mk("Audit A", "923000000790");
+  const r = ok(await call("manager", "POST", "/api/parchi/batch", { customer_id: a, lines: [{ parchi_date: day(5), kind: "fuel", product: "PMG", qty: 4, rate: 250 }, { parchi_date: day(2), kind: "fuel", product: "PMG", qty: 16, rate: 250 }] }), "batch");
+  const pay = ok(await call("manager", "POST", `/api/customers/${a}/khata`, { type: "credit", amount: 4000, method: "Cash", notify: false }), "pay");
+  const al = ok(await call("manager", "POST", "/api/parchi/allocate", { customer_id: a, khata_id: pay.khata_id, parchi_ids: [r.ids[1], r.ids[1]] }), "allocate");
+  near(al.allocated[0].amount, 4000); assert.equal(al.allocated.length, 1, "duplicate ids once");
+  assert.deepEqual(await status(a), { [r.ids[0]]: "unpaid", [r.ids[1]]: "paid" });
+  // deleting the tied parchi frees the payment's money
+  ok(await call("manager", "POST", `/api/parchi/${r.ids[1]}/void`, { reason: "test" }), "void");
+  near(ok(await call("manager", "GET", `/api/parchi/payments?customer_id=${a}`), "pays").find((x: any) => x.id === pay.khata_id).free, 4000);
+  // a payment received BEFORE the parchi can still be tied to it
+  const r2 = ok(await call("manager", "POST", "/api/parchi/batch", { customer_id: a, lines: [{ parchi_date: day(0), kind: "fuel", product: "PMG", qty: 2, rate: 250 }] }), "later parchi");
+  ok(await call("manager", "POST", "/api/parchi/allocate", { customer_id: a, khata_id: pay.khata_id, parchi_ids: [r2.ids[0]] }), "tie earlier payment");
+  assert.equal((await status(a))[r2.ids[0]], "paid");
+
+  // moving a tied parchi to another customer drops the tie
+  const b = mk("Audit B", "923000000791");
+  ok(await call("manager", "PATCH", `/api/parchi/${r2.ids[0]}`, { customer_id: b, parchi_date: day(0), kind: "fuel", product: "PMG", qty: 2, rate: 250 }), "move");
+  assert.equal(db.get("SELECT COUNT(*) n FROM parchi_alloc WHERE parchi_id=?", r2.ids[0])!.n, 0);
+  assert.equal((await status(b))[r2.ids[0]], "unpaid");
+
+  // corrections / full edit cannot touch a parchi's khata row
+  const kid = db.get("SELECT id FROM khata_ledger WHERE ref=?", `PR-${r.ids[0]}`)!.id;
+  assert.equal((await call("admin", "POST", `/api/corrections/khata/${kid}/void`, { reason: "test reason" })).status, 400, "corrections refuses parchi rows");
+  // a parchi whose khata row disappears anyway (raw delete) shows as missing, never "paid", and the control check says so
+  db.run("DELETE FROM khata_ledger WHERE id=?", kid); db.run("UPDATE customers SET balance = balance - 1000 WHERE id=?", a);
+  assert.equal((await status(a))[r.ids[0]], "gone");
+  const acc = ok(await call("manager", "GET", `/api/parchi/accounts?customer_id=${a}`), "accounts");
+  assert.equal(acc.control.ok, false); assert.match(acc.control.problems[0].problem, /Khata entry nahi/);
+  // a reused khata id never lets a parchi void touch someone else's row
+  const c = mk("Audit C", "923000000792");
+  const foreign = (db.run("INSERT INTO khata_ledger (id,customer_id,type,amount,ref,note,created_at) VALUES (?,?,?,?,?,?,?)", kid, c, "debit", 777, null, "other", new Date().toISOString()) as any);
+  db.run("UPDATE customers SET balance = balance + 777 WHERE id=?", c); void foreign;
+  const balA = bal(a);
+  ok(await call("manager", "POST", `/api/parchi/${r.ids[0]}/void`, { reason: "test" }), "void stale");
+  assert.equal(db.get("SELECT COUNT(*) n FROM khata_ledger WHERE id=?", kid)!.n, 1, "C's row untouched"); near(bal(a), balA, "A not moved again"); near(bal(c), 777);
+
+  // the same Save twice (same browser batch id) is saved once
+  const bid = "1b4e28ba-2fa1-11d2-883f-0016d3cca427";
+  const s1 = ok(await call("manager", "POST", "/api/parchi/batch", { customer_id: b, batch_id: bid, lines: [{ parchi_date: day(0), kind: "fuel", product: "PMG", qty: 3, rate: 250 }] }), "s1");
+  const b1 = bal(b);
+  const s2 = ok(await call("manager", "POST", "/api/parchi/batch", { customer_id: b, batch_id: bid, lines: [{ parchi_date: day(0), kind: "fuel", product: "PMG", qty: 3, rate: 250 }] }), "s2");
+  assert.deepEqual(s2.ids, s1.ids); assert.equal(s2.duplicate, true); near(bal(b), b1);
+  // bulk delete counts only what it really deleted
+  const bv = ok(await call("manager", "POST", "/api/parchi/bulk/void", { ids: [s1.ids[0], s1.ids[0], 99999999], reason: "test" }), "bulk");
+  assert.equal(bv.deleted, 1);
+  await books();
+  // books check: two customers off in opposite directions is a failure even though the total agrees
+  db.run("UPDATE customers SET balance = balance + 50 WHERE id=?", b); db.run("UPDATE customers SET balance = balance - 50 WHERE id=?", c);
+  const bc = ok(await call("admin", "GET", "/api/books/check"), "check");
+  assert.equal(bc.checks.find((x: any) => x.label === "Khata receivable (customers)").ok, false);
+  db.run("UPDATE customers SET balance = balance - 50 WHERE id=?", b); db.run("UPDATE customers SET balance = balance + 50 WHERE id=?", c);
+});

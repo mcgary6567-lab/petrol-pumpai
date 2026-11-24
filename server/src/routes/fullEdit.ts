@@ -37,6 +37,7 @@ const dayOf = (iso: string) => pkDate(Date.parse(iso));
 function lockedWhy(t: number, kind: Kind, x: Row): string | null {
   const ref = String(x.ref ?? "");
   if (kind === "khata") {
+    if (/^(PR-|PARCHI-)/.test(ref)) return "Ye Parchi Billing ki entry hai — Parchi Billing → Parchi Book se Edit / Delete karein.";
     if (ref.startsWith("SALE-") || x.product) return "Ye POS sale ki khata line hai — Sale edit se badlein (customer, litre, rate, gaari wahan badalte hain).";
     if (ref.startsWith("SHOP-")) return "Ye shop sale ki khata line hai — Shop page se sale edit karein.";
     if (ref.startsWith("oth-")) return "Ye Other-entries (CEO) ki entry hai — Other entries page se badlein.";

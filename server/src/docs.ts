@@ -452,7 +452,7 @@ function parchiBookDoc(t: number, id: number, o: DocOpts): Doc {
 function parchiReceiptDoc(t: number, id: number): Doc {
   const p = get("SELECT batch_id, customer_id FROM parchi_lines WHERE id=? AND tenant_id=?", id, t);
   if (!p) throw new AppError(404, "Parchi not found");
-  const rows = p.batch_id ? all("SELECT * FROM parchi_lines WHERE batch_id=? AND tenant_id=? AND voided=0 ORDER BY parchi_date, id", p.batch_id, t) : all("SELECT * FROM parchi_lines WHERE id=? AND voided=0", id);
+  const rows = p.batch_id ? all("SELECT * FROM parchi_lines WHERE batch_id=? AND tenant_id=? AND customer_id=? AND voided=0 ORDER BY parchi_date, id", p.batch_id, t, p.customer_id) : all("SELECT * FROM parchi_lines WHERE id=? AND voided=0", id);
   const c = get("SELECT id, name, phone, balance, credit_limit FROM customers WHERE id=?", p.customer_id)!;
   const total = round2(rows.reduce((a, r) => a + (r.amount as number), 0));
   const dates = rows.map((r) => r.parchi_date as string).sort();

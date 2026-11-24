@@ -12,7 +12,7 @@ import { printNow } from "../lib/printNow";
 import { WhatsAppDoc } from "../components/WhatsAppDoc";
 import { AccountPicker } from "../components/BankParts";
 import { activeProducts, PRODUCTS, num, pkr } from "../lib/format";
-import { Field, IdTag, Loading, Modal, PageHeader, useAction } from "../components/ui";
+import { Field, IdTag, Loading, Modal, PageHeader, useAction, useToast } from "../components/ui";
 import { ProofPhotos, resizeImage } from "../components/Capture";
 
 const Ur = ({ children }: { children: React.ReactNode }) => <span lang="ur" dir="rtl" className="font-urdu font-normal">{children}</span>;
@@ -27,6 +27,8 @@ let seq = 1;
 const nextSlip = (s?: string) => { const m = /^(.*?)(\d+)$/.exec((s ?? "").trim()); if (!m) return ""; const n = String(Number(m[2]) + 1); return m[1] + n.padStart(m[2].length, "0"); };
 const blank = (from?: Line): Line => ({ key: seq++, parchi_date: from?.parchi_date ?? pkToday(), slip_no: nextSlip(from?.slip_no), vehicle_no: from?.vehicle_no ?? "", kind: from?.kind ?? "fuel",
   product: from?.product ?? activeProducts[0]?.code ?? "PMG", item_id: from?.kind === "shop" ? from.item_id : "", qty: "", rate: "", rateTouched: false, photos: [], edited: false, byAmount: false, amount: "" });
+/** one id per Save: a second tap or a retry of the same Save is not saved twice (the server keeps the first) */
+const newBatchId = () => { try { return crypto.randomUUID(); } catch { return "10000000-1000-4000-8000-100000000000".replace(/[018]/g, (c) => (Number(c) ^ (Math.random() * 16) >> (Number(c) / 4)).toString(16)); } };
 const r3 = (n: number) => Math.round(n * 1000) / 1000;
 const slipKey = (s: string) => s.trim().toUpperCase();
 const plate = (s: string) => s.toUpperCase().replace(/[^A-Z0-9]/g, "");
@@ -40,6 +42,26 @@ const draftKey = (c: string) => `pumpai.parchi.draft.${c}`;
 const readDraft = (c: string): { lines: Line[]; note: string; at: string } | null => { try { const d = JSON.parse(localStorage.getItem(draftKey(c)) ?? "null"); return d?.lines?.length ? d : null; } catch { return null; } };
 const dropDraft = (c: string) => { try { localStorage.removeItem(draftKey(c)); } catch { /* private mode */ } };
 
+/** "Kaise karein" — short picture steps for each tab, for anyone (open the first time, then remembered). */
+function Guide({ tab }: { tab: "new" | "book" | "milan" }) {
+  const KEY = "pumpai.parchi.guide";
+  const [open, setOpen] = useState(() => { try { return localStorage.getItem(KEY) !== "0"; } catch { return true; } });
+  const flip = () => { setOpen(!open); try { localStorage.setItem(KEY, open ? "0" : "1"); } catch { /* private */ } };
+  const steps: Record<string, [string, string, string][]> = {
+    new: [["1", "👤", "Customer chunein"], ["2", "✍️", "Slip no. → Enter → Litre → Enter (agli parchi khud khulti hai)"], ["3", "🚛", "Gaari ka button dabayein"], ["4", "💾", "Neeche \"Save\" → check kar ke \"Confirm\""]],
+    book: [["1", "🔎", "Customer / tareekh / status se dhoondein"], ["2", "☑️", "Parchiyan tick karein"], ["3", "💰", "\"Payment lein\" — wohi parchiyan Paid"], ["4", "🖨", "Print / PDF / WhatsApp"]],
+    milan: [["1", "👤", "Customer aur tareekh chunein"], ["2", "📋", "Customer ki list Excel se paste karein"], ["3", "🔍", "Laal = hamare paas nahi, neela = un ke paas nahi"], ["4", "🎫", "Missing parchi ek button se form mein"]],
+  };
+  return (
+    <div className="rounded-xl border border-violet-200 bg-violet-50/60 print:hidden">
+      <button type="button" onClick={flip} className="flex w-full items-center justify-between gap-2 px-4 py-2 text-left text-sm font-semibold text-violet-800" aria-expanded={open}>
+        <span>❓ Kaise karein · <Ur>کیسے کریں</Ur></span><span className="text-xs font-normal">{open ? "▲ band" : "▼ kholein"}</span></button>
+      {open && <ol className="grid gap-2 px-4 pb-3 sm:grid-cols-4">{steps[tab].map(([n, ic, t]) => (
+        <li key={n} className="flex items-start gap-2 rounded-lg bg-white px-3 py-2 text-sm shadow-sm"><span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-violet-600 text-xs font-bold text-white">{n}</span><span><span className="text-lg">{ic}</span> {t}</span></li>))}</ol>}
+    </div>
+  );
+}
+
 export default function ParchiBilling() {
   const [params] = useSearchParams();
   const [tab, setTab] = useState<"new" | "book" | "milan">(params.get("tab") === "book" ? "book" : params.get("tab") === "milan" ? "milan" : "new");
@@ -48,6 +70,7 @@ export default function ParchiBilling() {
     <div className="space-y-4">
       <PageHeader title={<span className="flex items-center gap-2"><span className="grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-violet-600 to-fuchsia-500 text-white"><Ticket size={19} /></span>Parchi Billing · <Ur>پرچی بلنگ</Ur></span>}
         subtitle="Parchi aayi — na tail diya, na cash. Har parchi khata customer ke khate mein jati hai." />
+      <Guide tab={tab} />
       <div className="flex gap-1 rounded-xl bg-slate-100 p-1 sm:w-fit" role="tablist">
         {([["new", "🎫 Nayi parchiyan", "نئی پرچیاں"], ["book", "📒 Parchi Book", "پرچی بک"], ["milan", "🔍 Milan", "ملان"]] as const).map(([k, en, ur]) => (
           <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)} className={`min-h-10 flex-1 rounded-lg px-4 text-sm font-semibold sm:flex-none ${tab === k ? "bg-white text-violet-700 shadow" : "text-slate-600"}`}>{en} · <Ur>{ur}</Ur></button>))}
@@ -71,6 +94,7 @@ function NewParchis({ customer, setCustomer, onSaved }: { customer: string; setC
   const [lines, setLines] = useState<Line[]>(() => [blank()]);
   const [note, setNote] = useState("");
   const [tag, setTag] = useState("");
+  const [batchId, setBatchId] = useState(newBatchId);
   const [confirm, setConfirm] = useState(false);
   const [newVeh, setNewVeh] = useState<{ line: number; plate: string; fuel: string; limit?: string } | null>(null);
   const [active, setActive] = useState<number | null>(null); // the line the gaari buttons fill
@@ -87,6 +111,7 @@ function NewParchis({ customer, setCustomer, onSaved }: { customer: string; setC
   const rates = useRef<Record<string, Record<string, number>>>({}); // `${customer}|${date}` → his rate (card applied)
   const boards = useRef<Record<string, Record<string, number>>>({}); // date → pump board rate
   const { busy, run } = useAction();
+  const toast = useToast();
   const items: any[] = meta.data?.items ?? [];
   const c = meta.data?.customer;
   const vehicles: any[] = meta.data?.vehicles ?? [];
@@ -209,11 +234,11 @@ function NewParchis({ customer, setCustomer, onSaved }: { customer: string; setC
   const dupPhotos = ready.filter((l) => l.photos.some((id) => photoDup[id]));
 
   const save = async () => {
-    const r = await run(() => api("/parchi/batch", { body: { customer_id: Number(customer), note: note || null, tag: tag.trim() || null, lines: ready.map((l) => ({
+    const r = await run(() => api("/parchi/batch", { body: { customer_id: Number(customer), note: note || null, tag: tag.trim() || null, batch_id: batchId, lines: ready.map((l) => ({
       parchi_date: l.parchi_date, slip_no: l.slip_no || null, vehicle_no: l.vehicle_no || null, kind: l.kind, product: l.kind === "fuel" ? l.product : null,
       item_id: l.kind === "shop" ? Number(l.item_id) : null, qty: Number(l.qty), rate: Number(l.rate), amount: l.byAmount ? Number(l.amount) : null, photo_ids: l.photos })) } }),
       (x: any) => `${x.ids.length} parchi khate mein — ${pkr(x.total)}`);
-    if (r) { dropDraft(customer); setConfirm(false); setLines([blank()]); setNote(""); meta.reload(); setDone({ id: r.ids[0], n: r.ids.length, total: r.total, balance: r.balance }); }
+    if (r) { setBatchId(newBatchId()); dropDraft(customer); setConfirm(false); setLines([blank()]); setNote(""); meta.reload(); setDone({ id: r.ids[0], n: r.ids.length, total: r.total, balance: r.balance }); }
   };
   /** keep what was typed, drop the empty auto line at the end, then add these lines */
   const appendLines = (add: Line[]) => { const keep = lines.filter((l) => started(l) || filled(l)); const all = [...keep, ...add]; setLines(all.length ? all : [blank()]); };
@@ -230,7 +255,7 @@ function NewParchis({ customer, setCustomer, onSaved }: { customer: string; setC
         const n: Line = { ...blank(prev), parchi_date: allDate || prev?.parchi_date || pkToday(), photos: [r.photo_id], edited: true };
         made.push(n); prev = n;
       }
-    } catch (e: any) { alert(`Photo upload ruk gaya: ${e.message}`); }
+    } catch (e: any) { toast("err", `Photo upload ruk gaya: ${e.message}`); }
     finally { setPhotoBusy(null); if (photoInput.current) photoInput.current.value = ""; }
     if (made.length) { appendLines(made); focus("slip", made[0].key); }
   };
@@ -440,12 +465,13 @@ function PayParchis({ mode, customerId, name, rows, due, onClose, onDone }: { mo
   const [pick, setPick] = useState<number | null>(null);
   const pays = useApi<any[]>(mode === "old" ? `/parchi/payments?customer_id=${customerId}` : null);
   const { busy, run } = useAction();
+  const toast = useToast();
   const ids = rows.map((r) => r.id);
   const label = `Parchi payment: ${ids.slice(0, 8).map((i) => `PR-${i}`).join(", ")}${ids.length > 8 ? ` +${ids.length - 8}` : ""}`;
   const take = async () => {
     const p = await run(() => api(`/customers/${customerId}/khata`, { body: { type: "credit", amount: Number(amount), method, note: label, notify, account_id: /^cash$/i.test(method) ? null : account } }), "Payment mil gayi");
     if (!p) return;
-    if (!p.khata_id || p.cheque_pending) { alert("Cheque register mein chala gaya. Clear hone par yahan \"🔗 Purani payment se jorein\" se in parchiyon par lagayein."); onDone(); return; }
+    if (!p.khata_id || p.cheque_pending) { toast("ok", "Cheque register mein chala gaya. Clear hone par yahan \"🔗 Purani payment se jorein\" se in parchiyon par lagayein."); onDone(); return; }
     await run(() => api("/parchi/allocate", { body: { customer_id: customerId, khata_id: p.khata_id, parchi_ids: ids } }), (x: any) => `${x.allocated.length} parchi Paid${x.left > 0.5 ? ` · ${pkr(x.left)} baqi purani entries par` : ""}`);
     onDone();
   };
@@ -667,6 +693,35 @@ function BulkChange({ mode, rows, tags, onClose, onDone }: { mode: "date" | "tag
   );
 }
 
+/** ERP view: totals, the journal the parchiyan make in the books, and a control check (each parchi ↔ its khata entry). */
+function Accounts({ customer, name, range, onClose }: { customer: string; name: string; range: { from: string; to: string }; onClose: () => void }) {
+  const qs = new URLSearchParams(Object.entries({ customer_id: customer, ...range }).filter(([, v]) => v)).toString();
+  const { data } = useApi<any>(`/parchi/accounts${qs ? `?${qs}` : ""}`);
+  return (
+    <Modal open onClose={onClose} title={`📊 Hisaab · ${name}`} wide>
+      {!data ? <Loading /> : <div className="space-y-3 text-sm">
+        <div className="text-xs text-slate-500">{range.from || "shuru"} — {range.to || "aaj"} (parchi ki tareekh)</div>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {[["Parchiyan", `${data.parchi.n} · ${pkr(data.parchi.amount)}`], ["Fuel / shop", `${pkr(data.parchi.fuel)} / ${pkr(data.parchi.other)}`], ["Paid / baqi", `${pkr(data.paid)} / ${pkr(data.unpaid)}`], ["Delete hui", `${data.deleted.n} · ${pkr(data.deleted.amount)}`]].map(([l, v]) => (
+            <div key={l} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"><div className="text-xs text-slate-500">{l}</div><div className="font-bold tabular-nums">{v}</div></div>))}
+        </div>
+        <div className="rounded-xl border border-slate-200">
+          <div className="border-b border-slate-100 px-3 py-2 font-semibold">📒 Journal · روزنامچہ <span className="text-xs font-normal text-slate-500">(books mein yeh entries)</span></div>
+          <table className="w-full"><thead><tr><th className="th">Entry</th><th className="th">Account</th><th className="th text-right">Debit (Dr)</th><th className="th text-right">Credit (Cr)</th></tr></thead>
+            <tbody>{data.journal.map((j: any) => j.lines.map((l: any, i: number) => (
+              <tr key={j.what + i}><td className="td text-xs">{i === 0 ? j.what : ""}</td><td className={`td ${l.credit ? "pl-8" : ""}`}>{l.account}</td>
+                <td className="td text-right tabular-nums">{l.debit ? pkr(l.debit) : ""}</td><td className="td text-right tabular-nums">{l.credit ? pkr(l.credit) : ""}</td></tr>)))}</tbody></table>
+          <p className="px-3 py-2 text-xs text-slate-500">Parchi par tank, shop stock, cash aur bank nahi hilte — sirf khata (receivable) aur Other income. Payment aam khata payment se: Cash/Bank Dr, Khata Cr.</p>
+        </div>
+        <div className={`rounded-xl border px-3 py-2 ${data.control.ok ? "border-emerald-300 bg-emerald-50 text-emerald-900" : "border-rose-300 bg-rose-50 text-rose-900"}`}>
+          <b>{data.control.ok ? "✓ Control check theek — har parchi apni khata entry se barabar" : `⚠ ${data.control.problems.length} masla mila`}</b>
+          {!data.control.ok && <ul className="mt-1 list-disc pl-5 text-xs">{data.control.problems.map((x: any) => <li key={x.problem + x.id}>PR-{x.id}: {x.problem}</li>)}</ul>}
+        </div>
+      </div>}
+    </Modal>
+  );
+}
+
 /** 29: one parchi's history — made, changed (before → after), payment tied, deleted. */
 function ParchiHistory({ id, onClose }: { id: number; onClose: () => void }) {
   const { data } = useApi<any>(`/parchi/${id}/history`);
@@ -849,14 +904,14 @@ function ParchiBook({ customer, setCustomer }: { customer: string; setCustomer: 
   const [bulk, setBulk] = useState<"date" | "tag" | "vehicle" | "delete" | null>(null);
   const [hist, setHist] = useState<number | null>(null);
   const [review, setReview] = useState(false);
+  const [acct, setAcct] = useState(false);
   const toggle = (id: number) => setSel((x) => { const n = new Set(x); if (n.has(id)) n.delete(id); else n.add(id); return n; });
-  const voidIt = async (r: any) => {
-    const reason = prompt(`PR-${r.id} delete karein? ${pkr(r.amount)} khate se hat jayenge.\nWajah likhein:`);
-    if (!reason || reason.trim().length < 3) return;
-    if (await run(() => api(`/parchi/${r.id}/void`, { body: { reason } }), `PR-${r.id} delete — khata ${pkr(r.amount)} kam`)) reload();
-  };
+  const [one, setOne] = useState<any[] | null>(null); // one parchi's delete opens the same popup as many
+  const voidIt = (r: any) => { setOne([r]); setBulk("delete"); };
+  const phone = usePhone();
   const chip = (s: string, r: any) => s === "paid" ? <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-700">Paid</span>
     : s === "part" ? <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">{pkr(r.unpaid)} baqi</span>
+    : s === "gone" ? <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800" title="Is parchi ki khata entry kahin aur se hata di gayi — 📊 Hisaab dekhein, phir is parchi ko Delete karein">⚠ Khata entry nahi</span>
     : s === "void" ? <span className="rounded-full bg-slate-200 px-2 py-0.5 text-xs font-semibold text-slate-600" title={r.void_reason ?? ""}>Deleted</span>
     : <span className="rounded-full bg-rose-100 px-2 py-0.5 text-xs font-semibold text-rose-700">Unpaid</span>;
   return (
@@ -890,6 +945,7 @@ function ParchiBook({ customer, setCustomer }: { customer: string; setCustomer: 
           <label className="flex items-end gap-2 pb-2 text-sm"><input type="checkbox" checked={!!f.voided} onChange={(e) => setF({ ...f, voided: e.target.checked ? "1" : "" })} /> Deleted bhi dikhayein</label>
         </div>}
         <div className="flex flex-wrap justify-end gap-2">
+          <button type="button" className="btn-secondary" onClick={() => setAcct(true)} title="Parchi ka journal (Dr / Cr) aur control check">📊 Hisaab</button>
           {customer && <button type="button" className="btn-secondary" onClick={() => setReview(true)} title="Customer ka rate card badla ho to purani fuel parchiyon par naya rate">♻ Naya rate check</button>}
           <WhatsAppDoc kind="parchi_book" id={Number(customer) || 0} from={range.from || undefined} to={range.to || undefined} filter={filterJson || undefined} />
           <a className="btn-secondary" href={pdf} target="_blank" rel="noreferrer"><Download size={15} /> PDF</a>
@@ -913,7 +969,31 @@ function ParchiBook({ customer, setCustomer }: { customer: string; setCustomer: 
           {[["Parchiyan", `${data.totals.n}${data.totals.vehicles ? ` · ${data.totals.vehicles} gaari` : ""}`], ["Fuel", `${pkr(data.totals.fuel)} · ${num(data.totals.litres, 2)} L`], ["Shop / other", pkr(data.totals.shop + data.totals.other)], ["Kul", pkr(data.totals.amount)], ["Paid", pkr(data.totals.paid)], ["Baqi", pkr(data.totals.unpaid)]].map(([l, v]) => (
             <div key={l} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"><div className="text-xs text-slate-500">{l}</div><div className="font-bold tabular-nums">{v}</div></div>))}
         </div>
-        <div className="overflow-x-auto">
+        {phone ? <div className="space-y-2 px-3 pb-3 print:hidden">
+          {data.rows.map((r: any) => (
+            <div key={r.id} className={`rounded-xl border p-3 ${sel.has(r.id) ? "border-emerald-400 bg-emerald-50/60" : r.status === "void" ? "border-slate-200 bg-slate-50 opacity-70" : "border-slate-200 bg-white"}`}>
+              <div className="flex items-center gap-2">
+                {r.status !== "void" && <input type="checkbox" className="h-5 w-5" checked={sel.has(r.id)} onChange={() => toggle(r.id)} aria-label={`PR-${r.id} chunein`} />}
+                <span className="rounded-md bg-violet-50 px-1.5 py-0.5 font-mono text-xs font-semibold text-violet-700">🎫 PR-{r.id}</span>
+                <span className="text-xs text-slate-500">{dmy(r.parchi_date)}</span>
+                <b className="ml-auto tabular-nums">{pkr(r.amount)}</b>
+              </div>
+              <div className="mt-1 text-sm font-semibold">{r.customer}</div>
+              <div className="text-xs text-slate-600">{r.kind === "fuel" ? `${num(r.qty, 2)} L ${PRODUCTS[r.product] ?? r.product} × ${r.rate}` : r.kind === "shop" ? `🛒 ${r.item_name} × ${num(r.qty, 2)} @ ${r.rate}` : r.item_name}{r.vehicle_no ? ` · 🚛 ${r.vehicle_no}` : ""}{r.slip_no ? ` · slip ${r.slip_no}` : ""}</div>
+              <div className="mt-1.5 flex flex-wrap items-center gap-1.5">{chip(r.status, r)}
+                {r.paid_by && <span className="text-[11px] text-emerald-700">🔗 {r.paid_by}</span>}
+                {r.age != null && <span className={`text-[11px] ${r.age > 90 ? "font-semibold text-rose-700" : r.age > 60 ? "text-amber-700" : "text-slate-500"}`}>{r.age === 0 ? "aaj ki" : `${r.age} din`}</span>}
+                {r.tag && <span className="rounded-full bg-sky-50 px-2 py-0.5 text-[11px] text-sky-800">🏷 {r.tag}</span>}
+              </div>
+              <div className="mt-2 grid grid-cols-3 gap-1.5">
+                <button className="min-h-10 rounded-lg border border-slate-200 text-sm" onClick={() => setHist(r.id)} aria-label={`PR-${r.id} history`}>🕓 History</button>
+                {r.status !== "void" && r.status !== "gone" && <button className="min-h-10 rounded-lg border border-violet-200 text-sm font-semibold text-violet-700" onClick={() => setEdit(r)} aria-label={`PR-${r.id} edit`}>✏️ Edit</button>}
+                {r.status !== "void" && <button className="min-h-10 rounded-lg border border-rose-200 text-sm font-semibold text-rose-600" onClick={() => voidIt(r)} aria-label={`PR-${r.id} delete`}>🗑 Delete</button>}
+              </div>
+            </div>))}
+          {!data.rows.length && <p className="py-8 text-center text-sm text-slate-500">Koi parchi nahi · کوئی پرچی نہیں</p>}
+        </div> : null}
+        <div className={`overflow-x-auto ${phone ? "hidden print:block" : ""}`}>
           <table className="w-full min-w-[900px]">
             <thead><tr>{["☐", "ID", "Parchi date", "Customer", "Slip", "Gaari", "Hisaab", "Raqam", "Status", "Tag", "By", ""].map((hd, hi) => hi === 0 ? <th key="sel" className="th w-8 print:hidden">{liveRows.length > 0 && <input type="checkbox" aria-label="Sab parchiyan chunein" checked={liveRows.every((r: any) => sel.has(r.id))} onChange={(e) => setSel(e.target.checked ? new Set(liveRows.map((r: any) => r.id)) : new Set())} />}</th> : <th key={hd} className={`th ${hd === "Raqam" ? "text-right" : ""}`}>{hd}</th>)}</tr></thead>
             <tbody>
@@ -925,7 +1005,7 @@ function ParchiBook({ customer, setCustomer }: { customer: string; setCustomer: 
                   <td className="td text-xs text-slate-600">{r.kind === "fuel" ? `${num(r.qty, 2)} L ${PRODUCTS[r.product] ?? r.product} × ${r.rate}` : r.kind === "shop" ? `🛒 ${r.item_name} × ${num(r.qty, 2)} @ ${r.rate}` : r.item_name}{r.khata_id ? <> · <IdTag id={`K-${r.khata_id}`} /></> : null}</td>
                   <td className="td whitespace-nowrap text-right font-semibold tabular-nums">{pkr(r.amount)}</td><td className="td">{chip(r.status, r)}{r.paid_by && <div className="mt-0.5 whitespace-nowrap text-[11px] text-emerald-700">🔗 {r.paid_by} se</div>}{r.age != null && <div className={`mt-0.5 whitespace-nowrap text-[11px] ${r.age > 90 ? "font-semibold text-rose-700" : r.age > 60 ? "text-amber-700" : "text-slate-500"}`}>{r.age === 0 ? "aaj ki" : `${r.age} din purani`}</div>}</td>
                   <td className="td text-xs">{r.tag ? <span className="whitespace-nowrap rounded-full bg-sky-50 px-2 py-0.5 text-sky-800">🏷 {r.tag}</span> : ""}</td><td className="td text-xs">{r.created_by ?? ""}</td>
-                  <td className="td whitespace-nowrap print:hidden"><button className="mr-1 rounded-md border border-slate-200 px-1.5 py-1 text-xs text-slate-600 hover:bg-slate-50" onClick={() => setHist(r.id)} aria-label={`PR-${r.id} history`} title="History">🕓</button>{r.status !== "void" && <><button className="rounded-md border border-violet-200 px-2 py-1 text-xs font-semibold text-violet-700 hover:bg-violet-50" disabled={busy} onClick={() => setEdit(r)} aria-label={`PR-${r.id} edit`}>✏️ Edit</button>{" "}
+                  <td className="td whitespace-nowrap print:hidden"><button className="mr-1 rounded-md border border-slate-200 px-1.5 py-1 text-xs text-slate-600 hover:bg-slate-50" onClick={() => setHist(r.id)} aria-label={`PR-${r.id} history`} title="History">🕓</button>{r.status !== "void" && <>{r.status !== "gone" && <><button className="rounded-md border border-violet-200 px-2 py-1 text-xs font-semibold text-violet-700 hover:bg-violet-50" disabled={busy} onClick={() => setEdit(r)} aria-label={`PR-${r.id} edit`}>✏️ Edit</button>{" "}</>}
                     <button className="rounded-md border border-rose-200 px-2 py-1 text-xs font-semibold text-rose-600 hover:bg-rose-50" disabled={busy} onClick={() => voidIt(r)} aria-label={`PR-${r.id} delete`}>🗑 Delete</button></>}</td>
                 </tr>))}
               {!data.rows.length && <tr><td className="td py-8 text-center text-slate-500" colSpan={12}>Koi parchi nahi</td></tr>}
@@ -950,8 +1030,9 @@ function ParchiBook({ customer, setCustomer }: { customer: string; setCustomer: 
           <button type="button" className="btn-primary !bg-emerald-600" onClick={() => setPayMode("new")}>💰 Payment lein · {pkr(chosenDue)}</button>
         </span>}
       </div>}
-      {bulk && <BulkChange mode={bulk} rows={picked} tags={(tagsList.data?.tags ?? []) as string[]} onClose={() => setBulk(null)} onDone={() => { setBulk(null); setSel(new Set()); reload(); aging.reload(); }} />}
+      {bulk && <BulkChange mode={bulk} rows={one ?? picked} tags={(tagsList.data?.tags ?? []) as string[]} onClose={() => { setBulk(null); setOne(null); }} onDone={() => { setBulk(null); setOne(null); setSel(new Set()); reload(); aging.reload(); }} />}
       {hist && <ParchiHistory id={hist} onClose={() => setHist(null)} />}
+      {acct && <Accounts customer={customer} name={customers.find((x) => String(x.id) === customer)?.name ?? "Sab customers"} range={range} onClose={() => setAcct(false)} />}
       {review && customer && <RateReview customerId={Number(customer)} name={customers.find((x) => String(x.id) === customer)?.name ?? ""} onClose={() => setReview(false)} onDone={() => { setReview(false); reload(); aging.reload(); }} />}
       {payMode && customer && <PayParchis mode={payMode} customerId={Number(customer)} name={customers.find((x) => String(x.id) === customer)?.name ?? ""} rows={chosen} due={chosenDue}
         onClose={() => setPayMode(null)} onDone={() => { setPayMode(null); setSel(new Set()); reload(); aging.reload(); }} />}

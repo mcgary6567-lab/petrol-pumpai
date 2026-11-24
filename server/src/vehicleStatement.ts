@@ -49,7 +49,7 @@ export function vehicleStatement(t: number, party: VParty, id: number, vehicle: 
     const s = khataStatement(t, id, from, to);
     name = s.customer.name; phone = s.customer.phone;
     raw = s.lines.filter((l: any) => plateKey(l.vehicle_no) === key).map((l: any) => {
-      const parchi = String(l.ref ?? "").startsWith("PR-");
+      const parchi = /^(PR-|PARCHI-)/.test(String(l.ref ?? ""));
       // a parchi keeps its litres / item on the parchi line (never in the khata litres column)
       const pl = parchi ? get("SELECT kind, product, item_name, qty, rate FROM parchi_lines WHERE khata_id=?", l.id) : null;
       if (pl?.kind === "fuel") return { id: l.id, at: l.created_at, no: l.ref, slip: l.slip_no ?? null, vehicle: l.vehicle_no, item: `Parchi ${PRODUCTS[pl.product as string] ?? pl.product}`,

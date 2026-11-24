@@ -211,7 +211,7 @@ corrections.get("/corrections/khata", requirePerm("corrections.manage"), h((req)
     .map((k) => {
       // what owns this row decides where it must be undone
       const ref = String(k.ref ?? "");
-      const owner = ref.startsWith("SALE-") ? "sale" : ref.startsWith("SHOP-") ? "shop" : ref.startsWith("oth-") ? "other" : ref === "open:" ? "opening" : k.via_cashier ? "cashier" : null;
+      const owner = /^(PR-|PARCHI-)/.test(ref) ? "parchi" : ref.startsWith("SALE-") ? "sale" : ref.startsWith("SHOP-") ? "shop" : ref.startsWith("oth-") ? "other" : ref === "open:" ? "opening" : k.via_cashier ? "cashier" : null;
       return { ...k, via_cashier: undefined, owner, voidable: owner === null };
     });
   return { customer: { id: c.id, name: c.name, balance: round2(c.balance) }, entries: rows };
@@ -224,6 +224,7 @@ corrections.post("/corrections/khata/:id/void", requirePerm("corrections.manage"
   if (!k) throw new AppError(404, "Khata entry nahi mili");
   const ref = String(k.ref ?? "");
   // these belong to another undo path — send the CEO there so nothing is reversed twice
+  if (/^(PR-|PARCHI-)/.test(ref)) throw new AppError(400, "Ye Parchi Billing ki entry hai — Parchi Billing → Parchi Book se Edit / Delete karein (parchi aur khata saath badalte hain).");
   if (ref.startsWith("SALE-")) throw new AppError(400, "Ye ek sale ki entry hai — ise 'Sale void' se theek karein.");
   if (ref.startsWith("SHOP-")) throw new AppError(400, "Ye shop sale ki khata entry hai — Shop page se sale undo/edit karein.");
   if (ref.startsWith("oth-")) throw new AppError(400, "Ye Other-entries (CEO) ki entry hai — Other entries page se undo karein.");
@@ -246,6 +247,7 @@ corrections.post("/corrections/khata/:id/edit", requirePerm("entries.edit"), h((
   const k = get(`SELECT k.* FROM khata_ledger k JOIN customers c ON c.id=k.customer_id WHERE k.id=? AND c.tenant_id=?`, Number(req.params.id), t);
   if (!k) throw new AppError(404, "Khata entry nahi mili");
   const ref = String(k.ref ?? "");
+  if (/^(PR-|PARCHI-)/.test(ref)) throw new AppError(400, "Ye Parchi Billing ki entry hai — Parchi Billing → Parchi Book se Edit / Delete karein (parchi aur khata saath badalte hain).");
   if (ref.startsWith("SALE-")) throw new AppError(400, "Ye ek sale ki entry hai — 'Sale edit' se badlein.");
   if (ref.startsWith("SHOP-")) throw new AppError(400, "Ye shop sale ki khata entry hai — Shop page se sale edit karein.");
   if (ref.startsWith("oth-")) throw new AppError(400, "Ye Other-entries (CEO) ki entry hai — Other entries page se badlein.");

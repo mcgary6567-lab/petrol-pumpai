@@ -811,6 +811,11 @@ export function migrate() {
   // saved line sets for gaariyan that come every day ("Site B ki 5 gaariyan")
   db.exec(`CREATE TABLE IF NOT EXISTS parchi_templates (id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, customer_id INTEGER NOT NULL, name TEXT NOT NULL,
     lines TEXT NOT NULL, created_by TEXT, created_at TEXT NOT NULL)`);
+  // whatever path deletes a khata row: a payment's parchi ties go with it, and a parchi loses its (now gone) khata link
+  db.exec(`CREATE TRIGGER IF NOT EXISTS trg_khata_del_parchi AFTER DELETE ON khata_ledger BEGIN
+    DELETE FROM parchi_alloc WHERE khata_id=OLD.id AND customer_id=OLD.customer_id;
+    UPDATE parchi_lines SET khata_id=NULL WHERE khata_id=OLD.id AND customer_id=OLD.customer_id;
+  END`);
   addColumn("photos", "sha", "TEXT"); // content hash, filled on demand — the same photo uploaded twice is spotted
   db.exec("CREATE INDEX IF NOT EXISTS idx_photos_sha ON photos(sha)"); // a batch's tag ("Nov project · Site B"), filterable in the Parchi Book
   // the first "Sirf parchi entry" rows (khata ref PARCHI-n) join the Parchi Book once, as one line each

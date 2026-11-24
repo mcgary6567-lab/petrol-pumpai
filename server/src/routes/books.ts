@@ -73,6 +73,9 @@ export function reconcileBooks(t: number) {
     }
     pushD("Khata receivable (customers)", khata, tb("Khata receivable"), bad,
       bad.length ? `${bad.length} customer ka balance uske apne khata ledger se match nahi — niche naam dekhein.` : "Khata ka total ledger se match nahi.");
+    // the totals can agree while two customers are off in opposite directions — any customer off is a failed check too
+    const last = rows[rows.length - 1];
+    if (bad.length && last.ok) { last.ok = false; last.detail = bad; last.hint = `${bad.length} customer ka balance uske apne khata ledger se match nahi — niche naam dekhein.`; }
   });
   safe("Wholesale receivable", () => { const d = clientDueAll(t); return push("Wholesale receivable", all("SELECT id, opening_balance FROM wholesale_clients WHERE tenant_id=?", t).reduce((a, c) => a + (d.get(c.id) ?? 0) - c.opening_balance, 0), tb("Wholesale receivable")); });
   safe("Carriage receivable (thekedars)", () => { const d = thekedarDueAll(t); return push("Carriage receivable (thekedars)", all("SELECT id, opening_balance FROM thekedars WHERE tenant_id=?", t).reduce((a, k) => a + (d.get(k.id) ?? 0) - k.opening_balance, 0), tb("Carriage receivable")); });

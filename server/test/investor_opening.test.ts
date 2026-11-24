@@ -240,7 +240,8 @@ test("party ↔ investor transfers: supplier payable → capital (bypass first),
   near(x2.party_due, -2_000, "advance left 2,000"); near(x2.balance, 253_000);
   // manual profit so the investor has munafa to take; then cut the customer's due (give them 2k more fuel on khata first)
   ok(await call("admin", "POST", `/api/investors/${I.id}/profit`, { kind: "profit", mode: "amount", amount: 10_000, period: "2026-10" }), "profit");
-  db.run("UPDATE customers SET balance = balance + 6000 WHERE id=?", cust.id); // now owes 4,000
+  db.run("INSERT INTO khata_ledger (customer_id,type,amount,ref,note,created_at) VALUES (?,?,?,?,?,?)", cust.id, "debit", 6000, null, "test fuel on khata", new Date().toISOString());
+  db.run("UPDATE customers SET balance = balance + 6000 WHERE id=?", cust.id); // now owes 4,000 (a real khata row, so balance = ledger)
   const x3 = ok(await call("admin", "POST", `/api/investors/${I.id}/transfer`, { direction: "investor_to_client", party_type: "khata", party_id: cust.id, amount: 4_000, purpose: "profit" }), "munafa → khata due");
   near(x3.party_due, 0, "customer settled"); near(x3.balance, 253_000 + 10_000 - 4_000);
   assert.equal(db.get("SELECT purpose FROM investor_txns WHERE id=?", x3.investor_txn_id)!.purpose, "profit");
