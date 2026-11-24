@@ -156,4 +156,9 @@ test("Gari statement (khata / wholesale / supplier) and the Parchi Book filters 
   assert.equal(bpdf.status, 200);
   const all0 = await fetch(`${base}/api/docs/parchi_book/0/pdf`, { headers: { authorization: `Bearer ${tokens.manager}` } });
   assert.equal(all0.status, 200, "all customers");
+  const rc = await fetch(`${base}/api/docs/parchi_receipt/${r.ids[0]}/pdf`, { headers: { authorization: `Bearer ${tokens.manager}` } });
+  assert.equal(rc.status, 200, "parchi receipt"); assert.match(rc.headers.get("content-type") ?? "", /pdf/);
+  // a parchi written as money: exactly that amount on the khata
+  const m = ok(await call("manager", "POST", "/api/parchi/batch", { customer_id: cid, lines: [{ parchi_date: day(0), kind: "fuel", product: "PMG", qty: 19.048, rate: 262.5, amount: 5000 }] }), "by amount");
+  near(m.total, 5000); near(db.get("SELECT amount FROM khata_ledger WHERE ref=?", m.entry_ids[0])!.amount, 5000);
 });

@@ -23,7 +23,7 @@ function allow(req: Request, kind: DocKind, id: number) {
   const okByKind: Record<DocKind, boolean> = {
     voucher: anyOf("cashier.desk", "cash.receive", "cash.pay"), khata: anyOf("khata.manage", "customers.edit"), khata_bill: anyOf("khata.manage", "customers.edit"), wholesale: anyOf("wholesale.view"), wholesale_bill: anyOf("wholesale.view"), carriage: anyOf("carriage.view"),
     supplier: anyOf("suppliers.manage"), shift: anyOf("shifts.manage"), receipt: anyOf("sales.view", "sales.create"), slip: anyOf("staff.manage"),
-    customer_list: anyOf("khata.manage", "customers.edit"), khata_vehicle: anyOf("khata.manage", "customers.edit"), wholesale_vehicle: anyOf("wholesale.view"), supplier_vehicle: anyOf("suppliers.manage"), parchi_book: anyOf("khata.manage"), client_list: anyOf("wholesale.view"), supplier_list: anyOf("suppliers.manage"), trip_list: anyOf("wholesale.view"),
+    customer_list: anyOf("khata.manage", "customers.edit"), khata_vehicle: anyOf("khata.manage", "customers.edit"), wholesale_vehicle: anyOf("wholesale.view"), supplier_vehicle: anyOf("suppliers.manage"), parchi_book: anyOf("khata.manage"), parchi_receipt: anyOf("khata.manage"), client_list: anyOf("wholesale.view"), supplier_list: anyOf("suppliers.manage"), trip_list: anyOf("wholesale.view"),
   };
   if (!okByKind[kind]) throw new AppError(403, "You don't have permission for this document");
   if (u.role === "salesman") {

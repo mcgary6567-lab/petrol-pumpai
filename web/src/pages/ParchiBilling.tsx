@@ -12,7 +12,7 @@ import { printNow } from "../lib/printNow";
 import { WhatsAppDoc } from "../components/WhatsAppDoc";
 import { activeProducts, PRODUCTS, num, pkr } from "../lib/format";
 import { Field, IdTag, Loading, Modal, PageHeader, useAction } from "../components/ui";
-import { ProofPhotos } from "../components/Capture";
+import { ProofPhotos, resizeImage } from "../components/Capture";
 
 const Ur = ({ children }: { children: React.ReactNode }) => <span lang="ur" dir="rtl" className="font-urdu font-normal">{children}</span>;
 const pkToday = () => new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 10);
@@ -72,6 +72,11 @@ function NewParchis({ customer, setCustomer, onSaved }: { customer: string; setC
   const [active, setActive] = useState<number | null>(null); // the line the gaari buttons fill
   const [vq, setVq] = useState(""); // gaari quick search
   const [draft, setDraft] = useState<ReturnType<typeof readDraft>>(null);
+  const [allDate, setAllDate] = useState(pkToday());
+  const [photoBusy, setPhotoBusy] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [done, setDone] = useState<{ id: number; n: number; total: number; balance: number } | null>(null);
+  const photoInput = useRef<HTMLInputElement>(null);
   const rates = useRef<Record<string, Record<string, number>>>({});
   const { busy, run } = useAction();
   const items: any[] = meta.data?.items ?? [];
@@ -83,6 +88,8 @@ function NewParchis({ customer, setCustomer, onSaved }: { customer: string; setC
   const set = (key: number, patch: Partial<Line>, byUser = true) => setLines((ls) => ls.map((l) => {
     if (l.key !== key) return l;
     const n = { ...l, ...patch, edited: l.edited || byUser };
+    // a saved gaari with its fuel: choosing the gaari chooses the fuel too (can still be changed)
+    if (patch.vehicle_no && n.kind === "fuel") { const v = vehicles.find((x) => plate(x.plate_no) === plate(patch.vehicle_no!)); if (v?.fuel && v.fuel !== n.product && activeProducts.some((p) => p.code === v.fuel)) { n.product = v.fuel; if (!n.rateTouched) n.rate = ""; } }
     if (n.byAmount && Number(n.rate) > 0 && Number(n.amount) > 0) n.qty = String(r3(Number(n.amount) / Number(n.rate)));
     return n;
   }));
@@ -173,7 +180,26 @@ function NewParchis({ customer, setCustomer, onSaved }: { customer: string; setC
       parchi_date: l.parchi_date, slip_no: l.slip_no || null, vehicle_no: l.vehicle_no || null, kind: l.kind, product: l.kind === "fuel" ? l.product : null,
       item_id: l.kind === "shop" ? Number(l.item_id) : null, qty: Number(l.qty), rate: Number(l.rate), amount: l.byAmount ? Number(l.amount) : null, photo_ids: l.photos })) } }),
       (x: any) => `${x.ids.length} parchi khate mein — ${pkr(x.total)}`);
-    if (r) { dropDraft(customer); setConfirm(false); setLines([blank()]); setNote(""); meta.reload(); onSaved(); }
+    if (r) { dropDraft(customer); setConfirm(false); setLines([blank()]); setNote(""); meta.reload(); setDone({ id: r.ids[0], n: r.ids.length, total: r.total, balance: r.balance }); }
+  };
+  /** keep what was typed, drop the empty auto line at the end, then add these lines */
+  const appendLines = (add: Line[]) => { const keep = lines.filter((l) => started(l) || filled(l)); const all = [...keep, ...add]; setLines(all.length ? all : [blank()]); };
+  // 11: photos first — one parchi line per photo, filled in after
+  const fromPhotos = async (files: FileList | null) => {
+    if (!files?.length) return;
+    const list = Array.from(files).slice(0, 100);
+    const made: Line[] = [];
+    let prev: Line | undefined = [...lines].reverse().find((l) => started(l) || filled(l)) ?? lines[lines.length - 1];
+    try {
+      for (let i = 0; i < list.length; i++) {
+        setPhotoBusy(`${i + 1}/${list.length}`);
+        const r = await api("/ai/read-photo", { body: { kind: "proof", image: await resizeImage(list[i], 1600, true) } });
+        const n: Line = { ...blank(prev), parchi_date: allDate || prev?.parchi_date || pkToday(), photos: [r.photo_id], edited: true };
+        made.push(n); prev = n;
+      }
+    } catch (e: any) { alert(`Photo upload ruk gaya: ${e.message}`); }
+    finally { setPhotoBusy(null); if (photoInput.current) photoInput.current.value = ""; }
+    if (made.length) { appendLines(made); focus("slip", made[0].key); }
   };
   const addVehicle = async () => {
     if (!newVeh || newVeh.plate.trim().length < 3) return;
@@ -239,9 +265,20 @@ function NewParchis({ customer, setCustomer, onSaved }: { customer: string; setC
             {c.recent.map((k: any) => <div key={k.id} className="flex justify-between gap-2"><span className="min-w-0 truncate">{dmy(new Date(Date.parse(k.created_at) + 5 * 3600_000).toISOString().slice(0, 10))} · K-{k.id} · {k.product ? `${PRODUCTS[k.product]} ${num(k.litres, 2)} L` : k.type === "credit" ? "Payment" : k.note}{k.vehicle_no ? ` · ${k.vehicle_no}` : ""}</span><span className={`shrink-0 tabular-nums ${k.type === "credit" ? "text-emerald-700" : ""}`}>{k.type === "credit" ? "− " : ""}{pkr(k.amount)}</span></div>)}</div>}
           <p className="rounded-lg bg-violet-50 px-3 py-2 text-xs text-violet-900"><b>Enter</b>: Slip → Litre → agli parchi. Slip no. khud agla aata hai. Parchi par sirf raqam ho to <b>Raqam</b> mein likhein — litre khud. Upar ke button se gaari ek tap mein. Likha hua is device par khud save hota rehta hai.</p>
 
+          {/* 6: one date for all · 11: photos first · 13: from Excel */}
+          <div className="flex flex-wrap items-end gap-2 rounded-xl border border-slate-200 bg-slate-50 p-2">
+            <label className="text-xs font-semibold text-slate-500">📅 Sab parchiyon ki tareekh
+              <input type="date" className="input mt-0.5 !w-40 !py-1.5" max={pkToday()} value={allDate} onChange={(e) => setAllDate(e.target.value)} aria-label="Sab parchiyon ki tareekh" /></label>
+            <button type="button" className="btn-secondary !py-1.5 text-sm" disabled={!allDate || allDate > pkToday()} onClick={() => setLines((ls) => ls.map((l) => ({ ...l, parchi_date: allDate })))}>Sab par lagayein</button>
+            <span className="mx-1 hidden h-8 w-px bg-slate-200 sm:block" />
+            <input ref={photoInput} type="file" accept="image/*" multiple className="hidden" onChange={(e) => fromPhotos(e.target.files)} />
+            <button type="button" className="btn-secondary !py-1.5 text-sm" disabled={!!photoBusy} onClick={() => photoInput.current?.click()} title="Saari parchiyon ki photos ek saath — har photo ki ek line ban jayegi, phir litre / raqam bharein">📷 {photoBusy ? `Photo ${photoBusy}…` : "Photos se parchiyan"}</button>
+            <button type="button" className="btn-secondary !py-1.5 text-sm" onClick={() => setImporting(true)} title="Excel se copy-paste ya CSV file">📥 Excel se</button>
+          </div>
+
           {/* gaari quick pick: fills the line being typed */}
           <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-slate-200 bg-white p-2">
-            <span className="text-xs font-semibold text-slate-500">🚛 Gaari{target != null ? ` → line ${lines.findIndex((l) => l.key === target) + 1}` : ""}:</span>
+            <span className="text-xs font-semibold text-slate-500">🚛 Gaari{lines.findIndex((l) => l.key === target) >= 0 ? ` → line ${lines.findIndex((l) => l.key === target) + 1}` : ""}:</span>
             <input className="input !w-28 !py-1 text-sm uppercase" value={vq} onChange={(e) => setVq(e.target.value)} placeholder="453…" aria-label="Gaari dhoondein"
               onKeyDown={(e) => { if (e.key === "Enter" && chips[0]) { e.preventDefault(); pickVehicle(chips[0]); } }} />
             {chips.map((v) => { const on = target != null && plate(lines.find((l) => l.key === target)?.vehicle_no ?? "") === plate(v);
@@ -294,6 +331,25 @@ function NewParchis({ customer, setCustomer, onSaved }: { customer: string; setC
         <button type="button" className="btn-primary ml-auto !bg-violet-600 hover:!bg-violet-700" disabled={blocked} onClick={() => setConfirm(true)}><Ticket size={16} /> Save {ready.length} →</button>
       </div>}
 
+      {importing && <ExcelImport items={items} defDate={allDate || pkToday()} onClose={() => setImporting(false)} onAdd={(add) => { setImporting(false); appendLines(add); }} />}
+
+      {done && <Modal open onClose={() => setDone(null)} title="✓ Parchiyan khate mein · محفوظ">
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-center">
+          <div className="text-3xl font-bold tabular-nums text-emerald-700">{pkr(done.total)}</div>
+          <div className="mt-1 text-sm text-emerald-900"><b>{done.n} parchi</b> {c?.name} ke khate mein · naya balance <b>{pkr(done.balance)}</b></div>
+        </div>
+        <p className="mt-3 text-sm text-slate-600">Customer ko <b>Parchi receipt</b> dein — har parchi, kul raqam aur naya balance:</p>
+        <div className="mt-2 flex flex-wrap gap-2">
+          <WhatsAppDoc kind="parchi_receipt" id={done.id} />
+          <a className="btn-secondary" href={`/api/docs/parchi_receipt/${done.id}/pdf?token=${linkToken()}`} target="_blank" rel="noreferrer"><Download size={15} /> PDF</a>
+          <button className="btn-secondary" onClick={() => printNow({ title: "Parchi receipt", pdf: `/api/docs/parchi_receipt/${done.id}/pdf?token=${linkToken()}` })}><Printer size={15} /> Print</button>
+        </div>
+        <div className="mt-4 flex justify-between gap-2 border-t border-slate-100 pt-3">
+          <button className="btn-secondary" onClick={() => { setDone(null); onSaved(); }}>📒 Parchi Book</button>
+          <button className="btn-primary !bg-violet-600" onClick={() => { setDone(null); focus("slip", lines[0]?.key ?? 0); }}><Plus size={15} /> Aur parchiyan</button>
+        </div>
+      </Modal>}
+
       {newVeh && <Modal open onClose={() => setNewVeh(null)} title="Nayi gaari · نئی گاڑی">
         <div className="grid grid-cols-2 gap-3">
           <Field label="Gaari no."><input className="input uppercase" autoFocus value={newVeh.plate} onChange={(e) => setNewVeh({ ...newVeh, plate: e.target.value })} placeholder="LEB-4455" /></Field>
@@ -325,6 +381,104 @@ function NewParchis({ customer, setCustomer, onSaved }: { customer: string; setC
     </div>
   );
 }
+
+/* ---- 13: parchiyan from Excel (copy-paste) or a CSV file — read here, put in the form, then the usual summary / Confirm ---- */
+const MON = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+/** 24-11-2026, 24/11/26, 2026-11-24, 24-Nov-2026, 24 Nov 2026 → 2026-11-24 */
+function readDate(v: string): string | null {
+  const s = v.trim().toLowerCase();
+  let m = /^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/.exec(s);
+  if (m) return `${m[1]}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}`;
+  m = /^(\d{1,2})[-/. ](\d{1,2}|[a-z]{3})[a-z]*[-/. ,]+(\d{2,4})$/.exec(s);
+  if (!m) return null;
+  const mon = /^\d+$/.test(m[2]) ? Number(m[2]) : MON.indexOf(m[2]) + 1;
+  const y = m[3].length === 2 ? `20${m[3]}` : m[3];
+  if (!(mon >= 1 && mon <= 12) || Number(m[1]) < 1 || Number(m[1]) > 31) return null;
+  return `${y}-${String(mon).padStart(2, "0")}-${m[1].padStart(2, "0")}`;
+}
+const numOf = (v: string) => { const n = Number(String(v ?? "").replace(/rs\.?|pkr|,|\s/gi, "")); return Number.isFinite(n) && n > 0 ? n : 0; };
+function splitRow(line: string, sep: string): string[] {
+  const out: string[] = []; let cur = "", q = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (q) { if (ch === '"' && line[i + 1] === '"') { cur += '"'; i++; } else if (ch === '"') q = false; else cur += ch; }
+    else if (ch === '"') q = true; else if (ch === sep) { out.push(cur.trim()); cur = ""; } else cur += ch;
+  }
+  out.push(cur.trim());
+  return out;
+}
+const COLS: [keyof Row, RegExp][] = [["date", /date|tareekh|tarikh|din/], ["slip", /slip|parchi|no\b|number/], ["gaari", /gaari|gari|gadi|vehicle|truck|plate/],
+  ["item", /fuel|item|product|cheez|kya/], ["qty", /lit|qty|quantity|miqdar/], ["rate", /rate|price|qeemat/], ["amount", /amount|raqam|rs|total/]];
+type Row = { date: string; slip: string; gaari: string; item: string; qty: string; rate: string; amount: string };
+const FUEL_ALIAS: [RegExp, string][] = [[/hi[- ]?oct|hobc|high ?oct/, "HOBC"], [/diesel|hsd|dsl/, "HSD"], [/petrol|pmg|super|gasoline/, "PMG"]];
+
+function parseSheet(text: string, items: any[], defDate: string) {
+  const raw = text.replace(/\r/g, "").split("\n").filter((l) => l.trim());
+  if (!raw.length) return { lines: [] as Line[], errors: [] as string[] };
+  const sep = raw[0].includes("\t") ? "\t" : (raw[0].split(";").length > raw[0].split(",").length ? ";" : ",");
+  let order: (keyof Row)[] = ["date", "slip", "gaari", "item", "qty", "rate", "amount"];
+  let start = 0;
+  const head = splitRow(raw[0], sep).map((h) => h.toLowerCase());
+  if (head.some((h) => /[a-z]/.test(h)) && !readDate(head[0] ?? "") && head.filter((h) => COLS.some(([, re]) => re.test(h))).length >= 2) {
+    const used = new Set<string>();
+    order = head.map((h) => { const hit = COLS.find(([k, re]) => !used.has(k) && re.test(h)); if (hit) used.add(hit[0]); return (hit?.[0] ?? "") as keyof Row; });
+    start = 1;
+  }
+  const lines: Line[] = [], errors: string[] = [];
+  let prev: Line | undefined;
+  for (let i = start; i < raw.length; i++) {
+    const cells = splitRow(raw[i], sep);
+    const r = {} as Row; order.forEach((k, j) => { if (k) r[k] = cells[j] ?? ""; });
+    const n = `Line ${i + 1}`;
+    const date = r.date ? readDate(r.date) : defDate;
+    if (!date) { errors.push(`${n}: tareekh samajh nahi aayi "${r.date}"`); continue; }
+    if (date > pkToday()) { errors.push(`${n}: aane wali tareekh ${r.date}`); continue; }
+    const it = (r.item ?? "").trim().toLowerCase();
+    let kind: "fuel" | "shop" = "fuel", product = prev?.product ?? activeProducts[0]?.code ?? "PMG", item_id = "";
+    if (it) {
+      const code = activeProducts.find((p) => p.code.toLowerCase() === it || p.name.toLowerCase() === it || p.short.toLowerCase() === it)?.code ?? FUEL_ALIAS.find(([re]) => re.test(it))?.[1];
+      const shop = code ? null : items.find((x) => x.name.toLowerCase() === it) ?? items.find((x) => x.name.toLowerCase().includes(it));
+      if (code && activeProducts.some((p) => p.code === code)) product = code;
+      else if (shop) { kind = "shop"; item_id = String(shop.id); }
+      else { errors.push(`${n}: "${r.item}" na fuel hai na shop item`); continue; }
+    }
+    const qty = numOf(r.qty), rate = numOf(r.rate), amount = numOf(r.amount);
+    if (!qty && !amount) { errors.push(`${n}: litre / qty ya raqam nahi`); continue; }
+    const byAmount = !qty && amount > 0;
+    const l: Line = { ...blank(prev), parchi_date: date, slip_no: r.slip ?? "", vehicle_no: (r.gaari ?? "").toUpperCase(), kind, product, item_id,
+      qty: qty ? String(qty) : rate ? String(r3(amount / rate)) : "", rate: rate ? String(rate) : "", rateTouched: rate > 0, edited: true, byAmount, amount: byAmount ? String(amount) : "", photos: [] };
+    lines.push(l); prev = l;
+  }
+  return { lines, errors };
+}
+
+function ExcelImport({ items, defDate, onClose, onAdd }: { items: any[]; defDate: string; onClose: () => void; onAdd: (l: Line[]) => void }) {
+  const [text, setText] = useState("");
+  const parsed = useMemo(() => parseSheet(text, items, defDate), [text, items, defDate]);
+  const file = useRef<HTMLInputElement>(null);
+  const template = `data:text/csv;charset=utf-8,${encodeURIComponent("Date,Slip,Gaari,Fuel/Item,Litre,Rate,Raqam\n24-11-2026,245,LEH-453,Diesel,50,,\n24-11-2026,246,LES-1234,Petrol,,,5000\n")}`;
+  const total = parsed.lines.reduce((a, l) => a + (l.byAmount ? Number(l.amount) : (Number(l.qty) || 0) * (Number(l.rate) || 0)), 0);
+  return (
+    <Modal open onClose={onClose} title="📥 Excel se parchiyan · ایکسل" wide>
+      <p className="text-sm text-slate-600">Excel mein columns select kar ke <b>copy</b> karein aur neeche <b>paste</b> karein — ya CSV file chunein. Columns: <b>Date, Slip, Gaari, Fuel/Item, Litre, Rate, Raqam</b> (pehli line mein naam hon to tarteeb koi bhi). Rate khaali = us din ka rate. Litre khaali aur Raqam ho = raqam se litre.</p>
+      <div className="mt-2 flex flex-wrap gap-2">
+        <a className="btn-secondary !py-1.5 text-sm" href={template} download="parchi-template.csv"><Download size={14} /> Template (CSV)</a>
+        <input ref={file} type="file" accept=".csv,.txt,.tsv,text/csv,text/plain" className="hidden" onChange={async (e) => { const f = e.target.files?.[0]; if (f) setText(await f.text()); }} />
+        <button type="button" className="btn-secondary !py-1.5 text-sm" onClick={() => file.current?.click()}>📄 CSV file chunein</button>
+      </div>
+      <textarea className="input mt-2 h-40 font-mono text-xs" value={text} onChange={(e) => setText(e.target.value)} placeholder={"Date\tSlip\tGaari\tFuel\tLitre\n24-11-2026\t245\tLEH-453\tDiesel\t50"} aria-label="Excel se paste" />
+      {text.trim() && <div className="mt-2 space-y-1 text-sm">
+        <div className="rounded-lg bg-emerald-50 px-3 py-2 text-emerald-900"><b>{parsed.lines.length} parchi</b> theek · takreeban {pkr(total)}{parsed.lines.some((l) => !l.rate) ? " (+ jin ka rate us din ka lagega)" : ""}</div>
+        {parsed.errors.length > 0 && <div className="max-h-32 overflow-auto rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-800">{parsed.errors.length} line chhod di: {parsed.errors.slice(0, 20).map((e) => <div key={e}>{e}</div>)}</div>}
+      </div>}
+      <div className="mt-4 flex justify-end gap-2 border-t border-slate-100 pt-3">
+        <button className="btn-secondary" onClick={onClose}>Cancel</button>
+        <button className="btn-primary !bg-violet-600" disabled={!parsed.lines.length} onClick={() => onAdd(parsed.lines)}>Form mein daalein ({parsed.lines.length}) →</button>
+      </div>
+    </Modal>
+  );
+}
+
 
 function ParchiBook({ customer, setCustomer }: { customer: string; setCustomer: (v: string) => void }) {
   const customers = useCustomers();

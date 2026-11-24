@@ -23,7 +23,7 @@ import { AppError, round2, normalizePhone } from "./services.js";
 import { sendDocumentToPhone, sendWhatsApp } from "./whatsapp/cloud.js";
 import { slipUrl } from "./routes/people.js";
 
-export const DOC_KINDS = ["voucher", "khata", "khata_bill", "wholesale_bill", "wholesale", "carriage", "supplier", "shift", "receipt", "slip", "customer_list", "client_list", "supplier_list", "trip_list", "khata_vehicle", "wholesale_vehicle", "supplier_vehicle", "parchi_book"] as const;
+export const DOC_KINDS = ["voucher", "khata", "khata_bill", "wholesale_bill", "wholesale", "carriage", "supplier", "shift", "receipt", "slip", "customer_list", "client_list", "supplier_list", "trip_list", "khata_vehicle", "wholesale_vehicle", "supplier_vehicle", "parchi_book", "parchi_receipt"] as const;
 export type DocKind = (typeof DOC_KINDS)[number];
 export type DocOpts = { from?: string; to?: string; vehicle?: string; filter?: string };
 export type Doc = { title: string; filename: string; pdf?: Buffer; party: { phone: string | null; name: string; customer_id?: number } | null; caption: string; link?: string };
@@ -387,6 +387,7 @@ export function renderDoc(t: number, kind: DocKind, id: number, o: DocOpts = {})
     case "wholesale_vehicle": return vehicleDoc(t, "wholesale", id, o);
     case "supplier_vehicle": return vehicleDoc(t, "supplier", id, o);
     case "parchi_book": return parchiBookDoc(t, id, o);
+    case "parchi_receipt": return parchiReceiptDoc(t, id);
   }
 }
 /** Gari statement: one vehicle in one party's account — every entry, litres, debit / credit, totals by item. */
@@ -445,6 +446,34 @@ function parchiBookDoc(t: number, id: number, o: DocOpts): Doc {
   return { title: `Parchi book${c ? ` — ${c.name}` : ""}`, filename: `parchi-book${c ? `-${String(c.name).replace(/[^\w-]+/g, "_")}` : ""}.pdf`, pdf: pg.done("Parchi book"),
     party: c ? { phone: c.phone as string | null, name: c.name as string, customer_id: id } : null,
     caption: `Parchi book${c ? ` — ${c.name}` : ""} (${period(o)}): ${b.totals.n} parchi, total ${money(b.totals.amount)}, unpaid ${money(b.totals.unpaid)}.` };
+}
+
+/** Parchi receipt: one saved batch (id = any parchi of it) — for the customer: every parchi, totals, the khata balance now. */
+function parchiReceiptDoc(t: number, id: number): Doc {
+  const p = get("SELECT batch_id, customer_id FROM parchi_lines WHERE id=? AND tenant_id=?", id, t);
+  if (!p) throw new AppError(404, "Parchi not found");
+  const rows = p.batch_id ? all("SELECT * FROM parchi_lines WHERE batch_id=? AND tenant_id=? AND voided=0 ORDER BY parchi_date, id", p.batch_id, t) : all("SELECT * FROM parchi_lines WHERE id=? AND voided=0", id);
+  const c = get("SELECT id, name, phone, balance, credit_limit FROM customers WHERE id=?", p.customer_id)!;
+  const total = round2(rows.reduce((a, r) => a + (r.amount as number), 0));
+  const dates = rows.map((r) => r.parchi_date as string).sort();
+  const pg = page(t, "Parchi receipt", `${c.name}${c.phone ? ` · ${c.phone}` : ""}`, rows.length ? `${dateOf(pkStart(dates[0]))}${dates[0] !== dates[dates.length - 1] ? ` – ${dateOf(pkStart(dates[dates.length - 1]))}` : ""}` : "", rows[0] ? `Entered ${dtOf(rows[0].created_at as string)}` : "");
+  const fuel = rows.filter((r) => r.kind === "fuel"), litres = round2(fuel.reduce((a, r) => a + (r.qty as number), 0));
+  kv(pg, [["Parchiyan", String(rows.length)], ["Fuel litres", litres.toFixed(2)], ["Total on khata", money(total)], ["Khata balance now", money(c.balance as number)]], 4);
+  table(pg, [{ k: "id", w: 1.2, label: "ID" }, { k: "d", w: 1.9, label: "Parchi date" }, { k: "s", w: 1, label: "Slip" }, { k: "v", w: 1.6, label: "Vehicle" }, { k: "p", w: 4.4, label: "Detail" }, { k: "a", w: 1.8, label: "Amount", align: "right" }],
+    rows.map((r) => ({ id: `PR-${r.id}`, d: dateOf(pkStart(r.parchi_date as string)), s: r.slip_no ?? "", v: r.vehicle_no ?? "",
+      p: r.kind === "fuel" ? `${Number(r.qty).toFixed(2)} L ${PRODUCTS[r.product as string] ?? r.product} x ${r.rate}` : r.kind === "shop" ? `${r.item_name} x ${Number(r.qty)} @ ${r.rate}` : (r.item_name ?? "Parchi"), a: money(r.amount as number) }))
+      .concat([{ __bold: true, p: `Total · ${rows.length} parchi`, a: money(total) } as any]), { size: 8 });
+  const byFuel: Record<string, { n: number; l: number; a: number }> = {};
+  for (const r of fuel) { const k = r.product as string; byFuel[k] ??= { n: 0, l: 0, a: 0 }; byFuel[k].n++; byFuel[k].l += r.qty as number; byFuel[k].a += r.amount as number; }
+  if (Object.keys(byFuel).length) {
+    pg.need(16); pg.pdf.text(L, pg.y + 10, "Fuel by type", 9, { bold: true }); pg.y += 14;
+    table(pg, [{ k: "p", w: 3, label: "Fuel" }, { k: "n", w: 1, label: "Parchi", align: "right" }, { k: "l", w: 2, label: "Litres", align: "right" }, { k: "a", w: 2.2, label: "Amount", align: "right" }],
+      Object.entries(byFuel).map(([k, x]) => ({ p: PRODUCTS[k] ?? k, n: x.n, l: x.l.toFixed(2), a: money(x.a) })));
+  }
+  sig(pg, ["Prepared by", "Customer"]);
+  return { title: `Parchi receipt — ${c.name}`, filename: `parchi-receipt-${String(c.name).replace(/[^\w-]+/g, "_")}-PR${id}.pdf`, pdf: pg.done("Parchi receipt"),
+    party: { phone: c.phone as string | null, name: c.name as string, customer_id: c.id as number },
+    caption: `${c.name}: ${rows.length} parchi khate mein, kul ${money(total)}. Khata balance ab ${money(c.balance as number)}.` };
 }
 
 /** Signed public link to the PDF (valid a year) — what WhatsApp sends and what "Download PDF" opens. */
