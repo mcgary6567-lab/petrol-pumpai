@@ -61,6 +61,13 @@ dayfeed.get("/day-feed", requireAny("dashboard.view", "cashier.desk", "reports.v
   if (scope === "all" || scope === "cashier") for (const v of all(`SELECT id, created_at, direction, party_type, party_name, amount, method, category, note, created_by who, voided, src FROM cashier_vouchers WHERE tenant_id=? AND created_at>=? AND created_at<? AND COALESCE(voided,0)=0${cashierOnly}`, ...P))
     rows.push({ id: `cv-${v.id}`, at: v.created_at, kind: v.direction === "in" ? "receive" : "pay", who: v.who ?? null, party: v.party_name ?? null,
       label: [v.category || PARTY_TYPE[v.party_type as string], v.method].filter(Boolean).join(" · "), amount: round2(v.amount), dir: v.direction === "in" ? "in" : "out", ref: v.src ?? null });
+  // a shift's cash reaching the office (closing count, or the cashier's handover): its sales were already counted on
+  // their own day, so this is shown for the record (neutral) — it is why "Money in" can be more than today's sales
+  if (scope === "all" || scope === "cashier") for (const sh of all(`SELECT sh.id, sh.attendant, s.name st, COALESCE(sh.handed_at, sh.closed_at) at, COALESCE(sh.handed_amount, sh.cash_actual) amount, sh.handed_to,
+      sh.opened_at FROM shifts sh JOIN stations s ON s.id=sh.station_id WHERE s.tenant_id=? AND sh.status='closed' AND COALESCE(sh.handed_at, sh.closed_at) >= ? AND COALESCE(sh.handed_at, sh.closed_at) < ?
+      AND COALESCE(sh.handed_amount, sh.cash_actual, 0) > 0`, ...P))
+    rows.push({ id: `shc-${sh.id}`, at: sh.at, kind: "shift_cash", who: sh.handed_to ?? null, party: sh.attendant ?? null,
+      label: `Shift #${sh.id} ka cash jama (${sh.st}) — sales ${String(sh.opened_at) < from ? "pichle din" : "is din"} gin li gayin`, amount: round2(sh.amount), dir: "neutral", ref: `shift:${sh.id}` });
   // manual khata charges / payments that are NOT a sale and NOT mirrored by a cashier voucher (so nothing shows twice)
   if (scope === "all") for (const k of all(`SELECT k.id, k.created_at, k.type, k.amount, k.ref, k.note, c.name cust FROM khata_ledger k JOIN customers c ON c.id=k.customer_id
      WHERE c.tenant_id=? AND k.created_at>=? AND k.created_at<? AND k.ref NOT LIKE 'SALE-%' AND k.ref NOT LIKE 'SHOP-%' AND k.ref NOT LIKE 'LATE-%'

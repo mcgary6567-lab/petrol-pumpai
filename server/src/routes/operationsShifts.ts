@@ -332,6 +332,8 @@ function closeShiftCore(req: Request, shift: Row, b: CloseInput, dryRun: boolean
       now(), round2(totalLitres), r.cash_expected, counted, round2(counted - r.cash_expected), b.notes ?? null, b.cash_notes ? JSON.stringify(b.cash_notes) : null, shift.id);
     // the shift is closed: its "still open" alert is done
     run("UPDATE alerts SET acknowledged=1 WHERE dedupe_key=? AND acknowledged=0", `shift-overdue-${shift.id}`);
+    // its "still open" / "time over" reminders in the bell are done too
+    run("UPDATE notifications SET read_at=COALESCE(read_at, ?) WHERE type IN ('shift_overdue','shift_due') AND json_extract(data,'$.shift_id')=?", now(), shift.id);
     return r;
   })!;
 }

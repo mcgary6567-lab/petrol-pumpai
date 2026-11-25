@@ -74,7 +74,11 @@ owner.get("/owner/overview", requirePerm("reports.view"), h((req) => {
     revenue: r.revenue, retail_sales: r.retail_sales, retail_litres: r.retail_litres, retail_txns: r.retail_txns,
     wholesale: r.wholesale_net, wholesale_litres: r.wholesale_litres, shop: r.shop_sales,
     expenses: r.expenses, profit_estimate: r.gross_profit_estimate, cost_assumed: r.cost_assumed_products, cost_missing: r.cost_missing_products,
-    money_in: { cash: book.totals.in_cash, bank: book.totals.in_bank }, money_out: { cash: book.totals.out_cash, bank: book.totals.out_bank },
+    money_in: { cash: book.totals.in_cash, bank: book.totals.in_bank,
+      // what it is made of — e.g. a shift's cash handed in today whose sales were yesterday (so today's sales can be 0)
+      parts: Object.entries((book.rows as any[]).filter((x) => x.dir === "in" && !(x.cash && x.before_start)).reduce((a: Record<string, number>, x) => { a[x.what] = round2((a[x.what] ?? 0) + x.amount); return a; }, {}))
+        .map(([what, amount]) => ({ what, amount })).sort((a, b) => b.amount - a.amount).slice(0, 4) },
+    money_out: { cash: book.totals.out_cash, bank: book.totals.out_bank },
     deposited: book.totals.deposited,
     sale: saleToday, vs_yesterday_pct: saleYest > 0 ? Math.round(((saleToday - saleYest) / saleYest) * 1000) / 10 : null,
     vs_avg7_pct: avg7 > 0 ? Math.round(((saleToday - avg7) / avg7) * 1000) / 10 : null,

@@ -60,7 +60,7 @@ export function OwnerOverview() {
           <Row label="Khata customers" ur="کھاتہ" v={o.khata} to="/khata" />
           {modules.wholesale && <Row label="Wholesale clients" ur="ہول سیل" v={o.wholesale} to="/wholesale?tab=collect" />}
           {o.carriage > 0 && <Row label="Carriage / kiraya (thekedar)" ur="کرایہ" v={o.carriage} to="/carriage" />}
-          {o.staff_advances > 0 && <Row label="Staff advances" ur="ملازمین" v={o.staff_advances} to="/staff" />}
+          {o.staff_advances > 0 && <Row label="Staff advance + cash short" ur="ملازمین" v={o.staff_advances} to="/staff" />}
           <div className="mt-2 text-xs font-semibold uppercase tracking-wide text-rose-700">We owe · <Ur>دینا</Ur></div>
           <Row label="Suppliers (depots)" ur="سپلائر" v={w.suppliers} to="/suppliers" tone="text-rose-700"
             note={w.cheques_issued.n ? `${pkr(w.cheques_issued.amount)} of it in ${w.cheques_issued.n} cheque${w.cheques_issued.n === 1 ? "" : "s"} given, not yet paid by the bank` : undefined} />
@@ -85,7 +85,8 @@ export function OwnerOverview() {
           {t.shop ? <Row label="Shop & lubricants" ur="دکان" v={t.shop} to="/shop" /> : null}
           <div className="mt-1 grid grid-cols-2 gap-2 text-sm">
             <div className="rounded-xl bg-emerald-50 p-2"><div className="flex items-center gap-1 text-xs text-emerald-800"><ArrowDownCircle size={13} /> Money in · <Ur>آیا</Ur></div>
-              <div className="font-semibold tabular-nums text-emerald-800">{pkr(t.money_in.cash + t.money_in.bank)}</div><div className="text-[11px] text-emerald-700">cash {pkrShort(t.money_in.cash)} · bank {pkrShort(t.money_in.bank)}</div></div>
+              <div className="font-semibold tabular-nums text-emerald-800">{pkr(t.money_in.cash + t.money_in.bank)}</div><div className="text-[11px] text-emerald-700"><span className="whitespace-nowrap">cash {pkrShort(t.money_in.cash)}</span> · <span className="whitespace-nowrap">bank {pkrShort(t.money_in.bank)}</span></div>
+              {(t.money_in.parts ?? []).length > 0 && <div className="mt-1 border-t border-emerald-200 pt-1 text-[11px] leading-tight text-emerald-800">{t.money_in.parts.map((p: any) => <div key={p.what} className="flex min-w-0 justify-between gap-1" title={`${p.what}: ${pkr(p.amount)}`}><span className="min-w-0 truncate">{p.what}</span><span className="shrink-0 whitespace-nowrap tabular-nums">{pkrShort(p.amount)}</span></div>)}</div>}</div>
             <div className="rounded-xl bg-rose-50 p-2"><div className="flex items-center gap-1 text-xs text-rose-800"><ArrowUpCircle size={13} /> Money out · <Ur>گیا</Ur></div>
               <div className="font-semibold tabular-nums text-rose-800">{pkr(t.money_out.cash + t.money_out.bank)}</div><div className="text-[11px] text-rose-700">cash {pkrShort(t.money_out.cash)} · bank {pkrShort(t.money_out.bank)}</div></div>
           </div>

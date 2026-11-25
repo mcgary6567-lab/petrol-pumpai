@@ -193,6 +193,8 @@ export const JOBS: Job[] = [
           const title = `Shift still open: ${sh.attendant} (${Math.floor(hours)} h, since ${since})`;
           const body = `${sh.station_name} — opened ${since}. Close it with the meter readings and cash count.`;
           run("UPDATE alerts SET title=?, body=? WHERE tenant_id=? AND dedupe_key=? AND acknowledged=0", title, body, t, `shift-overdue-${sh.id}`);
+          // the bell's copy too — it kept the hours of its first run ("13 h") while the Alerts page said "18 h"
+          run("UPDATE notifications SET title=?, body=? WHERE tenant_id=? AND type='shift_overdue' AND json_extract(data,'$.shift_id')=?", title, body, t, sh.id);
           const a = createAlert(t, { station_id: sh.station_id, type: "shift_overdue", severity: "warning", title, body, dedupe_key: `shift-overdue-${sh.id}` });
           if (a) await notify(t, staff(t, ["admin", "manager"]), { type: "shift_overdue", data: { shift_id: sh.id }, whatsapp: false, title: a.title, body: a.body });
         }

@@ -1,6 +1,6 @@
 /** Endpoints for the big-button POS used by salesmen. */
 import { Router } from "express";
-import { all, get, pkDate, getSetting, type Row } from "../db.js";
+import { all, get, pkDate, pkStart, getSetting, type Row } from "../db.js";
 import { h, tid, requirePerm, scopedStation, can } from "../auth.js";
 import { ownStation } from "./operationsShared.js";
 import { AppError, currentPrices, UNDO_SECONDS } from "../services.js";
@@ -104,7 +104,10 @@ pos.get("/pos/today", h((req) => {
     recent: shift ? all(`SELECT s.id, s.product, s.litres, s.rate, s.amount, s.discount, s.discount_kind, s.discount_ref, s.payment_method, s.cash_back, s.cash_back_litres, s.khareed, s.items_cost, s.items_note, s.vehicle_no, s.slip_no, s.photo_id, s.created_at, s.created_by, c.name customer_name, b.bank bank_name, wc.name wholesale_name
       FROM sales s LEFT JOIN customers c ON c.id=s.customer_id LEFT JOIN bank_accounts b ON b.id=s.account_id
       LEFT JOIN wholesale_txns wt ON wt.sale_id=s.id AND wt.type='supply' AND wt.voided=0 LEFT JOIN wholesale_clients wc ON wc.id=wt.client_id
-      WHERE s.shift_id=? ORDER BY s.id DESC LIMIT 30`, shift.id) : [],
+      WHERE ${u.role === "salesman" ? "s.shift_id=?" : "(s.shift_id=? OR (s.station_id=? AND s.created_at >= ?))"} ORDER BY s.id DESC LIMIT 30`,
+      // a salesman: his own shift; a manager / CEO: that shift and every other sale at this station today (his own counter
+      // sales made without a shift, a sale entered before this shift opened) — the "last sales" list missed those
+      ...(u.role === "salesman" ? [shift.id] : [shift.id, stationId, pkStart(pkDate())])) : [],
   };
 }));
 

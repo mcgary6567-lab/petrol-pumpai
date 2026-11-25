@@ -57,6 +57,7 @@ function shareWhatsApp(title: string, data: any) {
 }
 const KIND: Record<string, { en: string; cls: string }> = {
   sale: { en: "Sale", cls: "bg-emerald-100 text-emerald-700" },
+  shift_cash: { en: "Shift cash jama", cls: "bg-sky-100 text-sky-800" },
   expense: { en: "Expense", cls: "bg-rose-100 text-rose-700" },
   receive: { en: "Received", cls: "bg-emerald-100 text-emerald-700" },
   pay: { en: "Paid", cls: "bg-rose-100 text-rose-700" },

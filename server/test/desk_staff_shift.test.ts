@@ -58,5 +58,26 @@ test("dashboard: a salesman on an open shift counts as on duty (no duty time / a
     await job.run(t);
     assert.match(db.get("SELECT title FROM alerts WHERE id=?", a.id)!.title, /\(30 h,/, "the same alert now says 30 h");
     assert.equal(db.get("SELECT COUNT(*) n FROM alerts WHERE dedupe_key=?", `shift-overdue-${sh.id}`)!.n, 1, "still one alert");
+    // the bell's copy says the same live hours as the Alerts page
+    const ns = db.all("SELECT title, read_at FROM notifications WHERE type='shift_overdue' AND json_extract(data,'$.shift_id')=?", sh.id);
+    assert.ok(ns.length > 0); for (const n of ns) assert.match(n.title, /\(30 h,/, "bell notification updated too");
   } else assert.fail("shift_overdue job not found");
+});
+
+test("POS recent list: a manager sees today's station sales outside the open shift; dashboard money-in parts; day feed shows shift cash", async () => {
+  const t = db.get("SELECT id FROM tenants ORDER BY id LIMIT 1")!.id as number;
+  const st = db.get("SELECT id FROM stations WHERE tenant_id=? ORDER BY id LIMIT 1", t)!.id as number;
+  for (const s of db.all("SELECT id FROM shifts WHERE status='open'")) db.run("UPDATE shifts SET status='closed', closed_at=? WHERE id=?", new Date().toISOString(), s.id);
+  // a counter sale with no shift, then a salesman's shift opens
+  const sale = db.run("INSERT INTO sales (station_id,product,litres,rate,amount,payment_method,created_at) VALUES (?,?,?,?,?,?,?)", st, "HSD", 50, 355, 17750, "cash", new Date().toISOString()) as any;
+  const sh = ok(await call("admin", "POST", "/api/shifts/open", { station_id: st, attendant: "Sajjad" }), "open");
+  const mgr = ok(await call("admin", "GET", `/api/pos/today?station_id=${st}`), "pos today");
+  assert.ok(mgr.recent.some((r: any) => r.id === sale.id), "the no-shift sale is in the manager's recent list");
+  // a closed shift whose cash reaches the office today shows in money-in parts and (neutral) in the day feed
+  db.run("UPDATE shifts SET status='closed', closed_at=?, cash_actual=210000 WHERE id=?", new Date().toISOString(), sh.id);
+  const feed = ok(await call("admin", "GET", "/api/day-feed"), "feed");
+  const row = feed.rows.find((r: any) => r.id === `shc-${sh.id}`);
+  assert.ok(row && row.dir === "neutral" && row.amount === 210000, "shift cash row, not counted as credit");
+  const ov = ok(await call("admin", "GET", "/api/owner/overview"), "overview");
+  assert.ok(Array.isArray(ov.today.money_in.parts));
 });
