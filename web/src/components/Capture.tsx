@@ -336,8 +336,10 @@ export function VoiceButton({ onParsed, className = "" }: { onParsed: (sale: any
  * Photo proof for any entry: cheque, cash receipt, bank slip, invoice, signed chalan…
  * Several photos can be added (camera or gallery); each is kept and linked to the saved entry.
  */
-export function ProofPhotos({ value, onChange, label = "Photo proof", hint = "cheque, receipt, slip, invoice", required }: {
+export function ProofPhotos({ value, onChange, label = "Photo proof", hint = "cheque, receipt, slip, invoice", required, compact }: {
   value: number[]; onChange: (ids: number[]) => void; label?: string; hint?: string; required?: boolean;
+  /** a table cell: small thumbs and an icon-only camera button on one line, no label — the row keeps its height */
+  compact?: boolean;
 }) {
   const input = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
@@ -355,6 +357,24 @@ export function ProofPhotos({ value, onChange, label = "Photo proof", hint = "ch
     } catch (e: any) { toast("err", e.message); }
     finally { setBusy(false); if (input.current) input.current.value = ""; }
   };
+  if (compact) return (
+    <div className="flex items-center gap-1.5">
+      {value.map((id) => (
+        <span key={id} className="relative shrink-0">
+          <PhotoThumb id={id} group={value} size={9} onDeleted={(d) => onChange(value.filter((x) => x !== d))} />
+          <button type="button" onClick={() => onChange(value.filter((x) => x !== id))} aria-label="Remove photo"
+            className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-slate-800 text-[10px] leading-none text-white">×</button>
+        </span>
+      ))}
+      {value.length < 10 && (
+        <button type="button" disabled={busy} onClick={() => input.current?.click()} title={value.length ? "Aur photo" : "Photo lein / lagayein"} aria-label={value.length ? "Aur photo" : "Photo lein"}
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border-2 border-dashed border-slate-300 text-slate-600 hover:border-brand-500 hover:text-brand-700">
+          {busy ? <Loader2 size={16} className="animate-spin" /> : <Camera size={16} />}
+        </button>
+      )}
+      <input ref={input} type="file" accept="image/*" multiple className="hidden" onChange={(e) => add(e.target.files)} />
+    </div>
+  );
   return (
     <div>
       <span className="label">{label}{required && <span className="text-red-600"> * required</span>} <span className="font-normal text-slate-400">· {hint}</span></span>

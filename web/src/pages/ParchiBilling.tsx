@@ -356,9 +356,11 @@ function NewParchis({ customer, setCustomer, onSaved }: { customer: string; setC
       amount: <><input data-f={`amount-${l.key}`} className={`input ${phone ? "" : "!w-28"} ${big} text-right font-semibold ${l.byAmount ? "!border-violet-400" : ""}`} type="number" inputMode="decimal" step="any" min={0} placeholder="Rs" aria-label={`Line ${i + 1} raqam`}
         value={l.byAmount ? l.amount : amt(l) ? String(amt(l)) : ""} onChange={(e) => e.target.value === "" ? set(l.key, { byAmount: false, amount: "", qty: "" }) : set(l.key, { byAmount: true, amount: e.target.value })} onKeyDown={(e) => onEnter(e, l, "amount")} />
         <div className="text-right text-[11px] text-violet-700">{l.byAmount ? "raqam se litre" : ""}</div></>,
-      photo: <><ProofPhotos value={l.photos} onChange={(p) => set(l.key, { photos: p })} label="" hint="" />
+      photo: <><ProofPhotos value={l.photos} onChange={(p) => set(l.key, { photos: p })} label="" hint="" compact={!phone} />
         {l.photos.filter((id) => photoDup[id]).map((id) => <div key={id} className="max-w-[12rem] text-[11px] leading-tight text-rose-700">⚠ {photoDup[id]}</div>)}</>,
-      remove: lines.length > 1 ? <button type="button" className="rounded p-1.5 text-rose-600 hover:bg-rose-50" aria-label={`Line ${i + 1} hatayein`} onClick={() => setLines((ls) => ls.filter((x) => x.key !== l.key))}><X size={16} /></button> : null,
+      // the empty line kept at the end for the next parchi comes straight back if removed — it is never saved, so no ✕ on it
+      remove: i === lines.length - 1 && !started(l) && !filled(l) && !l.photos.length ? (lines.length > 1 ? <span className="whitespace-nowrap text-[11px] leading-tight text-slate-400">khaali<br />save nahi hogi</span> : null)
+        : lines.length > 1 ? <button type="button" className="rounded p-1.5 text-rose-600 hover:bg-rose-50" aria-label={`Line ${i + 1} hatayein`} onClick={() => setLines((ls) => ls.filter((x) => x.key !== l.key))}><X size={16} /></button> : null,
     };
   };
 
