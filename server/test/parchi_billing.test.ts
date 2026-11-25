@@ -323,3 +323,20 @@ test("Parchi audit fixes: payment ties, deletes elsewhere, double save, books ch
   assert.equal(bc.checks.find((x: any) => x.label === "Khata receivable (customers)").ok, false);
   db.run("UPDATE customers SET balance = balance - 50 WHERE id=?", b); db.run("UPDATE customers SET balance = balance + 50 WHERE id=?", c);
 });
+
+test("Parchi: voice / typed sentence → lines, and a customer's monthly parchi + payment-speed stats", async () => {
+  const t = db.get("SELECT id FROM tenants ORDER BY id LIMIT 1")!.id as number;
+  const cid = (db.run("INSERT INTO customers (tenant_id,name,phone,type,balance,credit_limit,created_at) VALUES (?,?,?,?,?,?,?)", t, "Voice Customer", "923000000793", "retail", 0, 900000, new Date(Date.now() - 90 * 86_400_000).toISOString()) as any).id;
+  ok(await call("manager", "POST", `/api/customers/${cid}/vehicles`, { plate_no: "LEH-453", fuel: "HSD" }), "veh");
+  const v = ok(await call("manager", "POST", "/api/parchi/parse-voice", { customer_id: cid, text: "slip 245 LEH 453 pachas litre diesel, agli slip 246 gaari 453 paanch hazar ka petrol" }), "voice");
+  assert.equal(v.lines.length, 2);
+  assert.equal(v.lines[0].slip_no, "245"); assert.equal(v.lines[0].vehicle_no, "LEH-453"); near(v.lines[0].litres, 50); assert.equal(v.lines[0].product, "HSD");
+  assert.equal(v.lines[1].slip_no, "246"); assert.equal(v.lines[1].vehicle_no, "LEH-453", "digits only → his gaari"); near(v.lines[1].amount, 5000); assert.equal(v.lines[1].product, "PMG");
+  const day = (n: number) => new Date(Date.now() - n * 86_400_000 + 5 * 3600_000).toISOString().slice(0, 10);
+  ok(await call("manager", "POST", "/api/parchi/batch", { customer_id: cid, lines: [{ parchi_date: day(10), kind: "fuel", product: "PMG", qty: 4, rate: 250 }, { parchi_date: day(0), kind: "fuel", product: "PMG", qty: 2, rate: 250 }] }), "batch");
+  ok(await call("manager", "POST", `/api/customers/${cid}/khata`, { type: "credit", amount: 1000, method: "Cash", notify: false }), "pay");
+  const st = ok(await call("manager", "GET", `/api/parchi/customer-stats?customer_id=${cid}`), "stats");
+  assert.equal(st.months.length, 12);
+  assert.equal(st.totals.n, 2); near(st.totals.amount, 1500); near(st.totals.paid_in, 1000);
+  assert.equal(st.totals.avg_days, 10, "the oldest parchi was paid 10 days after it");
+});

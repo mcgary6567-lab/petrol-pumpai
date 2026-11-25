@@ -7,13 +7,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Plus, Ticket, X, ArrowLeft, Check, Printer, Download } from "lucide-react";
-import { api, linkToken, useApi } from "../lib/api";
+import { api, linkToken, notifyChanged, useApi } from "../lib/api";
 import { printNow } from "../lib/printNow";
 import { WhatsAppDoc } from "../components/WhatsAppDoc";
 import { AccountPicker } from "../components/BankParts";
 import { activeProducts, PRODUCTS, num, pkr } from "../lib/format";
 import { Field, IdTag, Loading, Modal, PageHeader, useAction, useToast } from "../components/ui";
-import { ProofPhotos, resizeImage } from "../components/Capture";
+import { ProofPhotos, resizeImage, Recognition } from "../components/Capture";
+import { isOffline } from "../lib/offline";
 
 const Ur = ({ children }: { children: React.ReactNode }) => <span lang="ur" dir="rtl" className="font-urdu font-normal">{children}</span>;
 const pkToday = () => new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 10);
@@ -41,6 +42,56 @@ function usePhone() {
 const draftKey = (c: string) => `pumpai.parchi.draft.${c}`;
 const readDraft = (c: string): { lines: Line[]; note: string; at: string } | null => { try { const d = JSON.parse(localStorage.getItem(draftKey(c)) ?? "null"); return d?.lines?.length ? d : null; } catch { return null; } };
 const dropDraft = (c: string) => { try { localStorage.removeItem(draftKey(c)); } catch { /* private mode */ } };
+
+/* ---- 41: no internet — a confirmed batch waits on this device and goes by itself when the net is back ---- */
+const PQ = "pumpai.parchi.queue", PQ_EVT = "pumpai-parchi-queue";
+type QItem = { body: any; customer: string; name: string; n: number; total: number; at: string; error?: string };
+const qRead = (): QItem[] => { try { return JSON.parse(localStorage.getItem(PQ) ?? "[]"); } catch { return []; } };
+const qWrite = (v: QItem[]) => { try { localStorage.setItem(PQ, JSON.stringify(v)); } catch { /* storage */ } window.dispatchEvent(new Event(PQ_EVT)); };
+let qBusy = false;
+/** send what is waiting, oldest first; stops at the first "still no net"; a refused batch is kept with its reason */
+async function flushParchiQueue(): Promise<number> {
+  if (qBusy) return 0; qBusy = true; let sent = 0;
+  try {
+    for (const q of qRead()) {
+      if (q.error) continue;
+      try { await api("/parchi/batch", { body: q.body }); sent++; qWrite(qRead().filter((x) => x.body.batch_id !== q.body.batch_id)); } // same batch id: never saved twice
+      catch (e: any) { if (isOffline(e)) break; qWrite(qRead().map((x) => (x.body.batch_id === q.body.batch_id ? { ...x, error: e.message } : x))); }
+    }
+  } finally { qBusy = false; }
+  return sent;
+}
+function useParchiQueue() {
+  const [q, setQ] = useState<QItem[]>(qRead);
+  useEffect(() => {
+    const f = () => setQ(qRead());
+    const go = () => { flushParchiQueue().then((n) => { if (n) notifyChanged(); }); };
+    window.addEventListener(PQ_EVT, f); window.addEventListener("online", go); window.addEventListener("storage", f);
+    go(); const id = setInterval(go, 30_000);
+    return () => { window.removeEventListener(PQ_EVT, f); window.removeEventListener("online", go); window.removeEventListener("storage", f); clearInterval(id); };
+  }, []);
+  return q;
+}
+function QueueBanner() {
+  const q = useParchiQueue();
+  const [busy, setBusy] = useState(false);
+  if (!q.length) return null;
+  const wait = q.filter((x) => !x.error), bad = q.filter((x) => x.error);
+  return (
+    <div className="space-y-2 print:hidden">
+      {wait.length > 0 && <div className="flex flex-wrap items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+        <span className="text-xl">📴</span><span className="mr-auto"><b>{wait.reduce((a, x) => a + x.n, 0)} parchi</b> ({wait.map((x) => x.name).join(", ")}) is phone mein ruki hain — net aate hi khud save ho jayengi. <span className="text-xs">Yeh page band na karein ya phone par dobara kholein.</span></span>
+        <button type="button" className="btn-primary !bg-amber-600 !py-1.5" disabled={busy} onClick={async () => { setBusy(true); await flushParchiQueue(); setBusy(false); }}>{busy ? "Bhej raha…" : "Abhi bhejein"}</button>
+      </div>}
+      {bad.map((x) => (
+        <div key={x.body.batch_id} className="flex flex-wrap items-center gap-2 rounded-xl border border-rose-300 bg-rose-50 px-4 py-3 text-sm text-rose-900">
+          <span className="mr-auto">⚠ {x.name}: {x.n} parchi save nahi hui — <b>{x.error}</b></span>
+          <button type="button" className="btn-secondary !py-1.5" onClick={() => { try { localStorage.setItem(draftKey(x.customer), JSON.stringify({ lines: x.body.lines.map((l: any) => ({ ...blank(), parchi_date: l.parchi_date, slip_no: l.slip_no ?? "", vehicle_no: l.vehicle_no ?? "", kind: l.kind, product: l.product ?? "PMG", item_id: l.item_id ? String(l.item_id) : "", qty: String(l.qty ?? ""), rate: l.rate ? String(l.rate) : "", rateTouched: !!l.rate, edited: true, byAmount: !!l.amount, amount: l.amount ? String(l.amount) : "" })), note: x.body.note ?? "", at: x.at })); } catch { /* storage */ } qWrite(qRead().filter((y) => y.body.batch_id !== x.body.batch_id)); location.href = `/parchi?customer=${x.customer}`; }}>Form mein kholein</button>
+          <button type="button" className="text-xs text-rose-700 underline" onClick={() => qWrite(qRead().filter((y) => y.body.batch_id !== x.body.batch_id))}>hata dein</button>
+        </div>))}
+    </div>
+  );
+}
 
 /** "Kaise karein" — short picture steps for each tab, for anyone (open the first time, then remembered). */
 function Guide({ tab }: { tab: "new" | "book" | "milan" }) {
@@ -70,6 +121,7 @@ export default function ParchiBilling() {
     <div className="space-y-4">
       <PageHeader title={<span className="flex items-center gap-2"><span className="grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-violet-600 to-fuchsia-500 text-white"><Ticket size={19} /></span>Parchi Billing · <Ur>پرچی بلنگ</Ur></span>}
         subtitle="Parchi aayi — na tail diya, na cash. Har parchi khata customer ke khate mein jati hai." />
+      <QueueBanner />
       <Guide tab={tab} />
       <div className="flex gap-1 rounded-xl bg-slate-100 p-1 sm:w-fit" role="tablist">
         {([["new", "🎫 Nayi parchiyan", "نئی پرچیاں"], ["book", "📒 Parchi Book", "پرچی بک"], ["milan", "🔍 Milan", "ملان"]] as const).map(([k, en, ur]) => (
@@ -106,6 +158,7 @@ function NewParchis({ customer, setCustomer, onSaved }: { customer: string; setC
   const [done, setDone] = useState<{ id: number; n: number; total: number; balance: number } | null>(null);
   const photoInput = useRef<HTMLInputElement>(null);
   const [tplOpen, setTplOpen] = useState(false);
+  const [voice, setVoice] = useState(false);
   const [photoDup, setPhotoDup] = useState<Record<number, string>>({});
   const [vday, setVday] = useState<Record<string, number>>({});
   const rates = useRef<Record<string, Record<string, number>>>({}); // `${customer}|${date}` → his rate (card applied)
@@ -233,11 +286,21 @@ function NewParchis({ customer, setCustomer, onSaved }: { customer: string; setC
   const overs = [...new Set(ready.map(overLimit).filter(Boolean))] as string[];
   const dupPhotos = ready.filter((l) => l.photos.some((id) => photoDup[id]));
 
+  const [saving, setSaving] = useState(false);
   const save = async () => {
-    const r = await run(() => api("/parchi/batch", { body: { customer_id: Number(customer), note: note || null, tag: tag.trim() || null, batch_id: batchId, lines: ready.map((l) => ({
+    const body = { customer_id: Number(customer), note: note || null, tag: tag.trim() || null, batch_id: batchId, lines: ready.map((l) => ({
       parchi_date: l.parchi_date, slip_no: l.slip_no || null, vehicle_no: l.vehicle_no || null, kind: l.kind, product: l.kind === "fuel" ? l.product : null,
-      item_id: l.kind === "shop" ? Number(l.item_id) : null, qty: Number(l.qty), rate: Number(l.rate), amount: l.byAmount ? Number(l.amount) : null, photo_ids: l.photos })) } }),
-      (x: any) => `${x.ids.length} parchi khate mein — ${pkr(x.total)}`);
+      item_id: l.kind === "shop" ? Number(l.item_id) : null, qty: Number(l.qty), rate: Number(l.rate), amount: l.byAmount ? Number(l.amount) : null, photo_ids: l.photos })) };
+    let r: any = null;
+    setSaving(true);
+    try { r = await api("/parchi/batch", { body }); toast("ok", `${r.ids.length} parchi khate mein — ${pkr(r.total)}`); }
+    catch (e: any) {
+      if (isOffline(e)) { // no internet: keep it on this phone; the same batch id makes a later resend safe
+        qWrite([...qRead(), { body, customer, name: c?.name ?? "", n: ready.length, total, at: new Date().toISOString() }]);
+        toast("ok", `📴 Net nahi — ${ready.length} parchi phone mein rakh di, net aate hi khud save hongi`);
+        setBatchId(newBatchId()); dropDraft(customer); setConfirm(false); setLines([blank()]); setNote("");
+      } else toast("err", e.message);
+    } finally { setSaving(false); }
     if (r) { setBatchId(newBatchId()); dropDraft(customer); setConfirm(false); setLines([blank()]); setNote(""); meta.reload(); setDone({ id: r.ids[0], n: r.ids.length, total: r.total, balance: r.balance }); }
   };
   /** keep what was typed, drop the empty auto line at the end, then add these lines */
@@ -339,6 +402,7 @@ function NewParchis({ customer, setCustomer, onSaved }: { customer: string; setC
             <input ref={photoInput} type="file" accept="image/*" multiple className="hidden" onChange={(e) => fromPhotos(e.target.files)} />
             <button type="button" className="btn-secondary !py-1.5 text-sm" disabled={!!photoBusy} onClick={() => photoInput.current?.click()} title="Saari parchiyon ki photos ek saath — har photo ki ek line ban jayegi, phir litre / raqam bharein">📷 {photoBusy ? `Photo ${photoBusy}…` : "Photos se parchiyan"}</button>
             <button type="button" className="btn-secondary !py-1.5 text-sm" onClick={() => setImporting(true)} title="Excel se copy-paste ya CSV file">📥 Excel se</button>
+            <button type="button" className="btn-secondary !py-1.5 text-sm" onClick={() => setVoice(true)} title="Bol kar parchiyan likhein">🎤 Bol kar</button>
             <button type="button" className="btn-secondary !py-1.5 text-sm" onClick={() => setTplOpen(true)} title="Roz aane wali gaariyon ki lines ek click mein">📋 Template</button>
           </div>
 
@@ -399,6 +463,13 @@ function NewParchis({ customer, setCustomer, onSaved }: { customer: string; setC
         <button type="button" className="btn-primary ml-auto !bg-violet-600 hover:!bg-violet-700" disabled={blocked} onClick={() => setConfirm(true)}><Ticket size={16} /> Save {ready.length} →</button>
       </div>}
 
+      {voice && <VoiceParchi customerId={Number(customer)} onClose={() => setVoice(false)} onAdd={(vl) => {
+        setVoice(false); let prev: Line | undefined = [...lines].reverse().find((l) => started(l) || filled(l));
+        const add = vl.map((x: any) => { const fuel = x.product && activeProducts.some((p) => p.code === x.product) ? x.product : prev?.product ?? activeProducts[0]?.code ?? "PMG";
+          const n: Line = { ...blank(prev), parchi_date: allDate || pkToday(), slip_no: x.slip_no ?? "", vehicle_no: x.vehicle_no ?? prev?.vehicle_no ?? "", kind: "fuel", product: fuel,
+            qty: x.litres ? String(x.litres) : "", byAmount: !x.litres && !!x.amount, amount: !x.litres && x.amount ? String(x.amount) : "", edited: true };
+          prev = n; return n; });
+        appendLines(add); if (add[0]) focus("slip", add[0].key); }} />}
       {tplOpen && <Templates customerId={Number(customer)} current={lines.filter((l) => started(l) || filled(l))} onClose={() => setTplOpen(false)}
         onUse={(tl) => { setTplOpen(false); let prev: Line | undefined = [...lines].reverse().find((l) => started(l) || filled(l)); const add = tl.map((x: any) => { const n: Line = { ...blank(prev), parchi_date: allDate || pkToday(), vehicle_no: x.vehicle_no ?? "", kind: x.kind, product: x.product ?? (prev?.product ?? "PMG"), item_id: x.item_id ? String(x.item_id) : "", qty: x.qty ? String(x.qty) : "", edited: true }; prev = n; return n; }); appendLines(add); if (add[0]) focus("slip", add[0].key); }} />}
       {importing && <ExcelImport items={items} defDate={allDate || pkToday()} onClose={() => setImporting(false)} onAdd={(add) => { setImporting(false); appendLines(add); }} />}
@@ -448,7 +519,7 @@ function NewParchis({ customer, setCustomer, onSaved }: { customer: string; setC
         </div>
         <div className="mt-4 flex justify-between gap-2 border-t border-slate-100 pt-3">
           <button className="btn-secondary" onClick={() => setConfirm(false)}><ArrowLeft size={15} /> Wapas · theek karein</button>
-          <button className="btn-primary !bg-emerald-600" disabled={busy} onClick={save}><Check size={16} /> Confirm · محفوظ کریں</button>
+          <button className="btn-primary !bg-emerald-600" disabled={busy || saving} onClick={save}><Check size={16} /> {saving ? "Save ho raha…" : "Confirm · محفوظ کریں"}</button>
         </div>
       </Modal>}
     </div>
@@ -633,6 +704,91 @@ function Milan({ customer, setCustomer, toForm }: { customer: string; setCustome
         </div>
       </div>}
     </div>
+  );
+}
+
+/** 39: say the parchiyan ("slip 245 LEH 453 pachas litre diesel, agli slip 246 ...") — or type the same — check, then into the form. */
+function VoiceParchi({ customerId, onClose, onAdd }: { customerId: number; onClose: () => void; onAdd: (lines: any[]) => void }) {
+  const [text, setText] = useState("");
+  const [lang, setLang] = useState<"ur-PK" | "en-PK">("ur-PK");
+  const [listening, setListening] = useState(false);
+  const [lines, setLines] = useState<any[] | null>(null);
+  const rec = useRef<any>(null);
+  const { busy, run } = useAction();
+  const toast = useToast();
+  const listen = () => {
+    if (!Recognition) { toast("err", "Is phone / browser mein bolne ki sahulat nahi — Chrome kholein, ya neeche likh dein"); return; }
+    if (listening) { rec.current?.stop(); return; }
+    const r = new Recognition(); r.lang = lang; r.interimResults = false; r.maxAlternatives = 1;
+    r.onresult = (e: any) => { const said = Array.from(e.results as ArrayLike<any>).map((x: any) => x[0].transcript).join(" "); setText((t) => (t ? `${t}, agli ${said}` : said)); setLines(null); };
+    r.onerror = (e: any) => { setListening(false); if (e?.error !== "no-speech") toast("err", e?.error === "not-allowed" ? "Mic ki ijazat dein (browser ke upar 🔒)" : "Sun nahi saka — dobara bolein"); };
+    r.onend = () => setListening(false);
+    rec.current = r; setListening(true); r.start();
+  };
+  const understand = async () => { const r = await run(() => api("/parchi/parse-voice", { body: { customer_id: customerId, text } })); if (r) setLines(r.lines); };
+  return (
+    <Modal open onClose={onClose} title="🎤 Bol kar parchiyan · بول کر">
+      <p className="text-sm text-slate-600">Aise bolein: <b>"slip 245, LEH 453, pachas litre diesel"</b> — agli parchi se pehle <b>"agli"</b> kahein. Raqam: <b>"paanch hazar ka petrol"</b>.</p>
+      <div className="mt-3 flex flex-col items-center gap-2">
+        <button type="button" onClick={listen} aria-label={listening ? "Rokein" : "Bolein"} className={`grid h-20 w-20 place-items-center rounded-full text-3xl text-white shadow-lg ${listening ? "animate-pulse bg-rose-600" : "bg-violet-600"}`}>{listening ? "■" : "🎤"}</button>
+        <span className="text-xs text-slate-500">{listening ? "Sun raha hoon… bol kar dobara dabayein" : "Dabayein aur bolein"}</span>
+        <div className="flex gap-1 text-xs">{([["ur-PK", "اردو"], ["en-PK", "English"]] as const).map(([k, l]) => <button key={k} type="button" onClick={() => setLang(k)} className={`rounded-full border px-2.5 py-1 ${lang === k ? "border-violet-400 bg-violet-50 text-violet-700" : "border-slate-200"}`}>{l}</button>)}</div>
+      </div>
+      <Field label="Jo suna / likhein"><textarea className="input mt-1 h-20" value={text} onChange={(e) => { setText(e.target.value); setLines(null); }} placeholder="slip 245 LEH 453 pachas litre diesel, agli slip 246 gaari 1234 paanch hazar ka petrol" aria-label="Bol kar text" /></Field>
+      {lines && (lines.length ? <div className="mt-2 space-y-1">{lines.map((l, i) => (
+        <div key={i} className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm">#{i + 1} · slip <b>{l.slip_no ?? "—"}</b> · gaari <b>{l.vehicle_no ?? "—"}</b> · {l.product ? PRODUCTS[l.product] ?? l.product : "fuel ?"} · {l.litres ? <b>{l.litres} L</b> : l.amount ? <b>{pkr(l.amount)}</b> : "?"}
+          <div className="text-[11px] text-slate-500">"{l.heard}"</div></div>))}</div>
+        : <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">Samajh nahi aaya — litre ya raqam zaroor bolein.</p>)}
+      <div className="mt-4 flex justify-end gap-2 border-t border-slate-100 pt-3"><button className="btn-secondary" onClick={onClose}>Cancel</button>
+        {!lines ? <button className="btn-primary" disabled={busy || !text.trim()} onClick={understand}>Samjhein →</button>
+          : <button className="btn-primary !bg-violet-600" disabled={!lines.length} onClick={() => onAdd(lines)}>Form mein daalein ({lines.length})</button>}</div>
+    </Modal>
+  );
+}
+
+/** 40: a customer's parchi months — Rs of parchi vs payments received (one Rs axis), and how many days he takes to pay. */
+function CustomerChart({ customerId, onClose }: { customerId: number; onClose: () => void }) {
+  const { data } = useApi<any>(`/parchi/customer-stats?customer_id=${customerId}`);
+  const [hover, setHover] = useState<number | null>(null);
+  const mon = (k: string) => ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][Number(k.slice(5, 7)) - 1] + " " + k.slice(2, 4);
+  const W = 720, H = 220, P = { l: 56, r: 8, t: 12, b: 28 };
+  const rows: any[] = data?.months ?? [];
+  const max = Math.max(1, ...rows.flatMap((r) => [r.amount, r.paid_in]));
+  const nice = (v: number) => { const e = 10 ** Math.floor(Math.log10(v)); return Math.ceil(v / e) * e; };
+  const top = nice(max), bw = (W - P.l - P.r) / Math.max(1, rows.length), y = (v: number) => P.t + (H - P.t - P.b) * (1 - v / top);
+  const short = (v: number) => v >= 1e5 ? `${Math.round(v / 1e5 * 10) / 10}L` : v >= 1e3 ? `${Math.round(v / 1e3)}k` : String(Math.round(v));
+  const t = data?.totals;
+  return (
+    <Modal open onClose={onClose} title={`📈 ${data?.customer?.name ?? "Customer"} · 12 mahine`} wide>
+      {!data ? <Loading /> : <div className="space-y-3">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {[["Parchiyan", `${t.n} · ${pkr(t.amount)}`], ["Fuel litre", num(t.litres, 0)], ["Payment aayi", pkr(t.paid_in)], ["Payment aam taur par", t.avg_days == null ? "—" : `${t.avg_days} din mein`]].map(([l, v]) => (
+            <div key={l} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"><div className="text-xs text-slate-500">{l}</div><div className="font-bold tabular-nums">{v}</div></div>))}
+        </div>
+        <div className="flex items-center gap-4 text-xs text-slate-600"><span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-violet-600 dark:bg-violet-500" />Parchi (Rs)</span><span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-emerald-600 dark:bg-emerald-500" />Payment aayi (Rs)</span></div>
+        <div className="relative overflow-x-auto">
+          <svg viewBox={`0 0 ${W} ${H}`} className="w-full min-w-[520px]" role="img" aria-label="Har mahine parchi aur payment">
+            {[0, 0.25, 0.5, 0.75, 1].map((f) => <g key={f}><line x1={P.l} x2={W - P.r} y1={y(top * f)} y2={y(top * f)} className="stroke-slate-200 dark:stroke-slate-700" strokeWidth={1} />
+              <text x={P.l - 6} y={y(top * f) + 3} textAnchor="end" className="fill-slate-500 text-[10px]">{short(top * f)}</text></g>)}
+            {rows.map((r, i) => { const x = P.l + i * bw, w = Math.max(4, Math.min(18, bw / 2 - 5)), cx = x + bw / 2;
+              const bar = (v: number, dx: number, cls: string) => v > 0 ? <path d={`M${cx + dx},${y(0)} V${y(v) + 4} q0,-4 4,-4 h${w - 8} q4,0 4,4 V${y(0)} Z`} className={cls} /> : null;
+              return <g key={r.month} onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)} onClick={() => setHover(i)}>
+                <rect x={x} y={P.t} width={bw} height={H - P.t - P.b} fill="transparent" />
+                {hover === i && <rect x={x + 1} y={P.t} width={bw - 2} height={H - P.t - P.b} className="fill-slate-100 dark:fill-slate-800" />}
+                {bar(r.amount, -w - 1, "fill-violet-600 dark:fill-violet-500")}{bar(r.paid_in, 1, "fill-emerald-600 dark:fill-emerald-500")}
+                <text x={cx} y={H - 10} textAnchor="middle" className="fill-slate-500 text-[10px]">{mon(r.month)}</text></g>; })}
+            <line x1={P.l} x2={W - P.r} y1={y(0)} y2={y(0)} className="stroke-slate-400" strokeWidth={1} />
+          </svg>
+          {hover != null && rows[hover] && <div className="pointer-events-none absolute top-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs shadow-lg dark:border-slate-700 dark:bg-slate-900" style={{ left: `min(calc(${((hover + 0.5) / rows.length) * 100}% ), calc(100% - 11rem))` }}>
+            <b>{mon(rows[hover].month)}</b><div>Parchi: {rows[hover].n} · {pkr(rows[hover].amount)}</div><div>Litre: {num(rows[hover].litres, 0)}</div><div>Payment: {pkr(rows[hover].paid_in)}</div>{rows[hover].avg_days != null && <div>Payment {rows[hover].avg_days} din mein</div>}</div>}
+        </div>
+        <details className="text-sm"><summary className="cursor-pointer text-violet-700">Table dekhein</summary>
+          <table className="mt-2 w-full"><thead><tr>{["Mahina", "Parchi", "Litre", "Raqam", "Payment aayi", "Payment kitne din mein"].map((h) => <th key={h} className="th">{h}</th>)}</tr></thead>
+            <tbody>{rows.map((r) => <tr key={r.month}><td className="td">{mon(r.month)}</td><td className="td tabular-nums">{r.n}</td><td className="td tabular-nums">{num(r.litres, 0)}</td><td className="td tabular-nums">{pkr(r.amount)}</td><td className="td tabular-nums">{pkr(r.paid_in)}</td>
+              <td className={`td tabular-nums ${r.avg_days > 60 ? "font-semibold text-rose-700" : r.avg_days > 30 ? "text-amber-700" : ""}`}>{r.avg_days == null ? "—" : `${r.avg_days} din`}</td></tr>)}</tbody></table></details>
+        <p className="text-xs text-slate-500">"Payment kitne din mein" = parchi ki tareekh se us din tak jab woh poori Paid hui (sab se purani pehle, ya jori hui payment).</p>
+      </div>}
+    </Modal>
   );
 }
 
@@ -905,6 +1061,7 @@ function ParchiBook({ customer, setCustomer }: { customer: string; setCustomer: 
   const [hist, setHist] = useState<number | null>(null);
   const [review, setReview] = useState(false);
   const [acct, setAcct] = useState(false);
+  const [chart, setChart] = useState(false);
   const toggle = (id: number) => setSel((x) => { const n = new Set(x); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const [one, setOne] = useState<any[] | null>(null); // one parchi's delete opens the same popup as many
   const voidIt = (r: any) => { setOne([r]); setBulk("delete"); };
@@ -946,6 +1103,7 @@ function ParchiBook({ customer, setCustomer }: { customer: string; setCustomer: 
         </div>}
         <div className="flex flex-wrap justify-end gap-2">
           <button type="button" className="btn-secondary" onClick={() => setAcct(true)} title="Parchi ka journal (Dr / Cr) aur control check">📊 Hisaab</button>
+          {customer && <button type="button" className="btn-secondary" onClick={() => setChart(true)} title="12 mahine: parchi, payment, kitne din mein payment">📈 Chart</button>}
           {customer && <button type="button" className="btn-secondary" onClick={() => setReview(true)} title="Customer ka rate card badla ho to purani fuel parchiyon par naya rate">♻ Naya rate check</button>}
           <WhatsAppDoc kind="parchi_book" id={Number(customer) || 0} from={range.from || undefined} to={range.to || undefined} filter={filterJson || undefined} />
           <a className="btn-secondary" href={pdf} target="_blank" rel="noreferrer"><Download size={15} /> PDF</a>
@@ -1032,6 +1190,7 @@ function ParchiBook({ customer, setCustomer }: { customer: string; setCustomer: 
       </div>}
       {bulk && <BulkChange mode={bulk} rows={one ?? picked} tags={(tagsList.data?.tags ?? []) as string[]} onClose={() => { setBulk(null); setOne(null); }} onDone={() => { setBulk(null); setOne(null); setSel(new Set()); reload(); aging.reload(); }} />}
       {hist && <ParchiHistory id={hist} onClose={() => setHist(null)} />}
+      {chart && customer && <CustomerChart customerId={Number(customer)} onClose={() => setChart(false)} />}
       {acct && <Accounts customer={customer} name={customers.find((x) => String(x.id) === customer)?.name ?? "Sab customers"} range={range} onClose={() => setAcct(false)} />}
       {review && customer && <RateReview customerId={Number(customer)} name={customers.find((x) => String(x.id) === customer)?.name ?? ""} onClose={() => setReview(false)} onDone={() => { setReview(false); reload(); aging.reload(); }} />}
       {payMode && customer && <PayParchis mode={payMode} customerId={Number(customer)} name={customers.find((x) => String(x.id) === customer)?.name ?? ""} rows={chosen} due={chosenDue}

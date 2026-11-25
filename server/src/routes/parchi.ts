@@ -20,6 +20,7 @@ import { AppError, audit, createAlert, currentPrices, khataSpecialRate, pkr, rou
 import { linkPhotos, proofPhotos } from "./capture.js";
 import { backdateAt } from "./backoffice.js";
 import { PRODUCTS } from "../config.js";
+import { parseSaleText } from "../ai/parseSale.js";
 
 export const parchi = Router();
 const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
@@ -501,6 +502,93 @@ export function parchiAccounts(t: number, q: { customer_id?: number; from?: stri
 parchi.get("/parchi/accounts", requirePerm("khata.manage"), h((req) => {
   const q = parse(z.object({ customer_id: z.coerce.number().int().optional(), from: day.optional(), to: day.optional() }), req.query);
   return parchiAccounts(tid(req), q);
+}));
+
+/* ---------------- 39: parchiyan by voice / typed sentence ----------------
+ * "slip 245 LEH 453 pachas litre diesel, agli slip 246 gaari 1234 paanch hazar ka petrol" → one line per parchi.
+ * The same reader as the POS voice sale (numbers in words, Urdu script, plates); a gaari said by its digits only is
+ * matched to this customer's saved gaariyan. Nothing is saved here — the lines go into the form to check. */
+parchi.post("/parchi/parse-voice", requirePerm("khata.manage"), h((req) => {
+  const t = tid(req);
+  const b = parse(z.object({ customer_id: z.number().int(), text: z.string().trim().min(1).max(2000) }), req.body);
+  own(t, b.customer_id);
+  const vehicles = all("SELECT plate_no, fuel FROM vehicles WHERE customer_id=?", b.customer_id) as { plate_no: string; fuel: string | null }[];
+  const key = (v: string) => v.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const parts = b.text.split(/\s*(?:[;\n]|\bagli\b|\bagla\b|\bnext\b|\bphir\b|\bdusri\b|\bdoosri\b|اگلی|اگلا|پھر|دوسری)\s*/i).filter((x) => x.trim().length > 1);
+  const lines = parts.map((said) => {
+    const r = parseSaleText(said, []);
+    let vehicle = r.vehicle_no;
+    if (vehicle) { const hit = vehicles.find((v) => key(v.plate_no) === key(vehicle!)); if (hit) vehicle = hit.plate_no; }
+    else {
+      // "gaari 453" / "453 wali gaari": the digits of one of his gaariyan
+      const d = said.match(/(?:gaari|gari|gadi|گاڑی)\s*(?:no\.?|number|nambar|نمبر)?\s*(\d{2,4})/i)?.[1];
+      const hit = d ? vehicles.filter((v) => key(v.plate_no).endsWith(d)) : [];
+      if (hit.length === 1) vehicle = hit[0].plate_no;
+    }
+    const product = r.product ?? (vehicle ? vehicles.find((v) => v.plate_no === vehicle)?.fuel ?? null : null);
+    return { heard: said.trim(), slip_no: r.slip_no, vehicle_no: vehicle, product, litres: r.litres, amount: r.amount };
+  }).filter((l) => l.litres || l.amount || l.slip_no);
+  return { lines };
+}));
+
+/* ---------------- 40: a customer's parchi months — how much, and how fast he pays ---------------- */
+/** When each khata charge was fully paid (payments clear the oldest first; a tied payment clears its parchi). */
+function paidDates(customerId: number) {
+  const rows = all("SELECT id, type, amount, created_at FROM khata_ledger WHERE customer_id=? ORDER BY created_at, id", customerId);
+  const tied = new Map<number, { khata: number; amount: number }[]>();
+  for (const a of all(`SELECT a.khata_id pay, d.id target, a.amount FROM parchi_alloc a JOIN parchi_lines p ON p.id=a.parchi_id AND p.voided=0
+      JOIN khata_ledger d ON d.id=p.khata_id AND d.customer_id=a.customer_id JOIN khata_ledger k ON k.id=a.khata_id AND k.customer_id=a.customer_id AND k.type='credit'
+      WHERE a.customer_id=? ORDER BY a.id`, customerId))
+    tied.set(a.pay as number, [...(tied.get(a.pay as number) ?? []), { khata: a.target as number, amount: a.amount as number }]);
+  const open: { id: number; left: number }[] = [], byId = new Map<number, { id: number; left: number }>(), reserved = new Map<number, number>();
+  const paid = new Map<number, string>();
+  let advance = 0;
+  const take = (o: { id: number; left: number }, v: number, at: string) => { o.left -= v; if (o.left <= 0.005 && !paid.has(o.id)) paid.set(o.id, at); };
+  for (const r of rows) {
+    if (r.type === "debit") {
+      const pre = Math.min(reserved.get(r.id) ?? 0, r.amount); advance += (reserved.get(r.id) ?? 0) - pre;
+      const o = { id: r.id, left: r.amount }; open.push(o); byId.set(r.id, o);
+      if (pre) take(o, pre, r.created_at);
+      const use = Math.min(advance, o.left); advance -= use; if (use) take(o, use, r.created_at);
+      continue;
+    }
+    let pay = r.amount;
+    for (const t of tied.get(r.id) ?? []) {
+      if (pay <= 0) break;
+      const o = byId.get(t.khata);
+      if (o) { const v = Math.min(o.left, t.amount, pay); take(o, v, r.created_at); pay -= v; }
+      else { const v = Math.min(t.amount, pay); reserved.set(t.khata, (reserved.get(t.khata) ?? 0) + v); pay -= v; }
+    }
+    for (const o of open) { if (pay <= 0) break; if (o.left <= 0.005) continue; const v = Math.min(o.left, pay); take(o, v, r.created_at); pay -= v; }
+    advance += pay;
+  }
+  return paid;
+}
+parchi.get("/parchi/customer-stats", requirePerm("khata.manage"), h((req) => {
+  const t = tid(req);
+  const q = parse(z.object({ customer_id: z.coerce.number().int(), months: z.coerce.number().int().min(3).max(24).default(12) }), req.query);
+  const c = own(t, q.customer_id);
+  const now0 = pkDate();
+  const keys: string[] = [];
+  for (let i = q.months - 1; i >= 0; i--) { const d = new Date(`${now0.slice(0, 7)}-15T00:00:00Z`); d.setUTCMonth(d.getUTCMonth() - i); keys.push(d.toISOString().slice(0, 7)); }
+  const first = `${keys[0]}-01`;
+  const M = new Map(keys.map((k) => [k, { month: k, n: 0, litres: 0, amount: 0, paid_in: 0, days: [] as number[] }]));
+  const paid = paidDates(c.id);
+  const daysBetween = (a: string, b: string) => Math.max(0, Math.round((Date.parse(b) - Date.parse(a)) / 86_400_000));
+  for (const p of all(`SELECT p.*, k.id kid FROM parchi_lines p LEFT JOIN khata_ledger k ON k.id=p.khata_id AND k.customer_id=p.customer_id
+      WHERE p.customer_id=? AND p.tenant_id=? AND p.voided=0 AND p.parchi_date >= ?`, c.id, t, first)) {
+    const m = M.get(String(p.parchi_date).slice(0, 7)); if (!m || !p.kid) continue;
+    m.n++; m.amount = round2(m.amount + (p.amount as number)); if (p.kind === "fuel") m.litres = round2(m.litres + (p.qty as number));
+    const at = paid.get(p.kid as number); if (at) m.days.push(daysBetween(p.parchi_date as string, khataDay(at)));
+  }
+  for (const k of all("SELECT amount, created_at FROM khata_ledger WHERE customer_id=? AND type='credit' AND COALESCE(ref,'') NOT LIKE 'xfer:%' AND created_at >= ?", c.id, pkStart(first))) {
+    const m = M.get(khataDay(k.created_at as string).slice(0, 7)); if (m) m.paid_in = round2(m.paid_in + (k.amount as number));
+  }
+  const rows = [...M.values()].map(({ days, ...m }) => ({ ...m, avg_days: days.length ? Math.round(days.reduce((a, x) => a + x, 0) / days.length) : null, paid_n: days.length }));
+  const all_days = [...M.values()].flatMap((m) => m.days);
+  return { customer: { id: c.id, name: c.name }, months: rows,
+    totals: { n: rows.reduce((a, r) => a + r.n, 0), amount: round2(rows.reduce((a, r) => a + r.amount, 0)), litres: round2(rows.reduce((a, r) => a + r.litres, 0)), paid_in: round2(rows.reduce((a, r) => a + r.paid_in, 0)),
+      avg_days: all_days.length ? Math.round(all_days.reduce((a, x) => a + x, 0) / all_days.length) : null } };
 }));
 
 /** Parchi aging: unpaid parchi money by how old the parchi is (0-30 / 31-60 / 61-90 / 90+ days), per customer, oldest first. */
