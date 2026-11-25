@@ -5,6 +5,7 @@ import { Bell, CheckCheck, TrendingUp, TrendingDown } from "lucide-react";
 import { api, useApi } from "../lib/api";
 import { Field, Modal, useAction } from "./ui";
 import { PRODUCTS, ago, num } from "../lib/format";
+import { useAuth } from "../App";
 
 type NotifData = { items: any[]; unread: number; pending_ack: any[]; open_shift: { id: number; readings: any[] } | null };
 type CtxT = { data: NotifData | null; reload: () => void; snoozed: number | null; setSnoozed: (id: number | null) => void };
@@ -43,8 +44,15 @@ export function NotificationBell({ dark }: { dark?: boolean }) {
     return () => { window.removeEventListener("resize", place); window.removeEventListener("scroll", place, true); };
   }, [open, dark]);
   // open alerts are a different list (things to fix) from notifications (messages to me): show their count here too
-  const alerts = useApi<any>(open ? "/badges" : null);
-  const openAlerts = Number(alerts.data?.open_alerts ?? 0);
+  // the same open alerts as the Alerts page (newest first), in their own tab — so the bell and the page never disagree
+  const { can } = useAuth();
+  const seesAlerts = can("alerts.view");
+  const alertList = useApi<any[]>(open && seesAlerts ? "/alerts" : null);
+  const openList = (alertList.data ?? []).filter((a) => !a.acknowledged);
+  const openAlerts = openList.length;
+  const [pick, setTab] = useState<"alerts" | "messages">("alerts");
+  const tab = seesAlerts ? pick : "messages"; // staff without the Alerts page see their messages only
+  const { run: runAck, busy: acking } = useAction();
   useEffect(() => {
     const close = (e: MouseEvent) => { const n = e.target as Node; if (ref.current && !ref.current.contains(n) && !panel.current?.contains(n)) setOpen(false); };
     document.addEventListener("mousedown", close);
@@ -68,11 +76,30 @@ export function NotificationBell({ dark }: { dark?: boolean }) {
             <PhoneAlerts />
             {unread > 0 && <button className="flex items-center gap-1 text-xs text-brand-600 hover:underline" onClick={() => api("/notifications/read-all", { body: {} }).then(reload)}><CheckCheck size={13} /> Mark all read</button>}
           </div>
-          <div className="flex items-center justify-between gap-2 border-b border-slate-100 bg-slate-50 px-4 py-2 text-xs text-slate-600">
-            <span><b className="text-slate-800">{unread}</b> unread message{unread === 1 ? "" : "s"}{openAlerts ? <> · <b className="text-rose-700">{openAlerts}</b> open alert{openAlerts === 1 ? "" : "s"}</> : null}</span>
-            {openAlerts > 0 && <Link to="/alerts" onClick={() => setOpen(false)} className="font-medium text-brand-700 hover:underline">Alerts dekhein →</Link>}
-          </div>
-          <div className="max-h-[420px] overflow-y-auto">
+          {seesAlerts && <div className="grid grid-cols-2 gap-1 border-b border-slate-100 bg-slate-50 p-1.5 text-xs font-semibold" role="tablist">
+            <button type="button" role="tab" aria-selected={tab === "alerts"} onClick={() => setTab("alerts")} className={`rounded-lg px-2 py-1.5 ${tab === "alerts" ? "bg-white text-rose-700 shadow" : "text-slate-500"}`}>⚠ Alerts · الرٹ {alertList.data ? `(${openAlerts})` : ""}</button>
+            <button type="button" role="tab" aria-selected={tab === "messages"} onClick={() => setTab("messages")} className={`rounded-lg px-2 py-1.5 ${tab === "messages" ? "bg-white text-brand-700 shadow" : "text-slate-500"}`}>🔔 Messages · پیغام {unread ? `(${unread} naye)` : ""}</button>
+          </div>}
+          {tab === "alerts" ? <>
+            <div className="max-h-[420px] overflow-y-auto">
+              {openList.slice(0, 30).map((a) => (
+                <div key={a.id} className="flex items-start gap-2 border-b border-slate-100 px-4 py-3 text-sm">
+                  <span className={`mt-1 h-2 w-2 shrink-0 rounded-full ${a.severity === "critical" ? "bg-red-600" : a.severity === "warning" ? "bg-amber-500" : "bg-blue-500"}`} />
+                  <div className="min-w-0 flex-1">
+                    <div className="font-medium">{a.title}</div>
+                    {a.body && <div className="mt-0.5 line-clamp-3 whitespace-pre-line text-xs text-slate-600">{a.body}</div>}
+                    <div className="mt-1 flex items-center justify-between gap-2 text-[11px] text-slate-400">
+                      <span>{a.station_name ?? "All stations"} · {ago(a.created_at)}</span>
+                      <button type="button" disabled={acking} className="rounded border border-slate-200 px-1.5 py-0.5 font-medium text-slate-600 hover:bg-slate-50" onClick={() => runAck(() => api(`/alerts/${a.id}/ack`, { body: {} })).then(() => alertList.reload())}>Acknowledge</button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+              {!alertList.data && <div className="p-6 text-center text-sm text-slate-500">…</div>}
+              {alertList.data && !openAlerts && <div className="p-6 text-center text-sm text-slate-500">No open alerts 🎉</div>}
+            </div>
+            <Link to="/alerts" onClick={() => setOpen(false)} className="block border-t border-slate-100 px-4 py-2 text-center text-xs font-medium text-brand-700 hover:bg-slate-50">Alerts page par sab dekhein →</Link>
+          </> : <div className="max-h-[420px] overflow-y-auto">
             {(data?.items ?? []).map((n) => (
               <div key={n.id} className={`border-b border-slate-100 px-4 py-3 text-sm ${n.read_at ? "" : "bg-emerald-50/60"}`}
                 onClick={() => !n.read_at && api(`/notifications/${n.id}/read`, { body: {} }).then(reload)}>
@@ -86,7 +113,7 @@ export function NotificationBell({ dark }: { dark?: boolean }) {
               </div>
             ))}
             {!data?.items.length && <div className="p-6 text-center text-sm text-slate-500">No notifications</div>}
-          </div>
+          </div>}
         </div>, document.body,
       )}
     </div>
