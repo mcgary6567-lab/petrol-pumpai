@@ -7,6 +7,7 @@ import { ToastProvider, Loading } from "./components/ui";
 import Layout from "./components/Layout";
 import { LightboxHost } from "./components/Capture";
 import { UpdateBanner } from "./components/UpdateBanner";
+import { PageBoundary } from "./components/PageBoundary";
 import Login from "./pages/Login"; // sign-in is the first screen an unauthenticated user needs — keep it eager
 import { loadLookups } from "./lib/lookups";
 import { loadProducts } from "./lib/format";
@@ -16,15 +17,21 @@ import { loadProducts } from "./lib/format";
  * within a minute is shown as an error.
  */
 function retryImport<T>(load: () => Promise<T>): Promise<T> {
-  return load().catch((e) => {
+  // a page's code could not download — the server is busy for a minute (e.g. restarting after an update) or the net is
+  // weak. The browser remembers a failed page load until the app reloads, so: keep the sidebar and a spinner on screen,
+  // wait until the server answers again, then reload once. A second failure within a minute shows the
+  // "Page load nahi hua · dobara koshish" card (PageBoundary) — never a blank white screen.
+  return load().catch(async (e) => {
     let last = 0;
     try { last = Number(sessionStorage.getItem("pumpai_chunk_reload") || 0); } catch { /* storage blocked */ }
-    if (Date.now() - last > 60_000) {
-      try { sessionStorage.setItem("pumpai_chunk_reload", String(Date.now())); } catch { /* storage blocked */ }
-      window.location.reload();
-      return new Promise<T>(() => { /* the page is reloading */ });
+    if (navigator.onLine === false || Date.now() - last < 60_000) throw e;
+    try { sessionStorage.setItem("pumpai_chunk_reload", String(Date.now())); } catch { /* storage blocked */ }
+    for (let i = 0; i < 15; i++) {
+      try { if ((await fetch("/api/health", { cache: "no-store" })).ok) break; } catch { /* still down */ }
+      await new Promise((r) => setTimeout(r, 2000));
     }
-    throw e;
+    window.location.reload();
+    return new Promise<T>(() => { /* the page is reloading */ });
   });
 }
 // every other page is code-split (React.lazy): the browser only downloads a screen's JS when it's first opened, so
@@ -236,7 +243,7 @@ export default function App() {
         <PinPrompt />
         <CancelHost />
         <BrowserRouter>
-          <Suspense fallback={<Loading />}>
+          <PageBoundary>
           <Routes>
             <Route path="/login" element={<Login />} />
             <Route path="/a/:token" element={<AttendPublic />} />
@@ -313,7 +320,7 @@ export default function App() {
             <Route path="/coupons/:batch" element={<Protected><Need perm="khata.manage"><CouponSheet /></Need></Protected>} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
-          </Suspense>
+          </PageBoundary>
         </BrowserRouter>
       </AuthProvider>
     </ToastProvider>

@@ -4,6 +4,7 @@ import { Home as HomeIcon } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { PrintFooter, PrintHeader } from "./Letterhead";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { PageBoundary } from "./PageBoundary";
 import {
   LayoutDashboard, Gauge, PiggyBank, MessageCircle, Users, Fuel, Clock, Droplets, Tag, Truck, Megaphone, Bell, Bot, Settings, LogOut, Menu, X, MessageSquareWarning, BookOpen, FilePlus2, UserCog, MapPin, Container, Receipt, FileBarChart, Factory, Wallet, Landmark, ShoppingBasket, ClipboardCheck, ShieldCheck, HeartPulse, CalendarClock, ScrollText, Ticket, Star, Calculator, History, Wrench, Route, UserPlus, ChevronDown, Ban, HandCoins, ClipboardList, Banknote, ArrowDownCircle, ArrowUpCircle, FileCheck2, BookOpenText, BookOpenCheck, Building2, ListChecks, Lightbulb, UserCheck, Hourglass, Search, CircleHelp, Ruler, Sun, Moon, Rocket,
 } from "lucide-react";
@@ -483,7 +484,7 @@ export default function Layout() {
           <button onClick={toggleTheme} aria-label="Theme" className="text-slate-500">{dark ? <Sun size={20} /> : <Moon size={20} />}</button>
           <NotificationBell />
         </header>
-        <main id="main" tabIndex={-1} className="mx-auto max-w-7xl p-4 outline-none lg:p-6 print:max-w-none print:p-0"><PrintHeader /><OfflineBanner /><GoLiveBanner /><div key={pageLoc.pathname} className="animate-page-in"><Outlet /></div><PrintFooter />
+        <main id="main" tabIndex={-1} className="mx-auto max-w-7xl p-4 outline-none lg:p-6 print:max-w-none print:p-0"><PrintHeader /><OfflineBanner /><GoLiveBanner /><div key={pageLoc.pathname} className="animate-page-in"><PageBoundary><Outlet /></PageBoundary></div><PrintFooter />
           </main>
         <PageGuideButton />
       </div>

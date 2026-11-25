@@ -33,12 +33,9 @@ const keypad = (root: ParentNode) => { root.querySelectorAll('input[type="number
 keypad(document);
 new MutationObserver((muts) => { for (const m of muts) for (const n of m.addedNodes) if (n instanceof HTMLElement) { if (isNum(n)) { n.setAttribute("inputmode", "decimal"); anyStep(n); } else keypad(n); } })
   .observe(document.documentElement, { childList: true, subtree: true });
-// a preloaded script of the new page could not load (old version open during an update): reload once, not a blank screen
-window.addEventListener("vite:preloadError", (e) => {
-  let last = 0;
-  try { last = Number(sessionStorage.getItem("pumpai_chunk_reload") || 0); } catch { /* storage blocked */ }
-  if (Date.now() - last > 60_000) { e.preventDefault(); try { sessionStorage.setItem("pumpai_chunk_reload", String(Date.now())); } catch { /* blocked */ } window.location.reload(); }
-});
+// a page's script could not load (server busy, weak net, an old version open during an update): no "vite:preloadError"
+// handler on purpose — the error reaches retryImport (App.tsx), which waits for the server and reloads once, or the page
+// shows "Page load nahi hua · dobara koshish". (Reloading here at once was a white flash on every tap while the server was busy.)
 // long dropdowns (client, customer, supplier …) get a search box
 installSelectSearch();
 document.addEventListener("wheel", () => { if (isNum(document.activeElement)) document.activeElement.blur(); }, { passive: true });
