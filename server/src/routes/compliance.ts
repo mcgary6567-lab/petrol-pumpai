@@ -23,6 +23,9 @@ const DAY = 86_400_000;
 // (helper, cleaner, driver, guard — role 'staff'). The owner (admin), manager, cashier and wholesale
 // officer are exempt — they are not clocked in this way. The manager marks everyone else's attendance.
 const ATTENDANCE_ROLES = "('salesman','staff')";
+// whose attendance counts towards salary: on-the-ground staff, plus anyone else (munshi / cashier, manager…) the owner gave a duty time —
+// a duty time means unmarked days are cut from salary, so the CEO / manager must be able to mark that person present too
+const MARKABLE = "(role IN ('salesman','staff') OR (role <> 'admin' AND duty_start IS NOT NULL AND TRIM(duty_start) <> ''))";
 const daysLeft = (d: string) => Math.ceil((Date.parse(`${d}T00:00:00+05:00`) - Date.parse(`${pkDate()}T00:00:00+05:00`)) / DAY);
 const dateStr = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
@@ -408,7 +411,7 @@ export function attendanceMonth(t: number, userId: number, month = pkDate().slic
       ? all("SELECT day FROM attendance WHERE user_id=? AND check_in IS NOT NULL AND day BETWEEN ? AND ?", userId, shift1(`${month}-01`, -1), shift1(`${month}-${String(last).padStart(2, "0")}`, 1)).map((r) => r.day as string)
       : [],
   );
-  const days: { day: string; status: string; late: number }[] = [];
+  const days: { day: string; status: string; late: number; by?: string; note?: string | null }[] = [];
   // attendance is only counted for staff with a duty time set
   for (let d = 1; d <= last && u.duty_start; d++) {
     const day = `${month}-${String(d).padStart(2, "0")}`;
@@ -419,7 +422,7 @@ export function attendanceMonth(t: number, userId: number, month = pkDate().slic
     // on a 24h-duty roster, an unmarked day flanked by a worked day is the off day of the 24-on/24-off cycle (no cut)
     const altOff = alternate && !a && !lv && u.weekly_off !== dow && (worked.has(shift1(day, -1)) || worked.has(shift1(day, 1)));
     const status = a ? (a.late_minutes > 15 ? "late" : "present") : lv ? `leave_${lv.type}` : (u.weekly_off === dow || altOff) ? "off" : day === today ? "not_yet" : "absent";
-    days.push({ day, status, late: a?.late_minutes ?? 0 });
+    days.push({ day, status, late: a?.late_minutes ?? 0, ...(a?.source === "manual" ? { by: a.marked_by ?? "manager", note: a.note ?? null } : {}) });
   }
   const count = (s: string) => days.filter((d) => d.status === s).length;
   const unpaid = count("absent") + count("leave_unpaid");
@@ -453,17 +456,27 @@ compliance.get("/attendance/me", h((req) => ({
   month: attendanceMonth(tid(req), req.user!.id),
   leaves: all("SELECT * FROM leaves WHERE user_id=? ORDER BY id DESC LIMIT 10", req.user!.id),
 })));
-/** A manager marks a staff member's attendance by hand (for staff who do not carry a phone — night guard, cleaner…). */
+/** A manager marks a staff member's attendance by hand (for staff who do not carry a phone — night guard, cleaner…), and the
+ *  CEO / manager marks a past day present when someone forgot to check in, so no salary is cut for it. Who did it is kept. */
 compliance.post("/attendance/mark", requirePerm("staff.manage"), h((req) => {
-  const b = parse(z.object({ user_id: z.number(), day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), present: z.boolean().default(true) }), req.body);
+  const b = parse(z.object({ user_id: z.number(), day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), present: z.boolean().default(true), note: z.string().trim().max(200).optional() }), req.body);
   const t = tid(req);
-  const u = get(`SELECT id, station_id, duty_start FROM users WHERE id=? AND tenant_id=? AND role IN ${ATTENDANCE_ROLES}`, b.user_id, t);
+  const u = get(`SELECT id, name, station_id, duty_start FROM users WHERE id=? AND tenant_id=? AND ${MARKABLE}`, b.user_id, t);
   if (!u) throw new AppError(404, "Attendance is only marked for salesmen and other staff (not the manager, cashier or wholesale officer)");
   const day = b.day ?? pkDate();
-  const existing = get("SELECT id FROM attendance WHERE user_id=? AND day=?", u.id, day);
-  if (!b.present) { if (existing) run("DELETE FROM attendance WHERE id=?", existing.id); return { day, present: false }; }
-  if (!existing) run("INSERT INTO attendance (tenant_id,user_id,station_id,day,check_in,late_minutes,source) VALUES (?,?,?,?,?,0,'manual')",
-    t, u.id, u.station_id ?? null, day, now());
+  if (day > pkDate()) throw new AppError(400, "Aane wale din ki attendance nahi lag sakti · آنے والا دن");
+  const existing = get("SELECT id, source FROM attendance WHERE user_id=? AND day=?", u.id, day);
+  if (!b.present) {
+    if (existing) { run("DELETE FROM attendance WHERE id=?", existing.id); audit(t, req.user!, "attendance.absent", `user:${u.id}`, { day, name: u.name, was: existing.source, note: b.note ?? null }); }
+    return { day, present: false };
+  }
+  if (!existing) {
+    // a past day: the check-in time is that day's duty start (else noon), never "now" — so overtime / lateness stay clean
+    const at = day === pkDate() ? now() : new Date(`${day}T${/^\d{2}:\d{2}$/.test(u.duty_start ?? "") ? u.duty_start : "12:00"}:00+05:00`).toISOString();
+    run("INSERT INTO attendance (tenant_id,user_id,station_id,day,check_in,late_minutes,source,marked_by,note) VALUES (?,?,?,?,?,0,'manual',?,?)",
+      t, u.id, u.station_id ?? null, day, at, req.user!.name, b.note ?? null);
+    audit(t, req.user!, "attendance.present", `user:${u.id}`, { day, name: u.name, note: b.note ?? null });
+  }
   return { day, present: true };
 }));
 
@@ -471,7 +484,7 @@ compliance.get("/attendance", requirePerm("staff.manage"), h((req) => {
   const month = String(req.query.month ?? pkDate().slice(0, 7));
   return {
     month, today: pkDate(),
-    staff: all(`SELECT id FROM users WHERE tenant_id=? AND active=1 AND role IN ${ATTENDANCE_ROLES} ORDER BY name`, tid(req)).map((u) => attendanceMonth(tid(req), u.id, month)),
+    staff: all(`SELECT id FROM users WHERE tenant_id=? AND active=1 AND ${MARKABLE} ORDER BY name`, tid(req)).map((u) => attendanceMonth(tid(req), u.id, month)),
     present_today: all(`SELECT a.*, u.name FROM attendance a JOIN users u ON u.id=a.user_id WHERE a.tenant_id=? AND a.day=? ORDER BY a.check_in`, tid(req), pkDate()),
     leaves: all("SELECT l.*, u.name FROM leaves l JOIN users u ON u.id=l.user_id WHERE l.tenant_id=? ORDER BY CASE l.status WHEN 'pending' THEN 0 ELSE 1 END, l.id DESC LIMIT 40", tid(req)),
   };
@@ -484,16 +497,18 @@ compliance.get("/attendance/calendar", requirePerm("staff.manage"), h((req) => {
   const last = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).getUTCDate();
   const dayList = Array.from({ length: last }, (_, i) => `${month}-${String(i + 1).padStart(2, "0")}`);
   const onlyNonLogin = String(req.query.all ?? "") !== "1"; // default: only the hand-marked, non-login staff
-  const staff = all(`SELECT id, name, job_title, role, weekly_off, salary, created_at FROM users WHERE tenant_id=? AND active=1 AND role IN ${ATTENDANCE_ROLES}${onlyNonLogin ? " AND role='staff'" : ""} ORDER BY name`, t).map((u) => {
-    const rows = all("SELECT day, late_minutes FROM attendance WHERE user_id=? AND day LIKE ?", u.id, `${month}-%`);
+  const staff = all(`SELECT id, name, job_title, role, weekly_off, salary, created_at FROM users WHERE tenant_id=? AND active=1 AND ${onlyNonLogin ? "role='staff'" : MARKABLE} ORDER BY name`, t).map((u) => {
+    const rows = all("SELECT day, late_minutes, source, marked_by FROM attendance WHERE user_id=? AND day LIKE ?", u.id, `${month}-%`);
     const leaves = all("SELECT from_day, to_day, type FROM leaves WHERE user_id=? AND status='approved' AND from_day <= ? AND to_day >= ?", u.id, `${month}-31`, `${month}-01`);
-    const joined = u.created_at.slice(0, 10);
-    const marks: Record<string, string> = {};
+    // same rule as attendanceMonth: from joining, or from the first check-in if that came earlier
+    const joined = [u.created_at.slice(0, 10), ...rows.map((r) => r.day as string)].sort()[0];
+    const marks: Record<string, string> = {}, by: Record<string, string> = {};
     for (const day of dayList) {
       const a = rows.find((r) => r.day === day);
       const lv = leaves.find((l) => l.from_day <= day && l.to_day >= day);
       const dow = new Date(`${day}T12:00:00+05:00`).getUTCDay();
       // a hand-entered present/leave always shows, even if backfilled before the row was created
+      if (a?.source === "manual") by[day] = a.marked_by ?? "manager";
       marks[day] = a ? (a.late_minutes > 15 ? "late" : "present") : lv ? `leave_${lv.type}` : day > today ? "future" : day < joined ? "before" : u.weekly_off === dow ? "off" : "absent";
     }
     const count = (s: string) => Object.values(marks).filter((x) => x === s).length;
@@ -502,7 +517,7 @@ compliance.get("/attendance/calendar", requirePerm("staff.manage"), h((req) => {
       id: u.id, name: u.name, job_title: u.job_title ?? null, role: u.role, weekly_off: u.weekly_off,
       present: count("present") + count("late"), late: count("late"), absent: count("absent"), off: count("off"),
       paid_leave: count("leave_paid") + count("leave_sick"), unpaid_leave: count("leave_unpaid"),
-      salary_cut: u.salary ? round2((u.salary / 30) * unpaid) : 0, marks,
+      salary_cut: u.salary ? round2((u.salary / 30) * unpaid) : 0, marks, by,
     };
   });
   return { month, today, days: dayList, staff };

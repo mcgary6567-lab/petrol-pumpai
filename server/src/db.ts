@@ -464,6 +464,8 @@ export function migrate() {
   addColumn("attendance", "out_lat", "REAL");
   addColumn("attendance", "out_lng", "REAL");
   addColumn("attendance", "out_away_m", "REAL");
+  addColumn("attendance", "marked_by", "TEXT"); // who marked it by hand (CEO / manager) — e.g. a forgotten check-in set present
+  addColumn("attendance", "note", "TEXT"); // why it was marked by hand
   db.exec(`CREATE TABLE IF NOT EXISTS leaves (
     id INTEGER PRIMARY KEY, tenant_id INTEGER NOT NULL, user_id INTEGER NOT NULL, from_day TEXT NOT NULL, to_day TEXT NOT NULL,
     type TEXT NOT NULL DEFAULT 'paid', reason TEXT, status TEXT NOT NULL DEFAULT 'pending', decided_by TEXT, created_at TEXT NOT NULL)`);

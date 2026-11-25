@@ -35,7 +35,17 @@ function Attendance() {
   const { data, reload } = useApi<any>("/attendance");
   const { run } = useAction();
   const [leaveFor, setLeaveFor] = useState<number | null>(null);
+  const [mark, setMark] = useState<MarkPick | null>(null);
+  const { can } = useAuth();
+  const mayMark = can("staff.manage");
   if (!data) return <Loading />;
+  const sq = (s: any, x: any, big = false) => {
+    const tap = mayMark && x.status !== "future" && x.status !== "before";
+    const tip = `${x.day}: ${DAY_STATUS[x.status]?.label}${x.by ? ` (haath se · ${x.by})` : ""}`;
+    const cls = `${big ? "h-5 w-5" : "h-4 w-4"} rounded-sm ${DAY_STATUS[x.status]?.cls} ${x.by ? "ring-2 ring-sky-400 ring-offset-1" : ""}`;
+    return tap ? <button key={x.day} type="button" title={tip} aria-label={tip} className={`${cls} hover:ring-2 hover:ring-slate-500`} onClick={() => setMark({ id: s.user.id, name: s.user.name, day: x.day, status: x.status, by: x.by, note: x.note })} />
+      : <span key={x.day} title={tip} className={cls} />;
+  };
   const pending = data.leaves.filter((l: any) => l.status === "pending");
   return (
     <div className="space-y-5">
@@ -65,7 +75,7 @@ function Attendance() {
               <span className="min-w-0"><span className="block font-semibold">{s.user.name}</span><span className="text-xs text-slate-500">Duty {s.user.duty_start ?? "not set"}{s.user.duty_hours === 24 ? " · 24h (day on/off)" : ""}{s.user.weekly_off != null && ` · off ${WEEK[s.user.weekly_off]}`}</span></span>
               <span className="shrink-0 text-right"><span className="block font-semibold tabular-nums">{s.salary_cut ? pkr(s.salary_cut) : "—"}</span><span className="text-[11px] text-slate-500">Salary cut · <Ur>کٹوتی</Ur></span></span>
             </div>
-            <div className="mt-1.5 flex flex-wrap gap-0.5">{s.days.map((x: any) => <span key={x.day} title={`${x.day}: ${DAY_STATUS[x.status]?.label}`} className={`h-3 w-3 rounded-sm ${DAY_STATUS[x.status]?.cls}`} />)}</div>
+            <div className="mt-1.5 flex flex-wrap gap-1">{s.days.map((x: any) => sq(s, x, true))}</div>
             <div className="mt-1 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
               <span>Present <b className="tabular-nums text-slate-700">{s.present}</b> · late <b className="tabular-nums text-slate-700">{s.late}</b> · absent <b className={`tabular-nums ${s.absent ? "text-red-600" : "text-slate-700"}`}>{s.absent}</b> · leave <b className="tabular-nums text-slate-700">{s.paid_leave + s.unpaid_leave}</b></span>
               <button className="btn-secondary min-h-9 !py-1 text-xs" onClick={() => setLeaveFor(s.user.id)}>Record leave · <Ur>چھٹی</Ur></button>
@@ -80,7 +90,7 @@ function Attendance() {
             <tr key={s.user.id}>
               <td className="td font-medium">{s.user.name}</td>
               <td className="td text-xs text-slate-600">{s.user.duty_start ?? <span className="text-slate-400">not set</span>}{s.user.duty_hours === 24 ? " · 24h" : ""}{s.user.weekly_off != null && ` · off ${WEEK[s.user.weekly_off]}`}</td>
-              <td className="td"><div className="flex flex-wrap gap-0.5">{s.days.map((x: any) => <span key={x.day} title={`${x.day}: ${DAY_STATUS[x.status]?.label}`} className={`h-3 w-3 rounded-sm ${DAY_STATUS[x.status]?.cls}`} />)}</div></td>
+              <td className="td"><div className="flex flex-wrap gap-0.5">{s.days.map((x: any) => sq(s, x))}</div></td>
               <td className="td text-right tabular-nums">{s.present}</td><td className="td text-right tabular-nums">{s.late}</td>
               <td className={`td text-right tabular-nums ${s.absent ? "font-semibold text-red-600" : ""}`}>{s.absent}</td><td className="td text-right tabular-nums">{s.paid_leave + s.unpaid_leave}</td>
               <td className="td text-right tabular-nums">{s.salary_cut ? pkr(s.salary_cut) : "—"}</td>
@@ -89,8 +99,40 @@ function Attendance() {
           ))}</tbody>
         </table>
       </div>
+      {mayMark && data.staff.length > 0 && <p className="rounded-lg bg-sky-50 px-3 py-2 text-sm text-sky-900">💡 Koi attendance lagana <b>bhool gaya</b>? Us din ke dabbe par tap karein → <b>Present lagayein</b>. Us din ki tankhwah nahi kategi. <Ur>بھول گیا؟ دن پر ٹیپ کر کے حاضری لگائیں</Ur> · Neeli lakeer wala dabba = haath se lagi hazri.</p>}
       {leaveFor && <LeaveForm userId={leaveFor} onClose={() => setLeaveFor(null)} onDone={() => { setLeaveFor(null); reload(); }} />}
+      {mark && <MarkDay pick={mark} onClose={() => setMark(null)} onDone={() => { setMark(null); reload(); }} />}
     </div>
+  );
+}
+
+type MarkPick = { id: number; name: string; day: string; status: string; by?: string; note?: string | null };
+const MON3 = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const dayLabel = (d: string) => `${Number(d.slice(8))} ${MON3[Number(d.slice(5, 7)) - 1]} ${d.slice(0, 4)} · ${WEEK[new Date(`${d}T12:00:00+05:00`).getUTCDay()]}`;
+/** CEO / manager: one day of one person — mark present (forgot to check in → no salary cut) or take a hand-marked day back. */
+function MarkDay({ pick, onClose, onDone }: { pick: MarkPick; onClose: () => void; onDone: () => void }) {
+  const [note, setNote] = useState("");
+  const { run, busy } = useAction();
+  const isIn = pick.status === "present" || pick.status === "late";
+  const go = (present: boolean) => run(() => api("/attendance/mark", { body: { user_id: pick.id, day: pick.day, present, note: note.trim() || undefined } }),
+    present ? `${pick.name} — ${dayLabel(pick.day)} present` : `${pick.name} — ${dayLabel(pick.day)} absent`).then(onDone);
+  return (
+    <Modal open onClose={onClose} title="Attendance · حاضری">
+      <div className="rounded-xl bg-slate-50 p-3">
+        <div className="text-lg font-semibold">{pick.name}</div>
+        <div className="text-sm text-slate-600">{dayLabel(pick.day)}</div>
+        <div className="mt-2 flex items-center gap-2 text-sm">Abhi: <span className={`h-3 w-3 rounded-sm ${DAY_STATUS[pick.status]?.cls}`} /> <b>{DAY_STATUS[pick.status]?.label ?? pick.status}</b>
+          {pick.by && <span className="text-xs text-sky-700">· haath se ({pick.by}){pick.note ? ` — ${pick.note}` : ""}</span>}</div>
+      </div>
+      {!isIn && <p className="mt-3 text-sm text-slate-700">Attendance lagana bhool gaya tha? <b>Present lagayein</b> — is din ki tankhwah se katoti nahi hogi. Aap ka naam record mein rahega.</p>}
+      {isIn && <p className="mt-3 text-sm text-slate-700">Yeh din <b>present</b> hai. Ghalti se laga ho to Absent kar dein (is din ki katoti phir se lagegi).</p>}
+      <Field label="Wajah (optional) · وجہ"><input className="input" value={note} maxLength={200} onChange={(e) => setNote(e.target.value)} placeholder="Maslan: attendance lagana bhool gaya" /></Field>
+      <div className="mt-4 flex flex-wrap justify-end gap-2 border-t border-slate-100 pt-3">
+        <button className="btn-secondary" onClick={onClose}>Cancel</button>
+        {isIn ? <button className="btn-primary !bg-red-600" disabled={busy} onClick={() => go(false)}>✗ Absent karein</button>
+          : <button className="btn-primary !bg-emerald-600" disabled={busy} onClick={() => go(true)}>✅ Present lagayein · حاضر</button>}
+      </div>
+    </Modal>
   );
 }
 
@@ -102,13 +144,12 @@ function StaffCalendar() {
   const [month, setMonth] = useState(() => new Date().toISOString().slice(0, 7));
   const [all, setAll] = useState(false);
   const { data, reload } = useApi<any>(`/attendance/calendar?month=${month}${all ? "&all=1" : ""}`);
-  const { run, busy } = useAction();
   const shift = (n: number) => { const [y, m] = month.split("-").map(Number); const d = new Date(Date.UTC(y, m - 1 + n, 1)); setMonth(d.toISOString().slice(0, 7)); };
   const thisMonth = new Date().toISOString().slice(0, 7);
-  const toggle = (uid: number, day: string, cur: string) => {
-    if (cur === "future" || cur === "before" || busy) return;
-    const present = !(cur === "present" || cur === "late");
-    run(() => api("/attendance/mark", { body: { user_id: uid, day, present } }), present ? "Marked present" : "Marked absent").then(reload);
+  const [mark, setMark] = useState<MarkPick | null>(null);
+  const toggle = (s: any, day: string, cur: string) => {
+    if (cur === "future" || cur === "before") return;
+    setMark({ id: s.id, name: s.name, day, status: cur, by: s.by?.[day] });
   };
   return (
     <div className="space-y-4">
@@ -146,8 +187,8 @@ function StaffCalendar() {
                   </td>
                   {data.days.map((d: string) => { const st = s.marks[d]; const cell = DAY_STATUS[st]; const tap = st !== "future" && st !== "before"; return (
                     <td key={d} className="p-0 text-center">
-                      <button type="button" disabled={!tap} onClick={() => toggle(s.id, d, st)} title={`${d}: ${cell?.label ?? st}`}
-                        className={`m-px h-6 w-6 rounded-sm align-middle text-[11px] font-semibold text-white ${cell?.cls ?? "bg-slate-50"} ${tap ? "cursor-pointer hover:ring-2 hover:ring-slate-400" : "cursor-default"} ${st === "off" || st === "future" || st === "before" ? "!text-slate-400" : ""}`}>
+                      <button type="button" disabled={!tap} onClick={() => toggle(s, d, st)} title={`${d}: ${cell?.label ?? st}${s.by?.[d] ? ` (haath se · ${s.by[d]})` : ""}`}
+                        className={`m-px h-6 w-6 rounded-sm align-middle text-[11px] font-semibold text-white ${cell?.cls ?? "bg-slate-50"} ${s.by?.[d] ? "ring-2 ring-sky-400" : ""} ${tap ? "cursor-pointer hover:ring-2 hover:ring-slate-400" : "cursor-default"} ${st === "off" || st === "future" || st === "before" ? "!text-slate-400" : ""}`}>
                         {st === "present" || st === "late" ? "✓" : st === "absent" ? "" : ""}</button>
                     </td>); })}
                   <td className="whitespace-nowrap px-2 text-right text-xs tabular-nums"><b className="text-emerald-600">{s.present}</b> / <b className={s.absent ? "text-red-600" : "text-slate-400"}>{s.absent}</b></td>
@@ -156,7 +197,8 @@ function StaffCalendar() {
             </tbody>
           </table>
         </div>}
-      <p className="text-xs text-slate-500">Tip: unmarked past days count as absent. Tap a day to switch present/absent. Use <b>Record leave</b> on the Attendance tab for leave days.</p>
+      <p className="text-xs text-slate-500">Tip: unmarked past days count as absent. Tap a day → <b>Present lagayein</b> (bhool gaya ho to — tankhwah nahi kategi) ya Absent. Neeli lakeer = haath se lagi hazri. Use <b>Record leave</b> on the Attendance tab for leave days.</p>
+      {mark && <MarkDay pick={mark} onClose={() => setMark(null)} onDone={() => { setMark(null); reload(); }} />}
     </div>
   );
 }

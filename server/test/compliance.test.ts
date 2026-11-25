@@ -150,6 +150,42 @@ test("attendance calendar: a manager hand-marks a non-login staff member day by 
   assert.equal((await call("salesman", "GET", "/api/attendance/calendar")).status, 403);
 });
 
+test("attendance: CEO marks a forgotten past day present for a munshi / cashier with a duty time — no salary cut", async () => {
+  const cashier = db.get("SELECT id, name FROM users WHERE tenant_id=1 AND role='cashier' AND active=1 LIMIT 1")!;
+  db.run("UPDATE users SET salary=30000, created_at=? WHERE id=?", new Date(Date.now() - 40 * 86_400_000).toISOString(), cashier.id);
+  db.run("DELETE FROM attendance WHERE user_id=?", cashier.id);
+  // no duty time: not tracked, cannot be marked
+  db.run("UPDATE users SET duty_start=NULL WHERE id=?", cashier.id);
+  const yest = new Date(Date.parse(`${db.pkDate()}T12:00:00+05:00`) - 86_400_000).toISOString().slice(0, 10);
+  assert.equal((await call("admin", "POST", "/api/attendance/mark", { user_id: cashier.id, day: yest })).status, 404);
+  // with a duty time the munshi's unmarked days are cut — so he is listed and can be marked
+  ok(await call("admin", "PATCH", `/api/staff/${cashier.id}/duty`, { duty_start: "09:00" }), "duty");
+  const month = yest.slice(0, 7);
+  const before = ok(await call("admin", "GET", `/api/attendance?month=${month}`), "att").staff.find((s: any) => s.user.id === cashier.id);
+  assert.ok(before, "munshi with a duty time is on the attendance list");
+  assert.equal(before.days.find((d: any) => d.day === yest).status, "absent");
+  const cut0 = before.salary_cut;
+  assert.ok(cut0 >= 1000);
+  ok(await call("admin", "POST", "/api/attendance/mark", { user_id: cashier.id, day: yest, present: true, note: "bhool gaya" }), "mark");
+  const row = db.get("SELECT * FROM attendance WHERE user_id=? AND day=?", cashier.id, yest)!;
+  assert.equal(row.source, "manual");
+  assert.equal(row.note, "bhool gaya");
+  assert.ok(row.marked_by);
+  assert.equal(row.check_in, new Date(`${yest}T09:00:00+05:00`).toISOString(), "past day: check-in at duty start, not now");
+  const after = ok(await call("admin", "GET", `/api/attendance?month=${month}`), "att2").staff.find((s: any) => s.user.id === cashier.id);
+  const d = after.days.find((x: any) => x.day === yest);
+  assert.equal(d.status, "present");
+  assert.ok(d.by);
+  assert.equal(after.salary_cut, Math.round((cut0 - 1000) * 100) / 100, "one day (30000 / 30) less cut");
+  assert.ok(db.get("SELECT id FROM audit_log WHERE action='attendance.present' AND ref=?", `user:${cashier.id}`), "audited");
+  // a future day cannot be marked
+  const tomorrow = new Date(Date.parse(`${db.pkDate()}T12:00:00+05:00`) + 86_400_000).toISOString().slice(0, 10);
+  assert.equal((await call("admin", "POST", "/api/attendance/mark", { user_id: cashier.id, day: tomorrow })).status, 400);
+  // the owner (admin) is never on the list
+  assert.equal(after && ok(await call("admin", "GET", `/api/attendance?month=${month}`), "att3").staff.some((s: any) => s.user.id === db.get("SELECT id FROM users WHERE tenant_id=1 AND role='admin' LIMIT 1")!.id), false);
+  db.run("UPDATE users SET duty_start=NULL, salary=NULL WHERE id=?", cashier.id);
+});
+
 /** Salary needs a photo of the signed salary sheet. */
 async function salaryProof() {
   const r = await call("manager", "POST", "/api/ai/read-photo", { kind: "proof", image: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==" });
