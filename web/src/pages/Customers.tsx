@@ -277,7 +277,7 @@ function CustomerDetail({ id, onClose, onChanged }: { id: string; onClose: () =>
                 <ul className="divide-y divide-slate-100 sm:hidden">
                   {ledger.map((l: any) => (
                     <li key={l.id} className="px-3 py-2">
-                      <div className="flex items-start justify-between gap-2"><span className="min-w-0 text-sm">{l.product ? PRODUCTS[l.product] ?? l.product : l.note ?? l.ref}</span>
+                      <div className="flex items-start justify-between gap-2"><span className="min-w-0 text-sm">{l.parchi && <ParchiTag p={l.parchi} />}{l.product ? PRODUCTS[l.product] ?? l.product : l.note ?? l.ref}{l.parchi && <> <ParchiStatus p={l.parchi} /></>}{l.pays_parchi && <span className="block text-[11px] text-slate-500">🎫 {l.pays_parchi} ki payment</span>}</span>
                         <span className={`shrink-0 text-sm font-medium tabular-nums ${l.type === "credit" ? "text-emerald-600" : ""}`}>{l.type === "credit" ? "−" : "+"}{pkr(l.amount)}</span></div>
                       {(l.vehicle_no || l.product) && <div className="flex flex-wrap gap-x-3 text-xs tabular-nums text-slate-700">{l.vehicle_no && <b className="font-semibold">🚛 {l.vehicle_no}</b>}{l.product && <><span>{num(l.litres, l.litres % 1 ? 2 : 0)} L</span><span>Rs {num(l.rate, 2)}/L</span></>}{l.slip_no && <span>Slip {l.slip_no}</span>}</div>}
                       <div className="flex items-center gap-2 text-xs text-slate-500"><span>{d(l.created_at)}</span>{lineActions(l)}</div>
@@ -292,12 +292,12 @@ function CustomerDetail({ id, onClose, onChanged }: { id: string; onClose: () =>
                     <tr key={l.id}><td className="td whitespace-nowrap text-xs text-slate-500">{d(l.created_at)}</td><td className="td"><IdTag id={`K-${l.id}`} /></td>
                       <td className="td whitespace-nowrap text-xs">{l.vehicle_no ? <b className="font-semibold text-slate-800">🚛 {l.vehicle_no}</b> : <span className="text-slate-300">—</span>}</td>
                       <td className="td whitespace-nowrap text-xs">{l.slip_no ?? ""}</td>
-                      <td className="td whitespace-nowrap text-xs">{l.product ? PRODUCTS[l.product] ?? l.product : ""}</td>
-                      <td className="td whitespace-nowrap text-right text-xs tabular-nums">{l.litres ? `${num(l.litres, l.litres % 1 ? 2 : 0)} L` : ""}</td>
-                      <td className="td whitespace-nowrap text-right text-xs tabular-nums">{l.rate ? `Rs ${num(l.rate, 2)}` : ""}</td>
-                      <td className="td text-xs text-slate-600">{l.product ? (/^[\d.]+\s*L\b/.test(l.note ?? "") ? "" : l.note) : l.note ?? l.ref} <ProofThumbs ids={l.proof_ids} /></td>
+                      <td className="td whitespace-nowrap text-xs">{l.product ? PRODUCTS[l.product] ?? l.product : l.parchi ? (l.parchi.kind === "fuel" ? PRODUCTS[l.parchi.product] ?? l.parchi.product : l.parchi.item_name ?? "Shop") : ""}</td>
+                      <td className="td whitespace-nowrap text-right text-xs tabular-nums">{l.litres ? `${num(l.litres, l.litres % 1 ? 2 : 0)} L` : l.parchi?.qty ? (l.parchi.kind === "fuel" ? `${num(l.parchi.qty, l.parchi.qty % 1 ? 2 : 0)} L` : `× ${num(l.parchi.qty)}`) : ""}</td>
+                      <td className="td whitespace-nowrap text-right text-xs tabular-nums">{l.rate ? `Rs ${num(l.rate, 2)}` : l.parchi?.rate ? `Rs ${num(l.parchi.rate, 2)}` : ""}</td>
+                      <td className="td text-xs text-slate-600">{l.parchi && <ParchiTag p={l.parchi} />}{l.product ? (/^[\d.]+\s*L\b/.test(l.note ?? "") ? "" : l.note) : l.note ?? l.ref} <ProofThumbs ids={l.proof_ids} /></td>
                       <td className="td whitespace-nowrap text-right text-sm tabular-nums">{l.type !== "credit" ? pkr(l.amount) : ""}</td>
-                      <td className="td whitespace-nowrap text-right text-sm tabular-nums text-emerald-600">{l.type === "credit" ? pkr(l.amount) : ""}</td>
+                      <td className="td whitespace-nowrap text-right text-sm tabular-nums text-emerald-600">{l.type === "credit" ? <>{pkr(l.amount)}{l.pays_parchi && <span className="block text-[11px] font-normal text-slate-500">🎫 {l.pays_parchi} ki</span>}</> : l.parchi ? <ParchiStatus p={l.parchi} /> : ""}</td>
                       <td className="td print:hidden">{lineActions(l)}</td></tr>
                   ))}
                 </tbody></table>
@@ -466,4 +466,16 @@ function GuaranteeSection({ customerId, canEdit }: { customerId: number; canEdit
       )}
     </div>
   );
+}
+
+/** 🎫 PR-8 on a khata line that came from Parchi Billing. */
+function ParchiTag({ p }: { p: any }) {
+  return <span className="mr-1 inline-flex items-center gap-0.5 rounded bg-violet-100 px-1.5 py-0.5 text-[11px] font-semibold text-violet-800" title="Parchi Billing se">🎫 PR-{p.id}</span>;
+}
+/** The parchi's status, same as the Parchi Book: paid (a payment cleared it), part paid, or unpaid. */
+function ParchiStatus({ p }: { p: any }) {
+  if (p.status === "paid") return <span className="inline-block rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-800" title={p.paid_by ? `${p.paid_by} se` : "Payment se clear"}>✓ Paid{p.paid_by ? ` · ${p.paid_by}` : ""}</span>;
+  if (p.status === "part") return <span className="inline-block rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800">{pkr(p.unpaid)} baqi</span>;
+  if (p.status === "unpaid") return <span className="inline-block rounded-full bg-rose-100 px-2 py-0.5 text-[11px] font-semibold text-rose-700">Unpaid</span>;
+  return null;
 }

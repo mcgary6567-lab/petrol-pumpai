@@ -208,6 +208,13 @@ test("Parchi: a payment tied to chosen parchiyan pays them, not the oldest entry
   const a = ok(await call("manager", "POST", "/api/parchi/allocate", { customer_id: cid, khata_id: pay.khata_id, parchi_ids: [r.ids[1]] }), "allocate");
   near(a.allocated[0].amount, 800); near(a.left, 0);
   assert.deepEqual(await st(), { [r.ids[0]]: "unpaid", [r.ids[1]]: "paid" }, "the chosen parchi is paid");
+  // the customer page's khata ledger shows the same: item / litres / rate on the parchi line, its status, and the payment names it
+  const led = ok(await call("manager", "GET", `/api/customers/${cid}`), "customer").ledger;
+  const p2 = led.find((x: any) => x.parchi?.id === r.ids[1]), p1 = led.find((x: any) => x.parchi?.id === r.ids[0]);
+  assert.equal(p2.type, "debit", "a parchi is a charge on the khata");
+  assert.deepEqual([p2.parchi.product, p2.parchi.qty, p2.parchi.rate, p2.parchi.status], ["PMG", 4, 200, "paid"]);
+  assert.equal(p1.parchi.status, "unpaid");
+  assert.equal(led.find((x: any) => x.id === pay.khata_id).pays_parchi, `PR-${r.ids[1]}`);
   near(db.get("SELECT balance FROM customers WHERE id=?", cid)!.balance, bal0 - 800, "money unchanged");
   const pays = ok(await call("manager", "GET", `/api/parchi/payments?customer_id=${cid}`), "payments");
   near(pays.find((x: any) => x.id === pay.khata_id).free, 0);

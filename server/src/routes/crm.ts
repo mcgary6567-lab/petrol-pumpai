@@ -1,3 +1,4 @@
+import { parchiBook } from "./parchi.js";
 import crypto from "node:crypto";
 import { Router } from "express";
 import { z } from "zod";
@@ -216,12 +217,27 @@ crm.post("/customers/khata-rates/bulk", requirePerm("customers.edit"), h(async (
   return { ok: true, changed: count, customers: Object.keys(lines).length, notified };
 }));
 
+/** Parchi rows on the khata ledger carry their parchi: item, litres / qty, rate and the same paid / unpaid status as the
+ *  Parchi Book (a parchi is always a charge here; "paid" means a payment has cleared it). Payments tied to parchiyan
+ *  name them. Read-only. */
+function withParchi(t: number, customerId: number, rows: any[]) {
+  if (!rows.some((r) => /^(PR-|PARCHI-)/.test(String(r.ref ?? "")) || r.type === "credit")) return rows;
+  const book = new Map<number, any>();
+  if (rows.some((r) => /^(PR-|PARCHI-)/.test(String(r.ref ?? ""))))
+    for (const p of parchiBook(t, { customer_id: customerId }, { all: true }).rows as any[]) if (p.khata_id && p.status !== "void")
+      book.set(p.khata_id, { id: p.id, kind: p.kind, product: p.product ?? null, item_name: p.item_name ?? null, qty: p.qty, rate: p.rate, status: p.status, unpaid: p.unpaid, paid_by: p.paid_by ?? null });
+  const pays = new Map<number, string>();
+  for (const a of all("SELECT khata_id, GROUP_CONCAT('PR-'||parchi_id, ', ') ps FROM parchi_alloc WHERE tenant_id=? AND customer_id=? GROUP BY khata_id", t, customerId))
+    pays.set(a.khata_id as number, a.ps as string);
+  return rows.map((r) => ({ ...r, ...(book.has(r.id) ? { parchi: book.get(r.id) } : {}), ...(pays.has(r.id) ? { pays_parchi: pays.get(r.id) } : {}) }));
+}
+
 crm.get("/customers/:id", requirePerm("customers.view"), h((req) => {
   const c = ownCustomer(tid(req), Number(req.params.id));
   return {
     ...c,
     vehicles: all("SELECT * FROM vehicles WHERE customer_id=?", c.id),
-    ledger: all(`SELECT k.*, ${proofCol("'khata:'||k.id")} FROM khata_ledger k WHERE k.customer_id=? ORDER BY k.id DESC LIMIT 100`, c.id),
+    ledger: withParchi(tid(req), c.id, all(`SELECT k.*, ${proofCol("'khata:'||k.id")} FROM khata_ledger k WHERE k.customer_id=? ORDER BY k.id DESC LIMIT 100`, c.id)),
     sales: all("SELECT s.*, st.name station_name FROM sales s JOIN stations st ON st.id=s.station_id WHERE customer_id=? ORDER BY s.id DESC LIMIT 50", c.id),
     orders: all("SELECT * FROM orders WHERE customer_id=? ORDER BY id DESC LIMIT 20", c.id),
     complaints: all("SELECT * FROM complaints WHERE customer_id=? ORDER BY id DESC LIMIT 20", c.id),
