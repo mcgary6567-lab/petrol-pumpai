@@ -38,6 +38,20 @@ test("manager desk: live shifts, staff today and ranked suggestions with links",
   assert.ok(d.shifts.some((s: any) => s.attendant === "Imran"));
   assert.ok(d.staff.length > 0 && d.staff.every((s: any) => ["present", "late", "missing", "due", "leave", "off"].includes(s.status)));
   assert.equal(d.staff_summary.total, d.staff.length);
+  // a salesman who checked in but has not started a shift of his own is listed under the running shifts
+  {
+    const db = await import("../src/db.js");
+    const today = db.pkDate();
+    const u = db.get("SELECT id, tenant_id FROM users WHERE tenant_id=1 AND role='salesman' AND name<>'Imran' AND active=1 LIMIT 1") as any
+      ?? { id: (db.run("INSERT INTO users (tenant_id,name,email,password_hash,role,active,created_at) VALUES (1,'Usman Khan','usman.desk@test.pk','x','salesman',1,?)", new Date().toISOString()) as any).id };
+    db.run("UPDATE users SET duty_start='08:00', weekly_off=NULL WHERE id=?", u.id);
+    db.run("DELETE FROM attendance WHERE user_id=? AND day=?", u.id, today);
+    db.run("UPDATE shifts SET status='closed', closed_at=? WHERE status='open' AND attendant=(SELECT name FROM users WHERE id=?)", new Date().toISOString(), u.id);
+    db.run("INSERT INTO attendance (tenant_id,user_id,day,check_in,late_minutes,source) VALUES (1,?,?,?,0,'app')", u.id, today, new Date().toISOString());
+    const d2 = (await call("manager", "GET", "/api/dashboard/desk")).data;
+    assert.ok(d2.no_shift.some((x: any) => x.id === u.id), "on duty, no shift");
+    assert.ok(!d2.no_shift.some((x: any) => x.name === "Imran"), "Imran has a shift running");
+  }
   const order = { critical: 0, warning: 1, info: 2, good: 3 } as Record<string, number>;
   assert.ok(d.suggestions.every((s: any, i: number, a: any[]) => i === 0 || order[a[i - 1].level] <= order[s.level]), "most urgent first");
   assert.ok(d.suggestions.every((s: any) => !s.to || s.to.startsWith("/")));

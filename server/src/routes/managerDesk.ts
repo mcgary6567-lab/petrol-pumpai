@@ -41,6 +41,11 @@ managerDesk.get("/dashboard/desk", requirePerm("dashboard.view"), h((req) => {
     const status = a ? (a.late_minutes > 15 ? "late" : "present") : leave ? "leave" : u.weekly_off === weekday ? "off" : nowMs > due + 30 * 60_000 ? "missing" : "due";
     return { id: u.id, name: u.name, role: u.role, duty_start: u.duty_start, status, check_in: a?.check_in ?? null, check_out: a?.check_out ?? null, late_minutes: a?.late_minutes ?? 0, away_m: a?.away_m ?? null };
   });
+  // salesmen who checked in today but have no open shift of their own: on duty, yet not selling on the POS
+  // (every salesman starts his own shift with the meter readings) — shown under "Shifts running now"
+  const onShift = new Set(shifts.map((x) => String(x.attendant).trim().toLowerCase()));
+  const noShift = staff.filter((s) => s.role === "salesman" && (s.status === "present" || s.status === "late") && !s.check_out && !onShift.has(String(s.name).trim().toLowerCase()))
+    .map((s) => ({ id: s.id, name: s.name, check_in: s.check_in }));
   const missing = staff.filter((s) => s.status === "missing");
   if (missing.length)
     sug.push({ level: "warning", title: `${missing.map((s) => s.name).join(", ")} not checked in yet`, detail: `Duty started at ${missing.map((s) => s.duty_start).join(" / ")}. Call them, or record leave so the salary is right.`, to: "/staff", label: "Attendance" });
@@ -121,7 +126,7 @@ managerDesk.get("/dashboard/desk", requirePerm("dashboard.view"), h((req) => {
   const order = { critical: 0, warning: 1, info: 2, good: 3 };
   sug.sort((a, b) => order[a.level] - order[b.level]);
   return {
-    shifts, staff, pending: pend, shift_hours: shiftHours,
+    shifts, no_shift: noShift, staff, pending: pend, shift_hours: shiftHours,
     // today's online money (card / JazzCash / Easypaisa / Raast): same figures as the owner's and the cashier's view
     online: onlineToday(tid(req)),
     // on duty = checked in today OR running a shift right now (a salesman with an open shift is at work even when no duty

@@ -73,6 +73,15 @@ export function ManagerDesk({ k }: { k: any }) {
                     <td className="td text-right tabular-nums">{num(s.litres)} L</td><td className="td text-right tabular-nums">{pkr(s.amount)}</td><td className="td text-right font-medium tabular-nums">{pkr(s.cash_expected)}</td></tr>
                 ))}</tbody></table>
             ) : <p className="px-4 pb-4 text-sm text-slate-500">No shift is open right now.</p>}
+            {data.no_shift?.length > 0 && <ul className="border-t border-slate-100 px-4 py-2">
+              {data.no_shift.map((s: any) => (
+                <li key={s.id} className="flex flex-wrap items-center gap-2 py-1.5 text-sm">
+                  <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-amber-500" />
+                  <b className="font-medium">{s.name}</b>
+                  <span className="text-xs text-amber-700">Hazri lagi{s.check_in ? ` (${new Date(s.check_in).toLocaleTimeString("en-PK", { hour: "2-digit", minute: "2-digit" })})` : ""} · shift shuru nahi ki · <span lang="ur" className="font-urdu">شفٹ شروع نہیں</span></span>
+                  <span className="ml-auto text-[11px] text-slate-500">POS par meter reading de kar "Start shift"</span>
+                </li>))}
+            </ul>}
           </div>
           <div className="card">
             <div className="flex items-center justify-between p-4 pb-2"><h2 className="flex items-center gap-2 font-semibold"><Users size={16} /> Staff today</h2><Link to="/staff" className="inline-block py-2 text-xs text-brand-600 hover:underline">Attendance →</Link></div>
