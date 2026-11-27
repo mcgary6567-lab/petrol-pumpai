@@ -109,7 +109,18 @@ export function OwnerOverview() {
             </summary>
             <ul className="mb-1 space-y-0.5 rounded-lg bg-slate-50 px-3 py-2 text-xs">{(mo.other_income_parts ?? []).map((x: any) => <li key={x.label} className="flex justify-between gap-2"><span className="text-slate-600">{x.label}</span><span className="tabular-nums">{pkr(x.amount)}</span></li>)}</ul>
           </details>}
-          <Row label="− Expenses" ur="خرچے" v={mo.expenses} to="/expenses" tone="text-rose-700" />
+          {/* every "Expense: …" account in the books — not only the Expenses page entries (investor profit share, card / bank
+              charges, staff advance set off, shop stock loss, CEO other kharcha…), so each part is shown */}
+          {(mo.expense_parts ?? []).length ? <details className="group">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-2 py-1.5 text-sm">
+              <span className="text-slate-600">− Expenses · <Ur>خرچے</Ur> <span className="text-xs text-brand-700 group-open:hidden">(tafseel)</span></span>
+              <span className="font-semibold tabular-nums text-rose-700">{pkr(mo.expenses)}</span>
+            </summary>
+            <ul className="mb-1 space-y-0.5 rounded-lg bg-slate-50 px-3 py-2 text-xs">{mo.expense_parts.map((x: any) => (
+              <li key={x.category} className="flex justify-between gap-2"><span className="text-slate-600">{x.category}{/investor/i.test(x.category) ? " (investor ka munafa)" : ""}</span><span className="tabular-nums">{pkr(x.amount)}</span></li>))}
+              <li className="pt-1 text-[11px] text-slate-500">Expenses page sirf kharche ki entries dikhata hai; yahan khate ke saare kharche hain. <Link to="/expenses" className="text-brand-700 underline">Expenses →</Link></li>
+            </ul>
+          </details> : <Row label="− Expenses" ur="خرچے" v={mo.expenses} to="/expenses" tone="text-rose-700" />}
           {Math.abs(mo.other_discount ?? 0) >= 1 && <Row label="− Other discount" ur="رعایت" v={mo.other_discount} to="/other-entries" tone="text-rose-700" />}
           <div className="mt-2 flex items-baseline justify-between border-t-2 border-slate-800 pt-2">
             <span className="font-semibold">Net profit · <Ur>خالص منافع</Ur><span className="block text-xs font-normal text-slate-500">{mo.margin_pct}% of sales</span></span>

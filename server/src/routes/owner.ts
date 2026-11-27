@@ -122,7 +122,7 @@ owner.get("/owner/overview", requirePerm("reports.view"), h((req) => {
     today: today_, activity, online,
     // CEO-only: what the investors' money earned (ours vs theirs) and what we still owe them
     investors: can(req.user, "investors.manage") && get("SELECT 1 x FROM investors WHERE tenant_id=? LIMIT 1", t) ? investorsSummary(t) : null,
-    month: { month: pl.month, income: pl.income.total, gross_profit: pl.gross_profit, other_income: pl.other_income, other_income_parts: pl.other_income_parts, other_discount: pl.other_discount_ceo, expenses: pl.expenses.total, net_profit: pl.net_profit, margin_pct: pl.margin_pct },
+    month: { month: pl.month, income: pl.income.total, gross_profit: pl.gross_profit, other_income: pl.other_income, other_income_parts: pl.other_income_parts, other_discount: pl.other_discount_ceo, expenses: pl.expenses.total, expense_parts: pl.expenses.by_category, net_profit: pl.net_profit, margin_pct: pl.margin_pct },
   };
 }));
 

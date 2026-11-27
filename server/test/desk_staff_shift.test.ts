@@ -80,4 +80,7 @@ test("POS recent list: a manager sees today's station sales outside the open shi
   assert.ok(row && row.dir === "neutral" && row.amount === 210000, "shift cash row, not counted as credit");
   const ov = ok(await call("admin", "GET", "/api/owner/overview"), "overview");
   assert.ok(Array.isArray(ov.today.money_in.parts));
+  // the month's expenses come with their parts (every Expense account), which add up to the total
+  assert.ok(Array.isArray(ov.month.expense_parts));
+  assert.ok(Math.abs(ov.month.expense_parts.reduce((x: number, e: any) => x + e.amount, 0) - ov.month.expenses) < 2 * Math.max(1, ov.month.expense_parts.length), "parts add up");
 });
